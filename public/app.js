@@ -5,7 +5,7 @@ var WALL_HEIGHT = 1;
 var Nethack3DEngine = class {
   constructor() {
     this.tileMap = /* @__PURE__ */ new Map();
-    this.textSpriteMap = /* @__PURE__ */ new Map();
+    this.glyphOverlayMap = /* @__PURE__ */ new Map();
     this.playerPos = { x: 0, y: 0 };
     this.gameMessages = [];
     this.currentInventory = [];
@@ -40,10 +40,13 @@ var Nethack3DEngine = class {
     this.ws = null;
     // Camera controls
     this.cameraDistance = 20;
-    this.cameraAngleX = 0.5;
-    // Vertical rotation around X axis
-    this.cameraAngleY = 0.5;
-    // Horizontal rotation around Y axis
+    this.cameraPitch = Math.PI / 2 - 0.3;
+    // Elevation above the board (0 = horizon)
+    this.cameraYaw = 0;
+    // Azimuth around the board (0 = facing north)
+    this.minCameraPitch = 0.2;
+    this.maxCameraPitch = Math.PI / 2 - 0.01;
+    this.rotationSpeed = 0.01;
     this.isMiddleMouseDown = false;
     this.isRightMouseDown = false;
     this.lastMouseX = 0;
@@ -97,8 +100,12 @@ var Nethack3DEngine = class {
     this.initUI();
     this.connectToServer();
     this.cameraDistance = 15;
-    this.cameraAngleX = 0.8;
-    this.cameraAngleY = 0;
+    this.cameraPitch = THREE.MathUtils.clamp(
+      Math.PI / 2 - 0.2,
+      this.minCameraPitch,
+      this.maxCameraPitch
+    );
+    this.cameraYaw = 180;
   }
   initThreeJS() {
     this.scene = new THREE.Scene();
@@ -108,6 +115,7 @@ var Nethack3DEngine = class {
       0.1,
       1e3
     );
+    this.camera.up.set(0, 0, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setClearColor(17);
@@ -236,15 +244,15 @@ var Nethack3DEngine = class {
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
         const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
-        const oldSprite = this.textSpriteMap.get(oldKey);
-        if (oldSprite) {
+        const oldOverlay = this.glyphOverlayMap.get(oldKey);
+        if (oldOverlay) {
           console.log(
-            `\u{1F3AF} Clearing old player sprite at (${data.oldPosition.x}, ${data.oldPosition.y})`
+            `\u{1F3AF} Clearing old player overlay at (${data.oldPosition.x}, ${data.oldPosition.y})`
           );
-          this.scene.remove(oldSprite);
-          this.textSpriteMap.delete(oldKey);
-          this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+          this.disposeGlyphOverlay(oldOverlay);
+          this.glyphOverlayMap.delete(oldKey);
         }
+        this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
         this.updateTile(data.newPosition.x, data.newPosition.y, 331, "@", 0);
         console.log(
           `\u{1F3AF} Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`
@@ -386,29 +394,91 @@ var Nethack3DEngine = class {
   requestPlayerAreaUpdate(radius = 5) {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
   }
-  createTextSprite(text, size = 128, textColor = "yellow") {
+  disposeGlyphOverlay(overlay) {
+    if (overlay.texture) {
+      overlay.texture.dispose();
+      overlay.texture = null;
+    }
+    overlay.material.dispose();
+  }
+  ensureGlyphOverlay(key, baseMaterial) {
+    const baseColorHex = baseMaterial.color.getHexString();
+    const emissiveHex = baseMaterial.emissive.getHexString();
+    const emissiveIntensity = baseMaterial.emissiveIntensity ?? 1;
+    let overlay = this.glyphOverlayMap.get(key);
+    const needsNewOverlay = !overlay || overlay.baseColorHex !== baseColorHex || overlay.emissiveHex !== emissiveHex || overlay.emissiveIntensity !== emissiveIntensity;
+    if (needsNewOverlay) {
+      if (overlay) {
+        this.disposeGlyphOverlay(overlay);
+      }
+      const materialClone = baseMaterial.clone();
+      overlay = {
+        texture: null,
+        material: materialClone,
+        baseColorHex,
+        emissiveHex,
+        emissiveIntensity
+      };
+      this.glyphOverlayMap.set(key, overlay);
+    }
+    return overlay;
+  }
+  createGlyphTexture(baseColorHex, glyphChar, textColor, size = 256) {
     const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
     canvas.width = size;
     canvas.height = size;
-    context.fillStyle = textColor;
-    context.font = "bold 24px monospace";
-    context.textAlign = "center";
-    context.textBaseline = "middle";
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "rgba(0, 0, 0, 0.7)";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = textColor;
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    const context = canvas.getContext("2d");
+    context.fillStyle = `#${baseColorHex}`;
+    context.fillRect(0, 0, size, size);
+    const trimmed = glyphChar.trim();
+    if (trimmed.length > 0) {
+      const fontSize = Math.floor(size * 0.6);
+      context.font = `bold ${fontSize}px monospace`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.lineWidth = Math.max(4, Math.floor(size * 0.08));
+      context.strokeStyle = "rgba(0, 0, 0, 0.6)";
+      context.strokeText(trimmed, size / 2, size / 2);
+      context.fillStyle = textColor;
+      context.fillText(trimmed, size / 2, size / 2);
+    }
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
-    const spriteMaterial = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true
-    });
-    const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.scale.set(1, 1, 1);
-    return sprite;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy()
+    );
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    return texture;
+  }
+  applyGlyphMaterial(key, mesh, baseMaterial, glyphChar, textColor, isWall) {
+    const overlay = this.ensureGlyphOverlay(key, baseMaterial);
+    if (overlay.texture) {
+      overlay.texture.dispose();
+    }
+    overlay.material.color.set(`#${overlay.baseColorHex}`);
+    overlay.material.emissive.set(`#${overlay.emissiveHex}`);
+    overlay.material.emissiveIntensity = overlay.emissiveIntensity;
+    overlay.texture = this.createGlyphTexture(
+      overlay.baseColorHex,
+      glyphChar,
+      textColor
+    );
+    overlay.material.map = overlay.texture;
+    overlay.material.needsUpdate = true;
+    if (isWall) {
+      mesh.material = [
+        baseMaterial,
+        baseMaterial,
+        baseMaterial,
+        baseMaterial,
+        overlay.material,
+        baseMaterial
+      ];
+    } else {
+      mesh.material = overlay.material;
+    }
   }
   glyphToChar(glyph) {
     if (glyph >= 2395 && glyph <= 2397) return ".";
@@ -468,10 +538,10 @@ var Nethack3DEngine = class {
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
-    this.textSpriteMap.forEach((sprite, key) => {
-      this.scene.remove(sprite);
+    this.glyphOverlayMap.forEach((overlay) => {
+      this.disposeGlyphOverlay(overlay);
     });
-    this.textSpriteMap.clear();
+    this.glyphOverlayMap.clear();
     console.log("\u{1F9F9} Scene cleared - ready for new level");
   }
   updateTile(x, y, glyph, char, color) {
@@ -480,7 +550,6 @@ var Nethack3DEngine = class {
     );
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
-    let textSprite = this.textSpriteMap.get(key);
     const isPlayerGlyph = glyph >= 331 && glyph <= 360 && (char === "@" || !char);
     if (isPlayerGlyph) {
       console.log(
@@ -587,22 +656,19 @@ var Nethack3DEngine = class {
         geometry = this.floorGeometry;
       }
     }
+    const targetZ = isWall ? WALL_HEIGHT / 2 : 0;
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(
-        x * TILE_SIZE,
-        -y * TILE_SIZE,
-        isWall ? WALL_HEIGHT / 2 : 0
-      );
+      mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       this.scene.add(mesh);
       this.tileMap.set(key, mesh);
     } else {
-      mesh.material = material;
       mesh.geometry = geometry;
-      mesh.position.z = isWall ? WALL_HEIGHT / 2 : 0;
+      mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
+    mesh.userData.isWall = isWall;
     const glyphChar = char || this.glyphToChar(glyph);
     let textColor = "yellow";
     if (glyph >= 2378 && glyph <= 2399) {
@@ -620,22 +686,7 @@ var Nethack3DEngine = class {
     } else if (glyph >= 1 && glyph <= 330) {
       textColor = "white";
     }
-    if (!textSprite) {
-      textSprite = this.createTextSprite(glyphChar, 128, textColor);
-      this.scene.add(textSprite);
-      this.textSpriteMap.set(key, textSprite);
-    } else {
-      const newSprite = this.createTextSprite(glyphChar, 128, textColor);
-      this.scene.remove(textSprite);
-      textSprite = newSprite;
-      this.scene.add(textSprite);
-      this.textSpriteMap.set(key, textSprite);
-    }
-    textSprite.position.set(
-      x * TILE_SIZE,
-      -y * TILE_SIZE,
-      isWall ? WALL_HEIGHT + 0.3 : 0.3
-    );
+    this.applyGlyphMaterial(key, mesh, material, glyphChar, textColor, isWall);
   }
   addGameMessage(message) {
     if (!message || message.trim() === "") return;
@@ -1714,13 +1765,22 @@ var Nethack3DEngine = class {
     const { x, y } = this.playerPos;
     const targetX = x * TILE_SIZE + this.cameraPanX;
     const targetY = -y * TILE_SIZE + this.cameraPanY;
-    const sphericalX = this.cameraDistance * Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY);
-    const sphericalY = this.cameraDistance * Math.cos(this.cameraAngleX) * Math.sin(this.cameraAngleY);
-    const sphericalZ = this.cameraDistance * Math.sin(this.cameraAngleX);
-    this.camera.position.x = targetX + sphericalX;
-    this.camera.position.y = targetY + sphericalY;
-    this.camera.position.z = sphericalZ;
+    const cosPitch = Math.cos(this.cameraPitch);
+    const sinPitch = Math.sin(this.cameraPitch);
+    const sinYaw = Math.sin(this.cameraYaw);
+    const cosYaw = Math.cos(this.cameraYaw);
+    const offsetX = this.cameraDistance * cosPitch * sinYaw;
+    const offsetY = this.cameraDistance * cosPitch * cosYaw;
+    const offsetZ = this.cameraDistance * sinPitch;
+    this.camera.position.x = targetX + offsetX;
+    this.camera.position.y = targetY + offsetY;
+    this.camera.position.z = offsetZ;
     this.camera.lookAt(targetX, targetY, 0);
+  }
+  wrapAngle(angle) {
+    const twoPi = Math.PI * 2;
+    angle = (angle % twoPi + twoPi) % twoPi;
+    return angle > Math.PI ? angle - twoPi : angle;
   }
   handleMouseWheel(event) {
     const gameLog = document.getElementById("game-log");
@@ -1758,12 +1818,13 @@ var Nethack3DEngine = class {
       event.preventDefault();
       const deltaX = event.clientX - this.lastMouseX;
       const deltaY = event.clientY - this.lastMouseY;
-      const rotationSpeed = 0.01;
-      this.cameraAngleY += deltaY * rotationSpeed;
-      this.cameraAngleX += deltaX * rotationSpeed;
-      this.cameraAngleX = Math.max(
-        -Math.PI / 2 + 0.1,
-        Math.min(Math.PI / 2 - 0.1, this.cameraAngleX)
+      this.cameraYaw = this.wrapAngle(
+        this.cameraYaw - deltaX * this.rotationSpeed
+      );
+      this.cameraPitch = THREE.MathUtils.clamp(
+        this.cameraPitch - deltaY * this.rotationSpeed,
+        this.minCameraPitch,
+        this.maxCameraPitch
       );
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
