@@ -12,10 +12,8 @@ type TileMap = Map<string, THREE.Mesh>;
 
 interface GlyphOverlay {
   texture: THREE.CanvasTexture | null;
-  material: THREE.MeshLambertMaterial;
+  material: THREE.MeshBasicMaterial;
   baseColorHex: string;
-  emissiveHex: string;
-  emissiveIntensity: number;
 }
 
 type GlyphOverlayMap = Map<string, GlyphOverlay>;
@@ -525,33 +523,35 @@ class Nethack3DEngine {
     overlay.material.dispose();
   }
 
+  private toneColor(hex: string, factor: number): string {
+    const color = new THREE.Color(`#${hex}`);
+    color.multiplyScalar(THREE.MathUtils.clamp(factor, 0, 1));
+    return color.getHexString();
+  }
+
   private ensureGlyphOverlay(
     key: string,
     baseMaterial: THREE.MeshLambertMaterial
   ): GlyphOverlay {
     const baseColorHex = baseMaterial.color.getHexString();
-    const emissiveHex = baseMaterial.emissive.getHexString();
-    const emissiveIntensity = baseMaterial.emissiveIntensity ?? 1;
-
     let overlay = this.glyphOverlayMap.get(key);
     const needsNewOverlay =
       !overlay ||
       overlay.baseColorHex !== baseColorHex ||
-      overlay.emissiveHex !== emissiveHex ||
-      overlay.emissiveIntensity !== emissiveIntensity;
+      overlay.material instanceof THREE.MeshLambertMaterial === true;
 
     if (needsNewOverlay) {
       if (overlay) {
         this.disposeGlyphOverlay(overlay);
       }
 
-      const materialClone = baseMaterial.clone();
+      const materialClone = new THREE.MeshBasicMaterial({
+        color: 0xdddddd,
+      });
       overlay = {
         texture: null,
         material: materialClone,
         baseColorHex,
-        emissiveHex,
-        emissiveIntensity,
       };
       this.glyphOverlayMap.set(key, overlay);
     }
@@ -570,7 +570,8 @@ class Nethack3DEngine {
     canvas.height = size;
     const context = canvas.getContext("2d")!;
 
-    context.fillStyle = `#${baseColorHex}`;
+    const tonedBackground = this.toneColor(baseColorHex, 0.8);
+    context.fillStyle = `#${tonedBackground}`;
     context.fillRect(0, 0, size, size);
 
     const trimmed = glyphChar.trim();
@@ -579,11 +580,6 @@ class Nethack3DEngine {
       context.font = `bold ${fontSize}px monospace`;
       context.textAlign = "center";
       context.textBaseline = "middle";
-
-      // Draw an outline to keep the glyph readable on bright backgrounds
-      context.lineWidth = Math.max(4, Math.floor(size * 0.08));
-      context.strokeStyle = "rgba(0, 0, 0, 0.6)";
-      context.strokeText(trimmed, size / 2, size / 2);
 
       context.fillStyle = textColor;
       context.fillText(trimmed, size / 2, size / 2);
@@ -615,9 +611,8 @@ class Nethack3DEngine {
       overlay.texture.dispose();
     }
 
-    overlay.material.color.set(`#${overlay.baseColorHex}`);
-    overlay.material.emissive.set(`#${overlay.emissiveHex}`);
-    overlay.material.emissiveIntensity = overlay.emissiveIntensity;
+    overlay.baseColorHex = baseMaterial.color.getHexString();
+    overlay.material.color.set("#dddddd");
 
     overlay.texture = this.createGlyphTexture(
       overlay.baseColorHex,
@@ -706,7 +701,7 @@ class Nethack3DEngine {
   }
 
   private clearScene(): void {
-    console.log("🧹 Clearing all tiles and sprites from 3D scene");
+    console.log("🧹 Clearing all tiles and glyph overlays from 3D scene");
 
     // Clear all tile meshes
     this.tileMap.forEach((mesh, key) => {
@@ -895,37 +890,10 @@ class Nethack3DEngine {
 
     mesh.userData.isWall = isWall;
 
-    // Create or update text sprite showing glyph character
-    // Use the character provided by NetHack's mapglyph function if available
+    // Paint the glyph directly on the tile texture using the provided character
     const glyphChar = char || this.glyphToChar(glyph);
 
-    // Determine text color based on glyph type (more comprehensive and robust)
-    let textColor = "yellow"; // Default color
-
-    // NetHack glyph categories (based on NetHack source code glyph ranges)
-    if (glyph >= 2378 && glyph <= 2399) {
-      // Structural glyphs: walls, floors, corridors, doors
-      // This includes: walls (2378-2394), floors (2395-2397), corridors (2398-2399)
-      textColor = "white";
-    } else if (glyph === 2408) {
-      // Water fountain (specific glyph) - override structural color
-      textColor = "lightblue";
-    } else if (glyph >= 331 && glyph <= 360) {
-      // Player glyphs
-      textColor = "lime"; // Bright green for player
-    } else if (glyph >= 400 && glyph <= 600) {
-      // Monster glyphs (expanded range for better coverage)
-      textColor = "red";
-    } else if (glyph >= 1900 && glyph < 2378) {
-      // Item glyphs (excluding structural elements)
-      textColor = "cyan";
-    } else if (glyph >= 2400 && glyph <= 2500) {
-      // Special terrain and features
-      textColor = "magenta";
-    } else if (glyph >= 1 && glyph <= 330) {
-      // Miscellaneous objects and terrain
-      textColor = "white";
-    }
+    const textColor = "#f4f4f4";
 
     this.applyGlyphMaterial(key, mesh!, material, glyphChar, textColor, isWall);
   }

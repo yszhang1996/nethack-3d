@@ -401,23 +401,26 @@ var Nethack3DEngine = class {
     }
     overlay.material.dispose();
   }
+  toneColor(hex, factor) {
+    const color = new THREE.Color(`#${hex}`);
+    color.multiplyScalar(THREE.MathUtils.clamp(factor, 0, 1));
+    return color.getHexString();
+  }
   ensureGlyphOverlay(key, baseMaterial) {
     const baseColorHex = baseMaterial.color.getHexString();
-    const emissiveHex = baseMaterial.emissive.getHexString();
-    const emissiveIntensity = baseMaterial.emissiveIntensity ?? 1;
     let overlay = this.glyphOverlayMap.get(key);
-    const needsNewOverlay = !overlay || overlay.baseColorHex !== baseColorHex || overlay.emissiveHex !== emissiveHex || overlay.emissiveIntensity !== emissiveIntensity;
+    const needsNewOverlay = !overlay || overlay.baseColorHex !== baseColorHex || overlay.material instanceof THREE.MeshLambertMaterial === true;
     if (needsNewOverlay) {
       if (overlay) {
         this.disposeGlyphOverlay(overlay);
       }
-      const materialClone = baseMaterial.clone();
+      const materialClone = new THREE.MeshBasicMaterial({
+        color: 14540253
+      });
       overlay = {
         texture: null,
         material: materialClone,
-        baseColorHex,
-        emissiveHex,
-        emissiveIntensity
+        baseColorHex
       };
       this.glyphOverlayMap.set(key, overlay);
     }
@@ -428,7 +431,8 @@ var Nethack3DEngine = class {
     canvas.width = size;
     canvas.height = size;
     const context = canvas.getContext("2d");
-    context.fillStyle = `#${baseColorHex}`;
+    const tonedBackground = this.toneColor(baseColorHex, 0.8);
+    context.fillStyle = `#${tonedBackground}`;
     context.fillRect(0, 0, size, size);
     const trimmed = glyphChar.trim();
     if (trimmed.length > 0) {
@@ -436,9 +440,6 @@ var Nethack3DEngine = class {
       context.font = `bold ${fontSize}px monospace`;
       context.textAlign = "center";
       context.textBaseline = "middle";
-      context.lineWidth = Math.max(4, Math.floor(size * 0.08));
-      context.strokeStyle = "rgba(0, 0, 0, 0.6)";
-      context.strokeText(trimmed, size / 2, size / 2);
       context.fillStyle = textColor;
       context.fillText(trimmed, size / 2, size / 2);
     }
@@ -457,9 +458,8 @@ var Nethack3DEngine = class {
     if (overlay.texture) {
       overlay.texture.dispose();
     }
-    overlay.material.color.set(`#${overlay.baseColorHex}`);
-    overlay.material.emissive.set(`#${overlay.emissiveHex}`);
-    overlay.material.emissiveIntensity = overlay.emissiveIntensity;
+    overlay.baseColorHex = baseMaterial.color.getHexString();
+    overlay.material.color.set("#dddddd");
     overlay.texture = this.createGlyphTexture(
       overlay.baseColorHex,
       glyphChar,
@@ -533,7 +533,7 @@ var Nethack3DEngine = class {
     return "?";
   }
   clearScene() {
-    console.log("\u{1F9F9} Clearing all tiles and sprites from 3D scene");
+    console.log("\u{1F9F9} Clearing all tiles and glyph overlays from 3D scene");
     this.tileMap.forEach((mesh, key) => {
       this.scene.remove(mesh);
     });
@@ -670,22 +670,7 @@ var Nethack3DEngine = class {
     }
     mesh.userData.isWall = isWall;
     const glyphChar = char || this.glyphToChar(glyph);
-    let textColor = "yellow";
-    if (glyph >= 2378 && glyph <= 2399) {
-      textColor = "white";
-    } else if (glyph === 2408) {
-      textColor = "lightblue";
-    } else if (glyph >= 331 && glyph <= 360) {
-      textColor = "lime";
-    } else if (glyph >= 400 && glyph <= 600) {
-      textColor = "red";
-    } else if (glyph >= 1900 && glyph < 2378) {
-      textColor = "cyan";
-    } else if (glyph >= 2400 && glyph <= 2500) {
-      textColor = "magenta";
-    } else if (glyph >= 1 && glyph <= 330) {
-      textColor = "white";
-    }
+    const textColor = "#f4f4f4";
     this.applyGlyphMaterial(key, mesh, material, glyphChar, textColor, isWall);
   }
   addGameMessage(message) {
