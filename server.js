@@ -1787,11 +1787,26 @@ class NetHackSession {
           });
         }
 
-        // If we have completed selections from multi-pickup, return the count
-        if (this.menuSelections.size > 0) {
+        // For single-selection menus (how == PICK_ONE), return the chosen item code.
+        if (menuSelectHow === 1 && this.menuSelections.size === 1) {
+          const selectedItem = Array.from(this.menuSelections.values())[0];
+          console.log(
+            `?? Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`,
+          );
+          this.menuSelections.clear();
+          this.isInMultiPickup = false;
+          return (
+            selectedItem.identifier ||
+            selectedItem.originalAccelerator ||
+            selectedItem.menuChar.charCodeAt(0)
+          );
+        }
+
+        // If we have completed selections from multi-pickup, return the count.
+        if (menuSelectHow === 2 && this.menuSelections.size > 0) {
           const selectedItems = Array.from(this.menuSelections.values());
           console.log(
-            `📋 Returning ${this.menuSelections.size} selected items:`,
+            `?? Returning ${this.menuSelections.size} selected items:`,
             selectedItems.map((item) => `${item.menuChar}:${item.text}`),
           );
 
@@ -1800,20 +1815,6 @@ class NetHackSession {
           this.menuSelections.clear();
           this.isInMultiPickup = false;
           return selectionCount;
-        }
-
-        // For single-selection menus (how == PICK_ONE), check if we have a single selection
-        if (menuSelectHow === 1 && this.menuSelections.size === 1) {
-          const selectedItem = Array.from(this.menuSelections.values())[0];
-          console.log(
-            `📋 Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`,
-          );
-          // For single selection, NetHack might expect the accelerator character code
-          return (
-            selectedItem.identifier ||
-            selectedItem.originalAccelerator ||
-            selectedItem.menuChar.charCodeAt(0)
-          );
         }
 
         // Default: no selection
