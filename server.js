@@ -21,6 +21,9 @@ class NetHackSession {
     this.waitingForMenuSelection = false;
     this.menuSelectionResolver = null;
     this.multiPickupReadyToConfirm = false;
+    this.pendingMenuListPtrPtr = 0;
+    this.autoPickupQueue = [];
+    this.queuedInputs = [];
 
     // Simplified input handling with async support
     this.latestInput = null;
@@ -45,7 +48,13 @@ class NetHackSession {
     this.lastInputTime = Date.now();
 
     // Track multi-pickup selections
-    if (this.isInMultiPickup && input.match(/^[a-zA-Z]$/)) {
+    if (
+      this.isInMultiPickup &&
+      typeof input === "string" &&
+      input.length === 1 &&
+      input !== "\r" &&
+      input !== "\n"
+    ) {
       // Find the menu item for this accelerator
       const menuItem = this.currentMenuItems.find(
         (item) => item.accelerator === input && !item.isCategory,
@@ -63,6 +72,7 @@ class NetHackSession {
           this.menuSelections.set(input, {
             menuChar: input,
             originalAccelerator: menuItem.originalAccelerator,
+            identifier: menuItem.identifier,
             menuIndex: menuItem.menuIndex,
             text: menuItem.text,
           });
@@ -83,6 +93,23 @@ class NetHackSession {
       this.isInMultiPickup &&
       (input === "Enter" || input === "\r" || input === "\n")
     ) {
+      // NetHack ABI in this build is stable for one selected menu_item but
+      // segfaults on multi-entry writes. Convert extras into a sequential queue.
+      if (this.menuSelections.size > 1) {
+        const ordered = Array.from(this.menuSelections.entries());
+        const [firstKey, firstValue] = ordered[0];
+        const queued = ordered.slice(1).map(([k, v]) => ({
+          key: k,
+          text: v.text,
+          identifier: v.identifier,
+        }));
+        this.menuSelections = new Map([[firstKey, firstValue]]);
+        this.autoPickupQueue = queued;
+        console.log(
+          `Sequential pickup mode: keeping '${firstKey}:${firstValue.text}', queued ${queued.length} more`,
+        );
+      }
+
       // Confirm multi-pickup
       const selectedItems = Array.from(this.menuSelections.values()).map(
         (item) => `${item.menuChar}:${item.text}`,
@@ -95,7 +122,10 @@ class NetHackSession {
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
+        const menuListPtrPtr = this.pendingMenuListPtrPtr || 0;
+        this.pendingMenuListPtrPtr = 0;
         const selectionCount = this.menuSelections.size;
+        this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
         this.isInMultiPickup = false; // Clear it here when we resolve
         resolver(selectionCount);
         return;
@@ -130,6 +160,9 @@ class NetHackSession {
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
+        const menuListPtrPtr = this.pendingMenuListPtrPtr || 0;
+        this.pendingMenuListPtrPtr = 0;
+        this.writeMenuSelectionResult(menuListPtrPtr, 0);
         this.isInMultiPickup = false; // Clear it here when we resolve
         resolver(0);
         return;
@@ -270,9 +303,66 @@ class NetHackSession {
     if (key === "ArrowRight") return "6".charCodeAt(0);
     if (key === "ArrowUp") return "8".charCodeAt(0);
     if (key === "ArrowDown") return "2".charCodeAt(0);
+    if (key === "Enter") return 13;
     if (key === "Escape") return 27;
     if (key.length > 0) return key.charCodeAt(0);
     return 0; // Default for empty/unknown input
+  }
+
+  enqueueInput(input) {
+    if (input === undefined || input === null) {
+      return;
+    }
+    this.queuedInputs.push(input);
+    console.log(
+      `Queued synthetic input: ${input} (queue size=${this.queuedInputs.length})`,
+    );
+  }
+
+  tryBuildAutoPickupSelection() {
+    if (!Array.isArray(this.autoPickupQueue) || this.autoPickupQueue.length === 0) {
+      return false;
+    }
+
+    const next = this.autoPickupQueue[0];
+    const selectableItems = this.currentMenuItems.filter((item) => !item.isCategory);
+    let matched = null;
+
+    if (typeof next.identifier === "number") {
+      matched = selectableItems.find((item) => item.identifier === next.identifier) || null;
+    }
+
+    if (!matched && typeof next.text === "string" && next.text.length > 0) {
+      matched = selectableItems.find((item) => item.text === next.text) || null;
+    }
+
+    if (!matched && typeof next.key === "string" && next.key.length === 1) {
+      matched = selectableItems.find((item) => item.accelerator === next.key) || null;
+    }
+
+    if (!matched) {
+      console.log(
+        `Sequential pickup: could not match queued item '${next.key}:${next.text}', dropping it`,
+      );
+      this.autoPickupQueue.shift();
+      return false;
+    }
+
+    const key = matched.accelerator;
+    this.menuSelections.clear();
+    this.menuSelections.set(key, {
+      menuChar: key,
+      originalAccelerator: matched.originalAccelerator,
+      identifier: matched.identifier,
+      menuIndex: matched.menuIndex,
+      text: matched.text,
+    });
+    this.multiPickupReadyToConfirm = true;
+    this.autoPickupQueue.shift();
+    console.log(
+      `Sequential pickup: auto-selected '${key}:${matched.text}', remaining queued=${this.autoPickupQueue.length}`,
+    );
+    return true;
   }
 
   getStatusFieldName(field) {
@@ -390,6 +480,92 @@ class NetHackSession {
     return { value: null, valueType: "unknown", usedFallback: false };
   }
 
+
+  writeMenuSelectionResult(menuListPtrPtr, selectionCount) {
+    if (!this.nethackModule || !menuListPtrPtr) {
+      return;
+    }
+
+    try {
+      const selectedItems = Array.from(this.menuSelections.values());
+      // NetHack's menu_item layout can vary by build; default to a safer 16-byte stride.
+      const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 16);
+      const countOffsetPrimary = Number(process.env.NH_MENU_COUNT_OFFSET || 8);
+      const countOffsetSecondary = 4;
+
+      if (selectionCount <= 0) {
+        this.nethackModule.setValue(menuListPtrPtr, 0, "*");
+        console.log(
+          `Menu selection write: cleared output pointer at menuListPtrPtr=${menuListPtrPtr}`,
+        );
+        return;
+      }
+
+      const priorOutPtr = this.nethackModule.getValue(menuListPtrPtr, "*");
+      const outPtr = this.nethackModule._malloc(selectionCount * bytesPerMenuItem);
+      this.nethackModule.setValue(menuListPtrPtr, outPtr, "*");
+      const confirmOutPtr = this.nethackModule.getValue(menuListPtrPtr, "*");
+      console.log(
+        `Writing ${selectionCount} selections at outPtr=${outPtr} (menuListPtrPtr=${menuListPtrPtr}, priorOutPtr=${priorOutPtr}, confirmOutPtr=${confirmOutPtr}, stride=${bytesPerMenuItem}, countOffset=${countOffsetPrimary})`,
+      );
+
+      for (let i = 0; i < selectedItems.length; i++) {
+        const item = selectedItems[i];
+        const structOffset = outPtr + i * bytesPerMenuItem;
+        const itemIdentifier =
+          typeof item.identifier === "number"
+            ? item.identifier
+            : item.originalAccelerator;
+
+        if (typeof itemIdentifier !== "number") {
+          console.log(
+            `Skipping item ${i} because identifier is not numeric:`,
+            itemIdentifier,
+          );
+          continue;
+        }
+
+        this.nethackModule.setValue(structOffset, itemIdentifier, "i32");
+        // Some ports use -1 for \"all\" stack count semantics, others accept 1.
+        const countValue = process.env.NH_MENU_COUNT_MODE === "all" ? -1 : 1;
+        // Write count in both likely offsets for compatibility across layouts.
+        this.nethackModule.setValue(
+          structOffset + countOffsetPrimary,
+          countValue,
+          "i32",
+        );
+        if (countOffsetSecondary !== countOffsetPrimary) {
+          this.nethackModule.setValue(
+            structOffset + countOffsetSecondary,
+            countValue,
+            "i32",
+          );
+        }
+        const debugItem = this.nethackModule.getValue(structOffset, "i32");
+        const debugCountPrimary = this.nethackModule.getValue(
+          structOffset + countOffsetPrimary,
+          "i32",
+        );
+        const debugCountSecondary = this.nethackModule.getValue(
+          structOffset + countOffsetSecondary,
+          "i32",
+        );
+        console.log(
+          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${process.env.NH_MENU_COUNT_MODE || "one"}`,
+        );
+      }
+      const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
+      const dump = [];
+      for (let i = 0; i < dumpBytes; i++) {
+        const b = this.nethackModule.getValue(outPtr + i, "i8") & 0xff;
+        dump.push(b.toString(16).padStart(2, "0"));
+      }
+      console.log(`menu_item buffer dump (${dumpBytes} bytes): ${dump.join(" ")}`);
+    } catch (error) {
+      console.log("Error writing selections to NetHack memory:", error);
+    }
+  }
+
   async initializeNetHack() {
     try {
       console.log("Starting NetHack session...");
@@ -418,10 +594,62 @@ class NetHackSession {
           },
           helpers: {
             getPointerValue: (name, ptr, type) => {
-              if (type === "s" && this.nethackModule) {
-                return this.nethackModule.UTF8ToString(ptr);
+              if (!this.nethackModule) {
+                return ptr;
               }
-              return ptr;
+
+              switch (type) {
+                case "s":
+                  return this.nethackModule.UTF8ToString(ptr);
+                case "p":
+                  if (!ptr) return 0;
+                  return this.nethackModule.getValue(ptr, "*");
+                case "c":
+                  return String.fromCharCode(this.nethackModule.getValue(ptr, "i8"));
+                case "0":
+                  return this.nethackModule.getValue(ptr, "i8");
+                case "1":
+                  return this.nethackModule.getValue(ptr, "i16");
+                case "2":
+                case "i":
+                case "n":
+                  return this.nethackModule.getValue(ptr, "i32");
+                case "f":
+                  return this.nethackModule.getValue(ptr, "float");
+                case "d":
+                  return this.nethackModule.getValue(ptr, "double");
+                case "o":
+                  return ptr;
+                default:
+                  return ptr;
+              }
+            },
+            setPointerValue: (name, ptr, type, value = 0) => {
+              if (!this.nethackModule) {
+                return;
+              }
+
+              switch (type) {
+                case "s":
+                  this.nethackModule.stringToUTF8(String(value), ptr, 1024);
+                  break;
+                case "i":
+                  this.nethackModule.setValue(ptr, value, "i32");
+                  break;
+                case "c":
+                  this.nethackModule.setValue(ptr, value, "i8");
+                  break;
+                case "f":
+                  this.nethackModule.setValue(ptr, value, "float");
+                  break;
+                case "d":
+                  this.nethackModule.setValue(ptr, value, "double");
+                  break;
+                case "v":
+                  break;
+                default:
+                  break;
+              }
             },
           },
           globals: { WIN_MAP: 2, WIN_INVEN: 4, WIN_STATUS: 3, WIN_MESSAGE: 1 },
@@ -511,6 +739,12 @@ class NetHackSession {
 
     switch (name) {
       case "shim_get_nh_event":
+        if (this.queuedInputs.length > 0) {
+          const queued = this.queuedInputs.shift();
+          console.log(`Using queued input for event: ${queued}`);
+          return processKey(queued);
+        }
+
         // Check if we have recent input available (within input window)
         const timeSinceInput = Date.now() - this.lastInputTime;
         if (this.latestInput && timeSinceInput < this.inputCooldown) {
@@ -591,6 +825,12 @@ class NetHackSession {
       case "shim_nh_poskey":
         const [xPtr, yPtr, modPtr] = args;
         console.log("🎮 NetHack requesting position key");
+
+        if (this.queuedInputs.length > 0) {
+          const queued = this.queuedInputs.shift();
+          console.log(`Using queued input for position: ${queued}`);
+          return processKey(queued);
+        }
 
         // Check if we have recent input available (within input window)
         const timeSincePositionInput = Date.now() - this.lastInputTime;
@@ -725,6 +965,10 @@ class NetHackSession {
           ) {
             console.log("📋 Multi-pickup dialog detected");
             this.isInMultiPickup = true;
+            if (this.tryBuildAutoPickupSelection()) {
+              console.log(`Sequential pickup: auto-confirming queued selection for this menu`);
+              return this.processKey("Enter");
+            }
           }
 
           // Send the inventory question to web client
@@ -870,6 +1114,7 @@ class NetHackSession {
         const [
           menuWinid,
           menuGlyph,
+          identifier,
           accelerator,
           groupacc,
           menuAttr,
@@ -880,9 +1125,8 @@ class NetHackSession {
         // Fix: menuStr is actually at index 6, not 5
         const menuText = String(args[6] || "");
 
-        // Determine if this is a category header and the correct accelerator
-        const isCategory =
-          !accelerator || accelerator === 0 || accelerator === 32; // 32 is space character
+        // In this callback shape, category headers are identified by menuAttr=7.
+        const isCategory = menuAttr === 7;
         let menuChar = "";
         let glyphChar = "";
 
@@ -913,7 +1157,11 @@ class NetHackSession {
 
         if (!isCategory) {
           // For non-category items, determine the accelerator key
-          if (accelerator > 0 && accelerator < 256) {
+          if (
+            typeof accelerator === "number" &&
+            accelerator > 32 &&
+            accelerator < 127
+          ) {
             // If accelerator is a valid ASCII character code, use it
             menuChar = String.fromCharCode(accelerator);
           } else {
@@ -946,6 +1194,7 @@ class NetHackSession {
             text: menuText,
             accelerator: menuChar,
             originalAccelerator: accelerator, // Store the original accelerator code
+            identifier: identifier, // NetHack menu identifier used by shim_select_menu
             window: menuWinid,
             glyph: menuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
@@ -1137,58 +1386,37 @@ class NetHackSession {
         console.log("NetHack waiting for synchronization");
         return 0;
       case "shim_select_menu":
-        const [menuSelectWinid, menuSelectHow, menuPtr] = args;
+        const [menuSelectWinid, menuSelectHow, menuPtrArg] = args;
+        let ptrArgValue = 0;
+        let ptrDerefValue = 0;
+        if (this.nethackModule && typeof this.nethackModule.getValue === "function") {
+          ptrArgValue = menuPtrArg;
+          try {
+            ptrDerefValue = this.nethackModule.getValue(menuPtrArg, "*");
+          } catch (error) {
+            console.log("Pointer decode error in shim_select_menu:", error);
+          }
+        }
+        // In this callback ABI, the menu pointer argument is generally passed as an
+        // indirection location; using the raw arg pointer has caused crashes.
+        // Prefer the dereferenced location and only fall back if it looks invalid.
+        const ptrMode = ptrDerefValue > 0 ? "deref" : "arg";
+        const menuListPtrPtr = ptrMode === "deref" ? ptrDerefValue : ptrArgValue;
         console.log(
-          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, ptr: ${menuPtr}`,
+          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgValue=${ptrArgValue}, ptrDerefValue=${ptrDerefValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
 
         // For multi-pickup menus (how == PICK_ANY), check if we're ready to confirm
         if (menuSelectHow === 2 && this.isInMultiPickup) {
           // If user already confirmed selections, return immediately
-          if (this.multiPickupReadyToConfirm && this.menuSelections.size > 0) {
+          if (this.multiPickupReadyToConfirm) {
             console.log(
               "📋 Multi-pickup already confirmed - returning selection count immediately",
             );
             const selectionCount = this.menuSelections.size;
 
-            // Try to write the selections to NetHack's memory if we have the module
-            if (this.nethackModule && menuPtr) {
-              try {
-                console.log(
-                  `📋 Writing selections to NetHack memory at ptr: ${menuPtr}`,
-                );
-                const selectedItems = Array.from(this.menuSelections.values());
-
-                // NetHack expects us to fill an array of `menu_item` structs.
-                // Each struct has two fields: `item` (a pointer/identifier) and `count`.
-                // We will write the identifier to the `item` field.
-                for (let i = 0; i < selectedItems.length; i++) {
-                  const item = selectedItems[i];
-                  // The menu_item struct is 8 bytes (on a 32-bit system): {int item_ptr, int count}
-                  const structOffset = menuPtr + i * 8;
-                  const itemIdentifier = item.originalAccelerator;
-
-                  console.log(
-                    `📋 Writing item ${i}: identifier ${itemIdentifier} to offset ${structOffset}`,
-                  );
-                  this.nethackModule.setValue(
-                    structOffset,
-                    itemIdentifier,
-                    "i32",
-                  ); // Write the identifier
-                  this.nethackModule.setValue(structOffset + 4, -1, "i32"); // Set count to -1 for "all"
-                }
-                console.log(
-                  "📋 Successfully wrote selections to NetHack memory",
-                );
-              } catch (error) {
-                console.log(
-                  "⚠️ Error writing selections to NetHack memory:",
-                  error,
-                );
-              }
-            }
-
+                        // Write selected menu_item entries and store pointer in *menu_list.
+            this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
             // Clear all multi-pickup state
             this.menuSelections.clear();
             this.isInMultiPickup = false;
@@ -1199,6 +1427,7 @@ class NetHackSession {
           console.log(
             "📋 Multi-pickup menu - waiting for completion (async)...",
           );
+          this.pendingMenuListPtrPtr = menuListPtrPtr;
           return new Promise((resolve) => {
             // Set up a special resolver for menu selection completion
             this.menuSelectionResolver = resolve;
@@ -1229,6 +1458,7 @@ class NetHackSession {
           );
           // For single selection, NetHack might expect the accelerator character code
           return (
+            selectedItem.identifier ||
             selectedItem.originalAccelerator ||
             selectedItem.menuChar.charCodeAt(0)
           );
@@ -1331,6 +1561,10 @@ class NetHackSession {
       case "shim_destroy_nhwindow":
         const [destroyWinId] = args;
         console.log(`🗑️ Destroying window ${destroyWinId}`);
+        if (destroyWinId === 4 && this.autoPickupQueue.length > 0) {
+          console.log(`Sequential pickup: scheduling next pickup cycle (remaining=${this.autoPickupQueue.length})`);
+          this.enqueueInput(",");
+        }
         return 0;
       case "shim_curs":
         const [cursWin, cursX, cursY] = args;
