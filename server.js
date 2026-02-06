@@ -48,7 +48,7 @@ class NetHackSession {
     if (this.isInMultiPickup && input.match(/^[a-zA-Z]$/)) {
       // Find the menu item for this accelerator
       const menuItem = this.currentMenuItems.find(
-        (item) => item.accelerator === input && !item.isCategory
+        (item) => item.accelerator === input && !item.isCategory,
       );
       if (menuItem) {
         if (this.menuSelections.has(input)) {
@@ -56,7 +56,7 @@ class NetHackSession {
           this.menuSelections.delete(input);
           console.log(
             `📋 Deselected item: ${input} (${menuItem.text}). Current selections:`,
-            Array.from(this.menuSelections.keys())
+            Array.from(this.menuSelections.keys()),
           );
         } else {
           // Select item - store complete information
@@ -68,12 +68,12 @@ class NetHackSession {
           });
           console.log(
             `📋 Selected item: ${input} (${menuItem.text}). Current selections:`,
-            Array.from(this.menuSelections.keys())
+            Array.from(this.menuSelections.keys()),
           );
         }
       } else {
         console.log(
-          `📋 Warning: No menu item found for accelerator '${input}'`
+          `📋 Warning: No menu item found for accelerator '${input}'`,
         );
       }
       // DON'T resolve the input promise for individual item selections in multi-pickup
@@ -85,7 +85,7 @@ class NetHackSession {
     ) {
       // Confirm multi-pickup
       const selectedItems = Array.from(this.menuSelections.values()).map(
-        (item) => `${item.menuChar}:${item.text}`
+        (item) => `${item.menuChar}:${item.text}`,
       );
       console.log(`📋 Confirming multi-pickup with selections:`, selectedItems);
 
@@ -109,7 +109,7 @@ class NetHackSession {
       // Resolve the general input promise if waiting (from shim_end_menu)
       if (this.waitingForInput && this.inputResolver) {
         console.log(
-          "🎮 Resolving waiting input promise for multi-pickup confirmation"
+          "🎮 Resolving waiting input promise for multi-pickup confirmation",
         );
         this.waitingForInput = false;
         const resolver = this.inputResolver;
@@ -137,7 +137,7 @@ class NetHackSession {
       // If no menu selection is waiting, just clear and store the input
       this.isInMultiPickup = false;
       console.log(
-        "📋 No menu selection waiting - storing Escape for later use"
+        "📋 No menu selection waiting - storing Escape for later use",
       );
       return;
     }
@@ -187,12 +187,12 @@ class NetHackSession {
             color: tileData.color,
             window: 2, // WIN_MAP
             isRefresh: true, // Mark this as a refresh to distinguish from new data
-          })
+          }),
         );
       }
     } else {
       console.log(
-        `⚠️ No tile data found for (${x}, ${y}) - tile may not be explored yet`
+        `⚠️ No tile data found for (${x}, ${y}) - tile may not be explored yet`,
       );
 
       // Optionally, we could send a "blank" tile or request NetHack to redraw the area
@@ -203,7 +203,7 @@ class NetHackSession {
             x: x,
             y: y,
             message: "Tile data not available - may not be explored yet",
-          })
+          }),
         );
       }
     }
@@ -212,7 +212,7 @@ class NetHackSession {
   // Handle request for area update from client
   handleAreaUpdateRequest(centerX, centerY, radius = 3) {
     console.log(
-      `🔄 Client requested area update centered at (${centerX}, ${centerY}) with radius ${radius}`
+      `🔄 Client requested area update centered at (${centerX}, ${centerY}) with radius ${radius}`,
     );
 
     let tilesRefreshed = 0;
@@ -237,7 +237,7 @@ class NetHackSession {
                 window: 2, // WIN_MAP
                 isRefresh: true,
                 isAreaRefresh: true,
-              })
+              }),
             );
           }
           tilesRefreshed++;
@@ -246,7 +246,7 @@ class NetHackSession {
     }
 
     console.log(
-      `📤 Refreshed ${tilesRefreshed} tiles in area around (${centerX}, ${centerY})`
+      `📤 Refreshed ${tilesRefreshed} tiles in area around (${centerX}, ${centerY})`,
     );
 
     // Send completion message
@@ -258,7 +258,7 @@ class NetHackSession {
           centerY: centerY,
           radius: radius,
           tilesRefreshed: tilesRefreshed,
-        })
+        }),
       );
     }
   }
@@ -273,6 +273,121 @@ class NetHackSession {
     if (key === "Escape") return 27;
     if (key.length > 0) return key.charCodeAt(0);
     return 0; // Default for empty/unknown input
+  }
+
+  getStatusFieldName(field) {
+    const fallback = {
+      0: "BL_TITLE",
+      1: "BL_STR",
+      2: "BL_DX",
+      3: "BL_CO",
+      4: "BL_IN",
+      5: "BL_WI",
+      6: "BL_CH",
+      7: "BL_ALIGN",
+      8: "BL_SCORE",
+      9: "BL_HP",
+      10: "BL_HPMAX",
+      11: "BL_ENE",
+      12: "BL_ENEMAX",
+      13: "BL_AC",
+      14: "BL_XP",
+      15: "BL_EXP",
+      16: "BL_TIME",
+      17: "BL_HUNGER",
+      18: "BL_CAP",
+      19: "BL_DNUM",
+      20: "BL_DLEVEL",
+      21: "BL_GOLD",
+      22: "BL_CONDITION",
+      23: "BL_FLUSH",
+      24: "BL_RESET",
+      25: "BL_CHARACTERISTICS",
+    };
+
+    if (typeof field !== "number") return String(field);
+
+    const constants =
+      globalThis.nethackGlobal && globalThis.nethackGlobal.constants
+        ? globalThis.nethackGlobal.constants
+        : null;
+    if (
+      constants &&
+      constants.STATUS_FIELD &&
+      constants.STATUS_FIELD[field] !== undefined
+    ) {
+      return String(constants.STATUS_FIELD[field]);
+    }
+
+    return fallback[field] || `FIELD_${field}`;
+  }
+
+  decodeShimArgValue(name, ptrToArg, type) {
+    if (
+      !this.nethackModule ||
+      typeof this.nethackModule.getValue !== "function" ||
+      !globalThis.nethackGlobal ||
+      !globalThis.nethackGlobal.helpers ||
+      typeof globalThis.nethackGlobal.helpers.getPointerValue !== "function"
+    ) {
+      return null;
+    }
+
+    const argPtr = this.nethackModule.getValue(ptrToArg, "*");
+    return globalThis.nethackGlobal.helpers.getPointerValue(name, argPtr, type);
+  }
+
+  decodeStatusValue(fieldName, ptrToArg) {
+    const rawPointerFields = new Set([
+      "BL_CONDITION",
+      "BL_RESET",
+      "BL_FLUSH",
+      "BL_CHARACTERISTICS",
+    ]);
+    const primaryType = rawPointerFields.has(fieldName) ? "p" : "s";
+    const fallbackType = primaryType === "s" ? "p" : "s";
+
+    try {
+      const primary = this.decodeShimArgValue(
+        "shim_status_update",
+        ptrToArg,
+        primaryType
+      );
+      if (primary !== null && primary !== undefined) {
+        return {
+          value: primary,
+          valueType: primaryType,
+          usedFallback: false,
+        };
+      }
+    } catch (error) {
+      console.log(
+        `Status decode failed (${fieldName}, ${primaryType})`,
+        error && error.message ? error.message : error
+      );
+    }
+
+    try {
+      const fallback = this.decodeShimArgValue(
+        "shim_status_update",
+        ptrToArg,
+        fallbackType
+      );
+      if (fallback !== null && fallback !== undefined) {
+        return {
+          value: fallback,
+          valueType: fallbackType,
+          usedFallback: true,
+        };
+      }
+    } catch (error) {
+      console.log(
+        `Status decode fallback failed (${fieldName}, ${fallbackType})`,
+        error && error.message ? error.message : error
+      );
+    }
+
+    return { value: null, valueType: "unknown", usedFallback: false };
   }
 
   async initializeNetHack() {
@@ -321,7 +436,7 @@ class NetHackSession {
             "locateFile called with:",
             path,
             "scriptDirectory:",
-            scriptDirectory
+            scriptDirectory,
           );
           if (path.endsWith(".wasm")) {
             return wasmPath;
@@ -344,7 +459,7 @@ class NetHackSession {
               null,
               ["string"],
               ["nethackCallback"],
-              { async: true }
+              { async: true },
             );
             console.log("Graphics callback set up successfully");
 
@@ -380,7 +495,7 @@ class NetHackSession {
       this.nethackInstance = await factory(Module);
       console.log(
         "NetHack factory completed, instance:",
-        typeof this.nethackInstance
+        typeof this.nethackInstance,
       );
     } catch (error) {
       console.error("Error initializing NetHack:", error);
@@ -402,7 +517,7 @@ class NetHackSession {
           const input = this.latestInput;
           this.latestInput = null; // Clear it after use
           console.log(
-            `🎮 Reusing recent input for event: ${input} (${timeSinceInput}ms ago)`
+            `🎮 Reusing recent input for event: ${input} (${timeSinceInput}ms ago)`,
           );
           return processKey(input);
         }
@@ -418,7 +533,7 @@ class NetHackSession {
       case "shim_yn_function":
         const [question, choices, defaultChoice] = args;
         console.log(
-          `🤔 Y/N Question: "${question}" choices: "${choices}" default: ${defaultChoice}`
+          `🤔 Y/N Question: "${question}" choices: "${choices}" default: ${defaultChoice}`,
         );
 
         // Store the question text for potential menu expansion
@@ -427,7 +542,7 @@ class NetHackSession {
         // Check if this is a direction question that needs special handling
         if (question && question.toLowerCase().includes("direction")) {
           console.log(
-            "🧭 Direction question detected - waiting for user input"
+            "🧭 Direction question detected - waiting for user input",
           );
 
           // Send direction question to web client
@@ -438,7 +553,7 @@ class NetHackSession {
                 text: question,
                 choices: choices,
                 default: defaultChoice,
-              })
+              }),
             );
           }
 
@@ -461,7 +576,7 @@ class NetHackSession {
               default: defaultChoice,
               // Only include menuItems if this is actually a menu question, not a simple Y/N
               menuItems: [],
-            })
+            }),
           );
         }
 
@@ -483,7 +598,7 @@ class NetHackSession {
           const input = this.latestInput;
           // Don't clear it yet - let shim_get_nh_event potentially reuse it
           console.log(
-            `🎮 Using recent input for position: ${input} (${timeSincePositionInput}ms ago)`
+            `🎮 Using recent input for position: ${input} (${timeSincePositionInput}ms ago)`,
           );
           return processKey(input);
         }
@@ -504,14 +619,14 @@ class NetHackSession {
               type: "name_request",
               text: "What is your name, adventurer?",
               maxLength: 30,
-            })
+            }),
           );
         }
         return 1;
       case "shim_create_nhwindow":
         const [windowType] = args;
         console.log(
-          `Creating window [ ${windowType} ] returning ${windowType}`
+          `Creating window [ ${windowType} ] returning ${windowType}`,
         );
         return windowType;
       case "shim_status_init":
@@ -546,7 +661,7 @@ class NetHackSession {
         console.log(
           `📋 Starting menu for window ${menuWinId} (${
             windowTypes[menuWinId] || "UNKNOWN"
-          })`
+          })`,
         );
         return 0;
       case "shim_end_menu":
@@ -559,24 +674,24 @@ class NetHackSession {
 
         // Log the menu details for debugging
         console.log(
-          `📋 Menu ending - Window: ${endMenuWinid}, Question: "${menuQuestion}", Items: ${this.currentMenuItems.length}`
+          `📋 Menu ending - Window: ${endMenuWinid}, Question: "${menuQuestion}", Items: ${this.currentMenuItems.length}`,
         );
 
         // If this is an inventory window without a question, it's just an inventory update
         if (isInventoryWindow && !hasMenuQuestion) {
           console.log(
-            `📦 Inventory update detected (${this.currentMenuItems.length} total items) - not showing dialog`
+            `📦 Inventory update detected (${this.currentMenuItems.length} total items) - not showing dialog`,
           );
 
           // Count actual items vs category headers for better logging
           const actualItems = this.currentMenuItems.filter(
-            (item) => !item.isCategory
+            (item) => !item.isCategory,
           );
           const categoryHeaders = this.currentMenuItems.filter(
-            (item) => item.isCategory
+            (item) => item.isCategory,
           );
           console.log(
-            `📦 -> ${actualItems.length} actual items, ${categoryHeaders.length} category headers`
+            `📦 -> ${actualItems.length} actual items, ${categoryHeaders.length} category headers`,
           );
 
           // Send inventory update to client as informational only
@@ -586,7 +701,7 @@ class NetHackSession {
                 type: "inventory_update",
                 items: this.currentMenuItems,
                 window: endMenuWinid,
-              })
+              }),
             );
           }
 
@@ -596,7 +711,7 @@ class NetHackSession {
         // Special handling for inventory window WITH questions (like drop, wear, etc.)
         if (isInventoryWindow && hasMenuQuestion) {
           console.log(
-            `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
+            `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
 
           // Check if this is a multi-pickup dialog
@@ -621,7 +736,7 @@ class NetHackSession {
                 choices: "",
                 default: "",
                 menuItems: this.currentMenuItems,
-              })
+              }),
             );
           }
 
@@ -637,7 +752,7 @@ class NetHackSession {
         // If there's a menu question (like "Pick up what?"), send it to the client
         if (hasMenuQuestion && this.currentMenuItems.length > 0) {
           console.log(
-            `📋 Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
+            `📋 Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
 
           // Send menu question to web client
@@ -649,7 +764,7 @@ class NetHackSession {
                 choices: "",
                 default: "",
                 menuItems: this.currentMenuItems,
-              })
+              }),
             );
           }
 
@@ -669,7 +784,7 @@ class NetHackSession {
           !isInventoryWindow
         ) {
           console.log(
-            `📋 Menu expansion detected with ${this.currentMenuItems.length} items (window ${endMenuWinid})`
+            `📋 Menu expansion detected with ${this.currentMenuItems.length} items (window ${endMenuWinid})`,
           );
 
           // Determine the appropriate question based on context and window type
@@ -677,10 +792,10 @@ class NetHackSession {
 
           // Count non-category items to get actual selectable items
           const selectableItems = this.currentMenuItems.filter(
-            (item) => !item.isCategory
+            (item) => !item.isCategory,
           );
           console.log(
-            `📋 Found ${selectableItems.length} selectable items out of ${this.currentMenuItems.length} total`
+            `📋 Found ${selectableItems.length} selectable items out of ${this.currentMenuItems.length} total`,
           );
 
           // Try to infer the action from the menu items and context
@@ -691,7 +806,7 @@ class NetHackSession {
                 typeof item.text === "string" &&
                 (item.text.includes("gold pieces") ||
                   item.text.includes("corpse") ||
-                  item.text.includes("here"))
+                  item.text.includes("here")),
             )
           ) {
             contextualQuestion = "What would you like to pick up?";
@@ -700,7 +815,7 @@ class NetHackSession {
               (item) =>
                 item.text &&
                 typeof item.text === "string" &&
-                (item.text.includes("spell") || item.text.includes("magic"))
+                (item.text.includes("spell") || item.text.includes("magic")),
             )
           ) {
             contextualQuestion = "Which spell would you like to cast?";
@@ -711,7 +826,7 @@ class NetHackSession {
                 typeof item.text === "string" &&
                 (item.text.includes("wear") ||
                   item.text.includes("wield") ||
-                  item.text.includes("armor"))
+                  item.text.includes("armor")),
             )
           ) {
             contextualQuestion = "What would you like to use?";
@@ -728,7 +843,7 @@ class NetHackSession {
                   choices: "",
                   default: "",
                   menuItems: this.currentMenuItems,
-                })
+                }),
               );
             }
 
@@ -741,7 +856,7 @@ class NetHackSession {
             });
           } else {
             console.log(
-              "📋 Menu has no selectable items - treating as informational"
+              "📋 Menu has no selectable items - treating as informational",
             );
           }
         }
@@ -783,7 +898,7 @@ class NetHackSession {
               menuGlyph,
               0,
               0,
-              0 // x, y, and other params not needed for menu items
+              0, // x, y, and other params not needed for menu items
             );
             if (glyphInfo && glyphInfo.ch !== undefined) {
               glyphChar = String.fromCharCode(glyphInfo.ch);
@@ -791,7 +906,7 @@ class NetHackSession {
           } catch (error) {
             console.log(
               `⚠️ Error getting glyph info for menu glyph ${menuGlyph}:`,
-              error
+              error,
             );
           }
         }
@@ -805,7 +920,7 @@ class NetHackSession {
             // If accelerator is invalid (like the large numbers we're seeing),
             // assign letters automatically based on the current menu items
             const existingItems = this.currentMenuItems.filter(
-              (item) => !item.isCategory
+              (item) => !item.isCategory,
             );
             const alphabet =
               "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -817,11 +932,11 @@ class NetHackSession {
           }
 
           console.log(
-            `📋 MENU ITEM: "${menuText}" (key: ${menuChar}) glyph: ${menuGlyph} -> "${glyphChar}" - accelerator code: ${accelerator}`
+            `📋 MENU ITEM: "${menuText}" (key: ${menuChar}) glyph: ${menuGlyph} -> "${glyphChar}" - accelerator code: ${accelerator}`,
           );
         } else {
           console.log(
-            `📋 CATEGORY HEADER: "${menuText}" - accelerator code: ${accelerator}`
+            `📋 CATEGORY HEADER: "${menuText}" - accelerator code: ${accelerator}`,
           );
         }
 
@@ -851,7 +966,7 @@ class NetHackSession {
               glyphChar: glyphChar, // Include glyph character in client message
               isCategory: isCategory,
               menuItems: this.currentMenuItems,
-            })
+            }),
           );
         }
 
@@ -875,7 +990,7 @@ class NetHackSession {
               text: textStr,
               window: win,
               attr: textAttr,
-            })
+            }),
           );
         }
         return 0;
@@ -898,28 +1013,28 @@ class NetHackSession {
                 printGlyph,
                 x,
                 y,
-                0
+                0,
               );
               console.log(
                 `🔍 Raw glyphInfo for glyph ${printGlyph}:`,
-                glyphInfo
+                glyphInfo,
               );
               if (glyphInfo && glyphInfo.ch !== undefined) {
                 glyphChar = String.fromCharCode(glyphInfo.ch);
                 glyphColor = glyphInfo.color;
                 console.log(
-                  `🔤 Glyph ${printGlyph} -> "${glyphChar}" (ASCII ${glyphInfo.ch}) color ${glyphColor}`
+                  `🔤 Glyph ${printGlyph} -> "${glyphChar}" (ASCII ${glyphInfo.ch}) color ${glyphColor}`,
                 );
               } else {
                 console.log(
                   `⚠️ No character info for glyph ${printGlyph}, glyphInfo:`,
-                  glyphInfo
+                  glyphInfo,
                 );
               }
             } catch (error) {
               console.log(
                 `⚠️ Error getting glyph info for ${printGlyph}:`,
-                error
+                error,
               );
             }
           } else {
@@ -944,7 +1059,7 @@ class NetHackSession {
                 char: glyphChar,
                 color: glyphColor,
                 window: printWin,
-              })
+              }),
             );
           }
           // Comment out automatic character selection prompts for now
@@ -1014,7 +1129,7 @@ class NetHackSession {
             JSON.stringify({
               type: "raw_print",
               text: rawText.trim(),
-            })
+            }),
           );
         }
         return 0;
@@ -1024,7 +1139,7 @@ class NetHackSession {
       case "shim_select_menu":
         const [menuSelectWinid, menuSelectHow, menuPtr] = args;
         console.log(
-          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, ptr: ${menuPtr}`
+          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, ptr: ${menuPtr}`,
         );
 
         // For multi-pickup menus (how == PICK_ANY), check if we're ready to confirm
@@ -1032,7 +1147,7 @@ class NetHackSession {
           // If user already confirmed selections, return immediately
           if (this.multiPickupReadyToConfirm && this.menuSelections.size > 0) {
             console.log(
-              "📋 Multi-pickup already confirmed - returning selection count immediately"
+              "📋 Multi-pickup already confirmed - returning selection count immediately",
             );
             const selectionCount = this.menuSelections.size;
 
@@ -1040,7 +1155,7 @@ class NetHackSession {
             if (this.nethackModule && menuPtr) {
               try {
                 console.log(
-                  `📋 Writing selections to NetHack memory at ptr: ${menuPtr}`
+                  `📋 Writing selections to NetHack memory at ptr: ${menuPtr}`,
                 );
                 const selectedItems = Array.from(this.menuSelections.values());
 
@@ -1054,22 +1169,22 @@ class NetHackSession {
                   const itemIdentifier = item.originalAccelerator;
 
                   console.log(
-                    `📋 Writing item ${i}: identifier ${itemIdentifier} to offset ${structOffset}`
+                    `📋 Writing item ${i}: identifier ${itemIdentifier} to offset ${structOffset}`,
                   );
                   this.nethackModule.setValue(
                     structOffset,
                     itemIdentifier,
-                    "i32"
+                    "i32",
                   ); // Write the identifier
                   this.nethackModule.setValue(structOffset + 4, -1, "i32"); // Set count to -1 for "all"
                 }
                 console.log(
-                  "📋 Successfully wrote selections to NetHack memory"
+                  "📋 Successfully wrote selections to NetHack memory",
                 );
               } catch (error) {
                 console.log(
                   "⚠️ Error writing selections to NetHack memory:",
-                  error
+                  error,
                 );
               }
             }
@@ -1082,7 +1197,7 @@ class NetHackSession {
           }
 
           console.log(
-            "📋 Multi-pickup menu - waiting for completion (async)..."
+            "📋 Multi-pickup menu - waiting for completion (async)...",
           );
           return new Promise((resolve) => {
             // Set up a special resolver for menu selection completion
@@ -1096,7 +1211,7 @@ class NetHackSession {
           const selectedItems = Array.from(this.menuSelections.values());
           console.log(
             `📋 Returning ${this.menuSelections.size} selected items:`,
-            selectedItems.map((item) => `${item.menuChar}:${item.text}`)
+            selectedItems.map((item) => `${item.menuChar}:${item.text}`),
           );
 
           const selectionCount = this.menuSelections.size;
@@ -1110,7 +1225,7 @@ class NetHackSession {
         if (menuSelectHow === 1 && this.menuSelections.size === 1) {
           const selectedItem = Array.from(this.menuSelections.values())[0];
           console.log(
-            `📋 Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`
+            `📋 Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`,
           );
           // For single selection, NetHack might expect the accelerator character code
           return (
@@ -1131,7 +1246,7 @@ class NetHackSession {
               type: "name_request",
               text: "What is your name?",
               maxLength: 30,
-            })
+            }),
           );
         }
 
@@ -1151,7 +1266,7 @@ class NetHackSession {
       case "shim_cliparound":
         const [clipX, clipY] = args;
         console.log(
-          `🎯 Cliparound request for position (${clipX}, ${clipY}) - updating player position`
+          `🎯 Cliparound request for position (${clipX}, ${clipY}) - updating player position`,
         );
 
         // Update player position when NetHack requests clipping around a position
@@ -1165,7 +1280,7 @@ class NetHackSession {
               type: "player_position",
               x: clipX,
               y: clipY,
-            })
+            }),
           );
 
           // Also send a map update to clear the old player position and show new one
@@ -1175,7 +1290,7 @@ class NetHackSession {
               type: "force_player_redraw",
               oldPosition: oldPlayerPos,
               newPosition: { x: clipX, y: clipY },
-            })
+            }),
           );
         }
         return 0;
@@ -1192,7 +1307,7 @@ class NetHackSession {
             JSON.stringify({
               type: "clear_scene",
               message: "Level transition - clearing display",
-            })
+            }),
           );
         }
         return 0;
@@ -1206,7 +1321,7 @@ class NetHackSession {
       case "shim_putmsghistory":
         const [msg, is_restoring] = args;
         console.log(
-          `Putting message history: "${msg}", restoring: ${is_restoring}`
+          `Putting message history: "${msg}", restoring: ${is_restoring}`,
         );
         return 0;
 
@@ -1220,82 +1335,33 @@ class NetHackSession {
       case "shim_curs":
         const [cursWin, cursX, cursY] = args;
         console.log(
-          `🖱️ Setting cursor for window ${cursWin} to (${cursX}, ${cursY})`
+          `🖱️ Setting cursor for window ${cursWin} to (${cursX}, ${cursY})`,
         );
         return 0;
 
       case "shim_status_update":
-        const [field, ptr, chg, percent, color, colormask] = args;
-        console.log(`📊 Status update field ${field}, ptr: ${ptr}, chg: ${chg}, percent: ${percent}, color: ${color}, colormask: ${colormask}`);
-        
-        // Handle status field updates (HP, stats, etc.)
+        const [field, ptrToArg, chg, percent, color, colormask] = args;
+        const fieldName = this.getStatusFieldName(field);
+        const decoded = this.decodeStatusValue(fieldName, ptrToArg);
+        console.log(
+          `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`
+        );
+
         if (this.ws && this.ws.readyState === 1) {
-          let value = null;
-          
-          // Map of NetHack status fields to their expected data types
-          // Based on NetHack source code - most numeric fields are integers, some are strings
-          const fieldTypes = {
-            0: "s",  // name - string
-            1: "i",  // strength - integer (may be formatted like "18/01" but stored as int)
-            2: "i",  // dexterity - integer
-            3: "i",  // constitution - integer  
-            4: "i",  // intelligence - integer
-            5: "i",  // wisdom - integer
-            6: "i",  // charisma - integer
-            7: "s",  // alignment - string
-            8: "i",  // score - integer
-            9: "i",  // hp - integer
-            10: "i", // maxhp - integer
-            11: "i", // power - integer
-            12: "i", // maxpower - integer
-            13: "i", // armor - integer
-            14: "i", // level - integer
-            15: "i", // experience - integer
-            16: "i", // time - integer
-            17: "s", // hunger - string
-            18: "s", // encumbrance - string
-            19: "s", // dungeon - string
-            20: "i", // dlevel - integer
-            21: "i", // gold - integer
-          };
-          
-          const expectedType = fieldTypes[field] || "i"; // Default to integer
-          
-          // Try to get the actual value from the pointer using the correct type
-          if (globalThis.nethackGlobal && globalThis.nethackGlobal.helpers && globalThis.nethackGlobal.helpers.getPointerValue) {
-            try {
-              value = globalThis.nethackGlobal.helpers.getPointerValue("status_update", ptr, expectedType);
-              console.log(`📊 Got ${expectedType === 'i' ? 'integer' : 'string'} value for field ${field}: ${value}`);
-            } catch (error) {
-              console.log(`⚠️ Could not read status pointer for field ${field} as ${expectedType}:`, error.message);
-              
-              // Fallback: try the other type
-              const fallbackType = expectedType === "i" ? "s" : "i";
-              try {
-                value = globalThis.nethackGlobal.helpers.getPointerValue("status_update", ptr, fallbackType);
-                console.log(`📊 Fallback: got ${fallbackType === 'i' ? 'integer' : 'string'} value for field ${field}: ${value}`);
-              } catch (fallbackError) {
-                console.log(`⚠️ Fallback also failed for field ${field}:`, fallbackError.message);
-                value = `ptr:${ptr}`; // Last resort fallback
-              }
-            }
-          } else {
-            // Fallback if helpers are not available
-            console.log(`⚠️ nethackGlobal.helpers.getPointerValue not available`);
-            value = `ptr:${ptr}`;
-          }
-          
           this.ws.send(
             JSON.stringify({
               type: "status_update",
               field: field,
-              value: value,
-              ptr: ptr,
+              fieldName: fieldName,
+              value: decoded.value,
+              valueType: decoded.valueType,
+              ptrToArg: ptrToArg,
+              usedFallback: decoded.usedFallback,
               chg: chg,
               percent: percent,
               color: color,
               colormask: colormask,
-            })
+            }),
           );
         }
         return 0;
@@ -1375,7 +1441,7 @@ wss.on("connection", (ws) => {
         session.handleAreaUpdateRequest(
           data.centerX,
           data.centerY,
-          data.radius
+          data.radius,
         );
       }
     } catch (error) {

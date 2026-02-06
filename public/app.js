@@ -8,6 +8,7 @@ var Nethack3DEngine = class {
     this.glyphOverlayMap = /* @__PURE__ */ new Map();
     this.playerPos = { x: 0, y: 0 };
     this.gameMessages = [];
+    this.statusDebugHistory = [];
     this.currentInventory = [];
     // Store current inventory items
     this.pendingInventoryDialog = false;
@@ -338,7 +339,7 @@ var Nethack3DEngine = class {
         }
         break;
       case "status_update":
-        console.log(`\u{1F4CA} Status update: field ${data.field} = "${data.value}"`);
+        console.log(`Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`);
         this.updatePlayerStats(data.field, data.value, data);
         break;
       default:
@@ -699,7 +700,7 @@ var Nethack3DEngine = class {
     }
   }
   updatePlayerStats(field, value, data) {
-    const statusFields = {
+    const legacyByIndex = {
       0: "name",
       1: "strength",
       2: "dexterity",
@@ -723,70 +724,99 @@ var Nethack3DEngine = class {
       20: "dlevel",
       21: "gold"
     };
-    const fieldName = statusFields[field];
-    if (fieldName && value !== null && !value.startsWith("ptr:")) {
-      console.log(`\u{1F4CA} Updating ${fieldName}: "${value}"`);
-      let parsedValue = value;
-      if (fieldName.match(
-        /^(hp|maxhp|power|maxpower|level|experience|time|armor|score|gold|dlevel)$/
-      )) {
-        if (typeof value === "string") {
-          const cleanValue = value.trim();
-          const match = cleanValue.match(/^(\d+)/);
-          if (match) {
-            parsedValue = parseInt(match[1], 10);
-          } else {
-            console.log(
-              `\u26A0\uFE0F Could not parse numeric value for ${fieldName}: "${value}"`
-            );
-            return;
-          }
-        }
-      } else if (fieldName.match(
-        /^(strength|dexterity|constitution|intelligence|wisdom|charisma)$/
-      )) {
-        if (typeof value === "string") {
-          const cleanValue = value.trim();
-          if (fieldName === "strength") {
-            const strengthMatch = cleanValue.match(/^(\d+)/);
-            if (strengthMatch) {
-              parsedValue = parseInt(strengthMatch[1], 10);
-            } else {
-              console.log(`\u26A0\uFE0F Could not parse strength value: "${value}"`);
-              return;
-            }
-          } else {
-            const attrMatch = cleanValue.match(/^(\d+)/);
-            if (attrMatch) {
-              parsedValue = parseInt(attrMatch[1], 10);
-            } else {
-              console.log(
-                `\u26A0\uFE0F Could not parse attribute value for ${fieldName}: "${value}"`
-              );
-              return;
-            }
-          }
-        }
-      } else if (fieldName.match(/^(name|alignment|hunger|encumbrance|dungeon)$/)) {
-        parsedValue = typeof value === "string" ? value.trim() : String(value);
-      }
-      if (fieldName === "maxhp") {
-        this.playerStats.maxHp = parsedValue;
-      } else if (fieldName === "maxpower") {
-        this.playerStats.maxPower = parsedValue;
-      } else if (fieldName === "dlevel") {
-        this.playerStats.dlevel = parsedValue;
-      } else {
-        this.playerStats[fieldName] = parsedValue;
-      }
-      this.updateStatsDisplay();
-    } else if (value && value.startsWith("ptr:")) {
-      console.log(`\u{1F4CA} Skipping pointer value for field ${field}: ${value}`);
-    } else {
-      console.log(
-        `\u{1F4CA} Unknown status field ${field} or null/invalid value: "${value}"`
-      );
+    const byName = {
+      BL_TITLE: "name",
+      BL_STR: "strength",
+      BL_DX: "dexterity",
+      BL_CO: "constitution",
+      BL_IN: "intelligence",
+      BL_WI: "wisdom",
+      BL_CH: "charisma",
+      BL_ALIGN: "alignment",
+      BL_SCORE: "score",
+      BL_HP: "hp",
+      BL_HPMAX: "maxhp",
+      BL_ENE: "power",
+      BL_ENEMAX: "maxpower",
+      BL_AC: "armor",
+      BL_XP: "level",
+      BL_EXP: "experience",
+      BL_TIME: "time",
+      BL_HUNGER: "hunger",
+      BL_CAP: "encumbrance",
+      BL_DNUM: "dungeon",
+      BL_DLEVEL: "dlevel",
+      BL_GOLD: "gold"
+    };
+    const rawFieldName = typeof data?.fieldName === "string" ? data.fieldName : null;
+    const mappedField = rawFieldName && byName[rawFieldName] || legacyByIndex[field] || null;
+    this.statusDebugHistory.unshift({
+      ts: Date.now(),
+      field,
+      fieldName: rawFieldName,
+      mappedField,
+      value,
+      valueType: data?.valueType,
+      chg: data?.chg,
+      percent: data?.percent,
+      color: data?.color,
+      colormask: data?.colormask
+    });
+    if (this.statusDebugHistory.length > 200) {
+      this.statusDebugHistory.pop();
     }
+    if (!mappedField || value === null || value === void 0) {
+      console.log(
+        `Skipping status update: field=${field}, fieldName=${rawFieldName}, value=${value}`
+      );
+      return;
+    }
+    const numericFields = /* @__PURE__ */ new Set([
+      "hp",
+      "maxhp",
+      "power",
+      "maxpower",
+      "level",
+      "experience",
+      "time",
+      "armor",
+      "score",
+      "gold",
+      "dlevel",
+      "strength",
+      "dexterity",
+      "constitution",
+      "intelligence",
+      "wisdom",
+      "charisma"
+    ]);
+    let parsedValue = value;
+    if (numericFields.has(mappedField)) {
+      if (typeof value === "number") {
+        parsedValue = value;
+      } else {
+        const clean = String(value).trim();
+        const match = clean.match(/^-?\d+/);
+        if (!match) {
+          console.log(`Could not parse numeric status ${mappedField} from "${value}"`);
+          return;
+        }
+        parsedValue = parseInt(match[0], 10);
+      }
+    } else {
+      parsedValue = String(value).trim();
+    }
+    console.log(`Updating status ${mappedField}: ${parsedValue}`);
+    if (mappedField === "maxhp") {
+      this.playerStats.maxHp = parsedValue;
+    } else if (mappedField === "maxpower") {
+      this.playerStats.maxPower = parsedValue;
+    } else if (mappedField === "dlevel") {
+      this.playerStats.dlevel = parsedValue;
+    } else {
+      this.playerStats[mappedField] = parsedValue;
+    }
+    this.updateStatsDisplay();
   }
   updateStatsDisplay() {
     let statsBar = document.getElementById("stats-bar");
@@ -1853,10 +1883,14 @@ window.refreshArea = (centerX, centerY, radius = 3) => {
 window.refreshPlayerArea = (radius = 5) => {
   game.requestPlayerAreaUpdate(radius);
 };
+window.dumpStatusDebug = () => {
+  return game.statusDebugHistory;
+};
 console.log("\u{1F3AE} NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
 console.log("  refreshPlayerArea(radius) - Refresh around player");
+console.log("  dumpStatusDebug() - Get recent status_update payloads");
 console.log("  Ctrl+T - Refresh player tile");
 console.log("  Ctrl+R - Refresh player area (radius 5)");
 console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");

@@ -34,6 +34,7 @@ class Nethack3DEngine {
   private glyphOverlayMap: GlyphOverlayMap = new Map();
   private playerPos = { x: 0, y: 0 };
   private gameMessages: string[] = [];
+  private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
 
@@ -450,7 +451,7 @@ class Nethack3DEngine {
         break;
 
       case "status_update":
-        console.log(`📊 Status update: field ${data.field} = "${data.value}"`);
+        console.log(`Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`);
         this.updatePlayerStats(data.field, data.value, data);
         break;
 
@@ -930,12 +931,10 @@ class Nethack3DEngine {
 
   private updatePlayerStats(
     field: number,
-    value: string | null,
+    value: string | number | null,
     data: any
   ): void {
-    // NetHack status field mapping (based on NetHack source code)
-    // Reference: https://github.com/NetHack/NetHack/blob/NetHack-3.6/include/botl.h
-    const statusFields: { [key: number]: string } = {
+    const legacyByIndex: { [key: number]: string } = {
       0: "name",
       1: "strength",
       2: "dexterity",
@@ -960,99 +959,109 @@ class Nethack3DEngine {
       21: "gold",
     };
 
-    const fieldName = statusFields[field];
+    const byName: { [key: string]: string } = {
+      BL_TITLE: "name",
+      BL_STR: "strength",
+      BL_DX: "dexterity",
+      BL_CO: "constitution",
+      BL_IN: "intelligence",
+      BL_WI: "wisdom",
+      BL_CH: "charisma",
+      BL_ALIGN: "alignment",
+      BL_SCORE: "score",
+      BL_HP: "hp",
+      BL_HPMAX: "maxhp",
+      BL_ENE: "power",
+      BL_ENEMAX: "maxpower",
+      BL_AC: "armor",
+      BL_XP: "level",
+      BL_EXP: "experience",
+      BL_TIME: "time",
+      BL_HUNGER: "hunger",
+      BL_CAP: "encumbrance",
+      BL_DNUM: "dungeon",
+      BL_DLEVEL: "dlevel",
+      BL_GOLD: "gold",
+    };
 
-    if (fieldName && value !== null && !value.startsWith("ptr:")) {
-      console.log(`📊 Updating ${fieldName}: "${value}"`);
+    const rawFieldName = typeof data?.fieldName === "string" ? data.fieldName : null;
+    const mappedField =
+      (rawFieldName && byName[rawFieldName]) || legacyByIndex[field] || null;
 
-      // Parse values intelligently based on field type and content
-      let parsedValue: any = value;
-
-      // Handle numeric fields
-      if (
-        fieldName.match(
-          /^(hp|maxhp|power|maxpower|level|experience|time|armor|score|gold|dlevel)$/
-        )
-      ) {
-        // For pure numbers, try to parse directly
-        if (typeof value === "string") {
-          // Remove any leading/trailing whitespace
-          const cleanValue = value.trim();
-
-          // Try to extract a number from the string
-          const match = cleanValue.match(/^(\d+)/);
-          if (match) {
-            parsedValue = parseInt(match[1], 10);
-          } else {
-            console.log(
-              `⚠️ Could not parse numeric value for ${fieldName}: "${value}"`
-            );
-            return; // Skip update if we can't parse the number
-          }
-        }
-      }
-
-      // Handle attribute fields (strength can be like "18/01")
-      else if (
-        fieldName.match(
-          /^(strength|dexterity|constitution|intelligence|wisdom|charisma)$/
-        )
-      ) {
-        if (typeof value === "string") {
-          const cleanValue = value.trim();
-
-          // Handle special strength format like "18/01" or just "18"
-          if (fieldName === "strength") {
-            const strengthMatch = cleanValue.match(/^(\d+)/);
-            if (strengthMatch) {
-              parsedValue = parseInt(strengthMatch[1], 10);
-            } else {
-              console.log(`⚠️ Could not parse strength value: "${value}"`);
-              return;
-            }
-          } else {
-            // For other attributes, just get the first number
-            const attrMatch = cleanValue.match(/^(\d+)/);
-            if (attrMatch) {
-              parsedValue = parseInt(attrMatch[1], 10);
-            } else {
-              console.log(
-                `⚠️ Could not parse attribute value for ${fieldName}: "${value}"`
-              );
-              return;
-            }
-          }
-        }
-      }
-
-      // Handle string fields (keep as-is)
-      else if (
-        fieldName.match(/^(name|alignment|hunger|encumbrance|dungeon)$/)
-      ) {
-        // Keep as string, just trim whitespace
-        parsedValue = typeof value === "string" ? value.trim() : String(value);
-      }
-
-      // Update the stats object
-      if (fieldName === "maxhp") {
-        this.playerStats.maxHp = parsedValue;
-      } else if (fieldName === "maxpower") {
-        this.playerStats.maxPower = parsedValue;
-      } else if (fieldName === "dlevel") {
-        this.playerStats.dlevel = parsedValue;
-      } else {
-        (this.playerStats as any)[fieldName] = parsedValue;
-      }
-
-      // Update the stats display
-      this.updateStatsDisplay();
-    } else if (value && value.startsWith("ptr:")) {
-      console.log(`📊 Skipping pointer value for field ${field}: ${value}`);
-    } else {
-      console.log(
-        `📊 Unknown status field ${field} or null/invalid value: "${value}"`
-      );
+    // Keep a rolling debug history for runtime inspection from devtools.
+    this.statusDebugHistory.unshift({
+      ts: Date.now(),
+      field,
+      fieldName: rawFieldName,
+      mappedField,
+      value,
+      valueType: data?.valueType,
+      chg: data?.chg,
+      percent: data?.percent,
+      color: data?.color,
+      colormask: data?.colormask,
+    });
+    if (this.statusDebugHistory.length > 200) {
+      this.statusDebugHistory.pop();
     }
+
+    if (!mappedField || value === null || value === undefined) {
+      console.log(
+        `Skipping status update: field=${field}, fieldName=${rawFieldName}, value=${value}`
+      );
+      return;
+    }
+
+    const numericFields = new Set([
+      "hp",
+      "maxhp",
+      "power",
+      "maxpower",
+      "level",
+      "experience",
+      "time",
+      "armor",
+      "score",
+      "gold",
+      "dlevel",
+      "strength",
+      "dexterity",
+      "constitution",
+      "intelligence",
+      "wisdom",
+      "charisma",
+    ]);
+
+    let parsedValue: any = value;
+    if (numericFields.has(mappedField)) {
+      if (typeof value === "number") {
+        parsedValue = value;
+      } else {
+        const clean = String(value).trim();
+        const match = clean.match(/^-?\d+/);
+        if (!match) {
+          console.log(`Could not parse numeric status ${mappedField} from "${value}"`);
+          return;
+        }
+        parsedValue = parseInt(match[0], 10);
+      }
+    } else {
+      parsedValue = String(value).trim();
+    }
+
+    console.log(`Updating status ${mappedField}: ${parsedValue}`);
+
+    if (mappedField === "maxhp") {
+      this.playerStats.maxHp = parsedValue;
+    } else if (mappedField === "maxpower") {
+      this.playerStats.maxPower = parsedValue;
+    } else if (mappedField === "dlevel") {
+      this.playerStats.dlevel = parsedValue;
+    } else {
+      (this.playerStats as any)[mappedField] = parsedValue;
+    }
+
+    this.updateStatsDisplay();
   }
 
   private updateStatsDisplay(): void {
@@ -2405,10 +2414,15 @@ const game = new Nethack3DEngine();
   game.requestPlayerAreaUpdate(radius);
 };
 
+(window as any).dumpStatusDebug = () => {
+  return (game as any).statusDebugHistory;
+};
+
 console.log("🎮 NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
 console.log("  refreshPlayerArea(radius) - Refresh around player");
+console.log("  dumpStatusDebug() - Get recent status_update payloads");
 console.log("  Ctrl+T - Refresh player tile");
 console.log("  Ctrl+R - Refresh player area (radius 5)");
 console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");
