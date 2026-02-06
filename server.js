@@ -6,10 +6,13 @@ const path = require("path");
 class NetHackSession {
   constructor(ws) {
     this.ws = ws;
+    this.isClosed = false;
     this.nethackInstance = null;
     this.gameMap = new Map();
     this.playerPosition = { x: 0, y: 0 };
     this.gameMessages = [];
+    this.latestInventoryItems = [];
+    this.latestStatusUpdates = new Map();
     this.currentMenuItems = [];
     this.currentWindow = null;
     this.hasShownCharacterSelection = false;
@@ -24,6 +27,8 @@ class NetHackSession {
     this.pendingMenuListPtrPtr = 0;
     this.autoPickupQueue = [];
     this.queuedInputs = [];
+    this.queuedEventInputs = [];
+    this.queuedRawKeyCodes = [];
 
     // Simplified input handling with async support
     this.latestInput = null;
@@ -35,13 +40,219 @@ class NetHackSession {
     // Add cooldown for position requests
     this.lastInputTime = 0;
     this.inputCooldown = 100; // 100ms cooldown
+    this.metaInputPrefix = "__META__:";
+
+    // Batch map glyph updates to reduce websocket overhead during reveal bursts.
+    this.pendingMapGlyphs = [];
+    this.mapGlyphFlushTimer = null;
+    this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
 
     this.initializeNetHack();
   }
 
+  attachWebSocket(ws) {
+    if (this.isClosed) {
+      return;
+    }
+    this.ws = ws;
+    this.sendReconnectSnapshot();
+  }
+
+  sendReconnectSnapshot() {
+    if (!this.ws || this.ws.readyState !== 1) {
+      return;
+    }
+
+    // Start from a clean client scene before replaying cached state.
+    this.ws.send(
+      JSON.stringify({
+        type: "clear_scene",
+        message: "Reconnected - restoring game state",
+      }),
+    );
+
+    const tiles = Array.from(this.gameMap.values());
+    const chunkSize = 500;
+    for (let i = 0; i < tiles.length; i += chunkSize) {
+      this.ws.send(
+        JSON.stringify({
+          type: "map_glyph_batch",
+          tiles: tiles.slice(i, i + chunkSize),
+        }),
+      );
+    }
+
+    this.ws.send(
+      JSON.stringify({
+        type: "player_position",
+        x: this.playerPosition.x,
+        y: this.playerPosition.y,
+      }),
+    );
+
+    for (const payload of this.latestStatusUpdates.values()) {
+      this.ws.send(JSON.stringify(payload));
+    }
+
+    if (this.latestInventoryItems.length > 0) {
+      this.ws.send(
+        JSON.stringify({
+          type: "inventory_update",
+          items: this.latestInventoryItems,
+          window: 4,
+        }),
+      );
+    }
+
+    const recentMessages = this.gameMessages.slice(-30);
+    for (const msg of recentMessages) {
+      this.ws.send(
+        JSON.stringify({
+          type: "text",
+          text: msg.text,
+          window: msg.window,
+          attr: msg.attr,
+        }),
+      );
+    }
+  }
+
+  shutdown(reason = "session shutdown") {
+    if (this.isClosed) {
+      return;
+    }
+
+    this.isClosed = true;
+    console.log(`Shutting down NetHack session: ${reason}`);
+
+    if (this.mapGlyphFlushTimer) {
+      clearTimeout(this.mapGlyphFlushTimer);
+      this.mapGlyphFlushTimer = null;
+    }
+    this.pendingMapGlyphs = [];
+    this.latestInput = null;
+    this.autoPickupQueue = [];
+    this.queuedEventInputs = [];
+    this.queuedRawKeyCodes = [];
+    this.menuSelections.clear();
+
+    if (this.waitingForMenuSelection && this.menuSelectionResolver) {
+      const resolver = this.menuSelectionResolver;
+      this.waitingForMenuSelection = false;
+      this.menuSelectionResolver = null;
+      this.pendingMenuListPtrPtr = 0;
+      try {
+        resolver(0);
+      } catch (error) {
+        console.log("Menu selection resolver shutdown error:", error);
+      }
+    }
+
+    if (this.waitingForInput && this.inputResolver) {
+      const resolver = this.inputResolver;
+      this.waitingForInput = false;
+      this.inputResolver = null;
+      try {
+        resolver(27); // Escape to unwind Asyncify waiters.
+      } catch (error) {
+        console.log("Input resolver shutdown error:", error);
+      }
+    }
+
+    if (this.waitingForPosition && this.positionResolver) {
+      const resolver = this.positionResolver;
+      this.waitingForPosition = false;
+      this.positionResolver = null;
+      try {
+        resolver(27); // Escape to unwind Asyncify waiters.
+      } catch (error) {
+        console.log("Position resolver shutdown error:", error);
+      }
+    }
+  }
+
+  queueMapGlyphUpdate(tile) {
+    if (this.isClosed || !tile || !this.ws || this.ws.readyState !== 1) {
+      return;
+    }
+
+    this.pendingMapGlyphs.push(tile);
+    if (this.mapGlyphFlushTimer) {
+      return;
+    }
+
+    this.mapGlyphFlushTimer = setTimeout(() => {
+      this.flushMapGlyphUpdates();
+    }, this.mapGlyphBatchWindowMs);
+  }
+
+  flushMapGlyphUpdates() {
+    if (this.mapGlyphFlushTimer) {
+      clearTimeout(this.mapGlyphFlushTimer);
+      this.mapGlyphFlushTimer = null;
+    }
+
+    if (
+      this.isClosed ||
+      !this.pendingMapGlyphs.length ||
+      !this.ws ||
+      this.ws.readyState !== 1
+    ) {
+      this.pendingMapGlyphs = [];
+      return;
+    }
+
+    const batch = this.pendingMapGlyphs;
+    this.pendingMapGlyphs = [];
+
+    this.ws.send(
+      JSON.stringify({
+        type: "map_glyph_batch",
+        tiles: batch,
+      }),
+    );
+  }
+
   // Handle incoming input from the client
   handleClientInput(input) {
+    if (this.isClosed) {
+      return;
+    }
     console.log("🎮 Received client input:", input);
+
+    if (this.isMetaInput(input)) {
+      const metaKey = input.slice(this.metaInputPrefix.length).charAt(0);
+      if (!metaKey) {
+        return;
+      }
+
+      const escCode = 27;
+      const metaCharCode = metaKey.charCodeAt(0);
+      this.lastInputTime = Date.now();
+      this.latestInput = null;
+
+      if (this.waitingForInput && this.inputResolver) {
+        console.log("Meta input routed to event resolver");
+        this.waitingForInput = false;
+        const resolver = this.inputResolver;
+        this.inputResolver = null;
+        this.enqueueRawKeyCode(metaCharCode);
+        resolver(escCode);
+        return;
+      }
+
+      this.enqueueRawKeyCode(escCode);
+      this.enqueueRawKeyCode(metaCharCode);
+
+      if (this.waitingForPosition && this.positionResolver) {
+        console.log("Meta input routed via position resolver with Escape");
+        this.waitingForPosition = false;
+        const resolver = this.positionResolver;
+        this.positionResolver = null;
+        resolver(this.queuedRawKeyCodes.shift());
+      }
+      return;
+    }
 
     // Store the input for potential reuse
     this.latestInput = input;
@@ -201,6 +412,9 @@ class NetHackSession {
 
   // Handle request for tile update from client
   handleTileUpdateRequest(x, y) {
+    if (this.isClosed) {
+      return;
+    }
     console.log(`🔄 Client requested tile update for (${x}, ${y})`);
 
     const key = `${x},${y}`;
@@ -210,18 +424,16 @@ class NetHackSession {
       console.log(`📤 Resending tile data for (${x}, ${y}):`, tileData);
 
       if (this.ws && this.ws.readyState === 1) {
-        this.ws.send(
-          JSON.stringify({
-            type: "map_glyph",
-            x: tileData.x,
-            y: tileData.y,
-            glyph: tileData.glyph,
-            char: tileData.char,
-            color: tileData.color,
-            window: 2, // WIN_MAP
-            isRefresh: true, // Mark this as a refresh to distinguish from new data
-          }),
-        );
+        this.queueMapGlyphUpdate({
+          type: "map_glyph",
+          x: tileData.x,
+          y: tileData.y,
+          glyph: tileData.glyph,
+          char: tileData.char,
+          color: tileData.color,
+          window: 2, // WIN_MAP
+          isRefresh: true, // Mark this as a refresh to distinguish from new data
+        });
       }
     } else {
       console.log(
@@ -244,6 +456,9 @@ class NetHackSession {
 
   // Handle request for area update from client
   handleAreaUpdateRequest(centerX, centerY, radius = 3) {
+    if (this.isClosed) {
+      return;
+    }
     console.log(
       `🔄 Client requested area update centered at (${centerX}, ${centerY}) with radius ${radius}`,
     );
@@ -259,19 +474,17 @@ class NetHackSession {
 
         if (tileData) {
           if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "map_glyph",
-                x: tileData.x,
-                y: tileData.y,
-                glyph: tileData.glyph,
-                char: tileData.char,
-                color: tileData.color,
-                window: 2, // WIN_MAP
-                isRefresh: true,
-                isAreaRefresh: true,
-              }),
-            );
+            this.queueMapGlyphUpdate({
+              type: "map_glyph",
+              x: tileData.x,
+              y: tileData.y,
+              glyph: tileData.glyph,
+              char: tileData.char,
+              color: tileData.color,
+              window: 2, // WIN_MAP
+              isRefresh: true,
+              isAreaRefresh: true,
+            });
           }
           tilesRefreshed++;
         }
@@ -281,6 +494,9 @@ class NetHackSession {
     console.log(
       `📤 Refreshed ${tilesRefreshed} tiles in area around (${centerX}, ${centerY})`,
     );
+
+    // Ensure tile updates land before completion notification.
+    this.flushMapGlyphUpdates();
 
     // Send completion message
     if (this.ws && this.ws.readyState === 1) {
@@ -298,6 +514,20 @@ class NetHackSession {
 
   // Helper method for key processing
   processKey(key) {
+    if (
+      typeof key === "string" &&
+      key.startsWith(this.metaInputPrefix) &&
+      key.length > this.metaInputPrefix.length
+    ) {
+      const metaKey = key.slice(this.metaInputPrefix.length);
+      const primaryKey = metaKey.charAt(0);
+      if (!primaryKey) {
+        return 0;
+      }
+      this.enqueueRawKeyCode(primaryKey.charCodeAt(0));
+      return 27;
+    }
+
     // With number_pad:1 option, translate arrow keys to numpad equivalents
     if (key === "ArrowLeft") return "4".charCodeAt(0);
     if (key === "ArrowRight") return "6".charCodeAt(0);
@@ -309,6 +539,44 @@ class NetHackSession {
     return 0; // Default for empty/unknown input
   }
 
+  isMetaInput(key) {
+    return (
+      typeof key === "string" &&
+      key.startsWith(this.metaInputPrefix) &&
+      key.length > this.metaInputPrefix.length
+    );
+  }
+
+  isPrintableAccelerator(code) {
+    return typeof code === "number" && code > 32 && code < 127;
+  }
+
+  classifyInventoryWindowMenu(menuItems) {
+    const items = Array.isArray(menuItems) ? menuItems : [];
+    const nonCategoryItems = items.filter((item) => !item.isCategory);
+    const hasCategoryHeaders = items.some((item) => item.isCategory);
+    const hasSelectableEntries = nonCategoryItems.some(
+      (item) =>
+        this.isPrintableAccelerator(item.originalAccelerator) ||
+        (typeof item.identifier === "number" && item.identifier > 0),
+    );
+
+    if (items.length === 0) {
+      return { kind: "inventory", lines: [] };
+    }
+
+    if (hasCategoryHeaders || hasSelectableEntries) {
+      return { kind: "inventory", lines: [] };
+    }
+
+    // WIN_INVEN is also used by NetHack for reports like self-knowledge.
+    // If entries are non-selectable metadata rows, treat as informational.
+    const lines = nonCategoryItems
+      .map((item) => String(item.text || "").trim())
+      .filter((text) => text.length > 0);
+    return { kind: "info_menu", lines };
+  }
+
   enqueueInput(input) {
     if (input === undefined || input === null) {
       return;
@@ -316,6 +584,16 @@ class NetHackSession {
     this.queuedInputs.push(input);
     console.log(
       `Queued synthetic input: ${input} (queue size=${this.queuedInputs.length})`,
+    );
+  }
+
+  enqueueEventInput(input) {
+    if (input === undefined || input === null) {
+      return;
+    }
+    this.queuedEventInputs.push(input);
+    console.log(
+      `Queued event-only input: ${input} (queue size=${this.queuedEventInputs.length})`,
     );
   }
 
@@ -731,6 +1009,9 @@ class NetHackSession {
   }
 
   handleUICallback(name, args) {
+    if (this.isClosed) {
+      return 0;
+    }
     console.log(`🎮 UI Callback: ${name}`, args);
 
     const processKey = (key) => {
@@ -739,6 +1020,17 @@ class NetHackSession {
 
     switch (name) {
       case "shim_get_nh_event":
+        if (this.queuedRawKeyCodes.length > 0) {
+          const rawCode = this.queuedRawKeyCodes.shift();
+          console.log(`Using queued raw keycode for event: ${rawCode}`);
+          return rawCode;
+        }
+        if (this.queuedEventInputs.length > 0) {
+          const queuedEvent = this.queuedEventInputs.shift();
+          console.log(`Using queued event-only input: ${queuedEvent}`);
+          return processKey(queuedEvent);
+        }
+
         if (this.queuedInputs.length > 0) {
           const queued = this.queuedInputs.shift();
           console.log(`Using queued input for event: ${queued}`);
@@ -826,6 +1118,12 @@ class NetHackSession {
         const [xPtr, yPtr, modPtr] = args;
         console.log("🎮 NetHack requesting position key");
 
+        if (this.queuedRawKeyCodes.length > 0) {
+          const rawCode = this.queuedRawKeyCodes.shift();
+          console.log(`Using queued raw keycode for position: ${rawCode}`);
+          return rawCode;
+        }
+
         if (this.queuedInputs.length > 0) {
           const queued = this.queuedInputs.shift();
           console.log(`Using queued input for position: ${queued}`);
@@ -834,7 +1132,11 @@ class NetHackSession {
 
         // Check if we have recent input available (within input window)
         const timeSincePositionInput = Date.now() - this.lastInputTime;
-        if (this.latestInput && timeSincePositionInput < this.inputCooldown) {
+        if (
+          this.latestInput &&
+          !this.isMetaInput(this.latestInput) &&
+          timeSincePositionInput < this.inputCooldown
+        ) {
           const input = this.latestInput;
           // Don't clear it yet - let shim_get_nh_event potentially reuse it
           console.log(
@@ -917,13 +1219,11 @@ class NetHackSession {
           `📋 Menu ending - Window: ${endMenuWinid}, Question: "${menuQuestion}", Items: ${this.currentMenuItems.length}`,
         );
 
-        // If this is an inventory window without a question, it's just an inventory update
+        // WIN_INVEN is used for both real inventory and informational reports.
         if (isInventoryWindow && !hasMenuQuestion) {
-          console.log(
-            `📦 Inventory update detected (${this.currentMenuItems.length} total items) - not showing dialog`,
+          const classification = this.classifyInventoryWindowMenu(
+            this.currentMenuItems,
           );
-
-          // Count actual items vs category headers for better logging
           const actualItems = this.currentMenuItems.filter(
             (item) => !item.isCategory,
           );
@@ -931,23 +1231,40 @@ class NetHackSession {
             (item) => item.isCategory,
           );
           console.log(
-            `📦 -> ${actualItems.length} actual items, ${categoryHeaders.length} category headers`,
+            `WIN_INVEN no-question menu classified as ${classification.kind} (${actualItems.length} items, ${categoryHeaders.length} categories)`,
           );
 
-          // Send inventory update to client as informational only
           if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "inventory_update",
-                items: this.currentMenuItems,
-                window: endMenuWinid,
-              }),
-            );
+            if (classification.kind === "inventory") {
+              this.latestInventoryItems = [...this.currentMenuItems];
+              this.ws.send(
+                JSON.stringify({
+                  type: "inventory_update",
+                  items: this.currentMenuItems,
+                  window: endMenuWinid,
+                }),
+              );
+            } else {
+              const infoLines = classification.lines;
+              const infoTitle =
+                infoLines.length > 0
+                  ? infoLines[0]
+                  : "NetHack Information";
+              const infoBody =
+                infoLines.length > 1 ? infoLines.slice(1) : infoLines;
+              this.ws.send(
+                JSON.stringify({
+                  type: "info_menu",
+                  title: infoTitle,
+                  lines: infoBody,
+                  window: endMenuWinid,
+                }),
+              );
+            }
           }
 
-          return 0; // Don't wait for input - this is just informational
+          return 0;
         }
-
         // Special handling for inventory window WITH questions (like drop, wear, etc.)
         if (isInventoryWindow && hasMenuQuestion) {
           console.log(
@@ -1299,17 +1616,15 @@ class NetHackSession {
             timestamp: Date.now(),
           });
           if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "map_glyph",
-                x: x,
-                y: y,
-                glyph: printGlyph,
-                char: glyphChar,
-                color: glyphColor,
-                window: printWin,
-              }),
-            );
+            this.queueMapGlyphUpdate({
+              type: "map_glyph",
+              x: x,
+              y: y,
+              glyph: printGlyph,
+              char: glyphChar,
+              color: glyphColor,
+              window: printWin,
+            });
           }
           // Comment out automatic character selection prompts for now
           // if (!this.hasShownCharacterSelection) {
@@ -1500,8 +1815,8 @@ class NetHackSession {
         );
 
         // Update player position when NetHack requests clipping around a position
-        const oldPlayerPos = { ...this.playerPos };
-        this.playerPos = { x: clipX, y: clipY };
+        const oldPlayerPos = { ...this.playerPosition };
+        this.playerPosition = { x: clipX, y: clipY };
 
         // Send updated player position to client
         if (this.ws && this.ws.readyState === 1) {
@@ -1577,25 +1892,27 @@ class NetHackSession {
         const [field, ptrToArg, chg, percent, color, colormask] = args;
         const fieldName = this.getStatusFieldName(field);
         const decoded = this.decodeStatusValue(fieldName, ptrToArg);
+        const statusPayload = {
+          type: "status_update",
+          field: field,
+          fieldName: fieldName,
+          value: decoded.value,
+          valueType: decoded.valueType,
+          ptrToArg: ptrToArg,
+          usedFallback: decoded.usedFallback,
+          chg: chg,
+          percent: percent,
+          color: color,
+          colormask: colormask,
+        };
+        this.latestStatusUpdates.set(field, statusPayload);
         console.log(
           `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`
         );
 
         if (this.ws && this.ws.readyState === 1) {
           this.ws.send(
-            JSON.stringify({
-              type: "status_update",
-              field: field,
-              fieldName: fieldName,
-              value: decoded.value,
-              valueType: decoded.valueType,
-              ptrToArg: ptrToArg,
-              usedFallback: decoded.usedFallback,
-              chg: chg,
-              percent: percent,
-              color: color,
-              colormask: colormask,
-            }),
+            JSON.stringify(statusPayload),
           );
         }
         return 0;
@@ -1655,12 +1972,29 @@ const server = http.createServer((req, res) => {
 // WebSocket Server
 const wss = new WebSocket.Server({ server });
 let sessionCount = 0;
+let activeSession = null;
 
 wss.on("connection", (ws) => {
   console.log("New WebSocket connection");
-  sessionCount++;
+  let session = activeSession;
 
-  const session = new NetHackSession(ws);
+  if (!session || session.isClosed) {
+    session = new NetHackSession(ws);
+    activeSession = session;
+    sessionCount++;
+    console.log("Started new NetHack session");
+  } else {
+    const priorWs = session.ws;
+    session.attachWebSocket(ws);
+    console.log("Reattached websocket to existing NetHack session");
+    if (priorWs && priorWs !== ws && priorWs.readyState === 1) {
+      try {
+        priorWs.close(1000, "replaced by new websocket connection");
+      } catch (error) {
+        console.log("Error closing prior websocket:", error);
+      }
+    }
+  }
 
   ws.on("message", (message) => {
     try {
@@ -1685,7 +2019,12 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     console.log("WebSocket connection closed");
-    sessionCount--;
+    // Ignore stale close events from replaced sockets.
+    if (session.ws !== ws) {
+      return;
+    }
+    // Keep the NetHack session alive for browser refresh/reconnect.
+    session.ws = null;
   });
 });
 
@@ -1694,3 +2033,4 @@ server.listen(PORT, () => {
   console.log(`NetHack 3D Server running on http://localhost:${PORT}`);
   console.log(`Game sessions: ${sessionCount}`);
 });
+

@@ -14,9 +14,11 @@ interface GlyphOverlay {
   texture: THREE.CanvasTexture | null;
   material: THREE.MeshBasicMaterial;
   baseColorHex: string;
+  textureKey: string;
 }
 
 type GlyphOverlayMap = Map<string, GlyphOverlay>;
+type TerrainSnapshot = { glyph: number; char?: string; color?: number };
 
 // --- CONSTANTS ---
 const TILE_SIZE = 1; // The size of each tile in 3D space
@@ -32,11 +34,16 @@ class Nethack3DEngine {
 
   private tileMap: TileMap = new Map();
   private glyphOverlayMap: GlyphOverlayMap = new Map();
+  private tileStateCache: Map<string, string> = new Map();
+  private lastKnownTerrain: Map<string, TerrainSnapshot> = new Map();
+  private pendingTileUpdates: Map<string, any> = new Map();
+  private tileFlushScheduled: boolean = false;
   private playerPos = { x: 0, y: 0 };
   private gameMessages: string[] = [];
   private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
+  private lastInfoMenu: { title: string; lines: string[] } | null = null;
 
   // Player stats tracking
   private playerStats = {
@@ -65,6 +72,8 @@ class Nethack3DEngine {
   };
 
   private ws: WebSocket | null = null;
+  private readonly metaInputPrefix = "__META__:";
+  private altOrMetaHeld: boolean = false;
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -132,7 +141,8 @@ class Nethack3DEngine {
       this.minCameraPitch,
       this.maxCameraPitch
     );
-    this.cameraYaw = 180;
+    // Yaw is in radians; start at 180 degrees to face the board correctly.
+    this.cameraYaw = Math.PI;
   }
 
   private initThreeJS(): void {
@@ -167,6 +177,8 @@ class Nethack3DEngine {
     // --- Event Listeners ---
     window.addEventListener("resize", this.onWindowResize.bind(this), false);
     window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
+    window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
+    window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
 
     // Mouse controls for camera
     window.addEventListener("wheel", this.handleMouseWheel.bind(this), false);
@@ -279,11 +291,15 @@ class Nethack3DEngine {
   private handleServerMessage(data: any): void {
     switch (data.type) {
       case "map_glyph":
-        // Check if this is a refresh vs new data
-        if (data.isRefresh) {
-          console.log(`🔄 Processing tile refresh for (${data.x}, ${data.y})`);
+        this.enqueueTileUpdate(data);
+        break;
+
+      case "map_glyph_batch":
+        if (Array.isArray(data.tiles)) {
+          for (const tile of data.tiles) {
+            this.enqueueTileUpdate(tile);
+          }
         }
-        this.updateTile(data.x, data.y, data.glyph, data.char, data.color);
         break;
 
       case "player_position":
@@ -318,8 +334,19 @@ class Nethack3DEngine {
           this.glyphOverlayMap.delete(oldKey);
         }
 
-        // Redraw the old position as floor (assuming it's walkable since player was there)
-        this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+        // Redraw the old player position using last known terrain to avoid color flicker.
+        const oldTerrain = this.lastKnownTerrain.get(oldKey);
+        if (oldTerrain) {
+          this.updateTile(
+            data.oldPosition.x,
+            data.oldPosition.y,
+            oldTerrain.glyph,
+            oldTerrain.char,
+            oldTerrain.color
+          );
+        } else {
+          this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+        }
 
         // Create a fake player glyph at the new position to ensure visual update
         // Use a typical player glyph number (around 331-360 range)
@@ -409,6 +436,14 @@ class Nethack3DEngine {
         }
         break;
 
+      case "info_menu":
+        this.lastInfoMenu = {
+          title: String(data.title || "NetHack Information"),
+          lines: Array.isArray(data.lines) ? data.lines : [],
+        };
+        this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+        break;
+
       case "position_request":
         // Only show meaningful position requests, filter out spam
         if (
@@ -457,6 +492,43 @@ class Nethack3DEngine {
 
       default:
         console.log("Unknown message type:", data.type, data);
+    }
+  }
+
+  private enqueueTileUpdate(tile: any): void {
+    if (!tile || typeof tile.x !== "number" || typeof tile.y !== "number") {
+      return;
+    }
+
+    const key = `${tile.x},${tile.y}`;
+    this.pendingTileUpdates.set(key, tile);
+
+    if (this.tileFlushScheduled) {
+      return;
+    }
+
+    this.tileFlushScheduled = true;
+    requestAnimationFrame(() => this.flushPendingTileUpdates());
+  }
+
+  private flushPendingTileUpdates(): void {
+    this.tileFlushScheduled = false;
+    if (!this.pendingTileUpdates.size) {
+      return;
+    }
+
+    const updates = Array.from(this.pendingTileUpdates.values());
+    this.pendingTileUpdates.clear();
+
+    for (const tile of updates) {
+      const key = `${tile.x},${tile.y}`;
+      const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}`;
+      if (this.tileStateCache.get(key) === signature) {
+        continue;
+      }
+
+      this.tileStateCache.set(key, signature);
+      this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
     }
   }
 
@@ -553,6 +625,7 @@ class Nethack3DEngine {
         texture: null,
         material: materialClone,
         baseColorHex,
+        textureKey: "",
       };
       this.glyphOverlayMap.set(key, overlay);
     }
@@ -607,21 +680,21 @@ class Nethack3DEngine {
     isWall: boolean
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
+    const baseColorHex = baseMaterial.color.getHexString();
+    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}`;
 
-    if (overlay.texture) {
-      overlay.texture.dispose();
+    if (overlay.textureKey !== textureKey) {
+      if (overlay.texture) {
+        overlay.texture.dispose();
+      }
+
+      overlay.baseColorHex = baseColorHex;
+      overlay.material.color.set("#dddddd");
+      overlay.texture = this.createGlyphTexture(baseColorHex, glyphChar, textColor);
+      overlay.material.map = overlay.texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
     }
-
-    overlay.baseColorHex = baseMaterial.color.getHexString();
-    overlay.material.color.set("#dddddd");
-
-    overlay.texture = this.createGlyphTexture(
-      overlay.baseColorHex,
-      glyphChar,
-      textColor
-    );
-    overlay.material.map = overlay.texture;
-    overlay.material.needsUpdate = true;
 
     if (isWall) {
       mesh.material = [
@@ -661,13 +734,20 @@ class Nethack3DEngine {
         case 2383:
           return "-"; // bottom-right corner
         case 2389:
-          return "+"; // door
+          return "+"; // closed door
         case 2390:
-          return "+"; // open door
+          return "-"; // open horizontal door
+        case 2391:
+          return "|"; // open vertical door
+        case 2392:
+          return "+"; // closed vertical door
         default:
           return "#"; // generic wall
       }
     }
+    if (glyph === 2409) return "|"; // vertical open door
+    if (glyph === 2410) return "-"; // horizontal open door
+    if (glyph === 2411 || glyph === 2412) return "+"; // closed doors
 
     // Player character (broad range to cover all classes/races/genders)
     // NetHack player glyphs are typically in the range 331-360+
@@ -701,6 +781,26 @@ class Nethack3DEngine {
     return "?";
   }
 
+  private isOpenDoorGlyph(glyph: number): boolean {
+    return glyph === 2390 || glyph === 2391 || glyph === 2409 || glyph === 2410;
+  }
+
+  private isClosedDoorGlyph(glyph: number): boolean {
+    return glyph === 2389 || glyph === 2392 || glyph === 2411 || glyph === 2412;
+  }
+
+  private isDarkFloorGlyph(glyph: number): boolean {
+    // NetHack uses this glyph for dark-room floor memory.
+    return glyph === 2398;
+  }
+
+  private getDoorState(glyph: number, char?: string): "open" | "closed" | null {
+    if (this.isOpenDoorGlyph(glyph)) return "open";
+    if (this.isClosedDoorGlyph(glyph)) return "closed";
+    if (char === "+") return "closed";
+    return null;
+  }
+
   private clearScene(): void {
     console.log("🧹 Clearing all tiles and glyph overlays from 3D scene");
 
@@ -715,6 +815,10 @@ class Nethack3DEngine {
       this.disposeGlyphOverlay(overlay);
     });
     this.glyphOverlayMap.clear();
+    this.tileStateCache.clear();
+    this.lastKnownTerrain.clear();
+    this.pendingTileUpdates.clear();
+    this.tileFlushScheduled = false;
 
     console.log("🧹 Scene cleared - ready for new level");
   }
@@ -726,148 +830,84 @@ class Nethack3DEngine {
     char?: string,
     color?: number
   ): void {
-    // Debug logging to see what character data we're receiving
-    console.log(
-      `🎨 updateTile(${x},${y}) glyph=${glyph} char="${char}" color=${color}`
-    );
-
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
 
-    // Check if this is the player glyph and update player position
-    // Use glyph range as the primary indicator (more reliable than character)
-    // Only consider "@" characters that are within the player glyph range
-    const isPlayerGlyph =
-      glyph >= 331 && glyph <= 360 && (char === "@" || !char);
+    const isPlayerGlyph = glyph >= 331 && glyph <= 360 && (char === "@" || !char);
+    if (!isPlayerGlyph) {
+      this.lastKnownTerrain.set(key, { glyph, char, color });
+    }
     if (isPlayerGlyph) {
-      console.log(
-        `🎯 Player detected at position (${x}, ${y}) with glyph ${glyph}, char: "${char}"`
-      );
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
-    // Determine tile type based on character first, then fall back to glyph ID ranges
     let material = this.materials.default;
     let geometry = this.floorGeometry;
     let isWall = false;
 
-    // Prioritize the character provided by NetHack over glyph number
-    // BUT check for special cases first (like doors) where glyph number is more reliable
-    if (char) {
-      console.log(`🔤 Using character-based detection: "${char}"`);
+    const doorState = this.getDoorState(glyph, char);
 
-      // Special case: Check for door glyphs, but respect the character
-      if (glyph === 2389 || glyph === 2390) {
-        // Door glyphs - but the character tells us the actual state
-        if (char === ".") {
-          // Open doorway - character "." means it's passable floor
-          console.log(`  -> Open doorway (glyph ${glyph}, char ".")`);
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-          isWall = false;
-        } else if (char === "+") {
-          // Closed door - character "+" means it's blocking
-          console.log(`  -> Closed door (glyph ${glyph}, char "+")`);
-          material = this.materials.door;
-          geometry = this.wallGeometry;
-          isWall = true;
-        } else {
-          // Other door states - default to open
-          console.log(
-            `  -> Door with character "${char}" - defaulting to open`
-          );
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-          isWall = false;
-        }
-      } else if (char === ".") {
-        // Floor/corridor
-        console.log(`  -> Floor/corridor`);
-        material = this.materials.floor;
-        geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char === " ") {
-        // Blank space - in NetHack this typically represents dark/unseen areas (walls)
-        console.log(`  -> Dark area/unseen wall`);
+    // Trust explicit floor chars from NetHack for pass-through wall openings.
+    if (this.isDarkFloorGlyph(glyph) || char === "#") {
+      material = this.materials.dark;
+      geometry = this.floorGeometry;
+    } else if (char === ".") {
+      material = this.materials.floor;
+      geometry = this.floorGeometry;
+    } else if (doorState === "closed") {
+      material = this.materials.door;
+      geometry = this.wallGeometry;
+      isWall = true;
+    } else if (doorState === "open") {
+      material = this.materials.door;
+      geometry = this.floorGeometry;
+    } else if (char) {
+      if (char === " ") {
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
-      } else if (char === "#") {
-        // In NetHack, # represents dark/unexplored areas (flat floor, not walls)
-        console.log(`  -> Dark area (flat)`);
-        material = this.materials.dark; // Dark blue for unseen areas
-        geometry = this.floorGeometry; // Should be flat, not wall blocks
-        isWall = false;
       } else if (char === "|" || char === "-") {
-        // Explicit wall characters (but not doors, which were checked above)
-        console.log(`  -> Wall`);
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
       } else if (isPlayerGlyph) {
-        // Player character (based on glyph range + "@" char)
-        console.log(`  -> Player`);
         material = this.materials.player;
         geometry = this.floorGeometry;
-        isWall = false;
       } else if (char === "@") {
-        // Non-player "@" character (shopkeeper, NPC, etc.)
-        console.log(`  -> NPC/Shopkeeper`);
-        material = this.materials.monster; // Treat as monster/NPC
-        geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char === "{") {
-        // Water fountain
-        console.log(`  -> Water fountain`);
-        material = this.materials.fountain;
-        geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char.match(/[a-zA-Z]/)) {
-        // Letters are usually monsters
-        console.log(`  -> Monster`);
         material = this.materials.monster;
         geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char.match(/[)(\[%*$?!=/\\<>]/)) {
-        // Items and special characters
-        console.log(`  -> Item`);
+      } else if (char === "{") {
+        material = this.materials.fountain;
+        geometry = this.floorGeometry;
+      } else if (/[a-zA-Z]/.test(char)) {
+        material = this.materials.monster;
+        geometry = this.floorGeometry;
+      } else if (/[)(\[%*$?!=/\\<>]/.test(char)) {
         material = this.materials.item;
         geometry = this.floorGeometry;
-        isWall = false;
       } else {
-        // Default to floor for unknown characters
-        console.log(`  -> Default to floor`);
         material = this.materials.floor;
         geometry = this.floorGeometry;
-        isWall = false;
       }
     } else {
-      console.log(`🔢 Using glyph-based detection: ${glyph}`);
-      // Fall back to glyph ID ranges when no character is provided
       if (glyph >= 2378 && glyph <= 2394) {
-        // Wall glyphs
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
       } else if (glyph >= 2395 && glyph <= 2397) {
-        // Floor glyphs
         material = this.materials.floor;
         geometry = this.floorGeometry;
       } else if (isPlayerGlyph) {
-        // Player glyphs (using broader range)
         material = this.materials.player;
         geometry = this.floorGeometry;
       } else if (glyph >= 400 && glyph <= 500) {
-        // Monster glyphs (approximate range)
         material = this.materials.monster;
         geometry = this.floorGeometry;
       } else if (glyph >= 1900 && glyph <= 2400) {
-        // Item glyphs (approximate range)
         material = this.materials.item;
         geometry = this.floorGeometry;
       } else {
-        // Default floor for unknown glyphs
         material = this.materials.floor;
         geometry = this.floorGeometry;
       }
@@ -876,7 +916,6 @@ class Nethack3DEngine {
     const targetZ = isWall ? WALL_HEIGHT / 2 : 0;
 
     if (!mesh) {
-      // Create a new mesh
       mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
       mesh.castShadow = true;
@@ -884,21 +923,17 @@ class Nethack3DEngine {
       this.scene.add(mesh);
       this.tileMap.set(key, mesh);
     } else {
-      // Update existing mesh
       mesh.geometry = geometry;
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
 
     mesh.userData.isWall = isWall;
 
-    // Paint the glyph directly on the tile texture using the provided character
-    const glyphChar = char || this.glyphToChar(glyph);
-
-    const textColor = "#f4f4f4";
-
-    this.applyGlyphMaterial(key, mesh!, material, glyphChar, textColor, isWall);
+    const glyphChar = this.isDarkFloorGlyph(glyph)
+      ? "."
+      : char || this.glyphToChar(glyph);
+    this.applyGlyphMaterial(key, mesh, material, glyphChar, "#f4f4f4", isWall);
   }
-
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
 
@@ -1462,6 +1497,92 @@ class Nethack3DEngine {
     }
   }
 
+  private showInfoMenuDialog(title: string, lines: string[]): void {
+    let infoDialog = document.getElementById("info-menu-dialog");
+    if (!infoDialog) {
+      infoDialog = document.createElement("div");
+      infoDialog.id = "info-menu-dialog";
+      infoDialog.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.95);
+        color: white;
+        padding: 20px;
+        border: 2px solid #66ccff;
+        border-radius: 10px;
+        z-index: 2000;
+        font-family: 'Courier New', monospace;
+        min-width: 450px;
+        max-width: 680px;
+        max-height: 90vh;
+        overflow-y: auto;
+      `;
+      document.body.appendChild(infoDialog);
+    }
+
+    infoDialog.innerHTML = "";
+
+    const titleEl = document.createElement("div");
+    titleEl.style.cssText = `
+      font-size: 18px;
+      font-weight: bold;
+      color: #66ccff;
+      margin-bottom: 12px;
+      text-align: center;
+      border-bottom: 2px solid #66ccff;
+      padding-bottom: 8px;
+    `;
+    titleEl.textContent = title || "NetHack Information";
+    infoDialog.appendChild(titleEl);
+
+    const body = document.createElement("div");
+    body.style.cssText = `
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      padding: 6px 2px;
+    `;
+    body.textContent = lines && lines.length > 0 ? lines.join("\n") : "(No details)";
+    infoDialog.appendChild(body);
+
+    const hint = document.createElement("div");
+    hint.style.cssText = `
+      font-size: 12px;
+      color: #aaa;
+      text-align: center;
+      margin-top: 12px;
+      border-top: 1px solid #444;
+      padding-top: 10px;
+    `;
+    hint.textContent = "Press ESC to close. Press Ctrl+M to reopen.";
+    infoDialog.appendChild(hint);
+
+    infoDialog.style.display = "block";
+  }
+
+  private hideInfoMenuDialog(): void {
+    const infoDialog = document.getElementById("info-menu-dialog");
+    if (infoDialog) {
+      infoDialog.style.display = "none";
+    }
+  }
+
+  private toggleInfoMenuDialog(): void {
+    const infoDialog = document.getElementById("info-menu-dialog");
+    if (infoDialog && infoDialog.style.display !== "none") {
+      this.hideInfoMenuDialog();
+      return;
+    }
+
+    if (this.lastInfoMenu) {
+      this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+    } else {
+      this.addGameMessage("No recent information panel to reopen.");
+    }
+  }
+
   private showInventoryDialog(): void {
     // Create or get inventory dialog
     let inventoryDialog = document.getElementById("inventory-dialog");
@@ -1984,13 +2105,62 @@ class Nethack3DEngine {
     }
   }
 
+  private getModifiedInput(event: KeyboardEvent): string | null {
+    // NetHack meta commands are represented as ESC + key on the server side.
+    const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
+    if (event.ctrlKey || !hasMetaModifier) {
+      return null;
+    }
+    const normalizedKey = this.getMetaPrimaryKey(event);
+    if (!normalizedKey) {
+      return null;
+    }
+    return `${this.metaInputPrefix}${normalizedKey}`;
+  }
+
+  private getMetaPrimaryKey(event: KeyboardEvent): string | null {
+    if (event.code.startsWith("Key") && event.code.length === 4) {
+      return event.code.slice(3).toLowerCase();
+    }
+    if (event.code.startsWith("Digit") && event.code.length === 6) {
+      return event.code.slice(5);
+    }
+    if (event.key.length === 1) {
+      return event.key.toLowerCase();
+    }
+    return null;
+  }
+
+  private handleKeyUp(event: KeyboardEvent): void {
+    if (event.key === "Alt" || event.key === "Meta") {
+      this.altOrMetaHeld = false;
+    }
+  }
+
+  private handleWindowBlur(): void {
+    this.altOrMetaHeld = false;
+  }
+
   private handleKeyDown(event: KeyboardEvent): void {
+    if (event.key === "Alt" || event.key === "Meta") {
+      this.altOrMetaHeld = true;
+      event.preventDefault();
+      return;
+    }
+
     // Handle escape key to close dialogs
     if (event.key === "Escape") {
       // Check if inventory dialog is open and close it
       const inventoryDialog = document.getElementById("inventory-dialog");
       if (inventoryDialog && inventoryDialog.style.display !== "none") {
         this.hideInventoryDialog();
+        return;
+      }
+
+      // Check if info dialog is open and close it
+      const infoDialog = document.getElementById("info-menu-dialog");
+      if (infoDialog && infoDialog.style.display !== "none") {
+        this.hideInfoMenuDialog();
         return;
       }
 
@@ -2042,12 +2212,25 @@ class Nethack3DEngine {
             `Refreshing tile at (${this.playerPos.x}, ${this.playerPos.y})...`
           );
           return;
+
+        case "m":
+          event.preventDefault();
+          this.toggleInfoMenuDialog();
+          return;
       }
+    }
+
+    const modifiedInput = this.getModifiedInput(event);
+    if (modifiedInput) {
+      event.preventDefault();
+      this.sendInput(modifiedInput);
+      return;
     }
 
     // Handle inventory display (before other key processing)
     if (event.key === "i" || event.key === "I") {
       event.preventDefault();
+      this.hideInfoMenuDialog();
 
       // Check if inventory dialog is already open
       const inventoryDialog = document.getElementById("inventory-dialog");
@@ -2128,14 +2311,7 @@ class Nethack3DEngine {
 
       if (mappedKey) {
         // Send the mapped key instead of the original
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(
-            JSON.stringify({
-              type: "input",
-              input: mappedKey,
-            })
-          );
-        }
+        this.sendInput(mappedKey);
         return;
       }
     }
@@ -2189,10 +2365,23 @@ class Nethack3DEngine {
             keyToSend = event.key;
             break;
 
-          // Space or period for wait (center/5)
+          // Vertical directions and self-direction for target prompts
+          case "<":
+          case ",":
+            keyToSend = "<";
+            break;
+          case ">":
+            keyToSend = ">";
+            break;
+          case "s":
+          case "S":
+            keyToSend = "s";
+            break;
+
+          // Space or period for self/wait direction
           case " ":
           case ".":
-            keyToSend = "5";
+            keyToSend = ".";
             break;
         }
 
@@ -2249,14 +2438,7 @@ class Nethack3DEngine {
     }
 
     // Send input to server for normal gameplay
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: "input",
-          input: event.key,
-        })
-      );
-    }
+    this.sendInput(event.key);
   }
 
   private updateCamera(): void {
@@ -2418,6 +2600,10 @@ const game = new Nethack3DEngine();
   return (game as any).statusDebugHistory;
 };
 
+(window as any).toggleInfoMenu = () => {
+  (game as any).toggleInfoMenuDialog();
+};
+
 console.log("🎮 NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
@@ -2434,5 +2620,6 @@ console.log("  Numpad 5 or Space - Wait/rest");
 console.log("📦 Interface controls:");
 console.log("  'i' - Open/close inventory dialog");
 console.log("  ESC - Close dialogs or cancel actions");
+console.log("  Ctrl+M - Toggle latest information panel");
 
 export default game;

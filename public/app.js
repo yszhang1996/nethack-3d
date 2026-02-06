@@ -6,6 +6,10 @@ var Nethack3DEngine = class {
   constructor() {
     this.tileMap = /* @__PURE__ */ new Map();
     this.glyphOverlayMap = /* @__PURE__ */ new Map();
+    this.tileStateCache = /* @__PURE__ */ new Map();
+    this.lastKnownTerrain = /* @__PURE__ */ new Map();
+    this.pendingTileUpdates = /* @__PURE__ */ new Map();
+    this.tileFlushScheduled = false;
     this.playerPos = { x: 0, y: 0 };
     this.gameMessages = [];
     this.statusDebugHistory = [];
@@ -13,6 +17,7 @@ var Nethack3DEngine = class {
     // Store current inventory items
     this.pendingInventoryDialog = false;
     // Flag to show inventory dialog after update
+    this.lastInfoMenu = null;
     // Player stats tracking
     this.playerStats = {
       name: "Adventurer",
@@ -39,6 +44,8 @@ var Nethack3DEngine = class {
       score: 0
     };
     this.ws = null;
+    this.metaInputPrefix = "__META__:";
+    this.altOrMetaHeld = false;
     // Camera controls
     this.cameraDistance = 20;
     this.cameraPitch = Math.PI / 2 - 0.3;
@@ -106,7 +113,7 @@ var Nethack3DEngine = class {
       this.minCameraPitch,
       this.maxCameraPitch
     );
-    this.cameraYaw = 180;
+    this.cameraYaw = Math.PI;
   }
   initThreeJS() {
     this.scene = new THREE.Scene();
@@ -133,6 +140,8 @@ var Nethack3DEngine = class {
     this.scene.add(directionalLight);
     window.addEventListener("resize", this.onWindowResize.bind(this), false);
     window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
+    window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
+    window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
     window.addEventListener("wheel", this.handleMouseWheel.bind(this), false);
     window.addEventListener(
       "mousedown",
@@ -223,10 +232,14 @@ var Nethack3DEngine = class {
   handleServerMessage(data) {
     switch (data.type) {
       case "map_glyph":
-        if (data.isRefresh) {
-          console.log(`\u{1F504} Processing tile refresh for (${data.x}, ${data.y})`);
+        this.enqueueTileUpdate(data);
+        break;
+      case "map_glyph_batch":
+        if (Array.isArray(data.tiles)) {
+          for (const tile of data.tiles) {
+            this.enqueueTileUpdate(tile);
+          }
         }
-        this.updateTile(data.x, data.y, data.glyph, data.char, data.color);
         break;
       case "player_position":
         console.log(
@@ -253,7 +266,18 @@ var Nethack3DEngine = class {
           this.disposeGlyphOverlay(oldOverlay);
           this.glyphOverlayMap.delete(oldKey);
         }
-        this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+        const oldTerrain = this.lastKnownTerrain.get(oldKey);
+        if (oldTerrain) {
+          this.updateTile(
+            data.oldPosition.x,
+            data.oldPosition.y,
+            oldTerrain.glyph,
+            oldTerrain.char,
+            oldTerrain.color
+          );
+        } else {
+          this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+        }
         this.updateTile(data.newPosition.x, data.newPosition.y, 331, "@", 0);
         console.log(
           `\u{1F3AF} Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`
@@ -309,6 +333,13 @@ var Nethack3DEngine = class {
           this.addGameMessage(`Inventory: ${actualItems.length} items`);
         }
         break;
+      case "info_menu":
+        this.lastInfoMenu = {
+          title: String(data.title || "NetHack Information"),
+          lines: Array.isArray(data.lines) ? data.lines : []
+        };
+        this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+        break;
       case "position_request":
         if (data.text && data.text.trim() && !data.text.includes("cursor") && !data.text.includes("Select a position")) {
           this.showPositionRequest(data.text);
@@ -344,6 +375,35 @@ var Nethack3DEngine = class {
         break;
       default:
         console.log("Unknown message type:", data.type, data);
+    }
+  }
+  enqueueTileUpdate(tile) {
+    if (!tile || typeof tile.x !== "number" || typeof tile.y !== "number") {
+      return;
+    }
+    const key = `${tile.x},${tile.y}`;
+    this.pendingTileUpdates.set(key, tile);
+    if (this.tileFlushScheduled) {
+      return;
+    }
+    this.tileFlushScheduled = true;
+    requestAnimationFrame(() => this.flushPendingTileUpdates());
+  }
+  flushPendingTileUpdates() {
+    this.tileFlushScheduled = false;
+    if (!this.pendingTileUpdates.size) {
+      return;
+    }
+    const updates = Array.from(this.pendingTileUpdates.values());
+    this.pendingTileUpdates.clear();
+    for (const tile of updates) {
+      const key = `${tile.x},${tile.y}`;
+      const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}`;
+      if (this.tileStateCache.get(key) === signature) {
+        continue;
+      }
+      this.tileStateCache.set(key, signature);
+      this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
     }
   }
   /**
@@ -421,7 +481,8 @@ var Nethack3DEngine = class {
       overlay = {
         texture: null,
         material: materialClone,
-        baseColorHex
+        baseColorHex,
+        textureKey: ""
       };
       this.glyphOverlayMap.set(key, overlay);
     }
@@ -456,18 +517,19 @@ var Nethack3DEngine = class {
   }
   applyGlyphMaterial(key, mesh, baseMaterial, glyphChar, textColor, isWall) {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
-    if (overlay.texture) {
-      overlay.texture.dispose();
+    const baseColorHex = baseMaterial.color.getHexString();
+    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}`;
+    if (overlay.textureKey !== textureKey) {
+      if (overlay.texture) {
+        overlay.texture.dispose();
+      }
+      overlay.baseColorHex = baseColorHex;
+      overlay.material.color.set("#dddddd");
+      overlay.texture = this.createGlyphTexture(baseColorHex, glyphChar, textColor);
+      overlay.material.map = overlay.texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
     }
-    overlay.baseColorHex = baseMaterial.color.getHexString();
-    overlay.material.color.set("#dddddd");
-    overlay.texture = this.createGlyphTexture(
-      overlay.baseColorHex,
-      glyphChar,
-      textColor
-    );
-    overlay.material.map = overlay.texture;
-    overlay.material.needsUpdate = true;
     if (isWall) {
       mesh.material = [
         baseMaterial,
@@ -505,14 +567,23 @@ var Nethack3DEngine = class {
         // bottom-right corner
         case 2389:
           return "+";
-        // door
+        // closed door
         case 2390:
+          return "-";
+        // open horizontal door
+        case 2391:
+          return "|";
+        // open vertical door
+        case 2392:
           return "+";
-        // open door
+        // closed vertical door
         default:
           return "#";
       }
     }
+    if (glyph === 2409) return "|";
+    if (glyph === 2410) return "-";
+    if (glyph === 2411 || glyph === 2412) return "+";
     if (glyph >= 331 && glyph <= 360) return "@";
     if (glyph >= 400 && glyph <= 500) {
       if (glyph >= 400 && glyph <= 410) return "d";
@@ -533,6 +604,21 @@ var Nethack3DEngine = class {
     if (glyph === 2223) return "\\";
     return "?";
   }
+  isOpenDoorGlyph(glyph) {
+    return glyph === 2390 || glyph === 2391 || glyph === 2409 || glyph === 2410;
+  }
+  isClosedDoorGlyph(glyph) {
+    return glyph === 2389 || glyph === 2392 || glyph === 2411 || glyph === 2412;
+  }
+  isDarkFloorGlyph(glyph) {
+    return glyph === 2398;
+  }
+  getDoorState(glyph, char) {
+    if (this.isOpenDoorGlyph(glyph)) return "open";
+    if (this.isClosedDoorGlyph(glyph)) return "closed";
+    if (char === "+") return "closed";
+    return null;
+  }
   clearScene() {
     console.log("\u{1F9F9} Clearing all tiles and glyph overlays from 3D scene");
     this.tileMap.forEach((mesh, key) => {
@@ -543,99 +629,69 @@ var Nethack3DEngine = class {
       this.disposeGlyphOverlay(overlay);
     });
     this.glyphOverlayMap.clear();
+    this.tileStateCache.clear();
+    this.lastKnownTerrain.clear();
+    this.pendingTileUpdates.clear();
+    this.tileFlushScheduled = false;
     console.log("\u{1F9F9} Scene cleared - ready for new level");
   }
   updateTile(x, y, glyph, char, color) {
-    console.log(
-      `\u{1F3A8} updateTile(${x},${y}) glyph=${glyph} char="${char}" color=${color}`
-    );
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
     const isPlayerGlyph = glyph >= 331 && glyph <= 360 && (char === "@" || !char);
+    if (!isPlayerGlyph) {
+      this.lastKnownTerrain.set(key, { glyph, char, color });
+    }
     if (isPlayerGlyph) {
-      console.log(
-        `\u{1F3AF} Player detected at position (${x}, ${y}) with glyph ${glyph}, char: "${char}"`
-      );
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
     let material = this.materials.default;
     let geometry = this.floorGeometry;
     let isWall = false;
-    if (char) {
-      console.log(`\u{1F524} Using character-based detection: "${char}"`);
-      if (glyph === 2389 || glyph === 2390) {
-        if (char === ".") {
-          console.log(`  -> Open doorway (glyph ${glyph}, char ".")`);
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-          isWall = false;
-        } else if (char === "+") {
-          console.log(`  -> Closed door (glyph ${glyph}, char "+")`);
-          material = this.materials.door;
-          geometry = this.wallGeometry;
-          isWall = true;
-        } else {
-          console.log(
-            `  -> Door with character "${char}" - defaulting to open`
-          );
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-          isWall = false;
-        }
-      } else if (char === ".") {
-        console.log(`  -> Floor/corridor`);
-        material = this.materials.floor;
-        geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char === " ") {
-        console.log(`  -> Dark area/unseen wall`);
+    const doorState = this.getDoorState(glyph, char);
+    if (this.isDarkFloorGlyph(glyph) || char === "#") {
+      material = this.materials.dark;
+      geometry = this.floorGeometry;
+    } else if (char === ".") {
+      material = this.materials.floor;
+      geometry = this.floorGeometry;
+    } else if (doorState === "closed") {
+      material = this.materials.door;
+      geometry = this.wallGeometry;
+      isWall = true;
+    } else if (doorState === "open") {
+      material = this.materials.door;
+      geometry = this.floorGeometry;
+    } else if (char) {
+      if (char === " ") {
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
-      } else if (char === "#") {
-        console.log(`  -> Dark area (flat)`);
-        material = this.materials.dark;
-        geometry = this.floorGeometry;
-        isWall = false;
       } else if (char === "|" || char === "-") {
-        console.log(`  -> Wall`);
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
       } else if (isPlayerGlyph) {
-        console.log(`  -> Player`);
         material = this.materials.player;
         geometry = this.floorGeometry;
-        isWall = false;
       } else if (char === "@") {
-        console.log(`  -> NPC/Shopkeeper`);
         material = this.materials.monster;
         geometry = this.floorGeometry;
-        isWall = false;
       } else if (char === "{") {
-        console.log(`  -> Water fountain`);
         material = this.materials.fountain;
         geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char.match(/[a-zA-Z]/)) {
-        console.log(`  -> Monster`);
+      } else if (/[a-zA-Z]/.test(char)) {
         material = this.materials.monster;
         geometry = this.floorGeometry;
-        isWall = false;
-      } else if (char.match(/[)(\[%*$?!=/\\<>]/)) {
-        console.log(`  -> Item`);
+      } else if (/[)(\[%*$?!=/\\<>]/.test(char)) {
         material = this.materials.item;
         geometry = this.floorGeometry;
-        isWall = false;
       } else {
-        console.log(`  -> Default to floor`);
         material = this.materials.floor;
         geometry = this.floorGeometry;
-        isWall = false;
       }
     } else {
-      console.log(`\u{1F522} Using glyph-based detection: ${glyph}`);
       if (glyph >= 2378 && glyph <= 2394) {
         material = this.materials.wall;
         geometry = this.wallGeometry;
@@ -670,9 +726,8 @@ var Nethack3DEngine = class {
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
     mesh.userData.isWall = isWall;
-    const glyphChar = char || this.glyphToChar(glyph);
-    const textColor = "#f4f4f4";
-    this.applyGlyphMaterial(key, mesh, material, glyphChar, textColor, isWall);
+    const glyphChar = this.isDarkFloorGlyph(glyph) ? "." : char || this.glyphToChar(glyph);
+    this.applyGlyphMaterial(key, mesh, material, glyphChar, "#f4f4f4", isWall);
   }
   addGameMessage(message) {
     if (!message || message.trim() === "") return;
@@ -1128,6 +1183,83 @@ var Nethack3DEngine = class {
       directionDialog.style.display = "none";
     }
   }
+  showInfoMenuDialog(title, lines) {
+    let infoDialog = document.getElementById("info-menu-dialog");
+    if (!infoDialog) {
+      infoDialog = document.createElement("div");
+      infoDialog.id = "info-menu-dialog";
+      infoDialog.style.cssText = `
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: rgba(0, 0, 0, 0.95);
+        color: white;
+        padding: 20px;
+        border: 2px solid #66ccff;
+        border-radius: 10px;
+        z-index: 2000;
+        font-family: 'Courier New', monospace;
+        min-width: 450px;
+        max-width: 680px;
+        max-height: 90vh;
+        overflow-y: auto;
+      `;
+      document.body.appendChild(infoDialog);
+    }
+    infoDialog.innerHTML = "";
+    const titleEl = document.createElement("div");
+    titleEl.style.cssText = `
+      font-size: 18px;
+      font-weight: bold;
+      color: #66ccff;
+      margin-bottom: 12px;
+      text-align: center;
+      border-bottom: 2px solid #66ccff;
+      padding-bottom: 8px;
+    `;
+    titleEl.textContent = title || "NetHack Information";
+    infoDialog.appendChild(titleEl);
+    const body = document.createElement("div");
+    body.style.cssText = `
+      font-size: 13px;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      padding: 6px 2px;
+    `;
+    body.textContent = lines && lines.length > 0 ? lines.join("\n") : "(No details)";
+    infoDialog.appendChild(body);
+    const hint = document.createElement("div");
+    hint.style.cssText = `
+      font-size: 12px;
+      color: #aaa;
+      text-align: center;
+      margin-top: 12px;
+      border-top: 1px solid #444;
+      padding-top: 10px;
+    `;
+    hint.textContent = "Press ESC to close. Press Ctrl+M to reopen.";
+    infoDialog.appendChild(hint);
+    infoDialog.style.display = "block";
+  }
+  hideInfoMenuDialog() {
+    const infoDialog = document.getElementById("info-menu-dialog");
+    if (infoDialog) {
+      infoDialog.style.display = "none";
+    }
+  }
+  toggleInfoMenuDialog() {
+    const infoDialog = document.getElementById("info-menu-dialog");
+    if (infoDialog && infoDialog.style.display !== "none") {
+      this.hideInfoMenuDialog();
+      return;
+    }
+    if (this.lastInfoMenu) {
+      this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+    } else {
+      this.addGameMessage("No recent information panel to reopen.");
+    }
+  }
   showInventoryDialog() {
     let inventoryDialog = document.getElementById("inventory-dialog");
     if (!inventoryDialog) {
@@ -1548,11 +1680,52 @@ var Nethack3DEngine = class {
       );
     }
   }
+  getModifiedInput(event) {
+    const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
+    if (event.ctrlKey || !hasMetaModifier) {
+      return null;
+    }
+    const normalizedKey = this.getMetaPrimaryKey(event);
+    if (!normalizedKey) {
+      return null;
+    }
+    return `${this.metaInputPrefix}${normalizedKey}`;
+  }
+  getMetaPrimaryKey(event) {
+    if (event.code.startsWith("Key") && event.code.length === 4) {
+      return event.code.slice(3).toLowerCase();
+    }
+    if (event.code.startsWith("Digit") && event.code.length === 6) {
+      return event.code.slice(5);
+    }
+    if (event.key.length === 1) {
+      return event.key.toLowerCase();
+    }
+    return null;
+  }
+  handleKeyUp(event) {
+    if (event.key === "Alt" || event.key === "Meta") {
+      this.altOrMetaHeld = false;
+    }
+  }
+  handleWindowBlur() {
+    this.altOrMetaHeld = false;
+  }
   handleKeyDown(event) {
+    if (event.key === "Alt" || event.key === "Meta") {
+      this.altOrMetaHeld = true;
+      event.preventDefault();
+      return;
+    }
     if (event.key === "Escape") {
       const inventoryDialog = document.getElementById("inventory-dialog");
       if (inventoryDialog && inventoryDialog.style.display !== "none") {
         this.hideInventoryDialog();
+        return;
+      }
+      const infoDialog = document.getElementById("info-menu-dialog");
+      if (infoDialog && infoDialog.style.display !== "none") {
+        this.hideInfoMenuDialog();
         return;
       }
       if (this.isInQuestion || this.isInDirectionQuestion) {
@@ -1593,10 +1766,21 @@ var Nethack3DEngine = class {
             `Refreshing tile at (${this.playerPos.x}, ${this.playerPos.y})...`
           );
           return;
+        case "m":
+          event.preventDefault();
+          this.toggleInfoMenuDialog();
+          return;
       }
+    }
+    const modifiedInput = this.getModifiedInput(event);
+    if (modifiedInput) {
+      event.preventDefault();
+      this.sendInput(modifiedInput);
+      return;
     }
     if (event.key === "i" || event.key === "I") {
       event.preventDefault();
+      this.hideInfoMenuDialog();
       const inventoryDialog = document.getElementById("inventory-dialog");
       if (inventoryDialog && inventoryDialog.style.display !== "none") {
         console.log("\u{1F4E6} Closing inventory dialog");
@@ -1662,14 +1846,7 @@ var Nethack3DEngine = class {
           break;
       }
       if (mappedKey) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-          this.ws.send(
-            JSON.stringify({
-              type: "input",
-              input: mappedKey
-            })
-          );
-        }
+        this.sendInput(mappedKey);
         return;
       }
     }
@@ -1723,10 +1900,22 @@ var Nethack3DEngine = class {
           case "9":
             keyToSend = event.key;
             break;
-          // Space or period for wait (center/5)
+          // Vertical directions and self-direction for target prompts
+          case "<":
+          case ",":
+            keyToSend = "<";
+            break;
+          case ">":
+            keyToSend = ">";
+            break;
+          case "s":
+          case "S":
+            keyToSend = "s";
+            break;
+          // Space or period for self/wait direction
           case " ":
           case ".":
-            keyToSend = "5";
+            keyToSend = ".";
             break;
         }
         if (keyToSend) {
@@ -1767,14 +1956,7 @@ var Nethack3DEngine = class {
       }
       return;
     }
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: "input",
-          input: event.key
-        })
-      );
-    }
+    this.sendInput(event.key);
   }
   updateCamera() {
     const { x, y } = this.playerPos;
@@ -1886,6 +2068,9 @@ window.refreshPlayerArea = (radius = 5) => {
 window.dumpStatusDebug = () => {
   return game.statusDebugHistory;
 };
+window.toggleInfoMenu = () => {
+  game.toggleInfoMenuDialog();
+};
 console.log("\u{1F3AE} NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
@@ -1902,6 +2087,7 @@ console.log("  Numpad 5 or Space - Wait/rest");
 console.log("\u{1F4E6} Interface controls:");
 console.log("  'i' - Open/close inventory dialog");
 console.log("  ESC - Close dialogs or cancel actions");
+console.log("  Ctrl+M - Toggle latest information panel");
 var app_default = game;
 export {
   app_default as default
