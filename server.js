@@ -258,6 +258,33 @@ class NetHackSession {
     this.latestInput = input;
     this.lastInputTime = Date.now();
 
+    // Track single-selection menu inputs (e.g., container loot ':' option).
+    if (
+      !this.isInMultiPickup &&
+      this.waitingForInput &&
+      typeof input === "string" &&
+      input.length === 1 &&
+      Array.isArray(this.currentMenuItems) &&
+      this.currentMenuItems.length > 0
+    ) {
+      const menuItem = this.currentMenuItems.find(
+        (item) => item.accelerator === input && !item.isCategory,
+      );
+      if (menuItem) {
+        this.menuSelections.clear();
+        this.menuSelections.set(input, {
+          menuChar: input,
+          originalAccelerator: menuItem.originalAccelerator,
+          identifier: menuItem.identifier,
+          menuIndex: menuItem.menuIndex,
+          text: menuItem.text,
+        });
+        console.log(
+          `📋 Recorded single menu selection: ${input} (${menuItem.text})`,
+        );
+      }
+    }
+
     // Track multi-pickup selections
     if (
       this.isInMultiPickup &&
@@ -594,6 +621,16 @@ class NetHackSession {
     this.queuedEventInputs.push(input);
     console.log(
       `Queued event-only input: ${input} (queue size=${this.queuedEventInputs.length})`,
+    );
+  }
+
+  enqueueRawKeyCode(code) {
+    if (typeof code !== "number") {
+      return;
+    }
+    this.queuedRawKeyCodes.push(code);
+    console.log(
+      `Queued raw keycode: ${code} (queue size=${this.queuedRawKeyCodes.length})`,
     );
   }
 

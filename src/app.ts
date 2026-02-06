@@ -677,7 +677,8 @@ class Nethack3DEngine {
     baseMaterial: THREE.MeshLambertMaterial,
     glyphChar: string,
     textColor: string,
-    isWall: boolean
+    isWall: boolean,
+    darkenFactor: number = 1
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
@@ -689,12 +690,20 @@ class Nethack3DEngine {
       }
 
       overlay.baseColorHex = baseColorHex;
-      overlay.material.color.set("#dddddd");
-      overlay.texture = this.createGlyphTexture(baseColorHex, glyphChar, textColor);
+      overlay.material.color.set("#ffffff");
+      overlay.texture = this.createGlyphTexture(
+        baseColorHex,
+        glyphChar,
+        textColor
+      );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
       overlay.textureKey = textureKey;
     }
+
+    // Dynamic tile darkening modifier (keeps base texture/material identity).
+    const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
+    overlay.material.color.setScalar(clampedDarken);
 
     if (isWall) {
       mesh.material = [
@@ -789,9 +798,13 @@ class Nethack3DEngine {
     return glyph === 2389 || glyph === 2392 || glyph === 2411 || glyph === 2412;
   }
 
-  private isDarkFloorGlyph(glyph: number): boolean {
-    // NetHack uses this glyph for dark-room floor memory.
-    return glyph === 2398;
+  private isStructuralWallGlyph(glyph: number): boolean {
+    return glyph >= 2378 && glyph <= 2394;
+  }
+
+  private isDarkOverlayGlyph(glyph: number): boolean {
+    // Dark-memory/occluded glyphs in room and hallway contexts.
+    return glyph === 2397 || glyph === 2398 || glyph === 2377;
   }
 
   private getDoorState(glyph: number, char?: string): "open" | "closed" | null {
@@ -834,6 +847,7 @@ class Nethack3DEngine {
     let mesh = this.tileMap.get(key);
 
     const isPlayerGlyph = glyph >= 331 && glyph <= 360 && (char === "@" || !char);
+    const isDarkOverlay = this.isDarkOverlayGlyph(glyph);
     if (!isPlayerGlyph) {
       this.lastKnownTerrain.set(key, { glyph, char, color });
     }
@@ -845,14 +859,25 @@ class Nethack3DEngine {
     let material = this.materials.default;
     let geometry = this.floorGeometry;
     let isWall = false;
+    let darkenFactor = 1;
 
-    const doorState = this.getDoorState(glyph, char);
+    let effectiveGlyph = glyph;
+    let effectiveChar = char;
+    let effectiveColor = color;
+    if (isDarkOverlay) {
+      const priorTerrain = this.lastKnownTerrain.get(key);
+      if (priorTerrain) {
+        effectiveGlyph = priorTerrain.glyph;
+        effectiveChar = priorTerrain.char;
+        effectiveColor = priorTerrain.color;
+      }
+      darkenFactor = glyph === 2398 ? 0.45 : 0.6;
+    }
+
+    const doorState = this.getDoorState(effectiveGlyph, effectiveChar);
 
     // Trust explicit floor chars from NetHack for pass-through wall openings.
-    if (this.isDarkFloorGlyph(glyph) || char === "#") {
-      material = this.materials.dark;
-      geometry = this.floorGeometry;
-    } else if (char === ".") {
+    if (effectiveChar === ".") {
       material = this.materials.floor;
       geometry = this.floorGeometry;
     } else if (doorState === "closed") {
@@ -862,28 +887,44 @@ class Nethack3DEngine {
     } else if (doorState === "open") {
       material = this.materials.door;
       geometry = this.floorGeometry;
-    } else if (char) {
-      if (char === " ") {
-        material = this.materials.wall;
-        geometry = this.wallGeometry;
-        isWall = true;
-      } else if (char === "|" || char === "-") {
-        material = this.materials.wall;
-        geometry = this.wallGeometry;
-        isWall = true;
+    } else if (effectiveChar) {
+      if (effectiveChar === " ") {
+        if (isDarkOverlay && glyph === 2397) {
+          material = this.materials.floor;
+          geometry = this.floorGeometry;
+        } else {
+          material = this.materials.wall;
+          geometry = this.wallGeometry;
+          isWall = true;
+        }
+      } else if (effectiveChar === "#") {
+        // Generic '#' terrain (e.g., corridor/sink map chars) is walkable floor.
+        material =
+          isDarkOverlay && glyph === 2398 ? this.materials.dark : this.materials.floor;
+        geometry = this.floorGeometry;
+      } else if (effectiveChar === "|" || effectiveChar === "-") {
+        if (this.isStructuralWallGlyph(effectiveGlyph)) {
+          material = this.materials.wall;
+          geometry = this.wallGeometry;
+          isWall = true;
+        } else {
+          // Some walkable terrain (e.g., headstones) uses '|' but is not a wall block.
+          material = this.materials.floor;
+          geometry = this.floorGeometry;
+        }
       } else if (isPlayerGlyph) {
         material = this.materials.player;
         geometry = this.floorGeometry;
-      } else if (char === "@") {
+      } else if (effectiveChar === "@") {
         material = this.materials.monster;
         geometry = this.floorGeometry;
-      } else if (char === "{") {
+      } else if (effectiveChar === "{") {
         material = this.materials.fountain;
         geometry = this.floorGeometry;
-      } else if (/[a-zA-Z]/.test(char)) {
+      } else if (/[a-zA-Z:;&'"]/.test(effectiveChar)) {
         material = this.materials.monster;
         geometry = this.floorGeometry;
-      } else if (/[)(\[%*$?!=/\\<>]/.test(char)) {
+      } else if (/[)(\[%*$?!=/\\<>]/.test(effectiveChar)) {
         material = this.materials.item;
         geometry = this.floorGeometry;
       } else {
@@ -891,20 +932,20 @@ class Nethack3DEngine {
         geometry = this.floorGeometry;
       }
     } else {
-      if (glyph >= 2378 && glyph <= 2394) {
+      if (effectiveGlyph >= 2378 && effectiveGlyph <= 2394) {
         material = this.materials.wall;
         geometry = this.wallGeometry;
         isWall = true;
-      } else if (glyph >= 2395 && glyph <= 2397) {
+      } else if (effectiveGlyph >= 2395 && effectiveGlyph <= 2397) {
         material = this.materials.floor;
         geometry = this.floorGeometry;
       } else if (isPlayerGlyph) {
         material = this.materials.player;
         geometry = this.floorGeometry;
-      } else if (glyph >= 400 && glyph <= 500) {
+      } else if (effectiveGlyph >= 400 && effectiveGlyph <= 500) {
         material = this.materials.monster;
         geometry = this.floorGeometry;
-      } else if (glyph >= 1900 && glyph <= 2400) {
+      } else if (effectiveGlyph >= 1900 && effectiveGlyph <= 2400) {
         material = this.materials.item;
         geometry = this.floorGeometry;
       } else {
@@ -929,10 +970,18 @@ class Nethack3DEngine {
 
     mesh.userData.isWall = isWall;
 
-    const glyphChar = this.isDarkFloorGlyph(glyph)
-      ? "."
-      : char || this.glyphToChar(glyph);
-    this.applyGlyphMaterial(key, mesh, material, glyphChar, "#f4f4f4", isWall);
+    const glyphChar = isDarkOverlay
+      ? char || this.glyphToChar(glyph)
+      : effectiveChar || this.glyphToChar(effectiveGlyph);
+    this.applyGlyphMaterial(
+      key,
+      mesh,
+      material,
+      glyphChar,
+      "#f4f4f4",
+      isWall,
+      darkenFactor
+    );
   }
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
