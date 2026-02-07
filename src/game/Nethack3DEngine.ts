@@ -2073,7 +2073,15 @@ class Nethack3DEngine {
   private getModifiedInput(event: KeyboardEvent): string | null {
     // NetHack meta commands are represented as ESC + key in the runtime bridge.
     const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
-    if (event.ctrlKey || !hasMetaModifier) {
+    if (!hasMetaModifier) {
+      return null;
+    }
+    if (
+      event.key === "Alt" ||
+      event.key === "Meta" ||
+      event.key === "Control" ||
+      event.key === "Shift"
+    ) {
       return null;
     }
     const normalizedKey = this.getMetaPrimaryKey(event);
@@ -2167,6 +2175,13 @@ class Nethack3DEngine {
       return;
     }
 
+    const modifiedInput = this.getModifiedInput(event);
+    if (modifiedInput) {
+      event.preventDefault();
+      this.sendInput(modifiedInput);
+      return;
+    }
+
     // Handle tile refresh shortcuts (Ctrl + key combinations)
     if (event.ctrlKey) {
       switch (event.key.toLowerCase()) {
@@ -2202,13 +2217,6 @@ class Nethack3DEngine {
           this.toggleInfoMenuDialog();
           return;
       }
-    }
-
-    const modifiedInput = this.getModifiedInput(event);
-    if (modifiedInput) {
-      event.preventDefault();
-      this.sendInput(modifiedInput);
-      return;
     }
 
     // Handle inventory display only during normal gameplay.
@@ -2579,4 +2587,5 @@ class Nethack3DEngine {
 }
 
 export default Nethack3DEngine;
+
 

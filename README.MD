@@ -1,5 +1,7 @@
 # NetHack 3D
 
+# Play here: https://jamesiv4.github.io/nethack-3d/
+
 ## Run
 
 1. `npm i`
@@ -17,6 +19,7 @@
 4. Push to `main` (or run the workflow manually).
 
 The workflow builds the app and deploys the `public/` folder, including:
+
 - `app.js`
 - `runtime-worker.js`
 - `nethack.js`

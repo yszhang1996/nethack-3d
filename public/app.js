@@ -1748,7 +1748,10 @@ var Nethack3DEngine = class {
   }
   getModifiedInput(event) {
     const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
-    if (event.ctrlKey || !hasMetaModifier) {
+    if (!hasMetaModifier) {
+      return null;
+    }
+    if (event.key === "Alt" || event.key === "Meta" || event.key === "Control" || event.key === "Shift") {
       return null;
     }
     const normalizedKey = this.getMetaPrimaryKey(event);
@@ -1817,6 +1820,12 @@ var Nethack3DEngine = class {
       this.isInDirectionQuestion = false;
       return;
     }
+    const modifiedInput = this.getModifiedInput(event);
+    if (modifiedInput) {
+      event.preventDefault();
+      this.sendInput(modifiedInput);
+      return;
+    }
     if (event.ctrlKey) {
       switch (event.key.toLowerCase()) {
         case "r":
@@ -1846,12 +1855,6 @@ var Nethack3DEngine = class {
           this.toggleInfoMenuDialog();
           return;
       }
-    }
-    const modifiedInput = this.getModifiedInput(event);
-    if (modifiedInput) {
-      event.preventDefault();
-      this.sendInput(modifiedInput);
-      return;
     }
     if ((event.key === "i" || event.key === "I") && !this.isInQuestion && !this.isInDirectionQuestion) {
       event.preventDefault();
