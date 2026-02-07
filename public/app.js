@@ -81,6 +81,48 @@ var WorkerRuntimeBridge = class {
 var TILE_SIZE = 1;
 var WALL_HEIGHT = 1;
 
+// src/game/glyphs/overrides.ts
+var glyphOverrides = /* @__PURE__ */ new Map();
+var kindOverrides = /* @__PURE__ */ new Map();
+function setGlyphOverride(glyph, override) {
+  glyphOverrides.set(glyph, { ...override });
+}
+function clearGlyphOverride(glyph) {
+  glyphOverrides.delete(glyph);
+}
+function setGlyphKindOverride(kind, override) {
+  kindOverrides.set(kind, { ...override });
+}
+function clearGlyphKindOverride(kind) {
+  kindOverrides.delete(kind);
+}
+function getMergedGlyphOverride(glyph, kind) {
+  const byKind = kindOverrides.get(kind);
+  const byGlyph = glyphOverrides.get(glyph);
+  if (!byKind && !byGlyph) {
+    return null;
+  }
+  return {
+    ...byKind || {},
+    ...byGlyph || {}
+  };
+}
+function clearAllGlyphOverrides() {
+  glyphOverrides.clear();
+  kindOverrides.clear();
+}
+function getAllGlyphOverrides() {
+  const byGlyph = {};
+  const byKind = {};
+  for (const [glyph, override] of glyphOverrides.entries()) {
+    byGlyph[glyph] = { ...override };
+  }
+  for (const [kind, override] of kindOverrides.entries()) {
+    byKind[kind] = { ...override };
+  }
+  return { byGlyph, byKind };
+}
+
 // src/game/glyphs/glyph-catalog.generated.ts
 var GLYPH_CATALOG = [
   { glyph: 0, kind: "mon", ch: 97, color: 8, special: 0 },
@@ -6158,23 +6200,55 @@ function resolveGlyph(glyph, runtimeChar, runtimeColor) {
 // src/game/glyphs/behavior.ts
 var PLAYER_GLYPH_MIN = 331;
 var PLAYER_GLYPH_MAX = 360;
-var OPEN_DOOR_GLYPHS = /* @__PURE__ */ new Set([2390, 2391, 2409, 2410]);
-var CLOSED_DOOR_GLYPHS = /* @__PURE__ */ new Set([2389, 2392, 2411, 2412]);
 var DARK_OVERLAY_GLYPHS = /* @__PURE__ */ new Set([2377, 2397, 2398]);
+var CMAP_SEMANTICS = {};
+function setCmapSemanticRange(start, endInclusive, semantic) {
+  for (let glyph = start; glyph <= endInclusive; glyph++) {
+    CMAP_SEMANTICS[glyph] = semantic;
+  }
+}
+setCmapSemanticRange(2378, 2388, "wall");
+setCmapSemanticRange(2419, 2440, "trap");
+setCmapSemanticRange(2442, 2463, "feature");
+Object.assign(CMAP_SEMANTICS, {
+  2377: "dark_wall",
+  2389: "door_closed",
+  2390: "door_open",
+  2391: "door_open",
+  2392: "door_closed",
+  2393: "door_closed",
+  2394: "wall",
+  2395: "wall",
+  2396: "floor",
+  2397: "dark_floor",
+  2398: "dark_floor",
+  2399: "floor",
+  2400: "stairs_up",
+  2401: "stairs_down",
+  2402: "stairs_up",
+  2403: "stairs_down",
+  2404: "feature",
+  2405: "feature",
+  2406: "feature",
+  2407: "floor",
+  2408: "fountain",
+  2409: "door_open",
+  2410: "door_open",
+  2411: "door_closed",
+  2412: "door_closed",
+  2413: "floor",
+  2414: "floor",
+  2415: "floor",
+  2416: "wall",
+  2417: "floor",
+  2418: "feature",
+  2441: "water"
+});
 function isPlayerGlyph(glyph, runtimeChar) {
   if (glyph < PLAYER_GLYPH_MIN || glyph > PLAYER_GLYPH_MAX) {
     return false;
   }
   return runtimeChar === "@" || !runtimeChar;
-}
-function isStructuralWallGlyph(glyph) {
-  return glyph >= 2378 && glyph <= 2394;
-}
-function getDoorState(glyph, char) {
-  if (OPEN_DOOR_GLYPHS.has(glyph)) return "open";
-  if (CLOSED_DOOR_GLYPHS.has(glyph)) return "closed";
-  if (char === "+") return "closed";
-  return null;
 }
 function fallbackGlyphChar(glyph, resolved) {
   if (resolved.char && resolved.char.length > 0) {
@@ -6182,14 +6256,252 @@ function fallbackGlyphChar(glyph, resolved) {
   }
   return glyph >= 0 ? "?" : " ";
 }
+function inferDisposition(effective, isPlayer) {
+  if (isPlayer) {
+    return "friendly";
+  }
+  switch (effective.kind) {
+    case "pet":
+    case "ridden":
+      return "friendly";
+    case "mon":
+    case "warning":
+    case "explode":
+    case "zap":
+    case "swallow":
+      return "hostile";
+    case "detect":
+    case "statue":
+    case "invis":
+      return "neutral";
+    default:
+      return "unknown";
+  }
+}
+function textColorFor(disposition, effective, effectKind) {
+  if (effectKind === "warning") return "#FFF9E8";
+  if (effectKind === "zap") return "#F3FBFF";
+  if (effectKind === "explode") return "#FFF4EC";
+  if (effectKind === "swallow") return "#FAF2FF";
+  switch (effective.kind) {
+    case "obj":
+    case "body":
+      return "#FFF7D6";
+    case "cmap":
+      return "#F4F4F4";
+    case "unexplored":
+    case "nothing":
+      return "#D9DDE8";
+    default:
+      break;
+  }
+  switch (disposition) {
+    case "friendly":
+      return "#F7FFF9";
+    case "hostile":
+      return "#FFF5F5";
+    case "neutral":
+      return "#F3F8FF";
+    default:
+      return "#F4F4F4";
+  }
+}
+function applyCmapSemantic(semantic) {
+  switch (semantic) {
+    case "wall":
+      return {
+        materialKind: "wall",
+        geometryKind: "wall",
+        isWall: true,
+        effectKind: null
+      };
+    case "dark_wall":
+      return {
+        materialKind: "dark_wall",
+        geometryKind: "wall",
+        isWall: true,
+        effectKind: null
+      };
+    case "door_closed":
+      return {
+        materialKind: "door",
+        geometryKind: "wall",
+        isWall: true,
+        effectKind: null
+      };
+    case "door_open":
+      return {
+        materialKind: "door",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "stairs_up":
+      return {
+        materialKind: "stairs_up",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "stairs_down":
+      return {
+        materialKind: "stairs_down",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "floor":
+      return {
+        materialKind: "floor",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "dark_floor":
+      return {
+        materialKind: "dark",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "fountain":
+      return {
+        materialKind: "fountain",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "water":
+      return {
+        materialKind: "water",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "trap":
+      return {
+        materialKind: "trap",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "feature":
+    default:
+      return {
+        materialKind: "feature",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+  }
+}
+function baseMaterialForDisposition(disposition) {
+  switch (disposition) {
+    case "friendly":
+      return "monster_friendly";
+    case "hostile":
+      return "monster_hostile";
+    case "neutral":
+      return "monster_neutral";
+    default:
+      return "monster_hostile";
+  }
+}
+function classifyByKind(effective, isPlayer) {
+  if (isPlayer) {
+    return {
+      materialKind: "player",
+      geometryKind: "floor",
+      isWall: false,
+      effectKind: null
+    };
+  }
+  switch (effective.kind) {
+    case "cmap": {
+      const semantic = CMAP_SEMANTICS[effective.glyph] || "feature";
+      return applyCmapSemantic(semantic);
+    }
+    case "obj":
+    case "body":
+      return {
+        materialKind: "item",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "warning":
+      return {
+        materialKind: "effect_warning",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: "warning"
+      };
+    case "zap":
+      return {
+        materialKind: "effect_zap",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: "zap"
+      };
+    case "explode":
+      return {
+        materialKind: "effect_explode",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: "explode"
+      };
+    case "swallow":
+      return {
+        materialKind: "effect_swallow",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: "swallow"
+      };
+    case "unexplored":
+    case "nothing":
+      return {
+        materialKind: "dark",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "statue":
+      return {
+        materialKind: "monster_neutral",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    case "mon":
+    case "pet":
+    case "detect":
+    case "ridden":
+    case "invis":
+      return {
+        materialKind: baseMaterialForDisposition(inferDisposition(effective, false)),
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+    default:
+      return {
+        materialKind: "default",
+        geometryKind: "floor",
+        isWall: false,
+        effectKind: null
+      };
+  }
+}
 function classifyTileBehavior(input) {
   const runtimeChar = typeof input.runtimeChar === "string" && input.runtimeChar.length > 0 ? input.runtimeChar.charAt(0) : null;
   const resolved = resolveGlyph(input.glyph, runtimeChar, input.runtimeColor);
-  const darkOverlay = DARK_OVERLAY_GLYPHS.has(input.glyph);
-  const playerGlyph = isPlayerGlyph(input.glyph, runtimeChar);
+  const resolvedCmapSemantic = resolved.kind === "cmap" ? CMAP_SEMANTICS[resolved.glyph] ?? null : null;
+  const isDeterministicDarkCmap = resolvedCmapSemantic === "dark_floor" || resolvedCmapSemantic === "dark_wall";
+  const isDarkOverlay = DARK_OVERLAY_GLYPHS.has(input.glyph) || resolved.kind === "unexplored" || resolved.kind === "nothing";
+  const isPlayer = isPlayerGlyph(input.glyph, runtimeChar);
   let effective = resolved;
   let darkenFactor = 1;
-  if (darkOverlay) {
+  if (isDarkOverlay && !isDeterministicDarkCmap) {
     if (input.priorTerrain) {
       effective = resolveGlyph(
         input.priorTerrain.glyph,
@@ -6199,95 +6511,62 @@ function classifyTileBehavior(input) {
     }
     darkenFactor = input.glyph === 2398 ? 0.45 : 0.6;
   }
-  const effectiveChar = effective.char;
-  const doorState = getDoorState(effective.glyph, effectiveChar);
-  let materialKind = "default";
-  let geometryKind = "floor";
-  let isWall = false;
-  if (effectiveChar === ".") {
-    materialKind = "floor";
-    geometryKind = "floor";
-  } else if (doorState === "closed") {
-    materialKind = "door";
-    geometryKind = "wall";
-    isWall = true;
-  } else if (doorState === "open") {
-    materialKind = "door";
-    geometryKind = "floor";
-  } else if (effectiveChar) {
-    if (effectiveChar === " ") {
-      if (darkOverlay && input.glyph === 2397) {
-        materialKind = "floor";
-        geometryKind = "floor";
-      } else {
-        materialKind = "wall";
-        geometryKind = "wall";
-        isWall = true;
-      }
-    } else if (effectiveChar === "#") {
-      materialKind = darkOverlay && input.glyph === 2398 ? "dark" : "floor";
-      geometryKind = "floor";
-    } else if (effectiveChar === "|" || effectiveChar === "-") {
-      if (isStructuralWallGlyph(effective.glyph)) {
-        materialKind = "wall";
-        geometryKind = "wall";
-        isWall = true;
-      } else {
-        materialKind = "floor";
-        geometryKind = "floor";
-      }
-    } else if (playerGlyph) {
-      materialKind = "player";
-      geometryKind = "floor";
-    } else if (effectiveChar === "@") {
-      materialKind = "monster";
-      geometryKind = "floor";
-    } else if (effectiveChar === "{") {
-      materialKind = "fountain";
-      geometryKind = "floor";
-    } else if (/[a-zA-Z:;&'"]/.test(effectiveChar)) {
-      materialKind = "monster";
-      geometryKind = "floor";
-    } else if (/[)(\[%*$?!=/\\<>]/.test(effectiveChar)) {
-      materialKind = "item";
-      geometryKind = "floor";
-    } else {
-      materialKind = "floor";
-      geometryKind = "floor";
+  const disposition = inferDisposition(effective, isPlayer);
+  const byKind = classifyByKind(effective, isPlayer);
+  let materialKind = byKind.materialKind;
+  let geometryKind = byKind.geometryKind;
+  let isWall = byKind.isWall;
+  let effectKind = byKind.effectKind;
+  let glyphChar = isDarkOverlay ? fallbackGlyphChar(input.glyph, resolved) : fallbackGlyphChar(effective.glyph, effective);
+  let textColor = textColorFor(disposition, effective, effectKind);
+  let resolvedDisposition = disposition;
+  const override = getMergedGlyphOverride(input.glyph, effective.kind);
+  if (override) {
+    if (override.materialKind) materialKind = override.materialKind;
+    if (override.geometryKind) geometryKind = override.geometryKind;
+    if (typeof override.isWall === "boolean") isWall = override.isWall;
+    if (typeof override.glyphChar === "string" && override.glyphChar.length > 0) {
+      glyphChar = override.glyphChar.charAt(0);
     }
-  } else {
-    if (isStructuralWallGlyph(effective.glyph)) {
-      materialKind = "wall";
-      geometryKind = "wall";
-      isWall = true;
-    } else if (effective.glyph >= 2395 && effective.glyph <= 2397) {
-      materialKind = "floor";
-      geometryKind = "floor";
-    } else if (playerGlyph) {
-      materialKind = "player";
-      geometryKind = "floor";
-    } else if (effective.glyph >= 400 && effective.glyph <= 500) {
-      materialKind = "monster";
-      geometryKind = "floor";
-    } else if (effective.glyph >= 1900 && effective.glyph <= 2400) {
-      materialKind = "item";
-      geometryKind = "floor";
-    } else {
-      materialKind = "floor";
-      geometryKind = "floor";
+    if (typeof override.textColor === "string" && override.textColor.length > 0) {
+      textColor = override.textColor;
+    }
+    if (typeof override.darkenFactor === "number") {
+      darkenFactor = override.darkenFactor;
+    }
+    if (override.disposition) {
+      resolvedDisposition = override.disposition;
+      if (!override.textColor) {
+        textColor = textColorFor(resolvedDisposition, effective, effectKind);
+      }
+    }
+    if (override.effectKind !== void 0) {
+      effectKind = override.effectKind;
+      if (!override.textColor) {
+        textColor = textColorFor(resolvedDisposition, effective, effectKind);
+      }
     }
   }
-  const glyphChar = darkOverlay ? fallbackGlyphChar(input.glyph, resolved) : fallbackGlyphChar(effective.glyph, effective);
+  if (glyphChar.trim() === ".") {
+    if (materialKind === "wall" || materialKind === "dark_wall") {
+      materialKind = "floor";
+    }
+    geometryKind = "floor";
+    isWall = false;
+  }
   return {
     resolved,
     effective,
     materialKind,
     geometryKind,
     isWall,
-    isPlayerGlyph: playerGlyph,
-    isDarkOverlay: darkOverlay,
+    isPlayerGlyph: isPlayer,
+    isDarkOverlay,
     darkenFactor,
-    glyphChar
+    glyphChar,
+    textColor,
+    disposition: resolvedDisposition,
+    effectKind
   };
 }
 
@@ -6298,6 +6577,7 @@ var Nethack3DEngine = class {
     this.glyphOverlayMap = /* @__PURE__ */ new Map();
     this.tileStateCache = /* @__PURE__ */ new Map();
     this.lastKnownTerrain = /* @__PURE__ */ new Map();
+    this.glyphTextureCache = /* @__PURE__ */ new Map();
     this.pendingTileUpdates = /* @__PURE__ */ new Map();
     this.tileFlushScheduled = false;
     this.playerPos = { x: 0, y: 0 };
@@ -6367,32 +6647,78 @@ var Nethack3DEngine = class {
     );
     // Materials for different glyph types
     this.materials = {
-      floor: new THREE.MeshLambertMaterial({ color: 9127187 }),
-      // Brown floor
-      wall: new THREE.MeshLambertMaterial({ color: 6710886 }),
-      // Gray wall
-      door: new THREE.MeshLambertMaterial({ color: 9127187 }),
-      // Brown door
-      dark: new THREE.MeshLambertMaterial({ color: 85 }),
-      // Dark blue for unseen areas
-      fountain: new THREE.MeshLambertMaterial({ color: 35071 }),
-      // Light blue for water fountains
+      floor: new THREE.MeshLambertMaterial({ color: 6966568 }),
+      stairs_up: new THREE.MeshLambertMaterial({
+        color: 4163411,
+        emissive: 1388573
+      }),
+      stairs_down: new THREE.MeshLambertMaterial({
+        color: 8215752,
+        emissive: 2431802
+      }),
+      wall: new THREE.MeshLambertMaterial({ color: 6252403 }),
+      dark_wall: new THREE.MeshLambertMaterial({ color: 4870240 }),
+      door: new THREE.MeshLambertMaterial({
+        color: 5913378,
+        emissive: 1774090
+      }),
+      dark: new THREE.MeshLambertMaterial({ color: 1521759 }),
+      water: new THREE.MeshLambertMaterial({
+        color: 1732030,
+        emissive: 533823
+      }),
+      trap: new THREE.MeshLambertMaterial({
+        color: 11299886,
+        emissive: 3810063
+      }),
+      feature: new THREE.MeshLambertMaterial({ color: 7566987 }),
+      fountain: new THREE.MeshLambertMaterial({
+        color: 3057919,
+        emissive: 733005
+      }),
       player: new THREE.MeshLambertMaterial({
-        color: 65280,
-        emissive: 17408
+        color: 3800968,
+        emissive: 1133866
       }),
-      // Green glowing player
-      monster: new THREE.MeshLambertMaterial({
-        color: 16711680,
-        emissive: 4456448
+      monster_hostile: new THREE.MeshLambertMaterial({
+        color: 10433588,
+        emissive: 3215376
       }),
-      // Red glowing monster
+      monster_friendly: new THREE.MeshLambertMaterial({
+        color: 3116879,
+        emissive: 1191964
+      }),
+      monster_neutral: new THREE.MeshLambertMaterial({
+        color: 3108776,
+        emissive: 1058362
+      }),
       item: new THREE.MeshLambertMaterial({
-        color: 33023,
-        emissive: 4420
+        color: 11042586,
+        emissive: 3483399
       }),
-      // Blue glowing item
+      effect_warning: new THREE.MeshLambertMaterial({
+        color: 10317343,
+        emissive: 3154185
+      }),
+      effect_zap: new THREE.MeshLambertMaterial({
+        color: 3113616,
+        emissive: 927536
+      }),
+      effect_explode: new THREE.MeshLambertMaterial({
+        color: 10967085,
+        emissive: 3414799
+      }),
+      effect_swallow: new THREE.MeshLambertMaterial({
+        color: 6833818,
+        emissive: 2234163
+      }),
       default: new THREE.MeshLambertMaterial({ color: 16777215 })
+    };
+    this.effectColors = {
+      warning: new THREE.Color(16765286),
+      zap: new THREE.Color(8255999),
+      explode: new THREE.Color(16757867),
+      swallow: new THREE.Color(14199039)
     };
     this.initThreeJS();
     this.initUI();
@@ -6404,6 +6730,19 @@ var Nethack3DEngine = class {
       this.maxCameraPitch
     );
     this.cameraYaw = Math.PI;
+  }
+  isPersistentTerrainKind(kind) {
+    switch (kind) {
+      case "cmap":
+      case "obj":
+      case "body":
+      case "statue":
+      case "unexplored":
+      case "nothing":
+        return true;
+      default:
+        return false;
+    }
   }
   initThreeJS() {
     this.scene = new THREE.Scene();
@@ -6538,7 +6877,7 @@ var Nethack3DEngine = class {
             oldTerrain.color
           );
         } else {
-          this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+          this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
         }
         this.updateTile(data.newPosition.x, data.newPosition.y, 331, "@", 0);
         console.log(
@@ -6691,17 +7030,72 @@ var Nethack3DEngine = class {
   requestPlayerAreaUpdate(radius = 5) {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
   }
-  disposeGlyphOverlay(overlay) {
-    if (overlay.texture) {
-      overlay.texture.dispose();
-      overlay.texture = null;
+  acquireGlyphTexture(textureKey, factory) {
+    const cached = this.glyphTextureCache.get(textureKey);
+    if (cached) {
+      cached.refCount += 1;
+      return cached.texture;
     }
+    const texture = factory();
+    this.glyphTextureCache.set(textureKey, { texture, refCount: 1 });
+    return texture;
+  }
+  releaseGlyphTexture(textureKey) {
+    if (!textureKey) {
+      return;
+    }
+    const cached = this.glyphTextureCache.get(textureKey);
+    if (!cached) {
+      return;
+    }
+    cached.refCount -= 1;
+    if (cached.refCount <= 0) {
+      cached.texture.dispose();
+      this.glyphTextureCache.delete(textureKey);
+    }
+  }
+  disposeGlyphOverlay(overlay) {
+    this.releaseGlyphTexture(overlay.textureKey);
+    overlay.texture = null;
+    overlay.textureKey = "";
     overlay.material.dispose();
   }
   toneColor(hex, factor) {
     const color = new THREE.Color(`#${hex}`);
     color.multiplyScalar(THREE.MathUtils.clamp(factor, 0, 1));
     return color.getHexString();
+  }
+  relativeLuminance(color) {
+    const channel = (value) => {
+      if (value <= 0.03928) return value / 12.92;
+      return Math.pow((value + 0.055) / 1.055, 2.4);
+    };
+    const r = channel(color.r);
+    const g = channel(color.g);
+    const b = channel(color.b);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+  contrastRatio(background, text) {
+    const l1 = this.relativeLuminance(background);
+    const l2 = this.relativeLuminance(text);
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+  ensureTextContrast(tonedBackgroundHex, textColor, minContrast = 4.5) {
+    const background = new THREE.Color(`#${tonedBackgroundHex}`);
+    const text = new THREE.Color();
+    text.set(textColor || "#ffffff");
+    if (this.contrastRatio(background, text) >= minContrast) {
+      return background.getHexString();
+    }
+    for (let i = 0; i < 6; i++) {
+      background.multiplyScalar(0.85);
+      if (this.contrastRatio(background, text) >= minContrast) {
+        return background.getHexString();
+      }
+    }
+    return background.getHexString();
   }
   ensureGlyphOverlay(key, baseMaterial) {
     const baseColorHex = baseMaterial.color.getHexString();
@@ -6733,7 +7127,8 @@ var Nethack3DEngine = class {
       baseColorHex,
       0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
     );
-    context.fillStyle = `#${tonedBackground}`;
+    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
+    context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
     const trimmed = glyphChar.trim();
     if (trimmed.length > 0) {
@@ -6760,16 +7155,14 @@ var Nethack3DEngine = class {
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
     const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}`;
     if (overlay.textureKey !== textureKey) {
-      if (overlay.texture) {
-        overlay.texture.dispose();
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
       }
       overlay.baseColorHex = baseColorHex;
       overlay.material.color.set("#ffffff");
-      overlay.texture = this.createGlyphTexture(
-        baseColorHex,
-        glyphChar,
-        textColor,
-        clampedDarken
+      overlay.texture = this.acquireGlyphTexture(
+        textureKey,
+        () => this.createGlyphTexture(baseColorHex, glyphChar, textColor, clampedDarken)
       );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
@@ -6793,20 +7186,44 @@ var Nethack3DEngine = class {
     switch (kind) {
       case "floor":
         return this.materials.floor;
+      case "stairs_up":
+        return this.materials.stairs_up;
+      case "stairs_down":
+        return this.materials.stairs_down;
       case "wall":
         return this.materials.wall;
+      case "dark_wall":
+        return this.materials.dark_wall;
       case "door":
         return this.materials.door;
       case "dark":
         return this.materials.dark;
+      case "water":
+        return this.materials.water;
+      case "trap":
+        return this.materials.trap;
+      case "feature":
+        return this.materials.feature;
       case "fountain":
         return this.materials.fountain;
       case "player":
         return this.materials.player;
-      case "monster":
-        return this.materials.monster;
+      case "monster_hostile":
+        return this.materials.monster_hostile;
+      case "monster_friendly":
+        return this.materials.monster_friendly;
+      case "monster_neutral":
+        return this.materials.monster_neutral;
       case "item":
         return this.materials.item;
+      case "effect_warning":
+        return this.materials.effect_warning;
+      case "effect_zap":
+        return this.materials.effect_zap;
+      case "effect_explode":
+        return this.materials.effect_explode;
+      case "effect_swallow":
+        return this.materials.effect_swallow;
       default:
         return this.materials.default;
     }
@@ -6821,6 +7238,8 @@ var Nethack3DEngine = class {
       this.disposeGlyphOverlay(overlay);
     });
     this.glyphOverlayMap.clear();
+    this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
+    this.glyphTextureCache.clear();
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
     this.pendingTileUpdates.clear();
@@ -6837,11 +7256,13 @@ var Nethack3DEngine = class {
       priorTerrain: this.lastKnownTerrain.get(key) ?? null
     });
     if (!behavior.isPlayerGlyph) {
-      this.lastKnownTerrain.set(key, {
-        glyph,
-        char: behavior.resolved.char ?? void 0,
-        color: behavior.resolved.color ?? void 0
-      });
+      if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
+        this.lastKnownTerrain.set(key, {
+          glyph,
+          char: behavior.resolved.char ?? void 0,
+          color: behavior.resolved.color ?? void 0
+        });
+      }
     } else {
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
@@ -6861,12 +7282,14 @@ var Nethack3DEngine = class {
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
     mesh.userData.isWall = behavior.isWall;
+    mesh.userData.effectKind = behavior.effectKind;
+    mesh.userData.disposition = behavior.disposition;
     this.applyGlyphMaterial(
       key,
       mesh,
       material,
       behavior.glyphChar,
-      "#f4f4f4",
+      behavior.textColor,
       behavior.isWall,
       behavior.darkenFactor
     );
@@ -8212,9 +8635,35 @@ var Nethack3DEngine = class {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
+  getMeshOverlayMaterial(mesh) {
+    const material = mesh.material;
+    if (Array.isArray(material)) {
+      const top = material[4];
+      return top instanceof THREE.MeshBasicMaterial ? top : null;
+    }
+    return material instanceof THREE.MeshBasicMaterial ? material : null;
+  }
+  updateEffectAnimations(timeMs) {
+    const phaseBase = timeMs / 240;
+    this.tileMap.forEach((mesh) => {
+      const effectKind = mesh.userData.effectKind;
+      const overlayMaterial = this.getMeshOverlayMaterial(mesh);
+      if (!overlayMaterial) {
+        return;
+      }
+      if (!effectKind) {
+        overlayMaterial.color.set("#ffffff");
+        return;
+      }
+      const wave = 0.72 + 0.28 * Math.sin(phaseBase + mesh.position.x * 0.2 + mesh.position.y * 0.2);
+      const pulse = this.effectColors[effectKind].clone().multiplyScalar(THREE.MathUtils.clamp(wave, 0.4, 1.2));
+      overlayMaterial.color.copy(pulse);
+    });
+  }
   animate() {
     requestAnimationFrame(this.animate.bind(this));
     this.updateCamera();
+    this.updateEffectAnimations(performance.now());
     this.renderer.render(this.scene, this.camera);
   }
 };
@@ -8238,11 +8687,33 @@ window.dumpStatusDebug = () => {
 window.toggleInfoMenu = () => {
   game.toggleInfoMenuDialog();
 };
+window.setGlyphOverride = (glyph, override) => {
+  setGlyphOverride(glyph, override);
+};
+window.clearGlyphOverride = (glyph) => {
+  clearGlyphOverride(glyph);
+};
+window.setGlyphKindOverride = (kind, override) => {
+  setGlyphKindOverride(kind, override);
+};
+window.clearGlyphKindOverride = (kind) => {
+  clearGlyphKindOverride(kind);
+};
+window.clearGlyphOverrides = () => {
+  clearAllGlyphOverrides();
+};
+window.dumpGlyphOverrides = () => {
+  return getAllGlyphOverrides();
+};
 console.log("NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
 console.log("  refreshPlayerArea(radius) - Refresh around player");
 console.log("  dumpStatusDebug() - Get recent status_update payloads");
+console.log("  setGlyphOverride(glyph, override) - Manual glyph-level render override");
+console.log("  setGlyphKindOverride(kind, override) - Manual kind-level render override");
+console.log("  clearGlyphOverride(glyph), clearGlyphKindOverride(kind), clearGlyphOverrides()");
+console.log("  dumpGlyphOverrides() - Inspect active glyph overrides");
 console.log("  Ctrl+T - Refresh player tile");
 console.log("  Ctrl+R - Refresh player area (radius 5)");
 console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");

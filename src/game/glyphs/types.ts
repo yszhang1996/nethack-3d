@@ -50,16 +50,43 @@ export interface ResolvedGlyph {
 
 export type TileMaterialKind =
   | "floor"
+  | "stairs_up"
+  | "stairs_down"
   | "wall"
+  | "dark_wall"
   | "door"
   | "dark"
+  | "water"
+  | "trap"
+  | "feature"
   | "fountain"
   | "player"
-  | "monster"
+  | "monster_hostile"
+  | "monster_friendly"
+  | "monster_neutral"
   | "item"
+  | "effect_warning"
+  | "effect_zap"
+  | "effect_explode"
+  | "effect_swallow"
   | "default";
 
 export type TileGeometryKind = "floor" | "wall";
+
+export type GlyphDisposition = "friendly" | "hostile" | "neutral" | "unknown";
+
+export type TileEffectKind = "warning" | "zap" | "explode" | "swallow";
+
+export interface GlyphRenderOverride {
+  materialKind?: TileMaterialKind;
+  geometryKind?: TileGeometryKind;
+  isWall?: boolean;
+  glyphChar?: string;
+  textColor?: string;
+  darkenFactor?: number;
+  disposition?: GlyphDisposition;
+  effectKind?: TileEffectKind | null;
+}
 
 export interface TileBehaviorResult {
   resolved: ResolvedGlyph;
@@ -71,4 +98,7 @@ export interface TileBehaviorResult {
   isDarkOverlay: boolean;
   darkenFactor: number;
   glyphChar: string;
+  textColor: string;
+  disposition: GlyphDisposition;
+  effectKind: TileEffectKind | null;
 }

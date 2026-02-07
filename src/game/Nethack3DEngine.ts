@@ -8,7 +8,7 @@ import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
 import { classifyTileBehavior } from "./glyphs/behavior";
-import type { TileMaterialKind } from "./glyphs";
+import type { TileEffectKind, TileMaterialKind } from "./glyphs";
 import type { GlyphOverlay, GlyphOverlayMap, TerrainSnapshot, TileMap } from "./types";
 
 /**
@@ -23,6 +23,10 @@ class Nethack3DEngine {
   private glyphOverlayMap: GlyphOverlayMap = new Map();
   private tileStateCache: Map<string, string> = new Map();
   private lastKnownTerrain: Map<string, TerrainSnapshot> = new Map();
+  private glyphTextureCache: Map<
+    string,
+    { texture: THREE.CanvasTexture; refCount: number }
+  > = new Map();
   private pendingTileUpdates: Map<string, any> = new Map();
   private tileFlushScheduled: boolean = false;
   private playerPos = { x: 0, y: 0 };
@@ -96,25 +100,93 @@ class Nethack3DEngine {
 
   // Materials for different glyph types
   private materials = {
-    floor: new THREE.MeshLambertMaterial({ color: 0x8b4513 }), // Brown floor
-    wall: new THREE.MeshLambertMaterial({ color: 0x666666 }), // Gray wall
-    door: new THREE.MeshLambertMaterial({ color: 0x8b4513 }), // Brown door
-    dark: new THREE.MeshLambertMaterial({ color: 0x000055 }), // Dark blue for unseen areas
-    fountain: new THREE.MeshLambertMaterial({ color: 0x0088ff }), // Light blue for water fountains
+    floor: new THREE.MeshLambertMaterial({ color: 0x6a4d28 }),
+    stairs_up: new THREE.MeshLambertMaterial({
+      color: 0x3f8753,
+      emissive: 0x15301d,
+    }),
+    stairs_down: new THREE.MeshLambertMaterial({
+      color: 0x7d5cc8,
+      emissive: 0x251b3a,
+    }),
+    wall: new THREE.MeshLambertMaterial({ color: 0x5f6773 }),
+    dark_wall: new THREE.MeshLambertMaterial({ color: 0x4a5060 }),
+    door: new THREE.MeshLambertMaterial({
+      color: 0x5a3b22,
+      emissive: 0x1b120a,
+    }),
+    dark: new THREE.MeshLambertMaterial({ color: 0x17385f }),
+    water: new THREE.MeshLambertMaterial({
+      color: 0x1a6dbe,
+      emissive: 0x08253f,
+    }),
+    trap: new THREE.MeshLambertMaterial({
+      color: 0xac6c2e,
+      emissive: 0x3a230f,
+    }),
+    feature: new THREE.MeshLambertMaterial({ color: 0x73768b }),
+    fountain: new THREE.MeshLambertMaterial({
+      color: 0x2ea8ff,
+      emissive: 0x0b2f4d,
+    }),
     player: new THREE.MeshLambertMaterial({
-      color: 0x00ff00,
-      emissive: 0x004400,
-    }), // Green glowing player
-    monster: new THREE.MeshLambertMaterial({
-      color: 0xff0000,
-      emissive: 0x440000,
-    }), // Red glowing monster
+      color: 0x39ff88,
+      emissive: 0x114d2a,
+    }),
+    monster_hostile: new THREE.MeshLambertMaterial({
+      color: 0x9f3434,
+      emissive: 0x311010,
+    }),
+    monster_friendly: new THREE.MeshLambertMaterial({
+      color: 0x2f8f4f,
+      emissive: 0x12301c,
+    }),
+    monster_neutral: new THREE.MeshLambertMaterial({
+      color: 0x2f6fa8,
+      emissive: 0x10263a,
+    }),
     item: new THREE.MeshLambertMaterial({
-      color: 0x0080ff,
-      emissive: 0x001144,
-    }), // Blue glowing item
+      color: 0xa87f1a,
+      emissive: 0x352707,
+    }),
+    effect_warning: new THREE.MeshLambertMaterial({
+      color: 0x9d6e1f,
+      emissive: 0x302109,
+    }),
+    effect_zap: new THREE.MeshLambertMaterial({
+      color: 0x2f8290,
+      emissive: 0x0e2730,
+    }),
+    effect_explode: new THREE.MeshLambertMaterial({
+      color: 0xa7582d,
+      emissive: 0x341b0f,
+    }),
+    effect_swallow: new THREE.MeshLambertMaterial({
+      color: 0x68469a,
+      emissive: 0x221733,
+    }),
     default: new THREE.MeshLambertMaterial({ color: 0xffffff }),
   };
+  private effectColors: Record<TileEffectKind, THREE.Color> = {
+    warning: new THREE.Color(0xffd166),
+    zap: new THREE.Color(0x7df9ff),
+    explode: new THREE.Color(0xffb46b),
+    swallow: new THREE.Color(0xd8a8ff),
+  };
+
+  private isPersistentTerrainKind(kind: string): boolean {
+    switch (kind) {
+      case "cmap":
+      case "obj":
+      case "body":
+      case "statue":
+      case "unexplored":
+      case "nothing":
+        return true;
+      default:
+        return false;
+    }
+  }
 
   constructor() {
     this.initThreeJS();
@@ -295,7 +367,8 @@ class Nethack3DEngine {
             oldTerrain.color
           );
         } else {
-          this.updateTile(data.oldPosition.x, data.oldPosition.y, 2396, ".", 0);
+          // Don't guess terrain when cache is missing; request authoritative tile data.
+          this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
         }
 
         // Create a fake player glyph at the new position to ensure visual update
@@ -509,11 +582,41 @@ class Nethack3DEngine {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
   }
 
-  private disposeGlyphOverlay(overlay: GlyphOverlay): void {
-    if (overlay.texture) {
-      overlay.texture.dispose();
-      overlay.texture = null;
+  private acquireGlyphTexture(
+    textureKey: string,
+    factory: () => THREE.CanvasTexture
+  ): THREE.CanvasTexture {
+    const cached = this.glyphTextureCache.get(textureKey);
+    if (cached) {
+      cached.refCount += 1;
+      return cached.texture;
     }
+
+    const texture = factory();
+    this.glyphTextureCache.set(textureKey, { texture, refCount: 1 });
+    return texture;
+  }
+
+  private releaseGlyphTexture(textureKey: string): void {
+    if (!textureKey) {
+      return;
+    }
+    const cached = this.glyphTextureCache.get(textureKey);
+    if (!cached) {
+      return;
+    }
+
+    cached.refCount -= 1;
+    if (cached.refCount <= 0) {
+      cached.texture.dispose();
+      this.glyphTextureCache.delete(textureKey);
+    }
+  }
+
+  private disposeGlyphOverlay(overlay: GlyphOverlay): void {
+    this.releaseGlyphTexture(overlay.textureKey);
+    overlay.texture = null;
+    overlay.textureKey = "";
     overlay.material.dispose();
   }
 
@@ -521,6 +624,48 @@ class Nethack3DEngine {
     const color = new THREE.Color(`#${hex}`);
     color.multiplyScalar(THREE.MathUtils.clamp(factor, 0, 1));
     return color.getHexString();
+  }
+
+  private relativeLuminance(color: THREE.Color): number {
+    const channel = (value: number): number => {
+      if (value <= 0.03928) return value / 12.92;
+      return Math.pow((value + 0.055) / 1.055, 2.4);
+    };
+    const r = channel(color.r);
+    const g = channel(color.g);
+    const b = channel(color.b);
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  private contrastRatio(background: THREE.Color, text: THREE.Color): number {
+    const l1 = this.relativeLuminance(background);
+    const l2 = this.relativeLuminance(text);
+    const lighter = Math.max(l1, l2);
+    const darker = Math.min(l1, l2);
+    return (lighter + 0.05) / (darker + 0.05);
+  }
+
+  private ensureTextContrast(
+    tonedBackgroundHex: string,
+    textColor: string,
+    minContrast: number = 4.5
+  ): string {
+    const background = new THREE.Color(`#${tonedBackgroundHex}`);
+    const text = new THREE.Color();
+    text.set(textColor || "#ffffff");
+
+    if (this.contrastRatio(background, text) >= minContrast) {
+      return background.getHexString();
+    }
+
+    for (let i = 0; i < 6; i++) {
+      background.multiplyScalar(0.85);
+      if (this.contrastRatio(background, text) >= minContrast) {
+        return background.getHexString();
+      }
+    }
+
+    return background.getHexString();
   }
 
   private ensureGlyphOverlay(
@@ -570,7 +715,8 @@ class Nethack3DEngine {
       baseColorHex,
       0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
     );
-    context.fillStyle = `#${tonedBackground}`;
+    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
+    context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
 
     const trimmed = glyphChar.trim();
@@ -611,17 +757,14 @@ class Nethack3DEngine {
     const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}`;
 
     if (overlay.textureKey !== textureKey) {
-      if (overlay.texture) {
-        overlay.texture.dispose();
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
       }
 
       overlay.baseColorHex = baseColorHex;
       overlay.material.color.set("#ffffff");
-      overlay.texture = this.createGlyphTexture(
-        baseColorHex,
-        glyphChar,
-        textColor,
-        clampedDarken
+      overlay.texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createGlyphTexture(baseColorHex, glyphChar, textColor, clampedDarken)
       );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
@@ -647,20 +790,44 @@ class Nethack3DEngine {
     switch (kind) {
       case "floor":
         return this.materials.floor;
+      case "stairs_up":
+        return this.materials.stairs_up;
+      case "stairs_down":
+        return this.materials.stairs_down;
       case "wall":
         return this.materials.wall;
+      case "dark_wall":
+        return this.materials.dark_wall;
       case "door":
         return this.materials.door;
       case "dark":
         return this.materials.dark;
+      case "water":
+        return this.materials.water;
+      case "trap":
+        return this.materials.trap;
+      case "feature":
+        return this.materials.feature;
       case "fountain":
         return this.materials.fountain;
       case "player":
         return this.materials.player;
-      case "monster":
-        return this.materials.monster;
+      case "monster_hostile":
+        return this.materials.monster_hostile;
+      case "monster_friendly":
+        return this.materials.monster_friendly;
+      case "monster_neutral":
+        return this.materials.monster_neutral;
       case "item":
         return this.materials.item;
+      case "effect_warning":
+        return this.materials.effect_warning;
+      case "effect_zap":
+        return this.materials.effect_zap;
+      case "effect_explode":
+        return this.materials.effect_explode;
+      case "effect_swallow":
+        return this.materials.effect_swallow;
       default:
         return this.materials.default;
     }
@@ -680,6 +847,8 @@ class Nethack3DEngine {
       this.disposeGlyphOverlay(overlay);
     });
     this.glyphOverlayMap.clear();
+    this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
+    this.glyphTextureCache.clear();
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
     this.pendingTileUpdates.clear();
@@ -705,11 +874,13 @@ class Nethack3DEngine {
     });
 
     if (!behavior.isPlayerGlyph) {
-      this.lastKnownTerrain.set(key, {
-        glyph,
-        char: behavior.resolved.char ?? undefined,
-        color: behavior.resolved.color ?? undefined,
-      });
+      if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
+        this.lastKnownTerrain.set(key, {
+          glyph,
+          char: behavior.resolved.char ?? undefined,
+          color: behavior.resolved.color ?? undefined,
+        });
+      }
     } else {
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
@@ -733,13 +904,15 @@ class Nethack3DEngine {
     }
 
     mesh.userData.isWall = behavior.isWall;
+    mesh.userData.effectKind = behavior.effectKind;
+    mesh.userData.disposition = behavior.disposition;
 
     this.applyGlyphMaterial(
       key,
       mesh,
       material,
       behavior.glyphChar,
-      "#f4f4f4",
+      behavior.textColor,
       behavior.isWall,
       behavior.darkenFactor
     );
@@ -2418,9 +2591,41 @@ class Nethack3DEngine {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  private getMeshOverlayMaterial(mesh: THREE.Mesh): THREE.MeshBasicMaterial | null {
+    const material = mesh.material;
+    if (Array.isArray(material)) {
+      const top = material[4];
+      return top instanceof THREE.MeshBasicMaterial ? top : null;
+    }
+    return material instanceof THREE.MeshBasicMaterial ? material : null;
+  }
+
+  private updateEffectAnimations(timeMs: number): void {
+    const phaseBase = timeMs / 240;
+    this.tileMap.forEach((mesh) => {
+      const effectKind = mesh.userData.effectKind as TileEffectKind | null | undefined;
+      const overlayMaterial = this.getMeshOverlayMaterial(mesh);
+      if (!overlayMaterial) {
+        return;
+      }
+
+      if (!effectKind) {
+        overlayMaterial.color.set("#ffffff");
+        return;
+      }
+
+      const wave = 0.72 + 0.28 * Math.sin(phaseBase + mesh.position.x * 0.2 + mesh.position.y * 0.2);
+      const pulse = this.effectColors[effectKind]
+        .clone()
+        .multiplyScalar(THREE.MathUtils.clamp(wave, 0.4, 1.2));
+      overlayMaterial.color.copy(pulse);
+    });
+  }
+
   private animate(): void {
     requestAnimationFrame(this.animate.bind(this));
     this.updateCamera();
+    this.updateEffectAnimations(performance.now());
     this.renderer.render(this.scene, this.camera);
   }
 }

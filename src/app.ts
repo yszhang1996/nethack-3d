@@ -1,4 +1,12 @@
 import { Nethack3DEngine } from "./game";
+import {
+  clearAllGlyphOverrides,
+  clearGlyphKindOverride,
+  clearGlyphOverride,
+  getAllGlyphOverrides,
+  setGlyphKindOverride,
+  setGlyphOverride,
+} from "./game/glyphs";
 
 const game = new Nethack3DEngine();
 
@@ -28,11 +36,45 @@ const game = new Nethack3DEngine();
   (game as any).toggleInfoMenuDialog();
 };
 
+(window as any).setGlyphOverride = (
+  glyph: number,
+  override: Record<string, unknown>
+) => {
+  setGlyphOverride(glyph, override as any);
+};
+
+(window as any).clearGlyphOverride = (glyph: number) => {
+  clearGlyphOverride(glyph);
+};
+
+(window as any).setGlyphKindOverride = (
+  kind: string,
+  override: Record<string, unknown>
+) => {
+  setGlyphKindOverride(kind as any, override as any);
+};
+
+(window as any).clearGlyphKindOverride = (kind: string) => {
+  clearGlyphKindOverride(kind as any);
+};
+
+(window as any).clearGlyphOverrides = () => {
+  clearAllGlyphOverrides();
+};
+
+(window as any).dumpGlyphOverrides = () => {
+  return getAllGlyphOverrides();
+};
+
 console.log("NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
 console.log("  refreshPlayerArea(radius) - Refresh around player");
 console.log("  dumpStatusDebug() - Get recent status_update payloads");
+console.log("  setGlyphOverride(glyph, override) - Manual glyph-level render override");
+console.log("  setGlyphKindOverride(kind, override) - Manual kind-level render override");
+console.log("  clearGlyphOverride(glyph), clearGlyphKindOverride(kind), clearGlyphOverrides()");
+console.log("  dumpGlyphOverrides() - Inspect active glyph overrides");
 console.log("  Ctrl+T - Refresh player tile");
 console.log("  Ctrl+R - Refresh player area (radius 5)");
 console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");

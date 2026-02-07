@@ -47,3 +47,19 @@ The generated source-of-truth file is:
 - `src/game/glyphs/glyph-catalog.generated.ts`
 
 If `public/nethack.js` or `public/nethack.wasm` changes, regenerate and commit the updated catalog.
+
+### Runtime glyph overrides (debug/dev)
+
+In browser devtools you can manually override rendering behavior:
+
+- `setGlyphOverride(glyph, override)`
+- `setGlyphKindOverride(kind, override)`
+- `clearGlyphOverride(glyph)`
+- `clearGlyphKindOverride(kind)`
+- `clearGlyphOverrides()`
+- `dumpGlyphOverrides()`
+
+Example:
+
+- `setGlyphKindOverride("pet", { textColor: "#F8FFF9" })`
+- `setGlyphOverride(2411, { materialKind: "door", geometryKind: "wall", isWall: true })`

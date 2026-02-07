@@ -5,6 +5,17 @@ export {
 } from "./glyph-catalog.generated";
 export { classifyTileBehavior } from "./behavior";
 export {
+  clearAllGlyphOverrides,
+  clearGlyphKindOverride,
+  clearGlyphOverride,
+  getAllGlyphOverrides,
+  getGlyphKindOverride,
+  getGlyphOverride,
+  getMergedGlyphOverride,
+  setGlyphKindOverride,
+  setGlyphOverride,
+} from "./overrides";
+export {
   getGlyphCatalogEntry,
   getGlyphCatalogMeta,
   getGlyphCatalogRanges,
@@ -16,7 +27,10 @@ export type {
   GlyphCatalogMeta,
   GlyphCatalogRange,
   GlyphKind,
+  GlyphDisposition,
+  GlyphRenderOverride,
   ResolvedGlyph,
+  TileEffectKind,
   TileBehaviorResult,
   TileGeometryKind,
   TileMaterialKind,
