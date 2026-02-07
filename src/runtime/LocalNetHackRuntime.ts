@@ -28,8 +28,6 @@ class LocalNetHackRuntime {
     this.menuSelectionResolver = null;
     this.multiPickupReadyToConfirm = false;
     this.pendingMenuListPtrPtr = 0;
-    this.autoPickupQueue = [];
-    this.autoPickupQueueActive = false;
     this.queuedInputs = [];
     this.queuedEventInputs = [];
     this.queuedRawKeyCodes = [];
@@ -134,8 +132,6 @@ class LocalNetHackRuntime {
     }
     this.pendingMapGlyphs = [];
     this.latestInput = null;
-    this.autoPickupQueue = [];
-    this.autoPickupQueueActive = false;
     this.queuedInputs = [];
     this.queuedEventInputs = [];
     this.queuedRawKeyCodes = [];
@@ -327,22 +323,6 @@ class LocalNetHackRuntime {
       this.isInMultiPickup &&
       (input === "Enter" || input === "\r" || input === "\n")
     ) {
-      if (this.menuSelections.size > 1) {
-        const ordered = Array.from(this.menuSelections.entries());
-        const [firstKey, firstValue] = ordered[0];
-        const queued = ordered.slice(1).map(([k, v]) => ({
-          key: k,
-          text: v.text,
-          identifier: v.identifier,
-        }));
-        this.menuSelections = new Map([[firstKey, firstValue]]);
-        this.autoPickupQueue = queued;
-        this.autoPickupQueueActive = queued.length > 0;
-        console.log(
-          `Sequential pickup mode: keeping '${firstKey}:${firstValue.text}', queued ${queued.length} more`,
-        );
-      }
-
       const selectedItems = Array.from(this.menuSelections.values()).map(
         (item) => `${item.menuChar}:${item.text}`,
       );
@@ -374,9 +354,6 @@ class LocalNetHackRuntime {
     } else if (this.isInMultiPickup && input === "Escape") {
       this.menuSelections.clear();
       this.multiPickupReadyToConfirm = false;
-      this.autoPickupQueue = [];
-      this.autoPickupQueueActive = false;
-      this.queuedInputs = [];
 
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
         this.waitingForMenuSelection = false;
@@ -622,58 +599,6 @@ class LocalNetHackRuntime {
     );
   }
 
-  tryBuildAutoPickupSelection() {
-    if (!Array.isArray(this.autoPickupQueue) || this.autoPickupQueue.length === 0) {
-      this.autoPickupQueueActive = false;
-      return false;
-    }
-
-    const next = this.autoPickupQueue[0];
-    const selectableItems = this.currentMenuItems.filter((item) => !item.isCategory);
-    let matched = null;
-
-    if (typeof next.identifier === "number") {
-      matched = selectableItems.find((item) => item.identifier === next.identifier) || null;
-    }
-
-    if (!matched && typeof next.text === "string" && next.text.length > 0) {
-      matched = selectableItems.find((item) => item.text === next.text) || null;
-    }
-
-    if (!matched && typeof next.key === "string" && next.key.length === 1) {
-      matched = selectableItems.find((item) => item.accelerator === next.key) || null;
-    }
-
-    if (!matched) {
-      console.log(
-        `Sequential pickup: could not match queued item '${next.key}:${next.text}', dropping it`,
-      );
-      this.autoPickupQueue.shift();
-      if (this.autoPickupQueue.length === 0) {
-        this.autoPickupQueueActive = false;
-        this.queuedInputs = [];
-      }
-      return false;
-    }
-
-    const key = matched.accelerator;
-    this.menuSelections.clear();
-    this.menuSelections.set(key, {
-      menuChar: key,
-      originalAccelerator: matched.originalAccelerator,
-      identifier: matched.identifier,
-      menuIndex: matched.menuIndex,
-      text: matched.text,
-    });
-    this.multiPickupReadyToConfirm = true;
-    this.autoPickupQueue.shift();
-    this.autoPickupQueueActive = this.autoPickupQueue.length > 0;
-    console.log(
-      `Sequential pickup: auto-selected '${key}:${matched.text}', remaining queued=${this.autoPickupQueue.length}`,
-    );
-    return true;
-  }
-
   getStatusFieldName(field) {
     const fallback = {
       0: "BL_TITLE",
@@ -835,10 +760,26 @@ class LocalNetHackRuntime {
 
     try {
       const selectedItems = Array.from(this.menuSelections.values());
-      // NetHack's menu_item layout can vary by build; default to a safer 16-byte stride.
-      const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 16);
-      const countOffsetPrimary = Number(process.env.NH_MENU_COUNT_OFFSET || 8);
-      const countOffsetSecondary = 4;
+      // This build's menu_item layout is:
+      //   anything item;      // +0 (4 bytes on wasm32)
+      //   long count;         // +4
+      //   unsigned itemflags; // +8
+      // Use 12-byte stride by default, allow overrides for diagnostics.
+      const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 12);
+      const configuredCountOffset = process.env.NH_MENU_COUNT_OFFSET;
+      const countOffsetPrimary =
+        configuredCountOffset !== undefined
+          ? Number(configuredCountOffset)
+          : 4;
+      const configuredItemFlagsOffset = process.env.NH_MENU_ITEMFLAGS_OFFSET;
+      const itemFlagsOffset =
+        configuredItemFlagsOffset !== undefined
+          ? Number(configuredItemFlagsOffset)
+          : 8;
+      const canWriteCountAt = (offset) =>
+        Number.isInteger(offset) &&
+        offset >= 0 &&
+        offset + 4 <= bytesPerMenuItem;
 
       if (selectionCount <= 0) {
         this.nethackModule.setValue(menuListPtrPtr, 0, "*");
@@ -851,9 +792,17 @@ class LocalNetHackRuntime {
       const priorOutPtr = this.nethackModule.getValue(menuListPtrPtr, "*");
       const outPtr = this.nethackModule._malloc(selectionCount * bytesPerMenuItem);
       this.nethackModule.setValue(menuListPtrPtr, outPtr, "*");
+      if (this.nethackModule.HEAPU8 && bytesPerMenuItem > 0) {
+        // Clear all bytes to avoid stale data in optional struct fields.
+        this.nethackModule.HEAPU8.fill(
+          0,
+          outPtr,
+          outPtr + selectionCount * bytesPerMenuItem,
+        );
+      }
       const confirmOutPtr = this.nethackModule.getValue(menuListPtrPtr, "*");
       console.log(
-        `Writing ${selectionCount} selections at outPtr=${outPtr} (menuListPtrPtr=${menuListPtrPtr}, priorOutPtr=${priorOutPtr}, confirmOutPtr=${confirmOutPtr}, stride=${bytesPerMenuItem}, countOffset=${countOffsetPrimary})`,
+        `Writing ${selectionCount} selections at outPtr=${outPtr} (menuListPtrPtr=${menuListPtrPtr}, priorOutPtr=${priorOutPtr}, confirmOutPtr=${confirmOutPtr}, stride=${bytesPerMenuItem}, countOffsetPrimary=${countOffsetPrimary}, itemFlagsOffset=${itemFlagsOffset})`,
       );
 
       for (let i = 0; i < selectedItems.length; i++) {
@@ -892,29 +841,37 @@ class LocalNetHackRuntime {
                 ? -1
                 : 1;
         // Write count in both likely offsets for compatibility across layouts.
-        this.nethackModule.setValue(
-          structOffset + countOffsetPrimary,
-          countValue,
-          "i32",
-        );
-        if (countOffsetSecondary !== countOffsetPrimary) {
+        if (canWriteCountAt(countOffsetPrimary)) {
           this.nethackModule.setValue(
-            structOffset + countOffsetSecondary,
+            structOffset + countOffsetPrimary,
             countValue,
             "i32",
           );
         }
+        if (
+          canWriteCountAt(itemFlagsOffset) &&
+          itemFlagsOffset !== countOffsetPrimary
+        ) {
+          this.nethackModule.setValue(
+            structOffset + itemFlagsOffset,
+            0,
+            "i32",
+          );
+        }
         const debugItem = this.nethackModule.getValue(structOffset, "i32");
-        const debugCountPrimary = this.nethackModule.getValue(
-          structOffset + countOffsetPrimary,
-          "i32",
-        );
-        const debugCountSecondary = this.nethackModule.getValue(
-          structOffset + countOffsetSecondary,
-          "i32",
-        );
+        const debugCountPrimary = canWriteCountAt(countOffsetPrimary)
+          ? this.nethackModule.getValue(structOffset + countOffsetPrimary, "i32")
+          : null;
+        const debugItemFlags =
+          canWriteCountAt(itemFlagsOffset) &&
+          itemFlagsOffset !== countOffsetPrimary
+            ? this.nethackModule.getValue(
+                structOffset + itemFlagsOffset,
+                "i32",
+              )
+            : null;
         console.log(
-          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${countMode}`,
+          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}`,
         );
       }
       const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
@@ -1319,23 +1276,6 @@ class LocalNetHackRuntime {
           if (isPickupQuestion) {
             console.log("📋 Multi-pickup dialog detected");
             this.isInMultiPickup = true;
-            if (this.tryBuildAutoPickupSelection()) {
-              console.log(`Sequential pickup: auto-confirming queued selection for this menu`);
-              return this.processKey("Enter");
-            }
-          } else if (
-            this.autoPickupQueueActive ||
-            this.autoPickupQueue.length > 0 ||
-            this.queuedInputs.length > 0
-          ) {
-            // Avoid leaking synthetic ',' autopickup commands into unrelated dialogs
-            // such as container extraction ("Take out what?").
-            console.log(
-              `Clearing stale sequential pickup state before question "${menuQuestion}"`,
-            );
-            this.autoPickupQueue = [];
-            this.autoPickupQueueActive = false;
-            this.queuedInputs = [];
           }
           // Send the inventory question to web client
           if (this.eventHandler) {
@@ -1899,14 +1839,6 @@ class LocalNetHackRuntime {
       case "shim_destroy_nhwindow":
         const [destroyWinId] = args;
         console.log(`🗑️ Destroying window ${destroyWinId}`);
-        if (
-          destroyWinId === 4 &&
-          this.autoPickupQueueActive &&
-          this.autoPickupQueue.length > 0
-        ) {
-          console.log(`Sequential pickup: scheduling next pickup cycle (remaining=${this.autoPickupQueue.length})`);
-          this.enqueueInput(",");
-        }
         return 0;
       case "shim_curs":
         const [cursWin, cursX, cursY] = args;
