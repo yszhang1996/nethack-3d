@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "build": "npx esbuild src/app.ts --outfile=public/app.js --format=esm --bundle --alias:three=./three.module.js --external:./three.module.js --external:./three.core.js --platform=browser --target=es2020",
+    "build": "npx esbuild src/app.ts --outfile=public/app.js --format=esm --bundle --alias:three=./three.module.js --external:./three.module.js --external:./three.core.js --platform=browser --target=es2020 && npx esbuild src/runtime/runtime-worker.ts --outfile=public/runtime-worker.js --bundle --platform=browser --target=es2020",
     "start": "node server.js",
     "dev": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"

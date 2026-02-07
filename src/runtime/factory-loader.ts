@@ -16,6 +16,21 @@ export async function loadNethackFactory(): Promise<NethackFactory> {
     return g.__nethackFactory;
   }
 
+  if (typeof importScripts === "function") {
+    try {
+      importScripts("/nethack.js");
+    } catch (error) {
+      throw new Error(`Failed loading nethack.js in worker: ${String(error)}`);
+    }
+
+    if (typeof g.Module === "function") {
+      g.__nethackFactory = g.Module;
+      return g.__nethackFactory;
+    }
+
+    throw new Error("nethack.js loaded in worker but factory was not found on globalThis.Module");
+  }
+
   await new Promise<void>((resolve, reject) => {
     const existing = document.querySelector(
       "script[data-nethack-factory='1']",

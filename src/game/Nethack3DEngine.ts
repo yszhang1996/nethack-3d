@@ -4,7 +4,7 @@
  */
 
 import * as THREE from "three";
-import { LocalNetHackRuntime } from "../runtime";
+import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
 import type { GlyphOverlay, GlyphOverlayMap, TerrainSnapshot, TileMap } from "./types";
@@ -214,7 +214,7 @@ class Nethack3DEngine {
     console.log("Starting local NetHack runtime");
     this.updateConnectionStatus("Starting", "#4444aa");
 
-    this.session = new LocalNetHackRuntime((payload: RuntimeEvent) => {
+    this.session = new WorkerRuntimeBridge((payload: RuntimeEvent) => {
       this.handleRuntimeEvent(payload);
     });
 
