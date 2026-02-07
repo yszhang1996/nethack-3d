@@ -2,7 +2,7 @@
 
 Play here: https://jamesiv4.github.io/nethack-3d/
 
-## Run
+## Run locally
 
 1. `npm i`
 2. `npm run build`
