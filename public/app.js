@@ -1853,7 +1853,7 @@ var Nethack3DEngine = class {
       this.sendInput(modifiedInput);
       return;
     }
-    if (event.key === "i" || event.key === "I") {
+    if ((event.key === "i" || event.key === "I") && !this.isInQuestion && !this.isInDirectionQuestion) {
       event.preventDefault();
       this.hideInfoMenuDialog();
       const inventoryDialog = document.getElementById("inventory-dialog");

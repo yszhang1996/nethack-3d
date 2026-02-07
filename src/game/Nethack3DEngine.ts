@@ -2211,8 +2211,13 @@ class Nethack3DEngine {
       return;
     }
 
-    // Handle inventory display (before other key processing)
-    if (event.key === "i" || event.key === "I") {
+    // Handle inventory display only during normal gameplay.
+    // Question dialogs must take precedence over global inventory hotkey behavior.
+    if (
+      (event.key === "i" || event.key === "I") &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion
+    ) {
       event.preventDefault();
       this.hideInfoMenuDialog();
 
