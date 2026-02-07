@@ -102,6 +102,7 @@
       this.multiPickupReadyToConfirm = false;
       this.pendingMenuListPtrPtr = 0;
       this.autoPickupQueue = [];
+      this.autoPickupQueueActive = false;
       this.queuedInputs = [];
       this.queuedEventInputs = [];
       this.queuedRawKeyCodes = [];
@@ -185,6 +186,8 @@
       this.pendingMapGlyphs = [];
       this.latestInput = null;
       this.autoPickupQueue = [];
+      this.autoPickupQueueActive = false;
+      this.queuedInputs = [];
       this.queuedEventInputs = [];
       this.queuedRawKeyCodes = [];
       this.menuSelections.clear();
@@ -343,6 +346,7 @@
           }));
           this.menuSelections = /* @__PURE__ */ new Map([[firstKey, firstValue]]);
           this.autoPickupQueue = queued;
+          this.autoPickupQueueActive = queued.length > 0;
           console.log(
             `Sequential pickup mode: keeping '${firstKey}:${firstValue.text}', queued ${queued.length} more`
           );
@@ -375,6 +379,9 @@
       } else if (this.isInMultiPickup && input === "Escape") {
         this.menuSelections.clear();
         this.multiPickupReadyToConfirm = false;
+        this.autoPickupQueue = [];
+        this.autoPickupQueueActive = false;
+        this.queuedInputs = [];
         if (this.waitingForMenuSelection && this.menuSelectionResolver) {
           this.waitingForMenuSelection = false;
           const resolver = this.menuSelectionResolver;
@@ -567,6 +574,7 @@
     }
     tryBuildAutoPickupSelection() {
       if (!Array.isArray(this.autoPickupQueue) || this.autoPickupQueue.length === 0) {
+        this.autoPickupQueueActive = false;
         return false;
       }
       const next = this.autoPickupQueue[0];
@@ -586,6 +594,10 @@
           `Sequential pickup: could not match queued item '${next.key}:${next.text}', dropping it`
         );
         this.autoPickupQueue.shift();
+        if (this.autoPickupQueue.length === 0) {
+          this.autoPickupQueueActive = false;
+          this.queuedInputs = [];
+        }
         return false;
       }
       const key = matched.accelerator;
@@ -599,6 +611,7 @@
       });
       this.multiPickupReadyToConfirm = true;
       this.autoPickupQueue.shift();
+      this.autoPickupQueueActive = this.autoPickupQueue.length > 0;
       console.log(
         `Sequential pickup: auto-selected '${key}:${matched.text}', remaining queued=${this.autoPickupQueue.length}`
       );
@@ -696,6 +709,25 @@
       }
       return { value: null, valueType: "unknown", usedFallback: false };
     }
+    shouldUseAllCountForMenuItem(item) {
+      if (!item || typeof item.text !== "string") {
+        return false;
+      }
+      const text = item.text.trim();
+      if (!text) {
+        return false;
+      }
+      if (/^\d+\s+/.test(text)) {
+        return true;
+      }
+      if (/\(\d+\)\s*$/.test(text)) {
+        return true;
+      }
+      if (/\bgold pieces?\b/i.test(text)) {
+        return true;
+      }
+      return false;
+    }
     writeMenuSelectionResult(menuListPtrPtr, selectionCount) {
       if (!this.nethackModule || !menuListPtrPtr) {
         return;
@@ -743,7 +775,8 @@
             continue;
           }
           this.nethackModule.setValue(structOffset, itemIdentifier, "i32");
-          const countValue = process.env.NH_MENU_COUNT_MODE === "all" ? -1 : 1;
+          const countMode = process.env.NH_MENU_COUNT_MODE || "auto";
+          const countValue = countMode === "all" ? -1 : countMode === "one" ? 1 : this.shouldUseAllCountForMenuItem(item) ? -1 : 1;
           this.nethackModule.setValue(
             structOffset + countOffsetPrimary,
             countValue,
@@ -766,7 +799,7 @@
             "i32"
           );
           console.log(
-            `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${process.env.NH_MENU_COUNT_MODE || "one"}`
+            `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${countMode}`
           );
         }
         const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
@@ -1094,13 +1127,21 @@
             console.log(
               `\u{1F4CB} Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
             );
-            if (menuQuestion && (menuQuestion.toLowerCase().includes("pick up what") || menuQuestion.toLowerCase().includes("pick up") || menuQuestion.toLowerCase().includes("what do you want to pick up"))) {
+            const isPickupQuestion = menuQuestion && (menuQuestion.toLowerCase().includes("pick up what") || menuQuestion.toLowerCase().includes("pick up") || menuQuestion.toLowerCase().includes("what do you want to pick up"));
+            if (isPickupQuestion) {
               console.log("\u{1F4CB} Multi-pickup dialog detected");
               this.isInMultiPickup = true;
               if (this.tryBuildAutoPickupSelection()) {
                 console.log(`Sequential pickup: auto-confirming queued selection for this menu`);
                 return this.processKey("Enter");
               }
+            } else if (this.autoPickupQueueActive || this.autoPickupQueue.length > 0 || this.queuedInputs.length > 0) {
+              console.log(
+                `Clearing stale sequential pickup state before question "${menuQuestion}"`
+              );
+              this.autoPickupQueue = [];
+              this.autoPickupQueueActive = false;
+              this.queuedInputs = [];
             }
             if (this.eventHandler) {
               this.emit({
@@ -1525,7 +1566,7 @@
         case "shim_destroy_nhwindow":
           const [destroyWinId] = args;
           console.log(`\u{1F5D1}\uFE0F Destroying window ${destroyWinId}`);
-          if (destroyWinId === 4 && this.autoPickupQueue.length > 0) {
+          if (destroyWinId === 4 && this.autoPickupQueueActive && this.autoPickupQueue.length > 0) {
             console.log(`Sequential pickup: scheduling next pickup cycle (remaining=${this.autoPickupQueue.length})`);
             this.enqueueInput(",");
           }

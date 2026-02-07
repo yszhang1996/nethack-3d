@@ -29,6 +29,7 @@ class LocalNetHackRuntime {
     this.multiPickupReadyToConfirm = false;
     this.pendingMenuListPtrPtr = 0;
     this.autoPickupQueue = [];
+    this.autoPickupQueueActive = false;
     this.queuedInputs = [];
     this.queuedEventInputs = [];
     this.queuedRawKeyCodes = [];
@@ -134,6 +135,8 @@ class LocalNetHackRuntime {
     this.pendingMapGlyphs = [];
     this.latestInput = null;
     this.autoPickupQueue = [];
+    this.autoPickupQueueActive = false;
+    this.queuedInputs = [];
     this.queuedEventInputs = [];
     this.queuedRawKeyCodes = [];
     this.menuSelections.clear();
@@ -334,6 +337,7 @@ class LocalNetHackRuntime {
         }));
         this.menuSelections = new Map([[firstKey, firstValue]]);
         this.autoPickupQueue = queued;
+        this.autoPickupQueueActive = queued.length > 0;
         console.log(
           `Sequential pickup mode: keeping '${firstKey}:${firstValue.text}', queued ${queued.length} more`,
         );
@@ -370,6 +374,9 @@ class LocalNetHackRuntime {
     } else if (this.isInMultiPickup && input === "Escape") {
       this.menuSelections.clear();
       this.multiPickupReadyToConfirm = false;
+      this.autoPickupQueue = [];
+      this.autoPickupQueueActive = false;
+      this.queuedInputs = [];
 
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
         this.waitingForMenuSelection = false;
@@ -617,6 +624,7 @@ class LocalNetHackRuntime {
 
   tryBuildAutoPickupSelection() {
     if (!Array.isArray(this.autoPickupQueue) || this.autoPickupQueue.length === 0) {
+      this.autoPickupQueueActive = false;
       return false;
     }
 
@@ -641,6 +649,10 @@ class LocalNetHackRuntime {
         `Sequential pickup: could not match queued item '${next.key}:${next.text}', dropping it`,
       );
       this.autoPickupQueue.shift();
+      if (this.autoPickupQueue.length === 0) {
+        this.autoPickupQueueActive = false;
+        this.queuedInputs = [];
+      }
       return false;
     }
 
@@ -655,6 +667,7 @@ class LocalNetHackRuntime {
     });
     this.multiPickupReadyToConfirm = true;
     this.autoPickupQueue.shift();
+    this.autoPickupQueueActive = this.autoPickupQueue.length > 0;
     console.log(
       `Sequential pickup: auto-selected '${key}:${matched.text}', remaining queued=${this.autoPickupQueue.length}`,
     );
@@ -776,6 +789,30 @@ class LocalNetHackRuntime {
     return { value: null, valueType: "unknown", usedFallback: false };
   }
 
+  shouldUseAllCountForMenuItem(item) {
+    if (!item || typeof item.text !== "string") {
+      return false;
+    }
+
+    const text = item.text.trim();
+    if (!text) {
+      return false;
+    }
+
+    // Common NetHack stacked-item patterns.
+    if (/^\d+\s+/.test(text)) {
+      return true;
+    }
+    if (/\(\d+\)\s*$/.test(text)) {
+      return true;
+    }
+    if (/\bgold pieces?\b/i.test(text)) {
+      return true;
+    }
+
+    return false;
+  }
+
 
   writeMenuSelectionResult(menuListPtrPtr, selectionCount) {
     if (!this.nethackModule || !menuListPtrPtr) {
@@ -843,8 +880,17 @@ class LocalNetHackRuntime {
         }
 
         this.nethackModule.setValue(structOffset, itemIdentifier, "i32");
-        // Some ports use -1 for \"all\" stack count semantics, others accept 1.
-        const countValue = process.env.NH_MENU_COUNT_MODE === "all" ? -1 : 1;
+        // Some ports use -1 for "all" stack count semantics, others accept 1.
+        // Default behavior is "auto": stacked items select all by default.
+        const countMode = process.env.NH_MENU_COUNT_MODE || "auto";
+        const countValue =
+          countMode === "all"
+            ? -1
+            : countMode === "one"
+              ? 1
+              : this.shouldUseAllCountForMenuItem(item)
+                ? -1
+                : 1;
         // Write count in both likely offsets for compatibility across layouts.
         this.nethackModule.setValue(
           structOffset + countOffsetPrimary,
@@ -868,7 +914,7 @@ class LocalNetHackRuntime {
           "i32",
         );
         console.log(
-          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${process.env.NH_MENU_COUNT_MODE || "one"}`,
+          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, countSecondary=${debugCountSecondary}, countMode=${countMode}`,
         );
       }
       const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
@@ -1262,24 +1308,35 @@ class LocalNetHackRuntime {
           console.log(
             `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
-
           // Check if this is a multi-pickup dialog
-          if (
+          const isPickupQuestion =
             menuQuestion &&
             (menuQuestion.toLowerCase().includes("pick up what") ||
               menuQuestion.toLowerCase().includes("pick up") ||
               menuQuestion
                 .toLowerCase()
-                .includes("what do you want to pick up"))
-          ) {
+                .includes("what do you want to pick up"));
+          if (isPickupQuestion) {
             console.log("📋 Multi-pickup dialog detected");
             this.isInMultiPickup = true;
             if (this.tryBuildAutoPickupSelection()) {
               console.log(`Sequential pickup: auto-confirming queued selection for this menu`);
               return this.processKey("Enter");
             }
+          } else if (
+            this.autoPickupQueueActive ||
+            this.autoPickupQueue.length > 0 ||
+            this.queuedInputs.length > 0
+          ) {
+            // Avoid leaking synthetic ',' autopickup commands into unrelated dialogs
+            // such as container extraction ("Take out what?").
+            console.log(
+              `Clearing stale sequential pickup state before question "${menuQuestion}"`,
+            );
+            this.autoPickupQueue = [];
+            this.autoPickupQueueActive = false;
+            this.queuedInputs = [];
           }
-
           // Send the inventory question to web client
           if (this.eventHandler) {
             this.emit({
@@ -1842,7 +1899,11 @@ class LocalNetHackRuntime {
       case "shim_destroy_nhwindow":
         const [destroyWinId] = args;
         console.log(`🗑️ Destroying window ${destroyWinId}`);
-        if (destroyWinId === 4 && this.autoPickupQueue.length > 0) {
+        if (
+          destroyWinId === 4 &&
+          this.autoPickupQueueActive &&
+          this.autoPickupQueue.length > 0
+        ) {
           console.log(`Sequential pickup: scheduling next pickup cycle (remaining=${this.autoPickupQueue.length})`);
           this.enqueueInput(",");
         }
