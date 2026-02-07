@@ -381,9 +381,6 @@ var Nethack3DEngine = class {
           this.showInventoryDialog();
         }
         this.updateInventoryDisplay(data.items);
-        if (actualItems.length > 0) {
-          this.addGameMessage(`Inventory: ${actualItems.length} items`);
-        }
         break;
       case "info_menu":
         this.lastInfoMenu = {
@@ -517,12 +514,15 @@ var Nethack3DEngine = class {
     }
     return overlay;
   }
-  createGlyphTexture(baseColorHex, glyphChar, textColor, size = 256) {
+  createGlyphTexture(baseColorHex, glyphChar, textColor, darkenFactor = 1, size = 256) {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
     const context = canvas.getContext("2d");
-    const tonedBackground = this.toneColor(baseColorHex, 0.8);
+    const tonedBackground = this.toneColor(
+      baseColorHex,
+      0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
+    );
     context.fillStyle = `#${tonedBackground}`;
     context.fillRect(0, 0, size, size);
     const trimmed = glyphChar.trim();
@@ -547,7 +547,8 @@ var Nethack3DEngine = class {
   applyGlyphMaterial(key, mesh, baseMaterial, glyphChar, textColor, isWall, darkenFactor = 1) {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
-    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}`;
+    const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
+    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}`;
     if (overlay.textureKey !== textureKey) {
       if (overlay.texture) {
         overlay.texture.dispose();
@@ -557,14 +558,14 @@ var Nethack3DEngine = class {
       overlay.texture = this.createGlyphTexture(
         baseColorHex,
         glyphChar,
-        textColor
+        textColor,
+        clampedDarken
       );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
       overlay.textureKey = textureKey;
     }
-    const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
-    overlay.material.color.setScalar(clampedDarken);
+    overlay.material.color.set("#ffffff");
     if (isWall) {
       mesh.material = [
         baseMaterial,
