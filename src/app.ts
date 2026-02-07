@@ -1,9 +1,10 @@
 /*
  * Main entry point for the NetHack 3D client.
- * This module connects to our NetHack WebSocket server and renders the game in 3D using Three.js.
+ * This module runs NetHack WASM locally in-browser and renders the game in 3D using Three.js.
  */
 
 import * as THREE from "three";
+import LocalNetHackSession from "./local-nethack-session";
 
 // --- TYPE DEFINITIONS ---
 
@@ -71,7 +72,7 @@ class Nethack3DEngine {
     score: 0,
   };
 
-  private ws: WebSocket | null = null;
+  private session: any | null = null;
   private readonly metaInputPrefix = "__META__:";
   private altOrMetaHeld: boolean = false;
 
@@ -132,7 +133,7 @@ class Nethack3DEngine {
   constructor() {
     this.initThreeJS();
     this.initUI();
-    this.connectToServer();
+    this.connectToRuntime();
 
     // Set initial camera position looking straight down with a slight tilt
     this.cameraDistance = 15;
@@ -203,7 +204,7 @@ class Nethack3DEngine {
     // Use existing game log and status elements from HTML instead of creating new ones
     const statusElement = document.getElementById("game-status");
     if (statusElement) {
-      statusElement.innerHTML = "Connecting to NetHack server...";
+      statusElement.innerHTML = "Starting local NetHack runtime...";
     }
 
     // Create connection status (smaller, top-right corner)
@@ -225,67 +226,30 @@ class Nethack3DEngine {
     document.body.appendChild(connStatus);
   }
 
-  private connectToServer(): void {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}`;
+  private async connectToRuntime(): Promise<void> {
+    console.log("Starting local NetHack runtime");
+    this.updateConnectionStatus("Starting", "#4444aa");
 
-    console.log("Connecting to NetHack server at:", wsUrl);
+    this.session = new LocalNetHackSession((payload: any) => {
+      this.handleServerMessage(payload);
+    });
 
-    // Clean up any existing WebSocket
-    if (this.ws) {
-      console.log("Cleaning up existing WebSocket connection");
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-    }
+    try {
+      await this.session.start();
+      this.updateConnectionStatus("Running", "#00aa00");
+      this.updateStatus("Local NetHack runtime started");
+      this.addGameMessage("Local NetHack runtime started");
 
-    this.ws = new WebSocket(wsUrl);
-
-    this.ws.onopen = () => {
-      console.log("Connected to NetHack server");
-      this.updateConnectionStatus("Connected", "#00aa00");
-      this.updateStatus("Connected to NetHack - Game starting...");
-      this.addGameMessage("Connected to NetHack - Game starting...");
-
-      // Hide loading screen
       const loading = document.getElementById("loading");
       if (loading) {
         loading.style.display = "none";
       }
-    };
-
-    this.ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        this.handleServerMessage(data);
-      } catch (error) {
-        console.error("Error parsing server message:", error);
-      }
-    };
-
-    this.ws.onclose = () => {
-      console.log("Disconnected from NetHack server");
-      this.updateConnectionStatus("Disconnected", "#aa0000");
-
-      // Silently attempt to reconnect after 3 seconds
-      setTimeout(() => {
-        console.log("Attempting to reconnect...");
-        if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-          console.log("WebSocket is closed, starting reconnection");
-          this.connectToServer();
-        } else {
-          console.log(
-            `WebSocket state: ${this.ws.readyState}, skipping reconnection`
-          );
-        }
-      }, 3000);
-    };
-
-    this.ws.onerror = (error) => {
-      console.error("WebSocket error:", error);
+    } catch (error) {
+      console.error("Failed to start local NetHack runtime:", error);
       this.updateConnectionStatus("Error", "#aa0000");
-    };
+      this.updateStatus("Failed to start local NetHack runtime");
+      this.addGameMessage("Failed to start local NetHack runtime");
+    }
   }
 
   private handleServerMessage(data: any): void {
@@ -538,52 +502,27 @@ class Nethack3DEngine {
    * @param y The y coordinate of the tile
    */
   public requestTileUpdate(x: number, y: number): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      console.log(`🔄 Requesting tile update for (${x}, ${y})`);
-      this.ws.send(
-        JSON.stringify({
-          type: "request_tile_update",
-          x: x,
-          y: y,
-        })
-      );
+    if (this.session) {
+      console.log(`Requesting tile update for (${x}, ${y})`);
+      this.session.requestTileUpdate(x, y);
     } else {
-      console.log("⚠️ Cannot request tile update - WebSocket not connected");
+      console.log("Cannot request tile update - runtime not started");
     }
   }
-
-  /**
-   * Request a view update for an area around a center point
-   * @param centerX The x coordinate of the center
-   * @param centerY The y coordinate of the center
-   * @param radius The radius around the center point (default: 3)
-   */
   public requestAreaUpdate(
     centerX: number,
     centerY: number,
     radius: number = 3
   ): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    if (this.session) {
       console.log(
-        `🔄 Requesting area update centered at (${centerX}, ${centerY}) with radius ${radius}`
+        `Requesting area update centered at (${centerX}, ${centerY}) with radius ${radius}`
       );
-      this.ws.send(
-        JSON.stringify({
-          type: "request_area_update",
-          centerX: centerX,
-          centerY: centerY,
-          radius: radius,
-        })
-      );
+      this.session.requestAreaUpdate(centerX, centerY, radius);
     } else {
-      console.log("⚠️ Cannot request area update - WebSocket not connected");
+      console.log("Cannot request area update - runtime not started");
     }
   }
-
-  /**
-   * Request a view update for the area around the player
-   * @param radius The radius around the player (default: 5)
-   */
   public requestPlayerAreaUpdate(radius: number = 5): void {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
   }
@@ -2144,16 +2083,10 @@ class Nethack3DEngine {
   }
 
   private sendInput(input: string): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(
-        JSON.stringify({
-          type: "input",
-          input: input,
-        })
-      );
+    if (this.session) {
+      this.session.sendInput(input);
     }
   }
-
   private getModifiedInput(event: KeyboardEvent): string | null {
     // NetHack meta commands are represented as ESC + key on the server side.
     const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
@@ -2707,3 +2640,6 @@ console.log("  ESC - Close dialogs or cancel actions");
 console.log("  Ctrl+M - Toggle latest information panel");
 
 export default game;
+
+
+
