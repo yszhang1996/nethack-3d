@@ -15,7 +15,7 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
 
   constructor(onEvent: RuntimeEventHandler) {
     this.onEvent = onEvent;
-    this.worker = new Worker("/runtime-worker.js");
+    this.worker = new Worker("runtime-worker.js");
     this.worker.onmessage = (message: MessageEvent<RuntimeWorkerEnvelope>) => {
       this.handleWorkerMessage(message.data);
     };

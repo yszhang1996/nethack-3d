@@ -11,7 +11,7 @@ var WorkerRuntimeBridge = class {
     this.startResolve = null;
     this.startReject = null;
     this.onEvent = onEvent;
-    this.worker = new Worker("/runtime-worker.js");
+    this.worker = new Worker("runtime-worker.js");
     this.worker.onmessage = (message) => {
       this.handleWorkerMessage(message.data);
     };

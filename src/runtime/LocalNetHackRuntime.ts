@@ -951,7 +951,7 @@ class LocalNetHackRuntime {
       moduleConfig = {
         locateFile: (assetPath) => {
           if (assetPath.endsWith(".wasm")) {
-            return "/nethack.wasm";
+            return "nethack.wasm";
           }
           return assetPath;
         },

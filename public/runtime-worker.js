@@ -15,7 +15,7 @@
     }
     if (typeof importScripts === "function") {
       try {
-        importScripts("/nethack.js");
+        importScripts("nethack.js");
       } catch (error) {
         throw new Error(`Failed loading nethack.js in worker: ${String(error)}`);
       }
@@ -53,7 +53,7 @@
         return;
       }
       const script = document.createElement("script");
-      script.src = "/nethack.js";
+      script.src = "nethack.js";
       script.async = true;
       script.dataset.nethackFactory = "1";
       script.addEventListener("load", () => {
@@ -852,7 +852,7 @@
         moduleConfig = {
           locateFile: (assetPath) => {
             if (assetPath.endsWith(".wasm")) {
-              return "/nethack.wasm";
+              return "nethack.wasm";
             }
             return assetPath;
           },

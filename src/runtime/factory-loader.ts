@@ -18,7 +18,7 @@ export async function loadNethackFactory(): Promise<NethackFactory> {
 
   if (typeof importScripts === "function") {
     try {
-      importScripts("/nethack.js");
+      importScripts("nethack.js");
     } catch (error) {
       throw new Error(`Failed loading nethack.js in worker: ${String(error)}`);
     }
@@ -62,7 +62,7 @@ export async function loadNethackFactory(): Promise<NethackFactory> {
     }
 
     const script = document.createElement("script");
-    script.src = "/nethack.js";
+    script.src = "nethack.js";
     script.async = true;
     script.dataset.nethackFactory = "1";
     script.addEventListener("load", () => {
