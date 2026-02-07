@@ -1,37 +1,14 @@
 // @ts-nocheck
+import { loadNethackFactory } from "./factory-loader";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
     ? globalThis.process
     : { env: {} };
 
-class LocalSocket {
-  constructor(messageHandler) {
-    this.messageHandler = messageHandler;
-    this.readyState = 1;
-  }
-
-  send(payload) {
-    if (typeof this.messageHandler !== "function") {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(payload);
-      this.messageHandler(parsed);
-    } catch (error) {
-      console.error("Failed to parse LocalSocket payload:", error);
-    }
-  }
-
-  close() {
-    this.readyState = 3;
-  }
-}
-class LocalNetHackSession {
-  constructor(messageHandler) {
-    this.messageHandler = messageHandler;
-    this.ws = this.createVirtualSocket();
+class LocalNetHackRuntime {
+  constructor(eventHandler) {
+    this.eventHandler = eventHandler;
     this.isClosed = false;
     this.nethackInstance = null;
     this.gameMap = new Map();
@@ -68,7 +45,7 @@ class LocalNetHackSession {
     this.inputCooldown = 100; // 100ms cooldown
     this.metaInputPrefix = "__META__:";
 
-    // Batch map glyph updates to reduce websocket overhead during reveal bursts.
+    // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
     this.mapGlyphFlushTimer = null;
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
@@ -76,70 +53,52 @@ class LocalNetHackSession {
     this.ready = this.initializeNetHack();
   }
 
-  attachWebSocket() {
-    if (this.isClosed) {
-      return;
-    }
-    this.ws = this.createVirtualSocket();
-    this.sendReconnectSnapshot();
-  }
-
   sendReconnectSnapshot() {
-    if (!this.ws || this.ws.readyState !== 1) {
+    if (!this.eventHandler) {
       return;
     }
 
     // Start from a clean client scene before replaying cached state.
-    this.ws.send(
-      JSON.stringify({
+    this.emit({
         type: "clear_scene",
         message: "Reconnected - restoring game state",
-      }),
-    );
+      });
 
     const tiles = Array.from(this.gameMap.values());
     const chunkSize = 500;
     for (let i = 0; i < tiles.length; i += chunkSize) {
-      this.ws.send(
-        JSON.stringify({
+      this.emit({
           type: "map_glyph_batch",
           tiles: tiles.slice(i, i + chunkSize),
-        }),
-      );
+        });
     }
 
-    this.ws.send(
-      JSON.stringify({
+    this.emit({
         type: "player_position",
         x: this.playerPosition.x,
         y: this.playerPosition.y,
-      }),
-    );
+      });
 
     for (const payload of this.latestStatusUpdates.values()) {
-      this.ws.send(JSON.stringify(payload));
+      this.emit(payload);
     }
 
     if (this.latestInventoryItems.length > 0) {
-      this.ws.send(
-        JSON.stringify({
+      this.emit({
           type: "inventory_update",
           items: this.latestInventoryItems,
           window: 4,
-        }),
-      );
+        });
     }
 
     const recentMessages = this.gameMessages.slice(-30);
     for (const msg of recentMessages) {
-      this.ws.send(
-        JSON.stringify({
+      this.emit({
           type: "text",
           text: msg.text,
           window: msg.window,
           attr: msg.attr,
-        }),
-      );
+        });
     }
   }
 
@@ -215,7 +174,7 @@ class LocalNetHackSession {
   }
 
   queueMapGlyphUpdate(tile) {
-    if (this.isClosed || !tile || !this.ws || this.ws.readyState !== 1) {
+    if (this.isClosed || !tile || !this.eventHandler) {
       return;
     }
 
@@ -238,8 +197,7 @@ class LocalNetHackSession {
     if (
       this.isClosed ||
       !this.pendingMapGlyphs.length ||
-      !this.ws ||
-      this.ws.readyState !== 1
+      !this.eventHandler
     ) {
       this.pendingMapGlyphs = [];
       return;
@@ -248,12 +206,10 @@ class LocalNetHackSession {
     const batch = this.pendingMapGlyphs;
     this.pendingMapGlyphs = [];
 
-    this.ws.send(
-      JSON.stringify({
+    this.emit({
         type: "map_glyph_batch",
         tiles: batch,
-      }),
-    );
+      });
   }
 
   // Handle incoming input from the client
@@ -323,12 +279,12 @@ class LocalNetHackSession {
           text: menuItem.text,
         });
         console.log(
-          `📋 Recorded single menu selection: ${input} (${menuItem.text})`,
+          `Recorded single menu selection: ${input} (${menuItem.text})`,
         );
       }
     }
 
-    // Track multi-pickup selections
+    // Track multi-pickup selections.
     if (
       this.isInMultiPickup &&
       typeof input === "string" &&
@@ -336,20 +292,17 @@ class LocalNetHackSession {
       input !== "\r" &&
       input !== "\n"
     ) {
-      // Find the menu item for this accelerator
       const menuItem = this.currentMenuItems.find(
         (item) => item.accelerator === input && !item.isCategory,
       );
       if (menuItem) {
         if (this.menuSelections.has(input)) {
-          // Deselect item
           this.menuSelections.delete(input);
           console.log(
-            `📋 Deselected item: ${input} (${menuItem.text}). Current selections:`,
+            `Deselected item: ${input} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys()),
           );
         } else {
-          // Select item - store complete information
           this.menuSelections.set(input, {
             menuChar: input,
             originalAccelerator: menuItem.originalAccelerator,
@@ -358,24 +311,19 @@ class LocalNetHackSession {
             text: menuItem.text,
           });
           console.log(
-            `📋 Selected item: ${input} (${menuItem.text}). Current selections:`,
+            `Selected item: ${input} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys()),
           );
         }
       } else {
-        console.log(
-          `📋 Warning: No menu item found for accelerator '${input}'`,
-        );
+        console.log(`No menu item found for accelerator '${input}'`);
       }
-      // DON'T resolve the input promise for individual item selections in multi-pickup
-      console.log("📋 Multi-pickup item selection - not resolving promise yet");
+      console.log("Multi-pickup item selection updated");
       return;
     } else if (
       this.isInMultiPickup &&
       (input === "Enter" || input === "\r" || input === "\n")
     ) {
-      // NetHack ABI in this build is stable for one selected menu_item but
-      // segfaults on multi-entry writes. Convert extras into a sequential queue.
       if (this.menuSelections.size > 1) {
         const ordered = Array.from(this.menuSelections.entries());
         const [firstKey, firstValue] = ordered[0];
@@ -391,15 +339,12 @@ class LocalNetHackSession {
         );
       }
 
-      // Confirm multi-pickup
       const selectedItems = Array.from(this.menuSelections.values()).map(
         (item) => `${item.menuChar}:${item.text}`,
       );
-      console.log(`📋 Confirming multi-pickup with selections:`, selectedItems);
+      console.log("Confirming multi-pickup with selections:", selectedItems);
 
-      // Resolve the menu selection promise if waiting
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        console.log("🎮 Resolving menu selection with selection count");
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
@@ -407,21 +352,14 @@ class LocalNetHackSession {
         this.pendingMenuListPtrPtr = 0;
         const selectionCount = this.menuSelections.size;
         this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
-        this.isInMultiPickup = false; // Clear it here when we resolve
+        this.isInMultiPickup = false;
         resolver(selectionCount);
         return;
       }
 
-      // If no menu selection is waiting, mark that we're ready to confirm
-      // Also resolve the input promise that's waiting in shim_end_menu
-      console.log("📋 Multi-pickup ready to confirm - resolving input promise");
       this.multiPickupReadyToConfirm = true;
 
-      // Resolve the general input promise if waiting (from shim_end_menu)
       if (this.waitingForInput && this.inputResolver) {
-        console.log(
-          "🎮 Resolving waiting input promise for multi-pickup confirmation",
-        );
         this.waitingForInput = false;
         const resolver = this.inputResolver;
         this.inputResolver = null;
@@ -430,32 +368,24 @@ class LocalNetHackSession {
       }
       return;
     } else if (this.isInMultiPickup && input === "Escape") {
-      // Cancel multi-pickup
-      console.log(`📋 Cancelling multi-pickup`);
       this.menuSelections.clear();
       this.multiPickupReadyToConfirm = false;
 
-      // Resolve the menu selection promise with 0 (no selection)
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        console.log("🎮 Resolving menu selection cancellation with 0");
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
         const menuListPtrPtr = this.pendingMenuListPtrPtr || 0;
         this.pendingMenuListPtrPtr = 0;
         this.writeMenuSelectionResult(menuListPtrPtr, 0);
-        this.isInMultiPickup = false; // Clear it here when we resolve
+        this.isInMultiPickup = false;
         resolver(0);
         return;
       }
-      // If no menu selection is waiting, just clear and store the input
+
       this.isInMultiPickup = false;
-      console.log(
-        "📋 No menu selection waiting - storing Escape for later use",
-      );
       return;
     }
-
     // If we're waiting for general input, resolve the promise immediately
     if (this.waitingForInput && this.inputResolver) {
       console.log("🎮 Resolving waiting input promise with:", input);
@@ -493,7 +423,7 @@ class LocalNetHackSession {
     if (tileData) {
       console.log(`📤 Resending tile data for (${x}, ${y}):`, tileData);
 
-      if (this.ws && this.ws.readyState === 1) {
+      if (this.eventHandler) {
         this.queueMapGlyphUpdate({
           type: "map_glyph",
           x: tileData.x,
@@ -511,15 +441,13 @@ class LocalNetHackSession {
       );
 
       // Optionally, we could send a "blank" tile or request NetHack to redraw the area
-      if (this.ws && this.ws.readyState === 1) {
-        this.ws.send(
-          JSON.stringify({
+      if (this.eventHandler) {
+        this.emit({
             type: "tile_not_found",
             x: x,
             y: y,
             message: "Tile data not available - may not be explored yet",
-          }),
-        );
+          });
       }
     }
   }
@@ -543,7 +471,7 @@ class LocalNetHackSession {
         const tileData = this.gameMap.get(key);
 
         if (tileData) {
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
               x: tileData.x,
@@ -569,16 +497,14 @@ class LocalNetHackSession {
     this.flushMapGlyphUpdates();
 
     // Send completion message
-    if (this.ws && this.ws.readyState === 1) {
-      this.ws.send(
-        JSON.stringify({
+    if (this.eventHandler) {
+      this.emit({
           type: "area_refresh_complete",
           centerX: centerX,
           centerY: centerY,
           radius: radius,
           tilesRefreshed: tilesRefreshed,
-        }),
-      );
+        });
     }
   }
 
@@ -936,67 +862,10 @@ class LocalNetHackSession {
     }
   }
 
-  async loadFactoryScript() {
-    if (typeof globalThis.__nethackFactory === "function") {
-      return globalThis.__nethackFactory;
-    }
-
-    if (typeof globalThis.Module === "function") {
-      globalThis.__nethackFactory = globalThis.Module;
-      return globalThis.__nethackFactory;
-    }
-
-    await new Promise((resolve, reject) => {
-      const existing = document.querySelector("script[data-nethack-factory='1']");
-      if (existing) {
-        if (typeof globalThis.Module === "function") {
-          globalThis.__nethackFactory = globalThis.Module;
-          resolve(undefined);
-          return;
-        }
-        existing.addEventListener("load", () => {
-          if (typeof globalThis.Module === "function") {
-            globalThis.__nethackFactory = globalThis.Module;
-            resolve(undefined);
-            return;
-          }
-          reject(new Error("nethack.js loaded but factory was not found on globalThis.Module"));
-        });
-        existing.addEventListener("error", () => {
-          reject(new Error("Failed loading nethack.js"));
-        });
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.src = "/nethack.js";
-      script.async = true;
-      script.dataset.nethackFactory = "1";
-      script.addEventListener("load", () => {
-        if (typeof globalThis.Module === "function") {
-          globalThis.__nethackFactory = globalThis.Module;
-          resolve(undefined);
-          return;
-        }
-        reject(new Error("nethack.js loaded but factory was not found on globalThis.Module"));
-      });
-      script.addEventListener("error", () => {
-        reject(new Error("Failed loading nethack.js"));
-      });
-      document.head.appendChild(script);
-    });
-
-    if (typeof globalThis.__nethackFactory !== "function") {
-      throw new Error("NetHack factory is unavailable after script load");
-    }
-
-    return globalThis.__nethackFactory;
-  }
-
   async initializeNetHack() {
     try {
       console.log("Starting local NetHack session...");
-      const factory = await this.loadFactoryScript();
+      const factory = await loadNethackFactory();
 
       globalThis.nethackCallback = (name, ...args) => {
         return this.handleUICallback(name, args);
@@ -1165,7 +1034,7 @@ class LocalNetHackSession {
         return new Promise((resolve) => {
           this.inputResolver = resolve;
           this.waitingForInput = true;
-          // No timeout - wait for real user input via WebSocket
+          // No timeout - wait for real user input via runtime bridge
         });
 
       case "shim_yn_function":
@@ -1184,15 +1053,13 @@ class LocalNetHackSession {
           );
 
           // Send direction question to web client
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
+          if (this.eventHandler) {
+            this.emit({
                 type: "direction_question",
                 text: question,
                 choices: choices,
                 default: defaultChoice,
-              }),
-            );
+              });
           }
 
           // Wait for actual user input for direction questions
@@ -1200,22 +1067,20 @@ class LocalNetHackSession {
           return new Promise((resolve) => {
             this.inputResolver = resolve;
             this.waitingForInput = true;
-            // No timeout - wait for real user input via WebSocket
+            // No timeout - wait for real user input via runtime bridge
           });
         }
 
         // Send question to web client (don't include menu items for simple Y/N questions)
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "question",
               text: question,
               choices: choices,
               default: defaultChoice,
               // Only include menuItems if this is actually a menu question, not a simple Y/N
               menuItems: [],
-            }),
-          );
+            });
         }
 
         // Wait for actual user input instead of returning default choice automatically
@@ -1223,7 +1088,7 @@ class LocalNetHackSession {
         return new Promise((resolve) => {
           this.inputResolver = resolve;
           this.waitingForInput = true;
-          // No timeout - wait for real user input via WebSocket
+          // No timeout - wait for real user input via runtime bridge
         });
 
       case "shim_nh_poskey":
@@ -1262,19 +1127,17 @@ class LocalNetHackSession {
         return new Promise((resolve) => {
           this.positionResolver = resolve;
           this.waitingForPosition = true;
-          // No timeout - wait for real user input via WebSocket
+          // No timeout - wait for real user input via runtime bridge
         });
 
       case "shim_init_nhwindows":
         console.log("Initializing NetHack windows");
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "name_request",
               text: "What is your name, adventurer?",
               maxLength: 30,
-            }),
-          );
+            });
         }
         return 1;
       case "shim_create_nhwindow":
@@ -1346,16 +1209,14 @@ class LocalNetHackSession {
             `WIN_INVEN no-question menu classified as ${classification.kind} (${actualItems.length} items, ${categoryHeaders.length} categories)`,
           );
 
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             if (classification.kind === "inventory") {
               this.latestInventoryItems = [...this.currentMenuItems];
-              this.ws.send(
-                JSON.stringify({
+              this.emit({
                   type: "inventory_update",
                   items: this.currentMenuItems,
                   window: endMenuWinid,
-                }),
-              );
+                });
             } else {
               const infoLines = classification.lines;
               const infoTitle =
@@ -1364,14 +1225,12 @@ class LocalNetHackSession {
                   : "NetHack Information";
               const infoBody =
                 infoLines.length > 1 ? infoLines.slice(1) : infoLines;
-              this.ws.send(
-                JSON.stringify({
+              this.emit({
                   type: "info_menu",
                   title: infoTitle,
                   lines: infoBody,
                   window: endMenuWinid,
-                }),
-              );
+                });
             }
           }
 
@@ -1401,16 +1260,14 @@ class LocalNetHackSession {
           }
 
           // Send the inventory question to web client
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
+          if (this.eventHandler) {
+            this.emit({
                 type: "question",
                 text: menuQuestion,
                 choices: "",
                 default: "",
                 menuItems: this.currentMenuItems,
-              }),
-            );
+              });
           }
 
           // Wait for actual user input for inventory questions
@@ -1418,7 +1275,7 @@ class LocalNetHackSession {
           return new Promise((resolve) => {
             this.inputResolver = resolve;
             this.waitingForInput = true;
-            // No timeout - wait for real user input via WebSocket
+            // No timeout - wait for real user input via runtime bridge
           });
         }
 
@@ -1429,16 +1286,14 @@ class LocalNetHackSession {
           );
 
           // Send menu question to web client
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
+          if (this.eventHandler) {
+            this.emit({
                 type: "question",
                 text: menuQuestion,
                 choices: "",
                 default: "",
                 menuItems: this.currentMenuItems,
-              }),
-            );
+              });
           }
 
           // Wait for actual user input for menu questions
@@ -1446,7 +1301,7 @@ class LocalNetHackSession {
           return new Promise((resolve) => {
             this.inputResolver = resolve;
             this.waitingForInput = true;
-            // No timeout - wait for real user input via WebSocket
+            // No timeout - wait for real user input via runtime bridge
           });
         }
 
@@ -1508,16 +1363,14 @@ class LocalNetHackSession {
           // Only show dialog if we have actual selectable items
           if (selectableItems.length > 0) {
             // Send expanded question to web client
-            if (this.ws && this.ws.readyState === 1) {
-              this.ws.send(
-                JSON.stringify({
+            if (this.eventHandler) {
+              this.emit({
                   type: "question",
                   text: contextualQuestion,
                   choices: "",
                   default: "",
                   menuItems: this.currentMenuItems,
-                }),
-              );
+                });
             }
 
             // Wait for actual user input for expanded questions
@@ -1525,7 +1378,7 @@ class LocalNetHackSession {
             return new Promise((resolve) => {
               this.inputResolver = resolve;
               this.waitingForInput = true;
-              // No timeout - wait for real user input via WebSocket
+              // No timeout - wait for real user input via runtime bridge
             });
           } else {
             console.log(
@@ -1633,9 +1486,8 @@ class LocalNetHackSession {
         }
 
         // Send menu item to web client
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "menu_item",
               text: menuText,
               accelerator: menuChar,
@@ -1644,8 +1496,7 @@ class LocalNetHackSession {
               glyphChar: glyphChar, // Include glyph character in client message
               isCategory: isCategory,
               menuItems: this.currentMenuItems,
-            }),
-          );
+            });
         }
 
         return 0;
@@ -1661,15 +1512,13 @@ class LocalNetHackSession {
         if (this.gameMessages.length > 100) {
           this.gameMessages.shift();
         }
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "text",
               text: textStr,
               window: win,
               attr: textAttr,
-            }),
-          );
+            });
         }
         return 0;
       case "shim_print_glyph":
@@ -1727,7 +1576,7 @@ class LocalNetHackSession {
             color: glyphColor,
             timestamp: Date.now(),
           });
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
               x: x,
@@ -1743,70 +1592,22 @@ class LocalNetHackSession {
           //   this.hasShownCharacterSelection = true;
           //   console.log(
           //     "🎯 Game started - showing interactive character selection"
-          //   );
-          //   if (this.ws && this.ws.readyState === 1) {
-          //     this.ws.send(
-          //       JSON.stringify({
-          //         type: "question",
-          //         text: "Welcome to NetHack! Would you like to create a new character?",
-          //         choices: "yn",
-          //         default: "y",
-          //         menuItems: [
-          //           {
-          //             accelerator: "y",
-          //             text: "Yes - Choose character class and race",
-          //           },
-          //           {
-          //             accelerator: "n",
-          //             text: "No - Continue with current character",
-          //           },
-          //         ],
-          //       })
-          //     );
-          //   }
-          // }
+          //   );          // }
         }
         return 0;
       case "shim_player_selection":
         console.log("NetHack player selection started");
-        // Comment out character selection UI for automatic play
-        // if (this.ws && this.ws.readyState === 1) {
-        //   this.ws.send(
-        //     JSON.stringify({
-        //       type: "question",
-        //       text: "Choose your character class:",
-        //       choices: "",
-        //       default: "",
-        //       menuItems: [
-        //         { accelerator: "a", text: "Archeologist" },
-        //         { accelerator: "b", text: "Barbarian" },
-        //         { accelerator: "c", text: "Caveman" },
-        //         { accelerator: "h", text: "Healer" },
-        //         { accelerator: "k", text: "Knight" },
-        //         { accelerator: "m", text: "Monk" },
-        //         { accelerator: "p", text: "Priest" },
-        //         { accelerator: "r", text: "Rogue" },
-        //         { accelerator: "s", text: "Samurai" },
-        //         { accelerator: "t", text: "Tourist" },
-        //         { accelerator: "v", text: "Valkyrie" },
-        //         { accelerator: "w", text: "Wizard" },
-        //       ],
-        //     })
-        //   );
-        // }
-        return 0;
+        // Comment out character selection UI for automatic play        return 0;
       case "shim_raw_print":
         const [rawText] = args;
         console.log(`📢 RAW PRINT: "${rawText}"`);
 
         // Send raw print messages to the UI log
-        if (this.ws && this.ws.readyState === 1 && rawText && rawText.trim()) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler && rawText && rawText.trim()) {
+          this.emit({
               type: "raw_print",
               text: rawText.trim(),
-            }),
-          );
+            });
         }
         return 0;
       case "shim_wait_synch":
@@ -1898,14 +1699,12 @@ class LocalNetHackSession {
 
       case "shim_askname":
         console.log("NetHack is asking for player name, args:", args);
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "name_request",
               text: "What is your name?",
               maxLength: 30,
-            }),
-          );
+            });
         }
 
         if (this.latestInput) {
@@ -1932,24 +1731,20 @@ class LocalNetHackSession {
         this.playerPosition = { x: clipX, y: clipY };
 
         // Send updated player position to client
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
+        if (this.eventHandler) {
+          this.emit({
               type: "player_position",
               x: clipX,
               y: clipY,
-            }),
-          );
+            });
 
           // Also send a map update to clear the old player position and show new one
           // This helps when NetHack doesn't send explicit glyph updates
-          this.ws.send(
-            JSON.stringify({
+          this.emit({
               type: "force_player_redraw",
               oldPosition: oldPlayerPos,
               newPosition: { x: clipX, y: clipY },
-            }),
-          );
+            });
         }
         return 0;
 
@@ -1961,12 +1756,10 @@ class LocalNetHackSession {
         if (clearWinId === 2 || clearWinId === 3) {
           // WIN_MAP = 2, but window 3 is also used for map display in some contexts
           console.log("Map window cleared - clearing 3D scene");
-          this.ws.send(
-            JSON.stringify({
+          this.emit({
               type: "clear_scene",
               message: "Level transition - clearing display",
-            }),
-          );
+            });
         }
         return 0;
 
@@ -2023,10 +1816,8 @@ class LocalNetHackSession {
           `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`
         );
 
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify(statusPayload),
-          );
+        if (this.eventHandler) {
+          this.emit(statusPayload);
         }
         return 0;
 
@@ -2036,14 +1827,18 @@ class LocalNetHackSession {
     }
   }
 
-  createVirtualSocket() {
-    return new LocalSocket((payload) => {
-      if (typeof this.messageHandler === "function") {
-        this.messageHandler(payload);
-      }
-    });
+  emit(payload) {
+    if (typeof this.eventHandler === "function") {
+      this.eventHandler(payload);
+    }
   }
 }
 
-export default LocalNetHackSession;
+
+export default LocalNetHackRuntime;
+
+
+
+
+
 

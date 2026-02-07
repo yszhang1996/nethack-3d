@@ -1,32 +1,78 @@
-// src/app.ts
+// src/game/Nethack3DEngine.ts
 import * as THREE from "./three.module.js";
 
-// src/local-nethack-session.ts
-var process = typeof globalThis !== "undefined" && globalThis.process ? globalThis.process : { env: {} };
-var LocalSocket = class {
-  constructor(messageHandler) {
-    this.messageHandler = messageHandler;
-    this.readyState = 1;
+// src/runtime/factory-loader.ts
+function getGlobal() {
+  return globalThis;
+}
+async function loadNethackFactory() {
+  const g = getGlobal();
+  if (typeof g.__nethackFactory === "function") {
+    return g.__nethackFactory;
   }
-  send(payload) {
-    if (typeof this.messageHandler !== "function") {
+  if (typeof g.Module === "function") {
+    g.__nethackFactory = g.Module;
+    return g.__nethackFactory;
+  }
+  await new Promise((resolve, reject) => {
+    const existing = document.querySelector(
+      "script[data-nethack-factory='1']"
+    );
+    if (existing) {
+      if (typeof g.Module === "function") {
+        g.__nethackFactory = g.Module;
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => {
+        if (typeof g.Module === "function") {
+          g.__nethackFactory = g.Module;
+          resolve();
+          return;
+        }
+        reject(
+          new Error(
+            "nethack.js loaded but factory was not found on globalThis.Module"
+          )
+        );
+      });
+      existing.addEventListener("error", () => {
+        reject(new Error("Failed loading nethack.js"));
+      });
       return;
     }
-    try {
-      const parsed = JSON.parse(payload);
-      this.messageHandler(parsed);
-    } catch (error) {
-      console.error("Failed to parse LocalSocket payload:", error);
-    }
+    const script = document.createElement("script");
+    script.src = "/nethack.js";
+    script.async = true;
+    script.dataset.nethackFactory = "1";
+    script.addEventListener("load", () => {
+      if (typeof g.Module === "function") {
+        g.__nethackFactory = g.Module;
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          "nethack.js loaded but factory was not found on globalThis.Module"
+        )
+      );
+    });
+    script.addEventListener("error", () => {
+      reject(new Error("Failed loading nethack.js"));
+    });
+    document.head.appendChild(script);
+  });
+  if (typeof g.__nethackFactory !== "function") {
+    throw new Error("NetHack factory is unavailable after script load");
   }
-  close() {
-    this.readyState = 3;
-  }
-};
-var LocalNetHackSession = class {
-  constructor(messageHandler) {
-    this.messageHandler = messageHandler;
-    this.ws = this.createVirtualSocket();
+  return g.__nethackFactory;
+}
+
+// src/runtime/LocalNetHackRuntime.ts
+var process = typeof globalThis !== "undefined" && globalThis.process ? globalThis.process : { env: {} };
+var LocalNetHackRuntime = class {
+  constructor(eventHandler) {
+    this.eventHandler = eventHandler;
     this.isClosed = false;
     this.nethackInstance = null;
     this.gameMap = /* @__PURE__ */ new Map();
@@ -61,62 +107,45 @@ var LocalNetHackSession = class {
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
     this.ready = this.initializeNetHack();
   }
-  attachWebSocket() {
-    if (this.isClosed) {
-      return;
-    }
-    this.ws = this.createVirtualSocket();
-    this.sendReconnectSnapshot();
-  }
   sendReconnectSnapshot() {
-    if (!this.ws || this.ws.readyState !== 1) {
+    if (!this.eventHandler) {
       return;
     }
-    this.ws.send(
-      JSON.stringify({
-        type: "clear_scene",
-        message: "Reconnected - restoring game state"
-      })
-    );
+    this.emit({
+      type: "clear_scene",
+      message: "Reconnected - restoring game state"
+    });
     const tiles = Array.from(this.gameMap.values());
     const chunkSize = 500;
     for (let i = 0; i < tiles.length; i += chunkSize) {
-      this.ws.send(
-        JSON.stringify({
-          type: "map_glyph_batch",
-          tiles: tiles.slice(i, i + chunkSize)
-        })
-      );
+      this.emit({
+        type: "map_glyph_batch",
+        tiles: tiles.slice(i, i + chunkSize)
+      });
     }
-    this.ws.send(
-      JSON.stringify({
-        type: "player_position",
-        x: this.playerPosition.x,
-        y: this.playerPosition.y
-      })
-    );
+    this.emit({
+      type: "player_position",
+      x: this.playerPosition.x,
+      y: this.playerPosition.y
+    });
     for (const payload of this.latestStatusUpdates.values()) {
-      this.ws.send(JSON.stringify(payload));
+      this.emit(payload);
     }
     if (this.latestInventoryItems.length > 0) {
-      this.ws.send(
-        JSON.stringify({
-          type: "inventory_update",
-          items: this.latestInventoryItems,
-          window: 4
-        })
-      );
+      this.emit({
+        type: "inventory_update",
+        items: this.latestInventoryItems,
+        window: 4
+      });
     }
     const recentMessages = this.gameMessages.slice(-30);
     for (const msg of recentMessages) {
-      this.ws.send(
-        JSON.stringify({
-          type: "text",
-          text: msg.text,
-          window: msg.window,
-          attr: msg.attr
-        })
-      );
+      this.emit({
+        type: "text",
+        text: msg.text,
+        window: msg.window,
+        attr: msg.attr
+      });
     }
   }
   async start() {
@@ -181,7 +210,7 @@ var LocalNetHackSession = class {
     }
   }
   queueMapGlyphUpdate(tile) {
-    if (this.isClosed || !tile || !this.ws || this.ws.readyState !== 1) {
+    if (this.isClosed || !tile || !this.eventHandler) {
       return;
     }
     this.pendingMapGlyphs.push(tile);
@@ -197,18 +226,16 @@ var LocalNetHackSession = class {
       clearTimeout(this.mapGlyphFlushTimer);
       this.mapGlyphFlushTimer = null;
     }
-    if (this.isClosed || !this.pendingMapGlyphs.length || !this.ws || this.ws.readyState !== 1) {
+    if (this.isClosed || !this.pendingMapGlyphs.length || !this.eventHandler) {
       this.pendingMapGlyphs = [];
       return;
     }
     const batch = this.pendingMapGlyphs;
     this.pendingMapGlyphs = [];
-    this.ws.send(
-      JSON.stringify({
-        type: "map_glyph_batch",
-        tiles: batch
-      })
-    );
+    this.emit({
+      type: "map_glyph_batch",
+      tiles: batch
+    });
   }
   // Handle incoming input from the client
   handleClientInput(input) {
@@ -261,7 +288,7 @@ var LocalNetHackSession = class {
           text: menuItem.text
         });
         console.log(
-          `\u{1F4CB} Recorded single menu selection: ${input} (${menuItem.text})`
+          `Recorded single menu selection: ${input} (${menuItem.text})`
         );
       }
     }
@@ -273,7 +300,7 @@ var LocalNetHackSession = class {
         if (this.menuSelections.has(input)) {
           this.menuSelections.delete(input);
           console.log(
-            `\u{1F4CB} Deselected item: ${input} (${menuItem.text}). Current selections:`,
+            `Deselected item: ${input} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys())
           );
         } else {
@@ -285,16 +312,14 @@ var LocalNetHackSession = class {
             text: menuItem.text
           });
           console.log(
-            `\u{1F4CB} Selected item: ${input} (${menuItem.text}). Current selections:`,
+            `Selected item: ${input} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys())
           );
         }
       } else {
-        console.log(
-          `\u{1F4CB} Warning: No menu item found for accelerator '${input}'`
-        );
+        console.log(`No menu item found for accelerator '${input}'`);
       }
-      console.log("\u{1F4CB} Multi-pickup item selection - not resolving promise yet");
+      console.log("Multi-pickup item selection updated");
       return;
     } else if (this.isInMultiPickup && (input === "Enter" || input === "\r" || input === "\n")) {
       if (this.menuSelections.size > 1) {
@@ -314,9 +339,8 @@ var LocalNetHackSession = class {
       const selectedItems = Array.from(this.menuSelections.values()).map(
         (item) => `${item.menuChar}:${item.text}`
       );
-      console.log(`\u{1F4CB} Confirming multi-pickup with selections:`, selectedItems);
+      console.log("Confirming multi-pickup with selections:", selectedItems);
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        console.log("\u{1F3AE} Resolving menu selection with selection count");
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
@@ -328,12 +352,8 @@ var LocalNetHackSession = class {
         resolver(selectionCount);
         return;
       }
-      console.log("\u{1F4CB} Multi-pickup ready to confirm - resolving input promise");
       this.multiPickupReadyToConfirm = true;
       if (this.waitingForInput && this.inputResolver) {
-        console.log(
-          "\u{1F3AE} Resolving waiting input promise for multi-pickup confirmation"
-        );
         this.waitingForInput = false;
         const resolver = this.inputResolver;
         this.inputResolver = null;
@@ -342,11 +362,9 @@ var LocalNetHackSession = class {
       }
       return;
     } else if (this.isInMultiPickup && input === "Escape") {
-      console.log(`\u{1F4CB} Cancelling multi-pickup`);
       this.menuSelections.clear();
       this.multiPickupReadyToConfirm = false;
       if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        console.log("\u{1F3AE} Resolving menu selection cancellation with 0");
         this.waitingForMenuSelection = false;
         const resolver = this.menuSelectionResolver;
         this.menuSelectionResolver = null;
@@ -358,9 +376,6 @@ var LocalNetHackSession = class {
         return;
       }
       this.isInMultiPickup = false;
-      console.log(
-        "\u{1F4CB} No menu selection waiting - storing Escape for later use"
-      );
       return;
     }
     if (this.waitingForInput && this.inputResolver) {
@@ -391,7 +406,7 @@ var LocalNetHackSession = class {
     const tileData = this.gameMap.get(key);
     if (tileData) {
       console.log(`\u{1F4E4} Resending tile data for (${x}, ${y}):`, tileData);
-      if (this.ws && this.ws.readyState === 1) {
+      if (this.eventHandler) {
         this.queueMapGlyphUpdate({
           type: "map_glyph",
           x: tileData.x,
@@ -409,15 +424,13 @@ var LocalNetHackSession = class {
       console.log(
         `\u26A0\uFE0F No tile data found for (${x}, ${y}) - tile may not be explored yet`
       );
-      if (this.ws && this.ws.readyState === 1) {
-        this.ws.send(
-          JSON.stringify({
-            type: "tile_not_found",
-            x,
-            y,
-            message: "Tile data not available - may not be explored yet"
-          })
-        );
+      if (this.eventHandler) {
+        this.emit({
+          type: "tile_not_found",
+          x,
+          y,
+          message: "Tile data not available - may not be explored yet"
+        });
       }
     }
   }
@@ -437,7 +450,7 @@ var LocalNetHackSession = class {
         const key = `${x},${y}`;
         const tileData = this.gameMap.get(key);
         if (tileData) {
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
               x: tileData.x,
@@ -459,16 +472,14 @@ var LocalNetHackSession = class {
       `\u{1F4E4} Refreshed ${tilesRefreshed} tiles in area around (${centerX}, ${centerY})`
     );
     this.flushMapGlyphUpdates();
-    if (this.ws && this.ws.readyState === 1) {
-      this.ws.send(
-        JSON.stringify({
-          type: "area_refresh_complete",
-          centerX,
-          centerY,
-          radius,
-          tilesRefreshed
-        })
-      );
+    if (this.eventHandler) {
+      this.emit({
+        type: "area_refresh_complete",
+        centerX,
+        centerY,
+        radius,
+        tilesRefreshed
+      });
     }
   }
   // Helper method for key processing
@@ -746,61 +757,10 @@ var LocalNetHackSession = class {
       console.log("Error writing selections to NetHack memory:", error);
     }
   }
-  async loadFactoryScript() {
-    if (typeof globalThis.__nethackFactory === "function") {
-      return globalThis.__nethackFactory;
-    }
-    if (typeof globalThis.Module === "function") {
-      globalThis.__nethackFactory = globalThis.Module;
-      return globalThis.__nethackFactory;
-    }
-    await new Promise((resolve, reject) => {
-      const existing = document.querySelector("script[data-nethack-factory='1']");
-      if (existing) {
-        if (typeof globalThis.Module === "function") {
-          globalThis.__nethackFactory = globalThis.Module;
-          resolve(void 0);
-          return;
-        }
-        existing.addEventListener("load", () => {
-          if (typeof globalThis.Module === "function") {
-            globalThis.__nethackFactory = globalThis.Module;
-            resolve(void 0);
-            return;
-          }
-          reject(new Error("nethack.js loaded but factory was not found on globalThis.Module"));
-        });
-        existing.addEventListener("error", () => {
-          reject(new Error("Failed loading nethack.js"));
-        });
-        return;
-      }
-      const script = document.createElement("script");
-      script.src = "/nethack.js";
-      script.async = true;
-      script.dataset.nethackFactory = "1";
-      script.addEventListener("load", () => {
-        if (typeof globalThis.Module === "function") {
-          globalThis.__nethackFactory = globalThis.Module;
-          resolve(void 0);
-          return;
-        }
-        reject(new Error("nethack.js loaded but factory was not found on globalThis.Module"));
-      });
-      script.addEventListener("error", () => {
-        reject(new Error("Failed loading nethack.js"));
-      });
-      document.head.appendChild(script);
-    });
-    if (typeof globalThis.__nethackFactory !== "function") {
-      throw new Error("NetHack factory is unavailable after script load");
-    }
-    return globalThis.__nethackFactory;
-  }
   async initializeNetHack() {
     try {
       console.log("Starting local NetHack session...");
-      const factory = await this.loadFactoryScript();
+      const factory = await loadNethackFactory();
       globalThis.nethackCallback = (name, ...args) => {
         return this.handleUICallback(name, args);
       };
@@ -966,15 +926,13 @@ var LocalNetHackSession = class {
           console.log(
             "\u{1F9ED} Direction question detected - waiting for user input"
           );
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "direction_question",
-                text: question,
-                choices,
-                default: defaultChoice
-              })
-            );
+          if (this.eventHandler) {
+            this.emit({
+              type: "direction_question",
+              text: question,
+              choices,
+              default: defaultChoice
+            });
           }
           console.log("\u{1F9ED} Waiting for direction input (async)...");
           return new Promise((resolve) => {
@@ -982,17 +940,15 @@ var LocalNetHackSession = class {
             this.waitingForInput = true;
           });
         }
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "question",
-              text: question,
-              choices,
-              default: defaultChoice,
-              // Only include menuItems if this is actually a menu question, not a simple Y/N
-              menuItems: []
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "question",
+            text: question,
+            choices,
+            default: defaultChoice,
+            // Only include menuItems if this is actually a menu question, not a simple Y/N
+            menuItems: []
+          });
         }
         console.log("\u{1F914} Y/N Question - waiting for user input (async)...");
         return new Promise((resolve) => {
@@ -1027,14 +983,12 @@ var LocalNetHackSession = class {
         });
       case "shim_init_nhwindows":
         console.log("Initializing NetHack windows");
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "name_request",
-              text: "What is your name, adventurer?",
-              maxLength: 30
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "name_request",
+            text: "What is your name, adventurer?",
+            maxLength: 30
+          });
         }
         return 1;
       case "shim_create_nhwindow":
@@ -1091,28 +1045,24 @@ var LocalNetHackSession = class {
           console.log(
             `WIN_INVEN no-question menu classified as ${classification.kind} (${actualItems.length} items, ${categoryHeaders.length} categories)`
           );
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             if (classification.kind === "inventory") {
               this.latestInventoryItems = [...this.currentMenuItems];
-              this.ws.send(
-                JSON.stringify({
-                  type: "inventory_update",
-                  items: this.currentMenuItems,
-                  window: endMenuWinid
-                })
-              );
+              this.emit({
+                type: "inventory_update",
+                items: this.currentMenuItems,
+                window: endMenuWinid
+              });
             } else {
               const infoLines = classification.lines;
               const infoTitle = infoLines.length > 0 ? infoLines[0] : "NetHack Information";
               const infoBody = infoLines.length > 1 ? infoLines.slice(1) : infoLines;
-              this.ws.send(
-                JSON.stringify({
-                  type: "info_menu",
-                  title: infoTitle,
-                  lines: infoBody,
-                  window: endMenuWinid
-                })
-              );
+              this.emit({
+                type: "info_menu",
+                title: infoTitle,
+                lines: infoBody,
+                window: endMenuWinid
+              });
             }
           }
           return 0;
@@ -1129,16 +1079,14 @@ var LocalNetHackSession = class {
               return this.processKey("Enter");
             }
           }
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "question",
-                text: menuQuestion,
-                choices: "",
-                default: "",
-                menuItems: this.currentMenuItems
-              })
-            );
+          if (this.eventHandler) {
+            this.emit({
+              type: "question",
+              text: menuQuestion,
+              choices: "",
+              default: "",
+              menuItems: this.currentMenuItems
+            });
           }
           console.log("\u{1F4CB} Waiting for inventory action selection (async)...");
           return new Promise((resolve) => {
@@ -1150,16 +1098,14 @@ var LocalNetHackSession = class {
           console.log(
             `\u{1F4CB} Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
           );
-          if (this.ws && this.ws.readyState === 1) {
-            this.ws.send(
-              JSON.stringify({
-                type: "question",
-                text: menuQuestion,
-                choices: "",
-                default: "",
-                menuItems: this.currentMenuItems
-              })
-            );
+          if (this.eventHandler) {
+            this.emit({
+              type: "question",
+              text: menuQuestion,
+              choices: "",
+              default: "",
+              menuItems: this.currentMenuItems
+            });
           }
           console.log("\u{1F4CB} Waiting for menu selection (async)...");
           return new Promise((resolve) => {
@@ -1192,16 +1138,14 @@ var LocalNetHackSession = class {
             contextualQuestion = "What would you like to use?";
           }
           if (selectableItems.length > 0) {
-            if (this.ws && this.ws.readyState === 1) {
-              this.ws.send(
-                JSON.stringify({
-                  type: "question",
-                  text: contextualQuestion,
-                  choices: "",
-                  default: "",
-                  menuItems: this.currentMenuItems
-                })
-              );
+            if (this.eventHandler) {
+              this.emit({
+                type: "question",
+                text: contextualQuestion,
+                choices: "",
+                default: "",
+                menuItems: this.currentMenuItems
+              });
             }
             console.log("\u{1F4CB} Waiting for expanded menu selection (async)...");
             return new Promise((resolve) => {
@@ -1292,20 +1236,18 @@ var LocalNetHackSession = class {
             // Store the menu item index
           });
         }
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "menu_item",
-              text: menuText,
-              accelerator: menuChar,
-              window: menuWinid,
-              glyph: menuGlyph,
-              glyphChar,
-              // Include glyph character in client message
-              isCategory,
-              menuItems: this.currentMenuItems
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "menu_item",
+            text: menuText,
+            accelerator: menuChar,
+            window: menuWinid,
+            glyph: menuGlyph,
+            glyphChar,
+            // Include glyph character in client message
+            isCategory,
+            menuItems: this.currentMenuItems
+          });
         }
         return 0;
       case "shim_putstr":
@@ -1320,15 +1262,13 @@ var LocalNetHackSession = class {
         if (this.gameMessages.length > 100) {
           this.gameMessages.shift();
         }
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "text",
-              text: textStr,
-              window: win,
-              attr: textAttr
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "text",
+            text: textStr,
+            window: win,
+            attr: textAttr
+          });
         }
         return 0;
       case "shim_print_glyph":
@@ -1379,7 +1319,7 @@ var LocalNetHackSession = class {
             color: glyphColor,
             timestamp: Date.now()
           });
-          if (this.ws && this.ws.readyState === 1) {
+          if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
               x,
@@ -1394,17 +1334,15 @@ var LocalNetHackSession = class {
         return 0;
       case "shim_player_selection":
         console.log("NetHack player selection started");
-        return 0;
+      // Comment out character selection UI for automatic play        return 0;
       case "shim_raw_print":
         const [rawText] = args;
         console.log(`\u{1F4E2} RAW PRINT: "${rawText}"`);
-        if (this.ws && this.ws.readyState === 1 && rawText && rawText.trim()) {
-          this.ws.send(
-            JSON.stringify({
-              type: "raw_print",
-              text: rawText.trim()
-            })
-          );
+        if (this.eventHandler && rawText && rawText.trim()) {
+          this.emit({
+            type: "raw_print",
+            text: rawText.trim()
+          });
         }
         return 0;
       case "shim_wait_synch":
@@ -1472,14 +1410,12 @@ var LocalNetHackSession = class {
         return 0;
       case "shim_askname":
         console.log("NetHack is asking for player name, args:", args);
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "name_request",
-              text: "What is your name?",
-              maxLength: 30
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "name_request",
+            text: "What is your name?",
+            maxLength: 30
+          });
         }
         if (this.latestInput) {
           const name2 = this.latestInput;
@@ -1499,21 +1435,17 @@ var LocalNetHackSession = class {
         );
         const oldPlayerPos = { ...this.playerPosition };
         this.playerPosition = { x: clipX, y: clipY };
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify({
-              type: "player_position",
-              x: clipX,
-              y: clipY
-            })
-          );
-          this.ws.send(
-            JSON.stringify({
-              type: "force_player_redraw",
-              oldPosition: oldPlayerPos,
-              newPosition: { x: clipX, y: clipY }
-            })
-          );
+        if (this.eventHandler) {
+          this.emit({
+            type: "player_position",
+            x: clipX,
+            y: clipY
+          });
+          this.emit({
+            type: "force_player_redraw",
+            oldPosition: oldPlayerPos,
+            newPosition: { x: clipX, y: clipY }
+          });
         }
         return 0;
       case "shim_clear_nhwindow":
@@ -1521,12 +1453,10 @@ var LocalNetHackSession = class {
         console.log(`\u{1F5D1}\uFE0F Clearing window ${clearWinId}`);
         if (clearWinId === 2 || clearWinId === 3) {
           console.log("Map window cleared - clearing 3D scene");
-          this.ws.send(
-            JSON.stringify({
-              type: "clear_scene",
-              message: "Level transition - clearing display"
-            })
-          );
+          this.emit({
+            type: "clear_scene",
+            message: "Level transition - clearing display"
+          });
         }
         return 0;
       case "shim_getmsghistory":
@@ -1577,10 +1507,8 @@ var LocalNetHackSession = class {
         console.log(
           `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`
         );
-        if (this.ws && this.ws.readyState === 1) {
-          this.ws.send(
-            JSON.stringify(statusPayload)
-          );
+        if (this.eventHandler) {
+          this.emit(statusPayload);
         }
         return 0;
       default:
@@ -1588,19 +1516,19 @@ var LocalNetHackSession = class {
         return 0;
     }
   }
-  createVirtualSocket() {
-    return new LocalSocket((payload) => {
-      if (typeof this.messageHandler === "function") {
-        this.messageHandler(payload);
-      }
-    });
+  emit(payload) {
+    if (typeof this.eventHandler === "function") {
+      this.eventHandler(payload);
+    }
   }
 };
-var local_nethack_session_default = LocalNetHackSession;
+var LocalNetHackRuntime_default = LocalNetHackRuntime;
 
-// src/app.ts
+// src/game/constants.ts
 var TILE_SIZE = 1;
 var WALL_HEIGHT = 1;
+
+// src/game/Nethack3DEngine.ts
 var Nethack3DEngine = class {
   constructor() {
     this.tileMap = /* @__PURE__ */ new Map();
@@ -1781,8 +1709,8 @@ var Nethack3DEngine = class {
   async connectToRuntime() {
     console.log("Starting local NetHack runtime");
     this.updateConnectionStatus("Starting", "#4444aa");
-    this.session = new local_nethack_session_default((payload) => {
-      this.handleServerMessage(payload);
+    this.session = new LocalNetHackRuntime_default((payload) => {
+      this.handleRuntimeEvent(payload);
     });
     try {
       await this.session.start();
@@ -1800,7 +1728,7 @@ var Nethack3DEngine = class {
       this.addGameMessage("Failed to start local NetHack runtime");
     }
   }
-  handleServerMessage(data) {
+  handleRuntimeEvent(data) {
     switch (data.type) {
       case "map_glyph":
         this.enqueueTileUpdate(data);
@@ -1978,7 +1906,7 @@ var Nethack3DEngine = class {
     }
   }
   /**
-   * Request a view update for a specific tile from the server
+   * Request a view update for a specific tile from the local runtime
    * @param x The x coordinate of the tile
    * @param y The y coordinate of the tile
    */
@@ -3662,7 +3590,10 @@ var Nethack3DEngine = class {
     this.renderer.render(this.scene, this.camera);
   }
 };
-var game = new Nethack3DEngine();
+var Nethack3DEngine_default = Nethack3DEngine;
+
+// src/app.ts
+var game = new Nethack3DEngine_default();
 window.nethackGame = game;
 window.refreshTile = (x, y) => {
   game.requestTileUpdate(x, y);
@@ -3679,7 +3610,7 @@ window.dumpStatusDebug = () => {
 window.toggleInfoMenu = () => {
   game.toggleInfoMenuDialog();
 };
-console.log("\u{1F3AE} NetHack 3D debugging helpers available:");
+console.log("NetHack 3D debugging helpers available:");
 console.log("  refreshTile(x, y) - Refresh a specific tile");
 console.log("  refreshArea(x, y, radius) - Refresh an area");
 console.log("  refreshPlayerArea(radius) - Refresh around player");
@@ -3687,12 +3618,12 @@ console.log("  dumpStatusDebug() - Get recent status_update payloads");
 console.log("  Ctrl+T - Refresh player tile");
 console.log("  Ctrl+R - Refresh player area (radius 5)");
 console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");
-console.log("\u{1F579}\uFE0F Movement controls:");
+console.log("Movement controls:");
 console.log("  Arrow keys - Cardinal directions (N/S/E/W)");
 console.log("  Numpad 1-9 - All directions including diagonals");
 console.log("  Home/PgUp/End/PgDn - Diagonal movement (NW/NE/SW/SE)");
 console.log("  Numpad 5 or Space - Wait/rest");
-console.log("\u{1F4E6} Interface controls:");
+console.log("Interface controls:");
 console.log("  'i' - Open/close inventory dialog");
 console.log("  ESC - Close dialogs or cancel actions");
 console.log("  Ctrl+M - Toggle latest information panel");
