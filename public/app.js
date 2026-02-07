@@ -6582,6 +6582,17 @@ var Nethack3DEngine = class {
     this.tileFlushScheduled = false;
     this.playerPos = { x: 0, y: 0 };
     this.gameMessages = [];
+    this.floatingMessageLayer = null;
+    this.floatingMessageEntries = [];
+    this.hasSeenPlayerPosition = false;
+    this.hasPlayerMovedOnce = false;
+    this.lastMovementInputAtMs = 0;
+    this.maxFloatingMessages = 12;
+    this.movementUnlockWindowMs = 5e3;
+    this.floatingMessageStackSpacingPx = 30;
+    this.floatingMessageFadeDelayMs = 1500;
+    this.floatingMessageFadeDurationMs = 520;
+    this.floatingMessageRisePx = 44;
     this.statusDebugHistory = [];
     this.currentInventory = [];
     // Store current inventory items
@@ -7023,20 +7034,13 @@ var Nethack3DEngine = class {
     }
     const connStatus = document.createElement("div");
     connStatus.id = "connection-status";
-    connStatus.style.cssText = `
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      background: rgba(255, 0, 0, 0.8);
-      color: white;
-      padding: 5px 10px;
-      border-radius: 3px;
-      font-family: Arial, sans-serif;
-      font-size: 12px;
-      z-index: 1000;
-    `;
+    connStatus.setAttribute("data-state", "disconnected");
     connStatus.innerHTML = "Disconnected";
     document.body.appendChild(connStatus);
+    const floatingMessageLayer = document.createElement("div");
+    floatingMessageLayer.id = "floating-log-message-layer";
+    document.body.appendChild(floatingMessageLayer);
+    this.floatingMessageLayer = floatingMessageLayer;
   }
   async connectToRuntime() {
     console.log("Starting local NetHack runtime");
@@ -7051,7 +7055,7 @@ var Nethack3DEngine = class {
       this.addGameMessage("Local NetHack runtime started");
       const loading = document.getElementById("loading");
       if (loading) {
-        loading.style.display = "none";
+        loading.classList.add("is-hidden");
       }
     } catch (error) {
       console.error("Failed to start local NetHack runtime:", error);
@@ -7077,6 +7081,7 @@ var Nethack3DEngine = class {
           `\u{1F3AF} Received player position update: (${data.x}, ${data.y})`
         );
         const oldPos = { ...this.playerPos };
+        this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
         this.markLightingDirty();
         console.log(
@@ -7087,6 +7092,12 @@ var Nethack3DEngine = class {
       case "force_player_redraw":
         console.log(
           `\u{1F3AF} Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`
+        );
+        this.recordPlayerMovement(
+          data.oldPosition.x,
+          data.oldPosition.y,
+          data.newPosition.x,
+          data.newPosition.y
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
         this.markLightingDirty();
@@ -7497,6 +7508,8 @@ var Nethack3DEngine = class {
         });
       }
     } else {
+      const oldPos = { ...this.playerPos };
+      this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
@@ -7539,6 +7552,73 @@ var Nethack3DEngine = class {
       logElement.innerHTML = this.gameMessages.join("<br>");
       logElement.scrollTop = 0;
     }
+    if (this.hasPlayerMovedOnce) {
+      this.showFloatingGameMessage(message);
+    }
+  }
+  recordPlayerMovement(fromX, fromY, toX, toY) {
+    const moved = fromX !== toX || fromY !== toY;
+    if (!this.hasSeenPlayerPosition) {
+      this.hasSeenPlayerPosition = true;
+      return;
+    }
+    const hasRecentMovementInput = Date.now() - this.lastMovementInputAtMs <= this.movementUnlockWindowMs;
+    if (!this.hasPlayerMovedOnce && moved && hasRecentMovementInput) {
+      this.hasPlayerMovedOnce = true;
+    }
+  }
+  showFloatingGameMessage(message) {
+    if (!this.floatingMessageLayer || !document.body.contains(this.floatingMessageLayer)) {
+      return;
+    }
+    const text = message.replace(/\s+/g, " ").trim();
+    if (text.length === 0) {
+      return;
+    }
+    const messageContainer = document.createElement("div");
+    messageContainer.className = "floating-message-container";
+    const floatingText = document.createElement("div");
+    floatingText.textContent = text;
+    floatingText.className = "floating-message-text";
+    messageContainer.appendChild(floatingText);
+    this.floatingMessageLayer.appendChild(messageContainer);
+    const entry = {
+      container: messageContainer,
+      text: floatingText,
+      fadeTimerId: 0,
+      removeTimerId: 0
+    };
+    this.floatingMessageEntries.unshift(entry);
+    while (this.floatingMessageEntries.length > this.maxFloatingMessages) {
+      const oldest = this.floatingMessageEntries[this.floatingMessageEntries.length - 1];
+      this.removeFloatingMessageEntry(oldest, false);
+    }
+    this.relayoutFloatingMessages();
+    entry.fadeTimerId = window.setTimeout(() => {
+      floatingText.style.transform = `translateY(-${this.floatingMessageRisePx}px)`;
+      floatingText.style.opacity = "0";
+    }, this.floatingMessageFadeDelayMs);
+    entry.removeTimerId = window.setTimeout(() => {
+      this.removeFloatingMessageEntry(entry);
+    }, this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80);
+  }
+  relayoutFloatingMessages() {
+    for (let i = 0; i < this.floatingMessageEntries.length; i += 1) {
+      const entry = this.floatingMessageEntries[i];
+      entry.container.style.top = `${-i * this.floatingMessageStackSpacingPx}px`;
+    }
+  }
+  removeFloatingMessageEntry(entry, relayout = true) {
+    window.clearTimeout(entry.fadeTimerId);
+    window.clearTimeout(entry.removeTimerId);
+    const index = this.floatingMessageEntries.indexOf(entry);
+    if (index >= 0) {
+      this.floatingMessageEntries.splice(index, 1);
+    }
+    entry.container.remove();
+    if (relayout) {
+      this.relayoutFloatingMessages();
+    }
   }
   updateStatus(status) {
     const statusElement = document.getElementById("game-status");
@@ -7550,7 +7630,7 @@ var Nethack3DEngine = class {
     const connElement = document.getElementById("connection-status");
     if (connElement) {
       connElement.innerHTML = status;
-      connElement.style.backgroundColor = color;
+      connElement.setAttribute("data-state", status.toLowerCase());
     }
   }
   updatePlayerStats(field, value, data) {
@@ -7677,104 +7757,71 @@ var Nethack3DEngine = class {
     if (!statsBar) {
       statsBar = document.createElement("div");
       statsBar.id = "stats-bar";
-      statsBar.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        background: linear-gradient(180deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.7) 100%);
-        color: white;
-        padding: 8px 15px;
-        font-family: 'Courier New', monospace;
-        font-size: 12px;
-        z-index: 1500;
-        border-bottom: 2px solid #00ff00;
-        display: flex;
-        align-items: center;
-        gap: 20px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-      `;
       document.body.appendChild(statsBar);
       const gameLogContainer = document.querySelector(
         ".top-left-ui"
       );
       if (gameLogContainer) {
-        gameLogContainer.style.top = "65px";
+        gameLogContainer.classList.add("with-stats");
       }
     }
     const hpPercentage = this.playerStats.maxHp > 0 ? this.playerStats.hp / this.playerStats.maxHp * 100 : 0;
     const hpColor = hpPercentage > 60 ? "#00ff00" : hpPercentage > 30 ? "#ffaa00" : "#ff0000";
-    const hpBar = `
-      <div style="display: flex; flex-direction: column; min-width: 120px;">
-        <div style="font-weight: bold; color: #ff6666; margin-bottom: 2px;">
-          HP: ${this.playerStats.hp}/${this.playerStats.maxHp}
-        </div>
-        <div style="background: #333; height: 8px; border-radius: 4px; border: 1px solid #666;">
-          <div style="
-            background: ${hpColor}; 
-            height: 100%; 
-            width: ${hpPercentage}%; 
-            border-radius: 3px;
-            transition: width 0.3s ease;
-          "></div>
-        </div>
-      </div>
-    `;
-    let powerBar = "";
-    if (this.playerStats.maxPower > 0) {
-      const powerPercentage = this.playerStats.power / this.playerStats.maxPower * 100;
-      powerBar = `
-        <div style="display: flex; flex-direction: column; min-width: 120px;">
-          <div style="font-weight: bold; color: #6666ff; margin-bottom: 2px;">
-            Pw: ${this.playerStats.power}/${this.playerStats.maxPower}
-          </div>
-          <div style="background: #333; height: 8px; border-radius: 4px; border: 1px solid #666;">
-            <div style="
-              background: #6666ff; 
-              height: 100%; 
-              width: ${powerPercentage}%; 
-              border-radius: 3px;
-              transition: width 0.3s ease;
-            "></div>
-          </div>
-        </div>
-      `;
-    }
     statsBar.innerHTML = `
-      <!-- Player Name and Level -->
-      <div style="font-weight: bold; color: #00ff00; min-width: 150px;">
+      <div class="nh3d-stats-name">
         ${this.playerStats.name} (Lvl ${this.playerStats.level})
       </div>
-      
-      <!-- HP Bar -->
-      ${hpBar}
-      
-      <!-- Power Bar (if applicable) -->
-      ${powerBar}
-      
-      <!-- Core Stats -->
-      <div style="display: flex; gap: 15px; font-size: 11px;">
-        <div style="color: #ffaa00;">St:${this.playerStats.strength}</div>
-        <div style="color: #ffaa00;">Dx:${this.playerStats.dexterity}</div>
-        <div style="color: #ffaa00;">Co:${this.playerStats.constitution}</div>
-        <div style="color: #ffaa00;">In:${this.playerStats.intelligence}</div>
-        <div style="color: #ffaa00;">Wi:${this.playerStats.wisdom}</div>
-        <div style="color: #ffaa00;">Ch:${this.playerStats.charisma}</div>
+
+      <div class="nh3d-stats-meter">
+        <div class="nh3d-stats-meter-label nh3d-stats-meter-label-hp">
+          HP: ${this.playerStats.hp}/${this.playerStats.maxHp}
+        </div>
+        <div class="nh3d-stats-meter-track">
+          <div class="nh3d-stats-meter-fill" id="nh3d-stats-hp-fill"></div>
+        </div>
       </div>
-      
-      <!-- Secondary Stats -->
-      <div style="display: flex; gap: 15px; font-size: 11px;">
-        <div style="color: #aaaaff;">AC:${this.playerStats.armor}</div>
-        <div style="color: #ffff66;">$:${this.playerStats.gold}</div>
-        <div style="color: #66ffff;">T:${this.playerStats.time}</div>
+
+      ${this.playerStats.maxPower > 0 ? `<div class="nh3d-stats-meter">
+               <div class="nh3d-stats-meter-label nh3d-stats-meter-label-pw">
+                 Pw: ${this.playerStats.power}/${this.playerStats.maxPower}
+               </div>
+               <div class="nh3d-stats-meter-track">
+                 <div class="nh3d-stats-meter-fill nh3d-stats-meter-fill-pw" id="nh3d-stats-pw-fill"></div>
+               </div>
+             </div>` : ""}
+
+      <div class="nh3d-stats-group">
+        <div class="nh3d-stats-core">St:${this.playerStats.strength}</div>
+        <div class="nh3d-stats-core">Dx:${this.playerStats.dexterity}</div>
+        <div class="nh3d-stats-core">Co:${this.playerStats.constitution}</div>
+        <div class="nh3d-stats-core">In:${this.playerStats.intelligence}</div>
+        <div class="nh3d-stats-core">Wi:${this.playerStats.wisdom}</div>
+        <div class="nh3d-stats-core">Ch:${this.playerStats.charisma}</div>
       </div>
-      
-      <!-- Location and Status -->
-      <div style="display: flex; flex-direction: column; gap: 2px; font-size: 11px; flex: 1; text-align: right;">
-        <div style="color: #cccccc;">${this.playerStats.dungeon} ${this.playerStats.dlevel}</div>
-        <div style="color: #ffaaff;">${this.playerStats.hunger}${this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""}</div>
+
+      <div class="nh3d-stats-group">
+        <div class="nh3d-stats-secondary-ac">AC:${this.playerStats.armor}</div>
+        <div class="nh3d-stats-secondary-gold">$:${this.playerStats.gold}</div>
+        <div class="nh3d-stats-secondary-time">T:${this.playerStats.time}</div>
+      </div>
+
+      <div class="nh3d-stats-location">
+        <div class="nh3d-stats-dungeon">${this.playerStats.dungeon} ${this.playerStats.dlevel}</div>
+        <div class="nh3d-stats-hunger">${this.playerStats.hunger}${this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""}</div>
       </div>
     `;
+    const hpFill = statsBar.querySelector("#nh3d-stats-hp-fill");
+    if (hpFill) {
+      hpFill.style.width = `${THREE.MathUtils.clamp(hpPercentage, 0, 100)}%`;
+      hpFill.style.backgroundColor = hpColor;
+    }
+    if (this.playerStats.maxPower > 0) {
+      const powerPercentage = this.playerStats.power / this.playerStats.maxPower * 100;
+      const pwFill = statsBar.querySelector("#nh3d-stats-pw-fill");
+      if (pwFill) {
+        pwFill.style.width = `${THREE.MathUtils.clamp(powerPercentage, 0, 100)}%`;
+      }
+    }
   }
   updateInventoryDisplay(items) {
     if (!items || items.length === 0) {
@@ -7803,33 +7850,12 @@ var Nethack3DEngine = class {
     if (!questionDialog) {
       questionDialog = document.createElement("div");
       questionDialog.id = "question-dialog";
-      questionDialog.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0, 0, 0, 0.9);
-        color: white;
-        padding: 20px;
-        border: 2px solid #00ff00;
-        border-radius: 10px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        min-width: 300px;
-        max-width: 600px;
-        max-height: 80vh;
-        overflow-y: auto;
-      `;
+      questionDialog.className = "nh3d-dialog nh3d-dialog-question";
       document.body.appendChild(questionDialog);
     }
     questionDialog.innerHTML = "";
     const questionText = document.createElement("div");
-    questionText.style.cssText = `
-      font-size: 16px;
-      margin-bottom: 15px;
-      line-height: 1.4;
-    `;
+    questionText.className = "nh3d-question-text";
     questionText.textContent = question;
     questionDialog.appendChild(questionText);
     if (menuItems && menuItems.length > 0) {
@@ -7841,25 +7867,16 @@ var Nethack3DEngine = class {
       }
     } else {
       const choiceContainer = document.createElement("div");
-      choiceContainer.style.cssText = `
-        display: flex;
-        justify-content: center;
-        gap: 10px;
-        margin-top: 15px;
-      `;
-      if (choices && choices.length > 0) {
-        for (const choice of choices) {
+      choiceContainer.className = "nh3d-choice-list";
+      const parsedChoices = this.parseQuestionChoices(question, choices);
+      if (parsedChoices.length > 0) {
+        for (const choice of parsedChoices) {
           const button = document.createElement("button");
-          button.style.cssText = `
-            padding: 8px 16px;
-            background: ${choice === defaultChoice ? "#00aa00" : "#333"};
-            color: white;
-            border: 1px solid #666;
-            border-radius: 3px;
-            cursor: pointer;
-            font-family: 'Courier New', monospace;
-          `;
-          button.textContent = choice.toUpperCase();
+          button.className = "nh3d-choice-button";
+          if (choice === defaultChoice) {
+            button.classList.add("nh3d-choice-button-default");
+          }
+          button.textContent = this.getQuestionChoiceLabel(choice);
           button.onclick = () => {
             this.sendInput(choice);
             this.hideQuestion();
@@ -7870,14 +7887,97 @@ var Nethack3DEngine = class {
       questionDialog.appendChild(choiceContainer);
     }
     const escapeText = document.createElement("div");
-    escapeText.style.cssText = `
-      font-size: 12px;
-      color: #aaa;
-      margin-top: 15px;
-    `;
+    escapeText.className = "nh3d-dialog-hint";
     escapeText.textContent = "Press ESC to cancel";
     questionDialog.appendChild(escapeText);
-    questionDialog.style.display = "block";
+    questionDialog.classList.add("is-visible");
+  }
+  parseQuestionChoices(question, choices) {
+    const merged = [];
+    const seen = /* @__PURE__ */ new Set();
+    const addChoice = (choice) => {
+      if (!choice || seen.has(choice)) {
+        return;
+      }
+      seen.add(choice);
+      merged.push(choice);
+    };
+    for (const choice of this.expandChoiceSpec(choices)) {
+      addChoice(choice);
+    }
+    const bracketMatch = question ? question.match(/\[([^\]]+)\]/) : null;
+    if (bracketMatch && bracketMatch[1]) {
+      for (const choice of this.expandChoiceSpec(bracketMatch[1])) {
+        addChoice(choice);
+      }
+    }
+    return merged;
+  }
+  expandChoiceSpec(spec) {
+    const normalized = (spec || "").replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+or\s+/gi, " ").replace(/[,/|]/g, " ").replace(/\s+/g, "").replace(/[\[\]]/g, "");
+    if (!normalized) {
+      return [];
+    }
+    const expanded = [];
+    const seen = /* @__PURE__ */ new Set();
+    const addChoice = (value) => {
+      if (!value || seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+      expanded.push(value);
+    };
+    for (let i = 0; i < normalized.length; i += 1) {
+      const current = normalized[i];
+      const hasRangeEnd = i + 2 < normalized.length && normalized[i + 1] === "-";
+      if (hasRangeEnd) {
+        const end = normalized[i + 2];
+        if (this.canExpandChoiceRange(current, end)) {
+          const startCode = current.charCodeAt(0);
+          const endCode = end.charCodeAt(0);
+          const step = startCode <= endCode ? 1 : -1;
+          for (let code = startCode; step > 0 ? code <= endCode : code >= endCode; code += step) {
+            addChoice(String.fromCharCode(code));
+          }
+          i += 2;
+          continue;
+        }
+      }
+      if (current !== "-") {
+        addChoice(current);
+      }
+    }
+    return expanded;
+  }
+  canExpandChoiceRange(start, end) {
+    const isLower = (value) => value >= "a" && value <= "z";
+    const isUpper = (value) => value >= "A" && value <= "Z";
+    const isDigit = (value) => value >= "0" && value <= "9";
+    return isLower(start) && isLower(end) || isUpper(start) && isUpper(end) || isDigit(start) && isDigit(end);
+  }
+  getQuestionChoiceLabel(choice) {
+    const normalizedChoice = choice.trim();
+    if (!normalizedChoice) {
+      return choice;
+    }
+    const inventoryItem = this.currentInventory.find((item) => {
+      if (!item || item.isCategory) {
+        return false;
+      }
+      const accelerator = typeof item.accelerator === "string" ? item.accelerator.trim() : "";
+      if (!accelerator) {
+        return false;
+      }
+      return accelerator === normalizedChoice || accelerator.toLowerCase() === normalizedChoice.toLowerCase();
+    });
+    if (!inventoryItem || typeof inventoryItem.text !== "string") {
+      return normalizedChoice;
+    }
+    const itemText = inventoryItem.text.trim();
+    if (!itemText) {
+      return normalizedChoice;
+    }
+    return `${normalizedChoice}) ${itemText}`;
   }
   showDirectionQuestion(question) {
     this.isInDirectionQuestion = true;
@@ -7885,41 +7985,16 @@ var Nethack3DEngine = class {
     if (!directionDialog) {
       directionDialog = document.createElement("div");
       directionDialog.id = "direction-dialog";
-      directionDialog.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0, 0, 0, 0.9);
-        color: #ffff00;
-        padding: 20px;
-        border: 2px solid #ffff00;
-        border-radius: 10px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        min-width: 350px;
-      `;
+      directionDialog.className = "nh3d-dialog nh3d-dialog-direction";
       document.body.appendChild(directionDialog);
     }
     directionDialog.innerHTML = "";
     const questionText = document.createElement("div");
-    questionText.style.cssText = `
-      font-size: 16px;
-      margin-bottom: 20px;
-      line-height: 1.4;
-      color: #ffff00;
-    `;
+    questionText.className = "nh3d-direction-text";
     questionText.textContent = question;
     directionDialog.appendChild(questionText);
     const directionsContainer = document.createElement("div");
-    directionsContainer.style.cssText = `
-      display: grid;
-      grid-template-columns: repeat(3, 80px);
-      gap: 5px;
-      justify-content: center;
-      margin: 20px 0;
-    `;
+    directionsContainer.className = "nh3d-direction-grid";
     const directions = [
       { key: "7", label: "\u2196", name: "NW" },
       { key: "8", label: "\u2191", name: "N" },
@@ -7933,30 +8008,8 @@ var Nethack3DEngine = class {
     ];
     directions.forEach((dir) => {
       const button = document.createElement("button");
-      button.style.cssText = `
-        width: 80px;
-        height: 80px;
-        background: #444;
-        color: #ffff00;
-        border: 2px solid #666;
-        border-radius: 5px;
-        cursor: pointer;
-        font-family: 'Courier New', monospace;
-        font-size: 16px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        transition: background-color 0.2s;
-        line-height: 1.2;
-      `;
-      button.innerHTML = `<div style="font-size: 24px; margin-bottom: 2px;">${dir.label}</div><div style="font-size: 14px;">${dir.key}</div>`;
-      button.onmouseover = () => {
-        button.style.backgroundColor = "#666";
-      };
-      button.onmouseout = () => {
-        button.style.backgroundColor = "#444";
-      };
+      button.className = "nh3d-direction-button";
+      button.innerHTML = `<div class="nh3d-direction-symbol">${dir.label}</div><div class="nh3d-direction-key">${dir.key}</div>`;
       button.onclick = () => {
         this.sendInput(dir.key);
         this.hideDirectionQuestion();
@@ -7965,21 +8018,17 @@ var Nethack3DEngine = class {
     });
     directionDialog.appendChild(directionsContainer);
     const escapeText = document.createElement("div");
-    escapeText.style.cssText = `
-      font-size: 12px;
-      color: #aaa;
-      margin-top: 15px;
-    `;
+    escapeText.className = "nh3d-dialog-hint";
     escapeText.textContent = "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel";
     directionDialog.appendChild(escapeText);
-    directionDialog.style.display = "block";
+    directionDialog.classList.add("is-visible");
   }
   hideDirectionQuestion() {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false;
     const directionDialog = document.getElementById("direction-dialog");
     if (directionDialog) {
-      directionDialog.style.display = "none";
+      directionDialog.classList.remove("is-visible");
     }
   }
   showInfoMenuDialog(title, lines) {
@@ -7987,69 +8036,33 @@ var Nethack3DEngine = class {
     if (!infoDialog) {
       infoDialog = document.createElement("div");
       infoDialog.id = "info-menu-dialog";
-      infoDialog.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0, 0, 0, 0.95);
-        color: white;
-        padding: 20px;
-        border: 2px solid #66ccff;
-        border-radius: 10px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        min-width: 450px;
-        max-width: 680px;
-        max-height: 90vh;
-        overflow-y: auto;
-      `;
+      infoDialog.className = "nh3d-dialog nh3d-dialog-info";
       document.body.appendChild(infoDialog);
     }
     infoDialog.innerHTML = "";
     const titleEl = document.createElement("div");
-    titleEl.style.cssText = `
-      font-size: 18px;
-      font-weight: bold;
-      color: #66ccff;
-      margin-bottom: 12px;
-      text-align: center;
-      border-bottom: 2px solid #66ccff;
-      padding-bottom: 8px;
-    `;
+    titleEl.className = "nh3d-info-title";
     titleEl.textContent = title || "NetHack Information";
     infoDialog.appendChild(titleEl);
     const body = document.createElement("div");
-    body.style.cssText = `
-      font-size: 13px;
-      line-height: 1.4;
-      white-space: pre-wrap;
-      padding: 6px 2px;
-    `;
+    body.className = "nh3d-info-body";
     body.textContent = lines && lines.length > 0 ? lines.join("\n") : "(No details)";
     infoDialog.appendChild(body);
     const hint = document.createElement("div");
-    hint.style.cssText = `
-      font-size: 12px;
-      color: #aaa;
-      text-align: center;
-      margin-top: 12px;
-      border-top: 1px solid #444;
-      padding-top: 10px;
-    `;
+    hint.className = "nh3d-info-hint";
     hint.textContent = "Press ESC to close. Press Ctrl+M to reopen.";
     infoDialog.appendChild(hint);
-    infoDialog.style.display = "block";
+    infoDialog.classList.add("is-visible");
   }
   hideInfoMenuDialog() {
     const infoDialog = document.getElementById("info-menu-dialog");
     if (infoDialog) {
-      infoDialog.style.display = "none";
+      infoDialog.classList.remove("is-visible");
     }
   }
   toggleInfoMenuDialog() {
     const infoDialog = document.getElementById("info-menu-dialog");
-    if (infoDialog && infoDialog.style.display !== "none") {
+    if (infoDialog && infoDialog.classList.contains("is-visible")) {
       this.hideInfoMenuDialog();
       return;
     }
@@ -8064,97 +8077,39 @@ var Nethack3DEngine = class {
     if (!inventoryDialog) {
       inventoryDialog = document.createElement("div");
       inventoryDialog.id = "inventory-dialog";
-      inventoryDialog.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0, 0, 0, 0.95);
-        color: white;
-        padding: 20px;
-        border: 2px solid #00ff00;
-        border-radius: 10px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        min-width: 450px;
-        max-width: 600px;
-        max-height: 95vh;
-        overflow-y: auto;
-      `;
+      inventoryDialog.className = "nh3d-dialog nh3d-dialog-inventory";
       document.body.appendChild(inventoryDialog);
     }
     inventoryDialog.innerHTML = "";
     const title = document.createElement("div");
-    title.style.cssText = `
-      font-size: 18px;
-      font-weight: bold;
-      color: #00ff00;
-      margin-bottom: 15px;
-      text-align: center;
-      border-bottom: 2px solid #00ff00;
-      padding-bottom: 8px;
-    `;
+    title.className = "nh3d-inventory-title";
     title.textContent = "\u{1F4E6} INVENTORY";
     inventoryDialog.appendChild(title);
     const itemsContainer = document.createElement("div");
-    itemsContainer.style.cssText = `
-      margin-bottom: 20px;
-      max-height: 70vh;
-      overflow-y: auto;
-    `;
+    itemsContainer.className = "nh3d-inventory-items";
     if (this.currentInventory.length === 0) {
       const emptyMessage = document.createElement("div");
-      emptyMessage.style.cssText = `
-        text-align: center;
-        color: #aaa;
-        font-style: italic;
-        padding: 20px;
-      `;
+      emptyMessage.className = "nh3d-inventory-empty";
       emptyMessage.textContent = "Your inventory is empty.";
       itemsContainer.appendChild(emptyMessage);
     } else {
       this.currentInventory.forEach((item, index) => {
         if (item.isCategory) {
           const categoryHeader = document.createElement("div");
-          categoryHeader.style.cssText = `
-            font-size: 14px;
-            font-weight: bold;
-            color: #ffff00;
-            margin: ${index === 0 ? "10px" : "15px"} 0 8px 0;
-            text-align: left;
-            border-bottom: 1px solid #666;
-            padding-bottom: 4px;
-            text-transform: uppercase;
-          `;
+          categoryHeader.className = "nh3d-inventory-category";
+          if (index === 0) {
+            categoryHeader.classList.add("nh3d-inventory-category-first");
+          }
           categoryHeader.textContent = item.text;
           itemsContainer.appendChild(categoryHeader);
         } else {
           const itemDiv = document.createElement("div");
-          itemDiv.style.cssText = `
-            padding: 4px 10px;
-            margin: 1px 0;
-            background: rgba(255, 255, 255, 0.03);
-            border-left: 2px solid #00ff00;
-            line-height: 1.3;
-            display: flex;
-            align-items: center;
-            margin-left: 10px;
-          `;
+          itemDiv.className = "nh3d-inventory-item";
           const keySpan = document.createElement("span");
-          keySpan.style.cssText = `
-            color: #00ff00;
-            font-weight: bold;
-            margin-right: 8px;
-            min-width: 20px;
-            font-size: 13px;
-          `;
+          keySpan.className = "nh3d-inventory-key";
           keySpan.textContent = `${item.accelerator || "?"})`;
           const textSpan = document.createElement("span");
-          textSpan.style.cssText = `
-            color: #ffffff;
-            flex: 1;
-            font-size: 13px;
-          `;
+          textSpan.className = "nh3d-inventory-text";
           textSpan.textContent = item.text || "Unknown item";
           itemDiv.appendChild(keySpan);
           itemDiv.appendChild(textSpan);
@@ -8164,47 +8119,25 @@ var Nethack3DEngine = class {
     }
     inventoryDialog.appendChild(itemsContainer);
     const keybindsTitle = document.createElement("div");
-    keybindsTitle.style.cssText = `
-      font-size: 13px;
-      font-weight: bold;
-      color: #ffff00;
-      margin-bottom: 8px;
-      border-top: 1px solid #444;
-      padding-top: 12px;
-    `;
+    keybindsTitle.className = "nh3d-inventory-keybinds-title";
     keybindsTitle.textContent = "\u{1F3AE} ITEM COMMANDS";
     inventoryDialog.appendChild(keybindsTitle);
     const keybindsContainer = document.createElement("div");
-    keybindsContainer.style.cssText = `
-      font-size: 11px;
-      line-height: 1.2;
-      margin-bottom: 10px;
-      padding: 8px;
-      background: rgba(255, 255, 255, 0.02);
-      border-radius: 4px;
-      border: 1px solid #333;
-    `;
-    const commandText = `<span style="color: #88ff88;">a</span>)pply <span style="color: #88ff88;">d</span>)rop <span style="color: #88ff88;">e</span>)at <span style="color: #88ff88;">q</span>)uaff <span style="color: #88ff88;">r</span>)ead <span style="color: #88ff88;">t</span>)hrow <span style="color: #88ff88;">w</span>)ield <span style="color: #88ff88;">W</span>)ear <span style="color: #88ff88;">T</span>)ake-off <span style="color: #88ff88;">P</span>)ut-on <span style="color: #88ff88;">R</span>)emove <span style="color: #88ff88;">z</span>)ap <span style="color: #88ff88;">Z</span>)cast
-    Special: <span style="color: #88ff88;">"</span>)weapons <span style="color: #88ff88;">[</span>)armor <span style="color: #88ff88;">=</span>)rings <span style="color: #88ff88;">"</span>)amulets <span style="color: #88ff88;">(</span>)tools`;
-    keybindsContainer.innerHTML = `<div style="color: #cccccc; white-space: pre-line;">${commandText}</div>`;
+    keybindsContainer.className = "nh3d-inventory-keybinds";
+    const commandText = `<span class="nh3d-inventory-command-key">a</span>)pply <span class="nh3d-inventory-command-key">d</span>)rop <span class="nh3d-inventory-command-key">e</span>)at <span class="nh3d-inventory-command-key">q</span>)uaff <span class="nh3d-inventory-command-key">r</span>)ead <span class="nh3d-inventory-command-key">t</span>)hrow <span class="nh3d-inventory-command-key">w</span>)ield <span class="nh3d-inventory-command-key">W</span>)ear <span class="nh3d-inventory-command-key">T</span>)ake-off <span class="nh3d-inventory-command-key">P</span>)ut-on <span class="nh3d-inventory-command-key">R</span>)emove <span class="nh3d-inventory-command-key">z</span>)ap <span class="nh3d-inventory-command-key">Z</span>)cast
+    Special: <span class="nh3d-inventory-command-key">"</span>)weapons <span class="nh3d-inventory-command-key">[</span>)armor <span class="nh3d-inventory-command-key">=</span>)rings <span class="nh3d-inventory-command-key">"</span>)amulets <span class="nh3d-inventory-command-key">(</span>)tools`;
+    keybindsContainer.innerHTML = `<div class="nh3d-inventory-keybinds-text">${commandText}</div>`;
     inventoryDialog.appendChild(keybindsContainer);
     const closeText = document.createElement("div");
-    closeText.style.cssText = `
-      font-size: 12px;
-      color: #aaa;
-      text-align: center;
-      margin-top: 10px;
-      border-top: 1px solid #444;
-      padding-top: 10px;
-    `;
+    closeText.className = "nh3d-inventory-close";
     closeText.textContent = "Press ESC or 'i' to close";
     inventoryDialog.appendChild(closeText);
-    inventoryDialog.style.display = "block";
+    inventoryDialog.classList.add("is-visible");
   }
   hideInventoryDialog() {
     const inventoryDialog = document.getElementById("inventory-dialog");
     if (inventoryDialog) {
-      inventoryDialog.style.display = "none";
+      inventoryDialog.classList.remove("is-visible");
     }
     this.pendingInventoryDialog = false;
   }
@@ -8213,27 +8146,13 @@ var Nethack3DEngine = class {
     if (!posDialog) {
       posDialog = document.createElement("div");
       posDialog.id = "position-dialog";
-      posDialog.style.cssText = `
-        position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.9);
-        color: #ffff00;
-        padding: 10px 20px;
-        border: 1px solid #ffff00;
-        border-radius: 5px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-      `;
       document.body.appendChild(posDialog);
     }
     posDialog.textContent = text;
-    posDialog.style.display = "block";
+    posDialog.classList.add("is-visible");
     setTimeout(() => {
       if (posDialog) {
-        posDialog.style.display = "none";
+        posDialog.classList.remove("is-visible");
       }
     }, 3e3);
   }
@@ -8242,62 +8161,27 @@ var Nethack3DEngine = class {
     if (!nameDialog) {
       nameDialog = document.createElement("div");
       nameDialog.id = "name-dialog";
-      nameDialog.style.cssText = `
-        position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: rgba(0, 0, 0, 0.9);
-        color: white;
-        padding: 20px;
-        border: 2px solid #00ff00;
-        border-radius: 10px;
-        z-index: 2000;
-        font-family: 'Courier New', monospace;
-        text-align: center;
-        min-width: 300px;
-      `;
+      nameDialog.className = "nh3d-dialog nh3d-dialog-name";
       document.body.appendChild(nameDialog);
     }
     nameDialog.innerHTML = "";
     const questionText = document.createElement("div");
-    questionText.style.cssText = `
-      font-size: 16px;
-      margin-bottom: 15px;
-    `;
+    questionText.className = "nh3d-name-question";
     questionText.textContent = text;
     nameDialog.appendChild(questionText);
     const nameInput = document.createElement("input");
     nameInput.type = "text";
     nameInput.maxLength = maxLength;
     nameInput.placeholder = "Enter your name";
-    nameInput.style.cssText = `
-      width: 200px;
-      padding: 8px;
-      background: #333;
-      color: white;
-      border: 1px solid #666;
-      border-radius: 3px;
-      font-family: 'Courier New', monospace;
-      margin-bottom: 15px;
-    `;
+    nameInput.className = "nh3d-name-input";
     nameDialog.appendChild(nameInput);
     const submitButton = document.createElement("button");
     submitButton.textContent = "OK";
-    submitButton.style.cssText = `
-      padding: 8px 20px;
-      background: #00aa00;
-      color: white;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-      font-family: 'Courier New', monospace;
-      margin-left: 10px;
-    `;
+    submitButton.className = "nh3d-name-submit";
     const submitName = () => {
       const name = nameInput.value.trim() || "Adventurer";
       this.sendInput(name);
-      nameDialog.style.display = "none";
+      nameDialog.classList.remove("is-visible");
     };
     submitButton.onclick = submitName;
     nameInput.onkeydown = (e) => {
@@ -8306,14 +8190,14 @@ var Nethack3DEngine = class {
       }
     };
     nameDialog.appendChild(submitButton);
-    nameDialog.style.display = "block";
+    nameDialog.classList.add("is-visible");
     nameInput.focus();
   }
   hideQuestion() {
     this.isInQuestion = false;
     const questionDialog = document.getElementById("question-dialog");
     if (questionDialog) {
-      questionDialog.style.display = "none";
+      questionDialog.classList.remove("is-visible");
       questionDialog.innerHTML = "";
       questionDialog.isPickupDialog = false;
       questionDialog.menuItems = null;
@@ -8324,77 +8208,48 @@ var Nethack3DEngine = class {
     menuItems.forEach((item) => {
       if (item.isCategory || !item.accelerator || item.accelerator.trim() === "") {
         const categoryHeader = document.createElement("div");
-        categoryHeader.style.cssText = `
-          font-size: 14px;
-          font-weight: bold;
-          color: #ffff00;
-          margin: 15px 0 5px 0;
-          text-align: left;
-          border-bottom: 1px solid #444;
-          padding-bottom: 3px;
-        `;
+        categoryHeader.className = "nh3d-menu-category";
         categoryHeader.textContent = item.text;
         questionDialog.appendChild(categoryHeader);
       } else {
         const itemContainer = document.createElement("div");
-        itemContainer.style.cssText = `
-          display: flex;
-          align-items: center;
-          margin: 3px 0;
-          padding: 8px;
-          background: #333;
-          border: 1px solid #666;
-          border-radius: 3px;
-          cursor: pointer;
-          font-family: 'Courier New', monospace;
-          line-height: 1.3;
-        `;
+        itemContainer.className = "nh3d-pickup-item";
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
         checkbox.id = `pickup-${item.accelerator}`;
-        checkbox.style.cssText = `
-          margin-right: 8px;
-          transform: scale(1.2);
-        `;
+        checkbox.className = "nh3d-pickup-checkbox";
         const keyPart = document.createElement("span");
-        keyPart.style.cssText = `
-          color: #00ff00;
-          font-weight: bold;
-          margin-right: 8px;
-          min-width: 30px;
-        `;
+        keyPart.className = "nh3d-pickup-key";
         keyPart.textContent = `${item.accelerator})`;
         const textPart = document.createElement("span");
-        textPart.style.cssText = `
-          color: white;
-          flex: 1;
-        `;
+        textPart.className = "nh3d-pickup-text";
         textPart.textContent = item.text;
-        const toggleItem = () => {
-          checkbox.checked = !checkbox.checked;
-          if (checkbox.checked) {
+        const applySelectionState = (isSelected, shouldSendInput) => {
+          checkbox.checked = isSelected;
+          if (isSelected) {
             selectedItems.add(item.accelerator);
-            itemContainer.style.backgroundColor = "#444";
+            itemContainer.classList.add("nh3d-pickup-item-selected");
           } else {
             selectedItems.delete(item.accelerator);
-            itemContainer.style.backgroundColor = "#333";
+            itemContainer.classList.remove("nh3d-pickup-item-selected");
           }
-          this.sendInput(item.accelerator);
+          if (shouldSendInput) {
+            this.sendInput(item.accelerator);
+          }
+        };
+        const toggleItem = () => {
+          applySelectionState(!checkbox.checked, true);
         };
         itemContainer.onclick = (e) => {
           e.preventDefault();
           toggleItem();
         };
+        checkbox.onclick = (e) => {
+          e.stopPropagation();
+        };
         checkbox.onchange = (e) => {
           e.stopPropagation();
-          if (checkbox.checked) {
-            selectedItems.add(item.accelerator);
-            itemContainer.style.backgroundColor = "#444";
-          } else {
-            selectedItems.delete(item.accelerator);
-            itemContainer.style.backgroundColor = "#333";
-          }
-          this.sendInput(item.accelerator);
+          applySelectionState(checkbox.checked, true);
         };
         itemContainer.toggleItem = toggleItem;
         itemContainer.accelerator = item.accelerator;
@@ -8405,16 +8260,7 @@ var Nethack3DEngine = class {
       }
     });
     const confirmInstruction = document.createElement("div");
-    confirmInstruction.style.cssText = `
-      margin-top: 15px;
-      padding: 10px;
-      background: rgba(0, 255, 0, 0.1);
-      border: 1px solid #00ff00;
-      border-radius: 3px;
-      text-align: center;
-      color: #00ff00;
-      font-weight: bold;
-    `;
+    confirmInstruction.className = "nh3d-pickup-confirm";
     confirmInstruction.textContent = "Press ENTER to confirm pickup, or ESC to cancel";
     questionDialog.appendChild(confirmInstruction);
     questionDialog.isPickupDialog = true;
@@ -8424,38 +8270,14 @@ var Nethack3DEngine = class {
     menuItems.forEach((item) => {
       if (item.isCategory || !item.accelerator || item.accelerator.trim() === "") {
         const categoryHeader = document.createElement("div");
-        categoryHeader.style.cssText = `
-          font-size: 14px;
-          font-weight: bold;
-          color: #ffff00;
-          margin: 15px 0 5px 0;
-          text-align: left;
-          border-bottom: 1px solid #444;
-          padding-bottom: 3px;
-        `;
+        categoryHeader.className = "nh3d-menu-category";
         categoryHeader.textContent = item.text;
         questionDialog.appendChild(categoryHeader);
       } else {
         const menuButton = document.createElement("button");
-        menuButton.style.cssText = `
-          display: block;
-          width: 100%;
-          margin: 3px 0;
-          padding: 8px;
-          background: #333;
-          color: white;
-          border: 1px solid #666;
-          border-radius: 3px;
-          cursor: pointer;
-          font-family: 'Courier New', monospace;
-          text-align: left;
-          line-height: 1.3;
-        `;
+        menuButton.className = "nh3d-menu-button";
         const keyPart = document.createElement("span");
-        keyPart.style.cssText = `
-          color: #00ff00;
-          font-weight: bold;
-        `;
+        keyPart.className = "nh3d-menu-button-key";
         keyPart.textContent = `${item.accelerator}) `;
         const textPart = document.createElement("span");
         textPart.textContent = item.text;
@@ -8470,8 +8292,57 @@ var Nethack3DEngine = class {
     });
   }
   sendInput(input) {
+    if (!this.hasPlayerMovedOnce && !this.isInQuestion && !this.isInDirectionQuestion && this.isMovementInput(input)) {
+      this.lastMovementInputAtMs = Date.now();
+    }
     if (this.session) {
       this.session.sendInput(input);
+    }
+  }
+  isMovementInput(input) {
+    if (input.length === 1) {
+      switch (input) {
+        case "h":
+        case "j":
+        case "k":
+        case "l":
+        case "y":
+        case "u":
+        case "b":
+        case "n":
+        case "H":
+        case "J":
+        case "K":
+        case "L":
+        case "Y":
+        case "U":
+        case "B":
+        case "N":
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "6":
+        case "7":
+        case "8":
+        case "9":
+          return true;
+        default:
+          return false;
+      }
+    }
+    switch (input) {
+      case "ArrowUp":
+      case "ArrowDown":
+      case "ArrowLeft":
+      case "ArrowRight":
+      case "Home":
+      case "End":
+      case "PageUp":
+      case "PageDown":
+        return true;
+      default:
+        return false;
     }
   }
   getModifiedInput(event) {
@@ -8525,12 +8396,12 @@ var Nethack3DEngine = class {
     }
     if (event.key === "Escape") {
       const inventoryDialog = document.getElementById("inventory-dialog");
-      if (inventoryDialog && inventoryDialog.style.display !== "none") {
+      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
         this.hideInventoryDialog();
         return;
       }
       const infoDialog = document.getElementById("info-menu-dialog");
-      if (infoDialog && infoDialog.style.display !== "none") {
+      if (infoDialog && infoDialog.classList.contains("is-visible")) {
         this.hideInfoMenuDialog();
         return;
       }
@@ -8542,7 +8413,7 @@ var Nethack3DEngine = class {
       this.hideDirectionQuestion();
       const posDialog = document.getElementById("position-dialog");
       if (posDialog) {
-        posDialog.style.display = "none";
+        posDialog.classList.remove("is-visible");
       }
       this.isInQuestion = false;
       this.isInDirectionQuestion = false;
@@ -8588,7 +8459,7 @@ var Nethack3DEngine = class {
       event.preventDefault();
       this.hideInfoMenuDialog();
       const inventoryDialog = document.getElementById("inventory-dialog");
-      if (inventoryDialog && inventoryDialog.style.display !== "none") {
+      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
         console.log("\u{1F4E6} Closing inventory dialog");
         this.hideInventoryDialog();
       } else {
@@ -8760,7 +8631,7 @@ var Nethack3DEngine = class {
           );
           if (matchingItem) {
             const containers = questionDialog.querySelectorAll(
-              'div[style*="display: flex"]'
+              ".nh3d-pickup-item"
             );
             containers.forEach((container) => {
               if (container.accelerator === event.key && container.toggleItem) {
