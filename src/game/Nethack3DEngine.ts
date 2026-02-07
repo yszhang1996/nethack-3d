@@ -11,6 +11,16 @@ import { classifyTileBehavior } from "./glyphs/behavior";
 import type { TileEffectKind, TileMaterialKind } from "./glyphs";
 import type { GlyphOverlay, GlyphOverlayMap, TerrainSnapshot, TileMap } from "./types";
 
+type LightingGrid = {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  width: number;
+  height: number;
+  blocked: Uint8Array;
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -173,6 +183,31 @@ class Nethack3DEngine {
     explode: new THREE.Color(0xffb46b),
     swallow: new THREE.Color(0xd8a8ff),
   };
+  private lightingOverlayMesh: THREE.Mesh | null = null;
+  private lightingOverlayTexture: THREE.CanvasTexture | null = null;
+  private lightingOverlayCanvas: HTMLCanvasElement | null = null;
+  private lightingOverlayContext: CanvasRenderingContext2D | null = null;
+  private lightingOverlayGridMeta: {
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+    width: number;
+    height: number;
+    tilePixels: number;
+  } | null = null;
+  private lightingDirty: boolean = true;
+  private readonly lightingRadiusTiles: number = 14;
+  private readonly lightingTilePixels: number = 30;
+  private readonly lightingFloorFalloffPower: number = 1.08;
+  private readonly lightingMaxDarkAlpha: number = 0.82;
+  private readonly lightingDitherStrength: number = 0.05;
+  private readonly lightingBayer4: number[] = [
+    0, 8, 2, 10,
+    12, 4, 14, 6,
+    3, 11, 1, 9,
+    15, 7, 13, 5,
+  ].map((value) => (value + 0.5) / 16);
 
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
@@ -186,6 +221,266 @@ class Nethack3DEngine {
       default:
         return false;
     }
+  }
+
+  private markLightingDirty(): void {
+    this.lightingDirty = true;
+  }
+
+  private parseTileKey(key: string): { x: number; y: number } | null {
+    const commaIndex = key.indexOf(",");
+    if (commaIndex < 0) {
+      return null;
+    }
+    const x = Number(key.slice(0, commaIndex));
+    const y = Number(key.slice(commaIndex + 1));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  private buildLightingGrid(): LightingGrid | null {
+    if (this.tileMap.size === 0) {
+      return null;
+    }
+
+    const cells: Array<{ x: number; y: number; isWall: boolean }> = [];
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+
+    this.tileMap.forEach((mesh, key) => {
+      const parsed = this.parseTileKey(key);
+      if (!parsed) {
+        return;
+      }
+
+      const { x, y } = parsed;
+      cells.push({
+        x,
+        y,
+        isWall: Boolean(mesh.userData?.isWall),
+      });
+
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+
+    if (!cells.length) {
+      return null;
+    }
+
+    const width = maxX - minX + 1;
+    const height = maxY - minY + 1;
+    const blocked = new Uint8Array(width * height);
+
+    for (const cell of cells) {
+      const index = (cell.y - minY) * width + (cell.x - minX);
+      blocked[index] = cell.isWall ? 1 : 0;
+    }
+
+    return { minX, maxX, minY, maxY, width, height, blocked };
+  }
+
+  private worldToLightingPixel(
+    grid: LightingGrid,
+    worldX: number,
+    worldY: number
+  ): { x: number; y: number } {
+    const tilePixels = this.lightingTilePixels;
+    return {
+      x: (worldX - (grid.minX - 0.5)) * tilePixels,
+      y: (worldY - (grid.minY - 0.5)) * tilePixels,
+    };
+  }
+
+  private disposeLightingOverlay(): void {
+    if (this.lightingOverlayMesh) {
+      this.scene.remove(this.lightingOverlayMesh);
+      this.lightingOverlayMesh.geometry.dispose();
+      const material = this.lightingOverlayMesh.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+      this.lightingOverlayMesh = null;
+    }
+
+    if (this.lightingOverlayTexture) {
+      this.lightingOverlayTexture.dispose();
+      this.lightingOverlayTexture = null;
+    }
+
+    this.lightingOverlayCanvas = null;
+    this.lightingOverlayContext = null;
+    this.lightingOverlayGridMeta = null;
+  }
+
+  private ensureLightingOverlayResources(grid: LightingGrid): boolean {
+    const tilePixels = this.lightingTilePixels;
+    const widthPixels = Math.max(1, grid.width * tilePixels);
+    const heightPixels = Math.max(1, grid.height * tilePixels);
+
+    const shouldRebuild =
+      !this.lightingOverlayMesh ||
+      !this.lightingOverlayTexture ||
+      !this.lightingOverlayCanvas ||
+      !this.lightingOverlayContext ||
+      !this.lightingOverlayGridMeta ||
+      this.lightingOverlayGridMeta.minX !== grid.minX ||
+      this.lightingOverlayGridMeta.maxX !== grid.maxX ||
+      this.lightingOverlayGridMeta.minY !== grid.minY ||
+      this.lightingOverlayGridMeta.maxY !== grid.maxY ||
+      this.lightingOverlayGridMeta.width !== grid.width ||
+      this.lightingOverlayGridMeta.height !== grid.height ||
+      this.lightingOverlayGridMeta.tilePixels !== tilePixels;
+
+    if (shouldRebuild) {
+      this.disposeLightingOverlay();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = widthPixels;
+      canvas.height = heightPixels;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return false;
+      }
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.generateMipmaps = false;
+      texture.magFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearFilter;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+
+      const geometry = new THREE.PlaneGeometry(
+        grid.width * TILE_SIZE,
+        grid.height * TILE_SIZE
+      );
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(
+        ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
+        ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
+        WALL_HEIGHT + 0.08
+      );
+      mesh.renderOrder = 900;
+      this.scene.add(mesh);
+
+      this.lightingOverlayMesh = mesh;
+      this.lightingOverlayTexture = texture;
+      this.lightingOverlayCanvas = canvas;
+      this.lightingOverlayContext = context;
+      this.lightingOverlayGridMeta = {
+        minX: grid.minX,
+        maxX: grid.maxX,
+        minY: grid.minY,
+        maxY: grid.maxY,
+        width: grid.width,
+        height: grid.height,
+        tilePixels,
+      };
+    }
+
+    return Boolean(
+      this.lightingOverlayTexture &&
+      this.lightingOverlayCanvas &&
+      this.lightingOverlayContext
+    );
+  }
+
+  private renderLightingOverlay(grid: LightingGrid): void {
+    if (
+      !this.lightingOverlayTexture ||
+      !this.lightingOverlayCanvas ||
+      !this.lightingOverlayContext
+    ) {
+      return;
+    }
+
+    const canvas = this.lightingOverlayCanvas;
+    const context = this.lightingOverlayContext;
+    const widthPixels = canvas.width;
+    const heightPixels = canvas.height;
+
+    context.clearRect(0, 0, widthPixels, heightPixels);
+
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
+    context.fillRect(0, 0, widthPixels, heightPixels);
+
+    const playerPixel = this.worldToLightingPixel(grid, this.playerPos.x, this.playerPos.y);
+    const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
+
+    context.globalCompositeOperation = "destination-out";
+    const radial = context.createRadialGradient(
+      playerPixel.x,
+      playerPixel.y,
+      0,
+      playerPixel.x,
+      playerPixel.y,
+      radiusPixels
+    );
+    const stops = 16;
+    for (let i = 0; i <= stops; i++) {
+      const t = i / stops;
+      const alpha = Math.pow(Math.max(0, 1 - t), this.lightingFloorFalloffPower);
+      radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
+    }
+    context.fillStyle = radial;
+    context.beginPath();
+    context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
+    context.fill();
+
+    const imageData = context.getImageData(0, 0, widthPixels, heightPixels);
+    const data = imageData.data;
+    for (let y = 0; y < heightPixels; y++) {
+      for (let x = 0; x < widthPixels; x++) {
+        const index = (y * widthPixels + x) * 4;
+        const alpha = data[index + 3] / 255;
+        const dither =
+          (this.lightingBayer4[(x & 3) + ((y & 3) << 2)] - 0.5) *
+          this.lightingDitherStrength;
+        const adjusted = THREE.MathUtils.clamp(alpha + dither, 0, 1);
+        data[index + 3] = Math.round(adjusted * 255);
+      }
+    }
+    context.putImageData(imageData, 0, 0);
+
+    context.globalCompositeOperation = "source-over";
+    this.lightingOverlayTexture.needsUpdate = true;
+  }
+
+  private updateLightingOverlay(): void {
+    if (!this.lightingDirty) {
+      return;
+    }
+    this.lightingDirty = false;
+
+    const grid = this.buildLightingGrid();
+    if (!grid) {
+      this.disposeLightingOverlay();
+      return;
+    }
+
+    if (!this.ensureLightingOverlayResources(grid)) {
+      this.lightingDirty = true;
+      return;
+    }
+
+    this.renderLightingOverlay(grid);
   }
 
   constructor() {
@@ -330,6 +625,7 @@ class Nethack3DEngine {
         );
         const oldPos = { ...this.playerPos };
         this.playerPos = { x: data.x, y: data.y };
+        this.markLightingDirty();
         console.log(
           `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`
         );
@@ -344,6 +640,7 @@ class Nethack3DEngine {
 
         // Update the player position first
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
+        this.markLightingDirty();
 
         // Clear the old player visual position by redrawing it as floor
         const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
@@ -849,10 +1146,12 @@ class Nethack3DEngine {
     this.glyphOverlayMap.clear();
     this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
     this.glyphTextureCache.clear();
+    this.disposeLightingOverlay();
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
+    this.markLightingDirty();
 
     console.log("🧹 Scene cleared - ready for new level");
   }
@@ -916,6 +1215,7 @@ class Nethack3DEngine {
       behavior.isWall,
       behavior.darkenFactor
     );
+    this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
@@ -2625,6 +2925,7 @@ class Nethack3DEngine {
   private animate(): void {
     requestAnimationFrame(this.animate.bind(this));
     this.updateCamera();
+    this.updateLightingOverlay();
     this.updateEffectAnimations(performance.now());
     this.renderer.render(this.scene, this.camera);
   }

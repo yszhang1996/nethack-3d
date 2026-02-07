@@ -6720,6 +6720,35 @@ var Nethack3DEngine = class {
       explode: new THREE.Color(16757867),
       swallow: new THREE.Color(14199039)
     };
+    this.lightingOverlayMesh = null;
+    this.lightingOverlayTexture = null;
+    this.lightingOverlayCanvas = null;
+    this.lightingOverlayContext = null;
+    this.lightingOverlayGridMeta = null;
+    this.lightingDirty = true;
+    this.lightingRadiusTiles = 14;
+    this.lightingTilePixels = 30;
+    this.lightingFloorFalloffPower = 1.08;
+    this.lightingMaxDarkAlpha = 0.82;
+    this.lightingDitherStrength = 0.05;
+    this.lightingBayer4 = [
+      0,
+      8,
+      2,
+      10,
+      12,
+      4,
+      14,
+      6,
+      3,
+      11,
+      1,
+      9,
+      15,
+      7,
+      13,
+      5
+    ].map((value) => (value + 0.5) / 16);
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -6743,6 +6772,207 @@ var Nethack3DEngine = class {
       default:
         return false;
     }
+  }
+  markLightingDirty() {
+    this.lightingDirty = true;
+  }
+  parseTileKey(key) {
+    const commaIndex = key.indexOf(",");
+    if (commaIndex < 0) {
+      return null;
+    }
+    const x = Number(key.slice(0, commaIndex));
+    const y = Number(key.slice(commaIndex + 1));
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+  buildLightingGrid() {
+    if (this.tileMap.size === 0) {
+      return null;
+    }
+    const cells = [];
+    let minX = Number.POSITIVE_INFINITY;
+    let minY = Number.POSITIVE_INFINITY;
+    let maxX = Number.NEGATIVE_INFINITY;
+    let maxY = Number.NEGATIVE_INFINITY;
+    this.tileMap.forEach((mesh, key) => {
+      const parsed = this.parseTileKey(key);
+      if (!parsed) {
+        return;
+      }
+      const { x, y } = parsed;
+      cells.push({
+        x,
+        y,
+        isWall: Boolean(mesh.userData?.isWall)
+      });
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+      if (y < minY) minY = y;
+      if (y > maxY) maxY = y;
+    });
+    if (!cells.length) {
+      return null;
+    }
+    const width = maxX - minX + 1;
+    const height = maxY - minY + 1;
+    const blocked = new Uint8Array(width * height);
+    for (const cell of cells) {
+      const index = (cell.y - minY) * width + (cell.x - minX);
+      blocked[index] = cell.isWall ? 1 : 0;
+    }
+    return { minX, maxX, minY, maxY, width, height, blocked };
+  }
+  worldToLightingPixel(grid, worldX, worldY) {
+    const tilePixels = this.lightingTilePixels;
+    return {
+      x: (worldX - (grid.minX - 0.5)) * tilePixels,
+      y: (worldY - (grid.minY - 0.5)) * tilePixels
+    };
+  }
+  disposeLightingOverlay() {
+    if (this.lightingOverlayMesh) {
+      this.scene.remove(this.lightingOverlayMesh);
+      this.lightingOverlayMesh.geometry.dispose();
+      const material = this.lightingOverlayMesh.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+      this.lightingOverlayMesh = null;
+    }
+    if (this.lightingOverlayTexture) {
+      this.lightingOverlayTexture.dispose();
+      this.lightingOverlayTexture = null;
+    }
+    this.lightingOverlayCanvas = null;
+    this.lightingOverlayContext = null;
+    this.lightingOverlayGridMeta = null;
+  }
+  ensureLightingOverlayResources(grid) {
+    const tilePixels = this.lightingTilePixels;
+    const widthPixels = Math.max(1, grid.width * tilePixels);
+    const heightPixels = Math.max(1, grid.height * tilePixels);
+    const shouldRebuild = !this.lightingOverlayMesh || !this.lightingOverlayTexture || !this.lightingOverlayCanvas || !this.lightingOverlayContext || !this.lightingOverlayGridMeta || this.lightingOverlayGridMeta.minX !== grid.minX || this.lightingOverlayGridMeta.maxX !== grid.maxX || this.lightingOverlayGridMeta.minY !== grid.minY || this.lightingOverlayGridMeta.maxY !== grid.maxY || this.lightingOverlayGridMeta.width !== grid.width || this.lightingOverlayGridMeta.height !== grid.height || this.lightingOverlayGridMeta.tilePixels !== tilePixels;
+    if (shouldRebuild) {
+      this.disposeLightingOverlay();
+      const canvas = document.createElement("canvas");
+      canvas.width = widthPixels;
+      canvas.height = heightPixels;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return false;
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.generateMipmaps = false;
+      texture.magFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearFilter;
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.needsUpdate = true;
+      const geometry = new THREE.PlaneGeometry(
+        grid.width * TILE_SIZE,
+        grid.height * TILE_SIZE
+      );
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(
+        (grid.minX + grid.maxX) * TILE_SIZE / 2,
+        (-grid.minY - grid.maxY) * TILE_SIZE / 2,
+        WALL_HEIGHT + 0.08
+      );
+      mesh.renderOrder = 900;
+      this.scene.add(mesh);
+      this.lightingOverlayMesh = mesh;
+      this.lightingOverlayTexture = texture;
+      this.lightingOverlayCanvas = canvas;
+      this.lightingOverlayContext = context;
+      this.lightingOverlayGridMeta = {
+        minX: grid.minX,
+        maxX: grid.maxX,
+        minY: grid.minY,
+        maxY: grid.maxY,
+        width: grid.width,
+        height: grid.height,
+        tilePixels
+      };
+    }
+    return Boolean(
+      this.lightingOverlayTexture && this.lightingOverlayCanvas && this.lightingOverlayContext
+    );
+  }
+  renderLightingOverlay(grid) {
+    if (!this.lightingOverlayTexture || !this.lightingOverlayCanvas || !this.lightingOverlayContext) {
+      return;
+    }
+    const canvas = this.lightingOverlayCanvas;
+    const context = this.lightingOverlayContext;
+    const widthPixels = canvas.width;
+    const heightPixels = canvas.height;
+    context.clearRect(0, 0, widthPixels, heightPixels);
+    context.globalCompositeOperation = "source-over";
+    context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
+    context.fillRect(0, 0, widthPixels, heightPixels);
+    const playerPixel = this.worldToLightingPixel(grid, this.playerPos.x, this.playerPos.y);
+    const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
+    context.globalCompositeOperation = "destination-out";
+    const radial = context.createRadialGradient(
+      playerPixel.x,
+      playerPixel.y,
+      0,
+      playerPixel.x,
+      playerPixel.y,
+      radiusPixels
+    );
+    const stops = 16;
+    for (let i = 0; i <= stops; i++) {
+      const t = i / stops;
+      const alpha = Math.pow(Math.max(0, 1 - t), this.lightingFloorFalloffPower);
+      radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
+    }
+    context.fillStyle = radial;
+    context.beginPath();
+    context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
+    context.fill();
+    const imageData = context.getImageData(0, 0, widthPixels, heightPixels);
+    const data = imageData.data;
+    for (let y = 0; y < heightPixels; y++) {
+      for (let x = 0; x < widthPixels; x++) {
+        const index = (y * widthPixels + x) * 4;
+        const alpha = data[index + 3] / 255;
+        const dither = (this.lightingBayer4[(x & 3) + ((y & 3) << 2)] - 0.5) * this.lightingDitherStrength;
+        const adjusted = THREE.MathUtils.clamp(alpha + dither, 0, 1);
+        data[index + 3] = Math.round(adjusted * 255);
+      }
+    }
+    context.putImageData(imageData, 0, 0);
+    context.globalCompositeOperation = "source-over";
+    this.lightingOverlayTexture.needsUpdate = true;
+  }
+  updateLightingOverlay() {
+    if (!this.lightingDirty) {
+      return;
+    }
+    this.lightingDirty = false;
+    const grid = this.buildLightingGrid();
+    if (!grid) {
+      this.disposeLightingOverlay();
+      return;
+    }
+    if (!this.ensureLightingOverlayResources(grid)) {
+      this.lightingDirty = true;
+      return;
+    }
+    this.renderLightingOverlay(grid);
   }
   initThreeJS() {
     this.scene = new THREE.Scene();
@@ -6848,6 +7078,7 @@ var Nethack3DEngine = class {
         );
         const oldPos = { ...this.playerPos };
         this.playerPos = { x: data.x, y: data.y };
+        this.markLightingDirty();
         console.log(
           `\u{1F3AF} Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`
         );
@@ -6858,6 +7089,7 @@ var Nethack3DEngine = class {
           `\u{1F3AF} Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
+        this.markLightingDirty();
         const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
         const oldOverlay = this.glyphOverlayMap.get(oldKey);
         if (oldOverlay) {
@@ -7240,10 +7472,12 @@ var Nethack3DEngine = class {
     this.glyphOverlayMap.clear();
     this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
     this.glyphTextureCache.clear();
+    this.disposeLightingOverlay();
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
+    this.markLightingDirty();
     console.log("\u{1F9F9} Scene cleared - ready for new level");
   }
   updateTile(x, y, glyph, char, color) {
@@ -7293,6 +7527,7 @@ var Nethack3DEngine = class {
       behavior.isWall,
       behavior.darkenFactor
     );
+    this.markLightingDirty();
   }
   addGameMessage(message) {
     if (!message || message.trim() === "") return;
@@ -8663,6 +8898,7 @@ var Nethack3DEngine = class {
   animate() {
     requestAnimationFrame(this.animate.bind(this));
     this.updateCamera();
+    this.updateLightingOverlay();
     this.updateEffectAnimations(performance.now());
     this.renderer.render(this.scene, this.camera);
   }
