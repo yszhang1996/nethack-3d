@@ -30,6 +30,20 @@ The workflow builds the app and deploys the `public/` folder, including:
 
 - Main app bootstrap: `src/app.ts`
 - 3D engine and UI: `src/game/Nethack3DEngine.ts`
+- Glyph catalog + resolver: `src/game/glyphs/*`
 - Runtime worker bridge: `src/runtime/WorkerRuntimeBridge.ts`
 - Worker runtime host: `src/runtime/runtime-worker.ts`
 - NetHack callback adapter: `src/runtime/LocalNetHackRuntime.ts`
+
+## Glyph Catalog Workflow
+
+- Generate catalog from the locked runtime artifacts:
+  - `npm run glyphs:generate`
+- Verify the checked-in catalog is current:
+  - `npm run glyphs:check`
+
+The generated source-of-truth file is:
+
+- `src/game/glyphs/glyph-catalog.generated.ts`
+
+If `public/nethack.js` or `public/nethack.wasm` changes, regenerate and commit the updated catalog.

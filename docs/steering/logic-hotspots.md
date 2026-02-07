@@ -4,6 +4,10 @@ Use this file when deciding where to implement a change.
 
 ## If You Need To Change Rendering
 - Start in `src/game/Nethack3DEngine.ts` (`updateTile`).
+- Glyph resolution/classification source-of-truth is in:
+  - `src/game/glyphs/registry.ts`
+  - `src/game/glyphs/behavior.ts`
+  - `src/game/glyphs/glyph-catalog.generated.ts` (generated)
 - Material palette and shared geometries are near top of class fields.
 - Glyph overlays and text painting path:
 - `ensureGlyphOverlay`
@@ -50,6 +54,7 @@ Use this file when deciding where to implement a change.
 
 ## Sanity Checklist For Agents
 - If changing worker protocol: verify both `src/runtime/*` and `src/game/*` compile logically.
+- If changing runtime artifacts (`public/nethack.js` or `public/nethack.wasm`): run `npm run glyphs:generate` and commit updated generated catalog.
 - If changing menus/input: confirm Esc, Enter, direction prompts, and inventory still work.
 - If changing tile logic: verify player tracking and map refresh (`Ctrl+T`, `Ctrl+R`) still function.
 - If changing status updates: verify numeric parsing and string fields do not regress.

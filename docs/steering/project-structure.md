@@ -4,10 +4,15 @@
 - `server.js`: static file server for development hosting.
 - `src/app.ts`: app bootstrap + debug helpers.
 - `src/game/Nethack3DEngine.ts`: browser-side 3D engine and UI controller.
+- `src/game/glyphs/behavior.ts`: centralized glyph-to-render behavior rules.
+- `src/game/glyphs/registry.ts`: glyph catalog lookup/resolution helpers.
+- `src/game/glyphs/glyph-catalog.generated.ts`: checked-in glyph source-of-truth generated from runtime.
 - `src/runtime/LocalNetHackRuntime.ts`: NetHack callback adapter/state machine.
 - `src/runtime/runtime-worker.ts`: worker entrypoint that hosts runtime.
 - `src/runtime/WorkerRuntimeBridge.ts`: main-thread bridge to worker.
 - `src/runtime/factory-loader.ts`: loads `public/nethack.js` factory in main/worker contexts.
+- `scripts/glyphs/generate-glyph-catalog.mjs`: regenerates glyph catalog from runtime artifacts.
+- `scripts/glyphs/check-glyph-catalog.mjs`: verifies catalog is not stale.
 - `public/index.html`: static shell and mount points.
 - `public/nethack.js`, `public/nethack.wasm`: NetHack runtime artifacts.
 - `public/app.js`, `public/runtime-worker.js`: build outputs.
@@ -15,6 +20,8 @@
 
 ## Build And Run
 - Install deps: `npm i`.
+- Check glyph catalog freshness: `npm run glyphs:check`.
+- Regenerate glyph catalog when runtime changes: `npm run glyphs:generate`.
 - Build bundles: `npm run build`.
 - Start dev host: `npm start`.
 
@@ -65,5 +72,5 @@
 ## High-Risk Zones
 - Async input state in runtime (`waitingForInput`, `waitingForPosition`, `waitingForMenuSelection`).
 - Multi-pickup flow (`isInMultiPickup`, `menuSelections`, selection confirmation).
-- Tile classification in `updateTile` (glyph ranges and char-based overrides).
+- Tile classification in `src/game/glyphs/behavior.ts` and `updateTile` orchestration.
 - Question/dialog state flags (`isInQuestion`, `isInDirectionQuestion`) and escape handling.

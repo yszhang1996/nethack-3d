@@ -7,6 +7,8 @@ import * as THREE from "three";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
+import { classifyTileBehavior } from "./glyphs/behavior";
+import type { TileMaterialKind } from "./glyphs";
 import type { GlyphOverlay, GlyphOverlayMap, TerrainSnapshot, TileMap } from "./types";
 
 /**
@@ -641,99 +643,27 @@ class Nethack3DEngine {
     }
   }
 
-  private glyphToChar(glyph: number): string {
-    // Convert NetHack glyph numbers to ASCII characters
-    // This is a fallback for when the runtime doesn't provide the proper character
-    // Based on NetHack's glyph system
-
-    // Floor glyphs (2395-2397)
-    if (glyph >= 2395 && glyph <= 2397) return ".";
-
-    // Wall glyphs (2378-2394)
-    if (glyph >= 2378 && glyph <= 2394) {
-      switch (glyph) {
-        case 2378:
-          return "|"; // vertical wall
-        case 2379:
-          return "-"; // horizontal wall
-        case 2380:
-          return "-"; // top-left corner
-        case 2381:
-          return "-"; // top-right corner
-        case 2382:
-          return "-"; // bottom-left corner
-        case 2383:
-          return "-"; // bottom-right corner
-        case 2389:
-          return "+"; // closed door
-        case 2390:
-          return "-"; // open horizontal door
-        case 2391:
-          return "|"; // open vertical door
-        case 2392:
-          return "+"; // closed vertical door
-        default:
-          return "#"; // generic wall
-      }
+  private getMaterialByKind(kind: TileMaterialKind): THREE.MeshLambertMaterial {
+    switch (kind) {
+      case "floor":
+        return this.materials.floor;
+      case "wall":
+        return this.materials.wall;
+      case "door":
+        return this.materials.door;
+      case "dark":
+        return this.materials.dark;
+      case "fountain":
+        return this.materials.fountain;
+      case "player":
+        return this.materials.player;
+      case "monster":
+        return this.materials.monster;
+      case "item":
+        return this.materials.item;
+      default:
+        return this.materials.default;
     }
-    if (glyph === 2409) return "|"; // vertical open door
-    if (glyph === 2410) return "-"; // horizontal open door
-    if (glyph === 2411 || glyph === 2412) return "+"; // closed doors
-
-    // Player character (broad range to cover all classes/races/genders)
-    // NetHack player glyphs are typically in the range 331-360+
-    if (glyph >= 331 && glyph <= 360) return "@";
-
-    // Monster glyphs (approximate ranges)
-    if (glyph >= 400 && glyph <= 500) {
-      // Common monsters
-      if (glyph >= 400 && glyph <= 410) return "d"; // dogs
-      if (glyph >= 411 && glyph <= 420) return "k"; // kobolds
-      if (glyph >= 421 && glyph <= 430) return "o"; // orcs
-      return "M"; // generic monster
-    }
-
-    // Item glyphs
-    if (glyph >= 1900 && glyph <= 2400) {
-      if (glyph >= 1920 && glyph <= 1930) return ")"; // weapons
-      if (glyph >= 2000 && glyph <= 2100) return "["; // armor
-      if (glyph >= 2180 && glyph <= 2220) return "%"; // food
-      if (glyph >= 2220 && glyph <= 2260) return "("; // tools
-      return "*"; // generic item
-    }
-
-    // Special terrain
-    if (glyph === 237) return "<"; // stairs up
-    if (glyph === 238) return ">"; // stairs down
-    if (glyph === 2334) return "#"; // solid rock
-    if (glyph === 2223) return "\\"; // throne
-
-    // Fallback: For unknown glyphs, show a generic character instead of the number
-    return "?";
-  }
-
-  private isOpenDoorGlyph(glyph: number): boolean {
-    return glyph === 2390 || glyph === 2391 || glyph === 2409 || glyph === 2410;
-  }
-
-  private isClosedDoorGlyph(glyph: number): boolean {
-    return glyph === 2389 || glyph === 2392 || glyph === 2411 || glyph === 2412;
-  }
-
-  private isStructuralWallGlyph(glyph: number): boolean {
-    return glyph >= 2378 && glyph <= 2394;
-  }
-
-  private isDarkOverlayGlyph(glyph: number): boolean {
-    // Dark-memory/occluded glyphs in room and hallway contexts.
-    return glyph === 2397 || glyph === 2398 || glyph === 2377;
-  }
-
-  private getDoorState(glyph: number, char?: string): "open" | "closed" | null {
-    if (this.isOpenDoorGlyph(glyph)) return "open";
-    if (this.isClosedDoorGlyph(glyph)) return "closed";
-    if (char === "+") return "closed";
-    return null;
   }
 
   private clearScene(): void {
@@ -767,116 +697,28 @@ class Nethack3DEngine {
   ): void {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
+    const behavior = classifyTileBehavior({
+      glyph,
+      runtimeChar: char ?? null,
+      runtimeColor: typeof color === "number" ? color : null,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null,
+    });
 
-    const isPlayerGlyph = glyph >= 331 && glyph <= 360 && (char === "@" || !char);
-    const isDarkOverlay = this.isDarkOverlayGlyph(glyph);
-    if (!isPlayerGlyph) {
-      this.lastKnownTerrain.set(key, { glyph, char, color });
-    }
-    if (isPlayerGlyph) {
+    if (!behavior.isPlayerGlyph) {
+      this.lastKnownTerrain.set(key, {
+        glyph,
+        char: behavior.resolved.char ?? undefined,
+        color: behavior.resolved.color ?? undefined,
+      });
+    } else {
       this.playerPos = { x, y };
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
-    let material = this.materials.default;
-    let geometry = this.floorGeometry;
-    let isWall = false;
-    let darkenFactor = 1;
-
-    let effectiveGlyph = glyph;
-    let effectiveChar = char;
-    let effectiveColor = color;
-    if (isDarkOverlay) {
-      const priorTerrain = this.lastKnownTerrain.get(key);
-      if (priorTerrain) {
-        effectiveGlyph = priorTerrain.glyph;
-        effectiveChar = priorTerrain.char;
-        effectiveColor = priorTerrain.color;
-      }
-      darkenFactor = glyph === 2398 ? 0.45 : 0.6;
-    }
-
-    const doorState = this.getDoorState(effectiveGlyph, effectiveChar);
-
-    // Trust explicit floor chars from NetHack for pass-through wall openings.
-    if (effectiveChar === ".") {
-      material = this.materials.floor;
-      geometry = this.floorGeometry;
-    } else if (doorState === "closed") {
-      material = this.materials.door;
-      geometry = this.wallGeometry;
-      isWall = true;
-    } else if (doorState === "open") {
-      material = this.materials.door;
-      geometry = this.floorGeometry;
-    } else if (effectiveChar) {
-      if (effectiveChar === " ") {
-        if (isDarkOverlay && glyph === 2397) {
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-        } else {
-          material = this.materials.wall;
-          geometry = this.wallGeometry;
-          isWall = true;
-        }
-      } else if (effectiveChar === "#") {
-        // Generic '#' terrain (e.g., corridor/sink map chars) is walkable floor.
-        material =
-          isDarkOverlay && glyph === 2398 ? this.materials.dark : this.materials.floor;
-        geometry = this.floorGeometry;
-      } else if (effectiveChar === "|" || effectiveChar === "-") {
-        if (this.isStructuralWallGlyph(effectiveGlyph)) {
-          material = this.materials.wall;
-          geometry = this.wallGeometry;
-          isWall = true;
-        } else {
-          // Some walkable terrain (e.g., headstones) uses '|' but is not a wall block.
-          material = this.materials.floor;
-          geometry = this.floorGeometry;
-        }
-      } else if (isPlayerGlyph) {
-        material = this.materials.player;
-        geometry = this.floorGeometry;
-      } else if (effectiveChar === "@") {
-        material = this.materials.monster;
-        geometry = this.floorGeometry;
-      } else if (effectiveChar === "{") {
-        material = this.materials.fountain;
-        geometry = this.floorGeometry;
-      } else if (/[a-zA-Z:;&'"]/.test(effectiveChar)) {
-        material = this.materials.monster;
-        geometry = this.floorGeometry;
-      } else if (/[)(\[%*$?!=/\\<>]/.test(effectiveChar)) {
-        material = this.materials.item;
-        geometry = this.floorGeometry;
-      } else {
-        material = this.materials.floor;
-        geometry = this.floorGeometry;
-      }
-    } else {
-      if (effectiveGlyph >= 2378 && effectiveGlyph <= 2394) {
-        material = this.materials.wall;
-        geometry = this.wallGeometry;
-        isWall = true;
-      } else if (effectiveGlyph >= 2395 && effectiveGlyph <= 2397) {
-        material = this.materials.floor;
-        geometry = this.floorGeometry;
-      } else if (isPlayerGlyph) {
-        material = this.materials.player;
-        geometry = this.floorGeometry;
-      } else if (effectiveGlyph >= 400 && effectiveGlyph <= 500) {
-        material = this.materials.monster;
-        geometry = this.floorGeometry;
-      } else if (effectiveGlyph >= 1900 && effectiveGlyph <= 2400) {
-        material = this.materials.item;
-        geometry = this.floorGeometry;
-      } else {
-        material = this.materials.floor;
-        geometry = this.floorGeometry;
-      }
-    }
-
-    const targetZ = isWall ? WALL_HEIGHT / 2 : 0;
+    const material = this.getMaterialByKind(behavior.materialKind);
+    const geometry =
+      behavior.geometryKind === "wall" ? this.wallGeometry : this.floorGeometry;
+    const targetZ = behavior.isWall ? WALL_HEIGHT / 2 : 0;
 
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
@@ -890,19 +732,16 @@ class Nethack3DEngine {
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
 
-    mesh.userData.isWall = isWall;
+    mesh.userData.isWall = behavior.isWall;
 
-    const glyphChar = isDarkOverlay
-      ? char || this.glyphToChar(glyph)
-      : effectiveChar || this.glyphToChar(effectiveGlyph);
     this.applyGlyphMaterial(
       key,
       mesh,
       material,
-      glyphChar,
+      behavior.glyphChar,
       "#f4f4f4",
-      isWall,
-      darkenFactor
+      behavior.isWall,
+      behavior.darkenFactor
     );
   }
   private addGameMessage(message: string): void {

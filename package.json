@@ -4,6 +4,8 @@
   "main": "server.js",
   "scripts": {
     "build": "npx esbuild src/app.ts --outfile=public/app.js --format=esm --bundle --alias:three=./three.module.js --external:./three.module.js --external:./three.core.js --platform=browser --target=es2020 && npx esbuild src/runtime/runtime-worker.ts --outfile=public/runtime-worker.js --bundle --platform=browser --target=es2020",
+    "glyphs:generate": "node scripts/glyphs/generate-glyph-catalog.mjs",
+    "glyphs:check": "node scripts/glyphs/check-glyph-catalog.mjs",
     "start": "node server.js",
     "dev": "node server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
