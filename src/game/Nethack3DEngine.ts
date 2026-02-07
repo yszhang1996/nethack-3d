@@ -684,9 +684,10 @@ class Nethack3DEngine {
         this.addGameMessage(data.text);
         break;
 
-      // case "menu_item":
-      //   this.addGameMessage(`Menu: ${data.text} (${data.accelerator})`);
-      //   break;
+      case "menu_item":
+        // Menu rows are accumulated and delivered with question/inventory events.
+        // Ignore incremental item updates to avoid noisy unknown-type logs.
+        break;
 
       case "direction_question":
         // Special handling for direction questions - show UI and pause movement

@@ -7122,9 +7122,8 @@ var Nethack3DEngine = class {
       case "raw_print":
         this.addGameMessage(data.text);
         break;
-      // case "menu_item":
-      //   this.addGameMessage(`Menu: ${data.text} (${data.accelerator})`);
-      //   break;
+      case "menu_item":
+        break;
       case "direction_question":
         this.isInQuestion = true;
         this.showDirectionQuestion(data.text);

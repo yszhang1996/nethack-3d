@@ -782,6 +782,20 @@ class LocalNetHackRuntime {
       return;
     }
 
+    const heapSize =
+      this.nethackModule.HEAPU8 && this.nethackModule.HEAPU8.length
+        ? this.nethackModule.HEAPU8.length
+        : 0;
+    const isAlignedPtr =
+      Number.isInteger(menuListPtrPtr) && menuListPtrPtr > 0 && (menuListPtrPtr & 3) === 0;
+    const isInBounds = !heapSize || menuListPtrPtr + 4 <= heapSize;
+    if (!isAlignedPtr || !isInBounds) {
+      console.log(
+        `Skipping menu selection write: invalid menuListPtrPtr=${menuListPtrPtr} (aligned=${isAlignedPtr}, inBounds=${isInBounds}, heapSize=${heapSize})`,
+      );
+      return;
+    }
+
     try {
       const selectedItems = Array.from(this.menuSelections.values());
       // NetHack's menu_item layout can vary by build; default to a safer 16-byte stride.
@@ -808,10 +822,17 @@ class LocalNetHackRuntime {
       for (let i = 0; i < selectedItems.length; i++) {
         const item = selectedItems[i];
         const structOffset = outPtr + i * bytesPerMenuItem;
-        const itemIdentifier =
+        let itemIdentifier =
           typeof item.identifier === "number"
             ? item.identifier
             : item.originalAccelerator;
+        if (
+          typeof itemIdentifier !== "number" &&
+          typeof item.menuChar === "string" &&
+          item.menuChar.length === 1
+        ) {
+          itemIdentifier = item.menuChar.charCodeAt(0);
+        }
 
         if (typeof itemIdentifier !== "number") {
           console.log(
@@ -1615,23 +1636,42 @@ class LocalNetHackRuntime {
         return 0;
       case "shim_select_menu":
         const [menuSelectWinid, menuSelectHow, menuPtrArg] = args;
+        let ptrArgSlot = 0;
         let ptrArgValue = 0;
-        let ptrDerefValue = 0;
-        if (this.nethackModule && typeof this.nethackModule.getValue === "function") {
-          ptrArgValue = menuPtrArg;
+        let ptrResolvedValue = 0;
+        if (
+          this.nethackModule &&
+          typeof this.nethackModule.getValue === "function"
+        ) {
+          ptrArgSlot = menuPtrArg;
           try {
-            ptrDerefValue = this.nethackModule.getValue(menuPtrArg, "*");
+            ptrArgValue = this.nethackModule.getValue(menuPtrArg, "*");
+            if (ptrArgValue > 0) {
+              ptrResolvedValue = this.nethackModule.getValue(ptrArgValue, "*");
+            }
           } catch (error) {
             console.log("Pointer decode error in shim_select_menu:", error);
           }
         }
-        // In this callback ABI, the menu pointer argument is generally passed as an
-        // indirection location; using the raw arg pointer has caused crashes.
-        // Prefer the dereferenced location and only fall back if it looks invalid.
-        const ptrMode = ptrDerefValue > 0 ? "deref" : "arg";
-        const menuListPtrPtr = ptrMode === "deref" ? ptrDerefValue : ptrArgValue;
+        // The third argument is typed as opaque ("o"), so `menuPtrArg` points at the
+        // callback arg slot. One dereference yields the C pointer argument value.
+        const isPlausiblePtr = (ptr) =>
+          Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
+        // Prefer arg pointer (single deref). Resolved pointer is fallback only.
+        const ptrMode =
+          isPlausiblePtr(ptrArgValue)
+            ? "arg"
+            : isPlausiblePtr(ptrResolvedValue)
+              ? "resolved_fallback"
+              : "invalid";
+        const menuListPtrPtr =
+          isPlausiblePtr(ptrArgValue)
+            ? ptrArgValue
+            : isPlausiblePtr(ptrResolvedValue)
+              ? ptrResolvedValue
+              : 0;
         console.log(
-          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgValue=${ptrArgValue}, ptrDerefValue=${ptrDerefValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
+          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
 
         // For multi-pickup menus (how == PICK_ANY), check if we're ready to confirm
@@ -1663,19 +1703,34 @@ class LocalNetHackRuntime {
           });
         }
 
-        // For single-selection menus (how == PICK_ONE), return the chosen item code.
-        if (menuSelectHow === 1 && this.menuSelections.size === 1) {
-          const selectedItem = Array.from(this.menuSelections.values())[0];
+        // For single-selection menus (how == PICK_ONE), write one menu_item and
+        // return the selection count expected by NetHack.
+        if (menuSelectHow === 1 && this.menuSelections.size > 0) {
+          const selectedItems = Array.from(this.menuSelections.values());
+          const selectedItem = selectedItems[0];
+          if (selectedItems.length > 1) {
+            console.log(
+              `PICK_ONE had ${selectedItems.length} selections; using first item only`,
+            );
+          }
           console.log(
-            `?? Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`,
+            `Returning single menu selection count: 1 (${selectedItem.menuChar} ${selectedItem.text})`,
           );
+          this.menuSelections = new Map([[selectedItem.menuChar, selectedItem]]);
+          this.writeMenuSelectionResult(menuListPtrPtr, 1);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
-          return (
-            selectedItem.identifier ||
-            selectedItem.originalAccelerator ||
-            selectedItem.menuChar.charCodeAt(0)
-          );
+          this.multiPickupReadyToConfirm = false;
+          return 1;
+        }
+
+        if (menuSelectHow === 1) {
+          console.log("PICK_ONE requested with no selection; returning 0");
+          this.writeMenuSelectionResult(menuListPtrPtr, 0);
+          this.menuSelections.clear();
+          this.isInMultiPickup = false;
+          this.multiPickupReadyToConfirm = false;
+          return 0;
         }
 
         // If we have completed selections from multi-pickup, return the count.
@@ -1687,14 +1742,19 @@ class LocalNetHackRuntime {
           );
 
           const selectionCount = this.menuSelections.size;
+          this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
           // Clear selections and multi-pickup state after returning them
           this.menuSelections.clear();
           this.isInMultiPickup = false;
+          this.multiPickupReadyToConfirm = false;
           return selectionCount;
         }
 
         // Default: no selection
-        console.log("📋 Returning 0 (no selection)");
+        console.log("Returning 0 (no selection)");
+        this.writeMenuSelectionResult(menuListPtrPtr, 0);
+        this.menuSelections.clear();
+        this.multiPickupReadyToConfirm = false;
         return 0;
 
       case "shim_askname":

@@ -700,6 +700,15 @@
       if (!this.nethackModule || !menuListPtrPtr) {
         return;
       }
+      const heapSize = this.nethackModule.HEAPU8 && this.nethackModule.HEAPU8.length ? this.nethackModule.HEAPU8.length : 0;
+      const isAlignedPtr = Number.isInteger(menuListPtrPtr) && menuListPtrPtr > 0 && (menuListPtrPtr & 3) === 0;
+      const isInBounds = !heapSize || menuListPtrPtr + 4 <= heapSize;
+      if (!isAlignedPtr || !isInBounds) {
+        console.log(
+          `Skipping menu selection write: invalid menuListPtrPtr=${menuListPtrPtr} (aligned=${isAlignedPtr}, inBounds=${isInBounds}, heapSize=${heapSize})`
+        );
+        return;
+      }
       try {
         const selectedItems = Array.from(this.menuSelections.values());
         const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 16);
@@ -722,7 +731,10 @@
         for (let i = 0; i < selectedItems.length; i++) {
           const item = selectedItems[i];
           const structOffset = outPtr + i * bytesPerMenuItem;
-          const itemIdentifier = typeof item.identifier === "number" ? item.identifier : item.originalAccelerator;
+          let itemIdentifier = typeof item.identifier === "number" ? item.identifier : item.originalAccelerator;
+          if (typeof itemIdentifier !== "number" && typeof item.menuChar === "string" && item.menuChar.length === 1) {
+            itemIdentifier = item.menuChar.charCodeAt(0);
+          }
           if (typeof itemIdentifier !== "number") {
             console.log(
               `Skipping item ${i} because identifier is not numeric:`,
@@ -1361,20 +1373,25 @@
           return 0;
         case "shim_select_menu":
           const [menuSelectWinid, menuSelectHow, menuPtrArg] = args;
+          let ptrArgSlot = 0;
           let ptrArgValue = 0;
-          let ptrDerefValue = 0;
+          let ptrResolvedValue = 0;
           if (this.nethackModule && typeof this.nethackModule.getValue === "function") {
-            ptrArgValue = menuPtrArg;
+            ptrArgSlot = menuPtrArg;
             try {
-              ptrDerefValue = this.nethackModule.getValue(menuPtrArg, "*");
+              ptrArgValue = this.nethackModule.getValue(menuPtrArg, "*");
+              if (ptrArgValue > 0) {
+                ptrResolvedValue = this.nethackModule.getValue(ptrArgValue, "*");
+              }
             } catch (error) {
               console.log("Pointer decode error in shim_select_menu:", error);
             }
           }
-          const ptrMode = ptrDerefValue > 0 ? "deref" : "arg";
-          const menuListPtrPtr = ptrMode === "deref" ? ptrDerefValue : ptrArgValue;
+          const isPlausiblePtr = (ptr) => Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
+          const ptrMode = isPlausiblePtr(ptrArgValue) ? "arg" : isPlausiblePtr(ptrResolvedValue) ? "resolved_fallback" : "invalid";
+          const menuListPtrPtr = isPlausiblePtr(ptrArgValue) ? ptrArgValue : isPlausiblePtr(ptrResolvedValue) ? ptrResolvedValue : 0;
           console.log(
-            `\u{1F4CB} Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgValue=${ptrArgValue}, ptrDerefValue=${ptrDerefValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`
+            `\u{1F4CB} Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`
           );
           if (menuSelectHow === 2 && this.isInMultiPickup) {
             if (this.multiPickupReadyToConfirm) {
@@ -1397,14 +1414,31 @@
               this.waitingForMenuSelection = true;
             });
           }
-          if (menuSelectHow === 1 && this.menuSelections.size === 1) {
-            const selectedItem = Array.from(this.menuSelections.values())[0];
+          if (menuSelectHow === 1 && this.menuSelections.size > 0) {
+            const selectedItems = Array.from(this.menuSelections.values());
+            const selectedItem = selectedItems[0];
+            if (selectedItems.length > 1) {
+              console.log(
+                `PICK_ONE had ${selectedItems.length} selections; using first item only`
+              );
+            }
             console.log(
-              `?? Returning single selection: ${selectedItem.menuChar} (${selectedItem.text})`
+              `Returning single menu selection count: 1 (${selectedItem.menuChar} ${selectedItem.text})`
             );
+            this.menuSelections = /* @__PURE__ */ new Map([[selectedItem.menuChar, selectedItem]]);
+            this.writeMenuSelectionResult(menuListPtrPtr, 1);
             this.menuSelections.clear();
             this.isInMultiPickup = false;
-            return selectedItem.identifier || selectedItem.originalAccelerator || selectedItem.menuChar.charCodeAt(0);
+            this.multiPickupReadyToConfirm = false;
+            return 1;
+          }
+          if (menuSelectHow === 1) {
+            console.log("PICK_ONE requested with no selection; returning 0");
+            this.writeMenuSelectionResult(menuListPtrPtr, 0);
+            this.menuSelections.clear();
+            this.isInMultiPickup = false;
+            this.multiPickupReadyToConfirm = false;
+            return 0;
           }
           if (menuSelectHow === 2 && this.menuSelections.size > 0) {
             const selectedItems = Array.from(this.menuSelections.values());
@@ -1413,11 +1447,16 @@
               selectedItems.map((item) => `${item.menuChar}:${item.text}`)
             );
             const selectionCount = this.menuSelections.size;
+            this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
             this.menuSelections.clear();
             this.isInMultiPickup = false;
+            this.multiPickupReadyToConfirm = false;
             return selectionCount;
           }
-          console.log("\u{1F4CB} Returning 0 (no selection)");
+          console.log("Returning 0 (no selection)");
+          this.writeMenuSelectionResult(menuListPtrPtr, 0);
+          this.menuSelections.clear();
+          this.multiPickupReadyToConfirm = false;
           return 0;
         case "shim_askname":
           console.log("NetHack is asking for player name, args:", args);
