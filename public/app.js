@@ -1752,6 +1752,15 @@ var Nethack3DEngine = class {
   handleWindowBlur() {
     this.altOrMetaHeld = false;
   }
+  normalizeWaitKey(event) {
+    if (event.key === ">") {
+      return null;
+    }
+    if (event.key === "." || event.key === " " || event.key === "Spacebar" || event.key === "Space" || event.key === "Decimal" || event.key === "NumpadDecimal" || event.code === "NumpadDecimal" || event.code === "Space") {
+      return ".";
+    }
+    return null;
+  }
   handleKeyDown(event) {
     if (event.key === "Alt" || event.key === "Meta") {
       this.altOrMetaHeld = true;
@@ -1866,6 +1875,17 @@ var Nethack3DEngine = class {
       console.log(`\u{1F6AB} Filtering out modifier key: ${event.key}`);
       return;
     }
+    const normalizedWaitKey = this.normalizeWaitKey(event);
+    if (normalizedWaitKey) {
+      event.preventDefault();
+      if (this.isInDirectionQuestion) {
+        this.sendInput(normalizedWaitKey);
+        this.hideDirectionQuestion();
+      } else {
+        this.sendInput(normalizedWaitKey);
+      }
+      return;
+    }
     if (!this.isInQuestion && !this.isInDirectionQuestion) {
       let mappedKey = null;
       switch (event.key) {
@@ -1955,7 +1975,11 @@ var Nethack3DEngine = class {
             break;
           // Space or period for self/wait direction
           case " ":
+          case "Spacebar":
+          case "Space":
           case ".":
+          case "Decimal":
+          case "NumpadDecimal":
             keyToSend = ".";
             break;
         }

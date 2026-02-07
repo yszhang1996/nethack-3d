@@ -555,6 +555,18 @@ class NetHackSession {
       return 27;
     }
 
+    if (
+      key === " " ||
+      key === "Space" ||
+      key === "Spacebar" ||
+      key === "." ||
+      key === "Period" ||
+      key === "Decimal" ||
+      key === "NumpadDecimal"
+    ) {
+      return ".".charCodeAt(0);
+    }
+
     // With number_pad:1 option, translate arrow keys to numpad equivalents
     if (key === "ArrowLeft") return "4".charCodeAt(0);
     if (key === "ArrowRight") return "6".charCodeAt(0);

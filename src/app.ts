@@ -2190,6 +2190,25 @@ class Nethack3DEngine {
     this.altOrMetaHeld = false;
   }
 
+  private normalizeWaitKey(event: KeyboardEvent): string | null {
+    if (event.key === ">") {
+      return null;
+    }
+    if (
+      event.key === "." ||
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "Space" ||
+      event.key === "Decimal" ||
+      event.key === "NumpadDecimal" ||
+      event.code === "NumpadDecimal" ||
+      event.code === "Space"
+    ) {
+      return ".";
+    }
+    return null;
+  }
+
   private handleKeyDown(event: KeyboardEvent): void {
     if (event.key === "Alt" || event.key === "Meta") {
       this.altOrMetaHeld = true;
@@ -2334,6 +2353,18 @@ class Nethack3DEngine {
       return;
     }
 
+    const normalizedWaitKey = this.normalizeWaitKey(event);
+    if (normalizedWaitKey) {
+      event.preventDefault();
+      if (this.isInDirectionQuestion) {
+        this.sendInput(normalizedWaitKey);
+        this.hideDirectionQuestion();
+      } else {
+        this.sendInput(normalizedWaitKey);
+      }
+      return;
+    }
+
     // Handle diagonal movement keys during regular gameplay
     // Map navigation keys to numpad equivalents for NetHack
     if (!this.isInQuestion && !this.isInDirectionQuestion) {
@@ -2429,7 +2460,11 @@ class Nethack3DEngine {
 
           // Space or period for self/wait direction
           case " ":
+          case "Spacebar":
+          case "Space":
           case ".":
+          case "Decimal":
+          case "NumpadDecimal":
             keyToSend = ".";
             break;
         }
