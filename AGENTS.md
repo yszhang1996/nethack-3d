@@ -4,18 +4,21 @@ Start here before making changes.
 
 ## Project Summary
 
-- NetHack 3D is a two-process JavaScript/TypeScript app:
-- `server.js` runs NetHack WebAssembly, handles shim callbacks, and bridges gameplay data over WebSocket.
-- `src/app.ts` is a browser client that renders the map with Three.js and handles UI/input.
+- NetHack 3D is a browser-first JavaScript/TypeScript app.
+- `src/game/Nethack3DEngine.ts` renders the map with Three.js and owns UI/input behavior.
+- `src/runtime/runtime-worker.ts` runs the NetHack WASM runtime in a dedicated Web Worker.
+- `src/runtime/LocalNetHackRuntime.ts` is the runtime callback adapter used inside the worker.
+- `src/runtime/WorkerRuntimeBridge.ts` bridges game input/events between the main thread and worker.
 - `public/index.html` provides the static shell and mount points for overlays.
 
 ## Core Runtime Paths
 
-- Server startup and socket wiring: `server.js:1311`, `server.js:1356`, `server.js:1359`.
-- NetHack callback bridge entrypoint: `server.js:390` (`handleUICallback`).
-- Client network message dispatcher: `src/app.ts:278` (`handleServerMessage`).
-- Tile rendering/classification: `src/app.ts:721` (`updateTile`).
-- Keyboard and interaction pipeline: `src/app.ts:1978` (`handleKeyDown`).
+- App bootstrap: `src/app.ts`.
+- Main 3D engine: `src/game/Nethack3DEngine.ts`.
+- Runtime worker entry: `src/runtime/runtime-worker.ts`.
+- Runtime callback bridge: `src/runtime/LocalNetHackRuntime.ts` (`handleUICallback`).
+- Worker bridge: `src/runtime/WorkerRuntimeBridge.ts`.
+- Runtime message typing: `src/runtime/types.ts`.
 
 ## Steering Documents
 
@@ -24,18 +27,25 @@ Start here before making changes.
 
 ## Working Rules For Agents
 
-- Treat `server.js` and `src/app.ts` as source of truth; `public/app.js` is build output from `src/app.ts`.
-- Prefer protocol-compatible changes: if adding a message type on one side, update both server and client handlers in the same patch.
-- Keep menu/input behavior stable, especially async promise resolution in `server.js` (`waitingForInput`, `waitingForMenuSelection`, `waitingForPosition`).
-- Validate rendering-impact changes by checking player position updates, tile refresh commands, and question dialogs.
+- Treat `src/game/*` and `src/runtime/*` as source of truth.
+- `public/app.js` and `public/runtime-worker.js` are build outputs.
+- If adding/changing runtime event payloads, update both:
+  - event emitter sites in `src/runtime/LocalNetHackRuntime.ts`
+  - event handling in `src/game/Nethack3DEngine.ts`
+- Keep menu/input async behavior stable in runtime state handling:
+  - `waitingForInput`, `waitingForMenuSelection`, `waitingForPosition`
+- Validate rendering-impact changes by checking:
+  - player position updates
+  - tile refresh commands
+  - question dialogs (including direction and inventory flows)
 
 ## Low-Friction Edit Playbook
 
 - Prefer small, targeted edits with strong anchors (`function` name + nearby unique line) instead of broad replacements.
 - Use `rg -n` first to identify exact edit points before patching.
 - For normal files, use `apply_patch` with minimal hunks.
-- If `apply_patch` fails repeatedly in `server.js` due to mixed/garbled character encoding, use a deterministic scripted edit (`node` or PowerShell) with exact string/marker replacement, then immediately re-open the edited region to confirm.
-- Avoid refactors while debugging input/callback timing; change one behavior at a time and re-test.
-- After any server input/callback edit, run:
-- `node --check server.js`
-- `npm run build`
+- If `apply_patch` fails repeatedly in large runtime files, use a deterministic scripted edit (`node` or PowerShell) with exact marker replacement, then immediately re-open edited regions.
+- Avoid broad refactors while debugging callback timing; change one behavior at a time and re-test.
+- After runtime/input/callback edits, run:
+  - `npm run build`
+  - `node --check server.js`
