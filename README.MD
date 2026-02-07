@@ -1,6 +1,6 @@
 # NetHack 3D
 
-git Play here: https://jamesiv4.github.io/nethack-3d/
+Play here: https://jamesiv4.github.io/nethack-3d/
 
 ## Run
 
