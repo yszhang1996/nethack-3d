@@ -463,6 +463,7 @@ export default function App(): JSX.Element {
         </div>
         <div>Arrow Keys: Move</div>
         <div>Space: Wait</div>
+        <div># + letters + Enter: Extended command</div>
         <div>Enter: Confirm</div>
         <div>Esc: Cancel/Menu</div>
       </div>

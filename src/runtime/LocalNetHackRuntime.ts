@@ -116,6 +116,10 @@ class LocalNetHackRuntime {
     this.handleClientInput(input);
   }
 
+  sendInputSequence(inputs) {
+    this.handleClientInputSequence(inputs);
+  }
+
   requestTileUpdate(x, y) {
     this.handleTileUpdateRequest(x, y);
   }
@@ -219,6 +223,79 @@ class LocalNetHackRuntime {
         type: "map_glyph_batch",
         tiles: batch,
       });
+  }
+
+  handleClientInputSequence(inputs) {
+    if (this.isClosed || !Array.isArray(inputs) || inputs.length === 0) {
+      return;
+    }
+
+    const normalized = inputs.filter(
+      (input) => typeof input === "string" && input.length > 0,
+    );
+    if (normalized.length === 0) {
+      return;
+    }
+
+    console.log("🎮 Received client input sequence:", normalized);
+    for (const input of normalized) {
+      this.enqueueInput(input);
+    }
+
+    this.lastInputTime = Date.now();
+    this.latestInput = null;
+    this.latestInputConsumedByResolver = false;
+
+    if (this.waitingForInput && this.inputResolver) {
+      const queuedInput = this.queuedInputs.shift();
+      if (queuedInput === undefined) {
+        return;
+      }
+      console.log(
+        "🎮 Resolving waiting input promise with queued sequence input:",
+        queuedInput,
+      );
+      this.waitingForInput = false;
+      const resolver = this.inputResolver;
+      this.inputResolver = null;
+      if (this.isPositionModeInitiatorInput(queuedInput)) {
+        this.farLookPendingActivation = true;
+        this.latestInput = null;
+        this.latestInputConsumedByResolver = false;
+        console.log("Queued far-look activation for next position request");
+      } else {
+        this.farLookPendingActivation = false;
+        this.latestInputConsumedByResolver = false;
+      }
+      resolver(this.processKey(queuedInput));
+      return;
+    }
+
+    if (this.waitingForPosition && this.positionResolver) {
+      const queuedInput = this.queuedInputs.shift();
+      if (queuedInput === undefined) {
+        return;
+      }
+      console.log(
+        "🎮 Resolving waiting position promise with queued sequence input:",
+        queuedInput,
+      );
+      this.waitingForPosition = false;
+      const resolver = this.positionResolver;
+      this.positionResolver = null;
+
+      if (this.isFarLookPositionRequest()) {
+        this.latestInput = null;
+        if (this.isFarLookExitInput(queuedInput)) {
+          this.farLookSessionActive = false;
+          this.farLookPendingActivation = false;
+          this.setPositionInputActive(false);
+        }
+      }
+
+      this.latestInputConsumedByResolver = false;
+      resolver(this.processKey(queuedInput));
+    }
   }
 
   // Handle incoming input from the client

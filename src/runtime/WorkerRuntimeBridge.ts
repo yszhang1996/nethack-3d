@@ -47,6 +47,10 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     this.postCommand({ type: "send_input", input });
   }
 
+  sendInputSequence(inputs: string[]): void {
+    this.postCommand({ type: "send_input_sequence", inputs });
+  }
+
   requestTileUpdate(x: number, y: number): void {
     this.postCommand({ type: "request_tile_update", x, y });
   }

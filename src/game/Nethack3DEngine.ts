@@ -159,6 +159,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private session: RuntimeBridge | null = null;
   private readonly metaInputPrefix = "__META__:";
   private altOrMetaHeld: boolean = false;
+  private metaCommandModeActive: boolean = false;
+  private metaCommandBuffer: string = "";
+  private metaCommandModal: HTMLDivElement | null = null;
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -752,7 +755,86 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private ensureMetaCommandModal(): HTMLDivElement {
+    if (this.metaCommandModal) {
+      return this.metaCommandModal;
+    }
+
+    const modal = document.createElement("div");
+    modal.id = "meta-command-modal";
+    modal.className = "nh3d-meta-command";
+    modal.setAttribute("aria-hidden", "true");
+    modal.textContent = "#";
+    document.body.appendChild(modal);
+    this.metaCommandModal = modal;
+    return modal;
+  }
+
+  private projectWorldToScreen(
+    worldX: number,
+    worldY: number,
+    worldZ: number,
+  ): { x: number; y: number; visible: boolean } {
+    const vector = new THREE.Vector3(worldX, worldY, worldZ);
+    vector.project(this.camera);
+
+    if (
+      !Number.isFinite(vector.x) ||
+      !Number.isFinite(vector.y) ||
+      !Number.isFinite(vector.z)
+    ) {
+      return { x: 0, y: 0, visible: false };
+    }
+
+    const canvasRect = this.renderer.domElement.getBoundingClientRect();
+    const x = canvasRect.left + ((vector.x + 1) * canvasRect.width) / 2;
+    const y = canvasRect.top + ((-vector.y + 1) * canvasRect.height) / 2;
+    const visible = vector.z >= -1 && vector.z <= 1;
+    return { x, y, visible };
+  }
+
+  private updateMetaCommandModalPosition(): void {
+    if (!this.metaCommandModeActive || !this.metaCommandModal) {
+      return;
+    }
+
+    const projected = this.projectWorldToScreen(
+      this.playerPos.x * TILE_SIZE,
+      -this.playerPos.y * TILE_SIZE,
+      WALL_HEIGHT + 0.3,
+    );
+    if (!projected.visible) {
+      this.metaCommandModal.style.visibility = "hidden";
+      return;
+    }
+
+    this.metaCommandModal.style.visibility = "visible";
+    this.metaCommandModal.style.left = `${Math.round(projected.x)}px`;
+    this.metaCommandModal.style.top = `${Math.round(projected.y - 34)}px`;
+  }
+
+  private updateMetaCommandModal(): void {
+    const modal = this.metaCommandModal;
+    if (!modal) {
+      return;
+    }
+
+    if (!this.metaCommandModeActive) {
+      modal.classList.remove("is-visible");
+      modal.style.visibility = "hidden";
+      modal.setAttribute("aria-hidden", "true");
+      return;
+    }
+
+    modal.textContent = `#${this.metaCommandBuffer}`;
+    modal.classList.add("is-visible");
+    modal.setAttribute("aria-hidden", "false");
+    this.updateMetaCommandModalPosition();
+  }
+
   private initUI(): void {
+    this.ensureMetaCommandModal();
+
     if (this.uiAdapter) {
       this.uiAdapter.setStatus("Starting local NetHack runtime...");
       this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
@@ -3627,6 +3709,90 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private sendInputSequence(inputs: string[]): void {
+    if (!this.session || inputs.length === 0) {
+      return;
+    }
+    this.session.sendInputSequence(inputs);
+  }
+
+  private canStartMetaCommandMode(): boolean {
+    return (
+      !this.metaCommandModeActive &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive &&
+      !this.isInventoryDialogVisible &&
+      !this.isInfoDialogVisible
+    );
+  }
+
+  private startMetaCommandMode(): void {
+    if (!this.canStartMetaCommandMode()) {
+      return;
+    }
+    this.metaCommandModeActive = true;
+    this.metaCommandBuffer = "";
+    this.updateMetaCommandModal();
+  }
+
+  private exitMetaCommandMode(): void {
+    if (!this.metaCommandModeActive) {
+      return;
+    }
+    this.metaCommandModeActive = false;
+    this.metaCommandBuffer = "";
+    this.updateMetaCommandModal();
+  }
+
+  private confirmMetaCommandMode(): void {
+    if (!this.metaCommandModeActive) {
+      return;
+    }
+    const sequence = ["#", ...this.metaCommandBuffer.split(""), "Enter"];
+    this.sendInputSequence(sequence);
+    this.exitMetaCommandMode();
+  }
+
+  private isMetaCommandLetter(event: KeyboardEvent): boolean {
+    return event.key.length === 1 && /^[A-Za-z]$/.test(event.key);
+  }
+
+  private handleMetaCommandKeyDown(event: KeyboardEvent): boolean {
+    if (!this.metaCommandModeActive) {
+      return false;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.exitMetaCommandMode();
+      return true;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      this.confirmMetaCommandMode();
+      return true;
+    }
+
+    if (event.key === "Backspace") {
+      event.preventDefault();
+      this.metaCommandBuffer = this.metaCommandBuffer.slice(0, -1);
+      this.updateMetaCommandModal();
+      return true;
+    }
+
+    if (this.isMetaCommandLetter(event)) {
+      event.preventDefault();
+      this.metaCommandBuffer += event.key.toLowerCase();
+      this.updateMetaCommandModal();
+      return true;
+    }
+
+    event.preventDefault();
+    return true;
+  }
+
   private isMovementInput(input: string): boolean {
     if (input.length === 1) {
       switch (input) {
@@ -3716,6 +3882,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
+    this.exitMetaCommandMode();
   }
 
   private normalizeWaitKey(event: KeyboardEvent): string | null {
@@ -3738,9 +3905,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.handleMetaCommandKeyDown(event)) {
+      return;
+    }
+
     if (event.key === "Alt" || event.key === "Meta") {
       this.altOrMetaHeld = true;
       event.preventDefault();
+      return;
+    }
+
+    if (event.key === "#" && this.canStartMetaCommandMode()) {
+      event.preventDefault();
+      this.startMetaCommandMode();
       return;
     }
 
@@ -4277,6 +4454,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
     this.updateCamera(deltaSeconds);
+    this.updateMetaCommandModalPosition();
     this.updateLightingOverlay();
     this.updateTileRevealFades(deltaSeconds);
     this.updateEffectAnimations(timeMs);
