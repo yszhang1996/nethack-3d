@@ -4381,6 +4381,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseWheel(event: WheelEvent): void {
+    // Disable camera zoom while the inventory dialog is visible.
+    const inventoryDialog = document.getElementById("inventory-dialog");
+    if (
+      this.isInventoryDialogVisible ||
+      (inventoryDialog && inventoryDialog.classList.contains("is-visible"))
+    ) {
+      return;
+    }
+
     // Check if the mouse is over the game log element
     const gameLog = document.getElementById("game-log");
     if (gameLog) {
