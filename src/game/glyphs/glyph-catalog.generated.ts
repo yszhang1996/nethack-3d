@@ -2,19 +2,13 @@
 /* AUTO-GENERATED FILE. DO NOT EDIT. */
 /* Run `npm run glyphs:generate` to refresh this file. */
 
-import type {
-  GlyphCatalogEntry,
-  GlyphCatalogMeta,
-  GlyphCatalogRange,
-} from "./types";
+import type { GlyphCatalogEntry, GlyphCatalogMeta, GlyphCatalogRange } from "./types";
 
 export const GLYPH_CATALOG_META: GlyphCatalogMeta = {
   sourceJsPath: "public/nethack.js",
   sourceWasmPath: "public/nethack.wasm",
-  sourceJsSha256:
-    "b59092ecb2068bc7e0bec2f032c80d249861502d2bd4dadfd585da981dc5442c",
-  sourceWasmSha256:
-    "27507db2a4fb57c313373e23f1f3e8023786a65931d1a45ac7847634be6a8212",
+  sourceJsSha256: "9e0a7b6fdb63d2132ec64af3112240a9cb47998d1552d2e59555bb9a2cc89203",
+  sourceWasmSha256: "27507db2a4fb57c313373e23f1f3e8023786a65931d1a45ac7847634be6a8212",
   maxGlyph: 6023,
   noGlyph: 6023,
 };
@@ -28,38 +22,13 @@ export const GLYPH_CATALOG_RANGES: readonly GlyphCatalogRange[] = [
   { key: "GLYPH_RIDDEN_OFF", kind: "ridden", start: 1537, endExclusive: 1921 },
   { key: "GLYPH_OBJ_OFF", kind: "obj", start: 1921, endExclusive: 2377 },
   { key: "GLYPH_CMAP_OFF", kind: "cmap", start: 2377, endExclusive: 2464 },
-  {
-    key: "GLYPH_EXPLODE_OFF",
-    kind: "explode",
-    start: 2464,
-    endExclusive: 2527,
-  },
+  { key: "GLYPH_EXPLODE_OFF", kind: "explode", start: 2464, endExclusive: 2527 },
   { key: "GLYPH_ZAP_OFF", kind: "zap", start: 2527, endExclusive: 2559 },
-  {
-    key: "GLYPH_SWALLOW_OFF",
-    kind: "swallow",
-    start: 2559,
-    endExclusive: 5631,
-  },
-  {
-    key: "GLYPH_WARNING_OFF",
-    kind: "warning",
-    start: 5631,
-    endExclusive: 5637,
-  },
+  { key: "GLYPH_SWALLOW_OFF", kind: "swallow", start: 2559, endExclusive: 5631 },
+  { key: "GLYPH_WARNING_OFF", kind: "warning", start: 5631, endExclusive: 5637 },
   { key: "GLYPH_STATUE_OFF", kind: "statue", start: 5637, endExclusive: 6021 },
-  {
-    key: "GLYPH_UNEXPLORED_OFF",
-    kind: "unexplored",
-    start: 6021,
-    endExclusive: 6022,
-  },
-  {
-    key: "GLYPH_NOTHING_OFF",
-    kind: "nothing",
-    start: 6022,
-    endExclusive: 6023,
-  },
+  { key: "GLYPH_UNEXPLORED_OFF", kind: "unexplored", start: 6021, endExclusive: 6022 },
+  { key: "GLYPH_NOTHING_OFF", kind: "nothing", start: 6022, endExclusive: 6023 },
 ];
 
 export const GLYPH_CATALOG: readonly GlyphCatalogEntry[] = [
