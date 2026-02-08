@@ -36,6 +36,7 @@ type LightingGrid = {
   width: number;
   height: number;
   blocked: Uint8Array;
+  undiscoveredMask: Uint8Array;
 };
 
 type FloatingMessageEntry = {
@@ -311,6 +312,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly lightingTilePixels: number = 30;
   private readonly lightingFloorFalloffPower: number = 1.08;
   private readonly lightingMaxDarkAlpha: number = 0.82;
+  private readonly lightingUndiscoveredDarkScale: number = 0.25;
   private readonly lightingDitherStrength: number = 0.05;
   private readonly lightingBayer4: number[] = [
     0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
@@ -426,7 +428,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    const cells: Array<{ x: number; y: number; isWall: boolean }> = [];
+    const cells: Array<{
+      x: number;
+      y: number;
+      isWall: boolean;
+      isUndiscovered: boolean;
+    }> = [];
     let minX = Number.POSITIVE_INFINITY;
     let minY = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
@@ -443,6 +450,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         x,
         y,
         isWall: Boolean(mesh.userData?.isWall),
+        isUndiscovered: Boolean(mesh.userData?.isUndiscovered),
       });
 
       if (x < minX) minX = x;
@@ -458,13 +466,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const width = maxX - minX + 1;
     const height = maxY - minY + 1;
     const blocked = new Uint8Array(width * height);
+    const undiscoveredMask = new Uint8Array(width * height);
+    undiscoveredMask.fill(1);
 
     for (const cell of cells) {
       const index = (cell.y - minY) * width + (cell.x - minX);
       blocked[index] = cell.isWall ? 1 : 0;
+      undiscoveredMask[index] = cell.isUndiscovered ? 1 : 0;
     }
 
-    return { minX, maxX, minY, maxY, width, height, blocked };
+    return {
+      minX,
+      maxX,
+      minY,
+      maxY,
+      width,
+      height,
+      blocked,
+      undiscoveredMask,
+    };
   }
 
   private worldToLightingPixel(
@@ -634,10 +654,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const imageData = context.getImageData(0, 0, widthPixels, heightPixels);
     const data = imageData.data;
+    const tilePixels = this.lightingTilePixels;
     for (let y = 0; y < heightPixels; y++) {
+      const cellY = Math.min(grid.height - 1, Math.floor(y / tilePixels));
       for (let x = 0; x < widthPixels; x++) {
         const index = (y * widthPixels + x) * 4;
-        const alpha = data[index + 3] / 255;
+        const cellX = Math.min(grid.width - 1, Math.floor(x / tilePixels));
+        const cellIndex = cellY * grid.width + cellX;
+        let alpha = data[index + 3] / 255;
+        if (grid.undiscoveredMask[cellIndex]) {
+          alpha *= this.lightingUndiscoveredDarkScale;
+        }
         const dither =
           (this.lightingBayer4[(x & 3) + ((y & 3) << 2)] - 0.5) *
           this.lightingDitherStrength;
@@ -701,7 +728,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.camera.up.set(0, 0, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setClearColor(0x000011); // Dark blue background
+    this.renderer.setClearColor(0x000011); // Dark blue void background
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -2785,7 +2812,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.uiAdapter) {
       this.uiAdapter.setInventory({
         visible: this.isInventoryDialogVisible,
-        items: Array.isArray(this.currentInventory) ? [...this.currentInventory] : [],
+        items: Array.isArray(this.currentInventory)
+          ? [...this.currentInventory]
+          : [],
       });
       return;
     }
@@ -2837,7 +2866,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionText = question || "";
     this.activeQuestionChoices = choices || "";
     this.activeQuestionDefaultChoice = defaultChoice || "";
-    this.activeQuestionMenuItems = Array.isArray(menuItems) ? [...menuItems] : [];
+    this.activeQuestionMenuItems = Array.isArray(menuItems)
+      ? [...menuItems]
+      : [];
     this.activeQuestionIsPickupDialog =
       this.activeQuestionMenuItems.length > 0 &&
       this.isMultiSelectLootQuestion(this.activeQuestionText);
@@ -2991,7 +3022,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const normalized = parsedChoices
-      .map((choice) => String(choice || "").trim().toLowerCase())
+      .map((choice) =>
+        String(choice || "")
+          .trim()
+          .toLowerCase(),
+      )
       .filter((choice) => choice.length > 0);
     if (normalized.length === 0) {
       return false;
@@ -4497,4 +4532,3 @@ class Nethack3DEngine implements Nethack3DEngineController {
 }
 
 export default Nethack3DEngine;
-

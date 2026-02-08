@@ -488,17 +488,6 @@ export default function App(): JSX.Element {
       <div className={positionRequest ? "is-visible" : ""} id="position-dialog">
         {positionRequest}
       </div>
-
-      <div className="controls">
-        <div>
-          <strong>Controls:</strong>
-        </div>
-        <div>Arrow Keys: Move</div>
-        <div>Space: Wait</div>
-        <div># + letters + Enter: Extended command</div>
-        <div>Enter: Confirm</div>
-        <div>Esc: Cancel/Menu</div>
-      </div>
     </>
   );
 }
