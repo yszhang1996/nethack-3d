@@ -6670,6 +6670,8 @@ var Nethack3DEngine = class {
     this.damageParticleGravity = 18.4;
     this.damageParticleFloorZ = 0.02;
     this.damageParticleWallBounce = 0.35;
+    this.tileRevealFadeDurationMs = 240;
+    this.tileRevealFades = /* @__PURE__ */ new Map();
     // Pre-create geometries and materials
     this.floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
     this.wallGeometry = new THREE.BoxGeometry(
@@ -6807,6 +6809,69 @@ var Nethack3DEngine = class {
   }
   markLightingDirty() {
     this.lightingDirty = true;
+  }
+  isUndiscoveredKind(kind) {
+    return kind === "unexplored" || kind === "nothing";
+  }
+  stopTileRevealFade(key) {
+    this.tileRevealFades.delete(key);
+    const overlay = this.glyphOverlayMap.get(key);
+    if (overlay) {
+      overlay.material.opacity = 1;
+      overlay.material.needsUpdate = true;
+    }
+  }
+  startTileRevealFade(key) {
+    const overlay = this.glyphOverlayMap.get(key);
+    if (!overlay) {
+      return;
+    }
+    const state = {
+      elapsedMs: 0,
+      durationMs: this.tileRevealFadeDurationMs,
+      opacity: 0
+    };
+    this.tileRevealFades.set(key, state);
+    overlay.material.opacity = state.opacity;
+    overlay.material.needsUpdate = true;
+  }
+  updateTileRevealFades(deltaSeconds) {
+    if (!this.tileRevealFades.size) {
+      return;
+    }
+    const deltaMs = deltaSeconds * 1e3;
+    const entries = Array.from(this.tileRevealFades.entries());
+    for (const [key, state] of entries) {
+      const overlay = this.glyphOverlayMap.get(key);
+      if (!overlay || !this.tileMap.has(key)) {
+        this.tileRevealFades.delete(key);
+        continue;
+      }
+      state.elapsedMs += deltaMs;
+      const progress = THREE.MathUtils.clamp(
+        state.elapsedMs / state.durationMs,
+        0,
+        1
+      );
+      const eased = 1 - Math.pow(1 - progress, 2);
+      state.opacity = eased;
+      overlay.material.opacity = state.opacity;
+      overlay.material.needsUpdate = true;
+      if (progress >= 1) {
+        this.tileRevealFades.delete(key);
+        overlay.material.opacity = 1;
+      }
+    }
+  }
+  clearTileRevealFades() {
+    const keys = Array.from(this.tileRevealFades.keys());
+    this.tileRevealFades.clear();
+    for (const key of keys) {
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        overlay.material.opacity = 1;
+      }
+    }
   }
   parseTileKey(key) {
     const commaIndex = key.indexOf(",");
@@ -7535,7 +7600,9 @@ var Nethack3DEngine = class {
         this.disposeGlyphOverlay(overlay);
       }
       const materialClone = new THREE.MeshBasicMaterial({
-        color: 14540253
+        color: 14540253,
+        transparent: true,
+        opacity: 1
       });
       overlay = {
         texture: null,
@@ -7766,7 +7833,7 @@ var Nethack3DEngine = class {
     );
     sprite.renderOrder = 940;
     this.scene.add(sprite);
-    const launchSpeed = (1.95 + Math.random() * 0.45) * 2.5;
+    const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
     const launchAngleRad = THREE.MathUtils.degToRad(10);
     const launchAzimuthRad = Math.random() * Math.PI * 2;
     const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
@@ -7970,6 +8037,13 @@ var Nethack3DEngine = class {
       overlay.material.map = flashState.texture;
       overlay.material.needsUpdate = true;
     }
+    const revealState = this.tileRevealFades.get(key);
+    if (revealState) {
+      overlay.material.opacity = revealState.opacity;
+      overlay.material.needsUpdate = true;
+    } else {
+      overlay.material.opacity = 1;
+    }
     if (isWall) {
       mesh.material = [
         baseMaterial,
@@ -8031,6 +8105,7 @@ var Nethack3DEngine = class {
   }
   clearScene() {
     this.clearDamageEffects();
+    this.clearTileRevealFades();
     console.log("\u{1F9F9} Clearing all tiles and glyph overlays from 3D scene");
     this.tileMap.forEach((mesh, key) => {
       this.scene.remove(mesh);
@@ -8053,12 +8128,16 @@ var Nethack3DEngine = class {
   updateTile(x, y, glyph, char, color) {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
+    const hadMesh = Boolean(mesh);
+    const wasUndiscovered = mesh ? Boolean(mesh.userData?.isUndiscovered) : true;
     const behavior = classifyTileBehavior({
       glyph,
       runtimeChar: char ?? null,
       runtimeColor: typeof color === "number" ? color : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null
     });
+    const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
+    const shouldRevealFade = !isUndiscovered && (!hadMesh || wasUndiscovered);
     if (!behavior.isPlayerGlyph) {
       if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
         this.lastKnownTerrain.set(key, {
@@ -8095,6 +8174,7 @@ var Nethack3DEngine = class {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
+    mesh.userData.isUndiscovered = isUndiscovered;
     this.applyGlyphMaterial(
       key,
       mesh,
@@ -8104,6 +8184,11 @@ var Nethack3DEngine = class {
       behavior.isWall,
       behavior.darkenFactor
     );
+    if (isUndiscovered) {
+      this.stopTileRevealFade(key);
+    } else if (shouldRevealFade) {
+      this.startTileRevealFade(key);
+    }
     this.markLightingDirty();
   }
   addGameMessage(message) {
@@ -9385,6 +9470,7 @@ var Nethack3DEngine = class {
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1e3;
     this.updateCamera(deltaSeconds);
     this.updateLightingOverlay();
+    this.updateTileRevealFades(deltaSeconds);
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
     this.renderer.render(this.scene, this.camera);
