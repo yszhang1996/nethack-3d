@@ -6649,6 +6649,27 @@ var Nethack3DEngine = class {
     // Camera panning
     this.cameraPanX = 0;
     this.cameraPanY = 0;
+    this.cameraFollowHalfLifeMs = 85;
+    this.cameraFollowInitialized = false;
+    this.cameraFollowTarget = new THREE.Vector3();
+    this.cameraFollowCurrent = new THREE.Vector3();
+    this.lastFrameTimeMs = null;
+    this.hasReceivedHpStatus = false;
+    this.pendingCharacterDamageQueue = [];
+    this.pendingCharacterDamageMaxAgeMs = 420;
+    this.glyphDamageFlashDurationMs = 180;
+    this.glyphDamageFlashTextureSize = 256;
+    this.glyphDamageFlashRed = new THREE.Color("#ff2d2d");
+    this.glyphDamageFlashWhite = new THREE.Color("#ffffff");
+    this.glyphDamageFlashColor = new THREE.Color("#ffffff");
+    this.glyphDamageFlashes = /* @__PURE__ */ new Map();
+    this.damageParticles = [];
+    this.lastParsedDamageMessage = "";
+    this.lastParsedDamageAtMs = 0;
+    this.damageParticleLifetimeMs = 620;
+    this.damageParticleGravity = 9.2;
+    this.damageParticleFloorZ = 0.02;
+    this.damageParticleWallBounce = 0.35;
     // Pre-create geometries and materials
     this.floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
     this.wallGeometry = new THREE.BoxGeometry(
@@ -7000,6 +7021,7 @@ var Nethack3DEngine = class {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(this.renderer.domElement);
+    this.loadCameraSmoothingFromCSS();
     const ambientLight = new THREE.AmbientLight(4210752, 0.4);
     this.scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(16777215, 0.8);
@@ -7026,6 +7048,13 @@ var Nethack3DEngine = class {
     window.addEventListener("mouseup", this.handleMouseUp.bind(this), false);
     window.addEventListener("contextmenu", (e) => e.preventDefault(), false);
     this.animate();
+  }
+  loadCameraSmoothingFromCSS() {
+    const cssValue = getComputedStyle(document.documentElement).getPropertyValue("--camera-follow-half-life-ms").trim();
+    const parsed = Number.parseFloat(cssValue);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      this.cameraFollowHalfLifeMs = parsed;
+    }
   }
   initUI() {
     const statusElement = document.getElementById("game-status");
@@ -7067,11 +7096,13 @@ var Nethack3DEngine = class {
   handleRuntimeEvent(data) {
     switch (data.type) {
       case "map_glyph":
+        this.tryResolvePendingCharacterDamage(data);
         this.enqueueTileUpdate(data);
         break;
       case "map_glyph_batch":
         if (Array.isArray(data.tiles)) {
           for (const tile of data.tiles) {
+            this.tryResolvePendingCharacterDamage(tile);
             this.enqueueTileUpdate(tile);
           }
         }
@@ -7128,9 +7159,11 @@ var Nethack3DEngine = class {
         );
         break;
       case "text":
+        this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
       case "raw_print":
+        this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
       case "menu_item":
@@ -7213,9 +7246,147 @@ var Nethack3DEngine = class {
         console.log(`Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`);
         this.updatePlayerStats(data.field, data.value, data);
         break;
+      case "damage_event":
+        if (typeof data.x === "number" && typeof data.y === "number" && typeof data.amount === "number") {
+          this.triggerDamageEffectsAtTile(data.x, data.y, data.amount);
+        }
+        break;
       default:
         console.log("Unknown message type:", data.type, data);
     }
+  }
+  isDamageFlashableBehavior(behavior) {
+    if (behavior.isPlayerGlyph) {
+      return true;
+    }
+    switch (behavior.effective.kind) {
+      case "mon":
+      case "pet":
+      case "ridden":
+      case "detect":
+      case "invis":
+        return true;
+      default:
+        return false;
+    }
+  }
+  classifyTilePayload(tile) {
+    if (!tile || typeof tile.x !== "number" || typeof tile.y !== "number" || typeof tile.glyph !== "number") {
+      return null;
+    }
+    const key = `${tile.x},${tile.y}`;
+    return classifyTileBehavior({
+      glyph: tile.glyph,
+      runtimeChar: typeof tile.char === "string" ? tile.char : null,
+      runtimeColor: typeof tile.color === "number" ? tile.color : null,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null
+    });
+  }
+  extractDamageAmountFromMessage(message) {
+    const patterns = [
+      /\bfor\s+(-?\d+)\s+damage\b/i,
+      /\btakes?\s+(-?\d+)\s+damage\b/i,
+      /\bdeals?\s+(-?\d+)\s+damage\b/i,
+      /\b(-?\d+)\s+points?\s+of\s+damage\b/i
+    ];
+    for (const pattern of patterns) {
+      const match = message.match(pattern);
+      if (!match || !match[1]) {
+        continue;
+      }
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed) && parsed !== 0) {
+        return Math.abs(parsed);
+      }
+    }
+    return null;
+  }
+  isCombatDamageMessage(message) {
+    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(message)) {
+      return true;
+    }
+    if (/\byou\s+(?:hit|bite|kick|slash|strike|punch|shoot|zap)\b/i.test(message)) {
+      return true;
+    }
+    return /\btakes?\s+-?\d+\s+damage\b/i.test(message);
+  }
+  isPlayerDamageVictimMessage(message) {
+    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(message)) {
+      return true;
+    }
+    if (/\byou\s+(?:take|suffer|receive|lose)\s+-?\d+\s+damage\b/i.test(message)) {
+      return true;
+    }
+    return /\byou are (?:hit|burned|zapped|injured|wounded)\b/i.test(message);
+  }
+  queuePendingCharacterDamage(amount) {
+    const sanitized = Math.max(1, Math.round(Math.abs(amount)));
+    this.pendingCharacterDamageQueue.push({
+      amount: sanitized,
+      createdAtMs: Date.now()
+    });
+    if (this.pendingCharacterDamageQueue.length > 8) {
+      this.pendingCharacterDamageQueue.splice(
+        0,
+        this.pendingCharacterDamageQueue.length - 8
+      );
+    }
+  }
+  prunePendingCharacterDamage(nowMs) {
+    this.pendingCharacterDamageQueue = this.pendingCharacterDamageQueue.filter(
+      (entry) => nowMs - entry.createdAtMs <= this.pendingCharacterDamageMaxAgeMs
+    );
+  }
+  captureDamageFromMessage(messageLike) {
+    if (typeof messageLike !== "string") {
+      return;
+    }
+    const normalized = messageLike.replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return;
+    }
+    const amount = this.extractDamageAmountFromMessage(normalized);
+    if (!amount || !this.isCombatDamageMessage(normalized)) {
+      return;
+    }
+    if (this.isPlayerDamageVictimMessage(normalized)) {
+      return;
+    }
+    const now = Date.now();
+    if (normalized === this.lastParsedDamageMessage && now - this.lastParsedDamageAtMs < 120) {
+      return;
+    }
+    this.lastParsedDamageMessage = normalized;
+    this.lastParsedDamageAtMs = now;
+    this.queuePendingCharacterDamage(amount);
+  }
+  tryResolvePendingCharacterDamage(tile) {
+    if (!this.pendingCharacterDamageQueue.length) {
+      return;
+    }
+    const now = Date.now();
+    this.prunePendingCharacterDamage(now);
+    if (!this.pendingCharacterDamageQueue.length) {
+      return;
+    }
+    const behavior = this.classifyTilePayload(tile);
+    if (!behavior || behavior.isPlayerGlyph || !this.isDamageFlashableBehavior(behavior)) {
+      return;
+    }
+    const nextDamage = this.pendingCharacterDamageQueue.shift();
+    if (!nextDamage || typeof tile.x !== "number" || typeof tile.y !== "number") {
+      return;
+    }
+    this.triggerDamageEffectsAtTile(tile.x, tile.y, nextDamage.amount);
+  }
+  triggerDamageEffectsAtTile(x, y, amount) {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(amount)) {
+      return;
+    }
+    const damage = Math.max(1, Math.round(Math.abs(amount)));
+    const key = `${x},${y}`;
+    this.startGlyphDamageFlash(key);
+    this.spawnDamageNumberParticle(x, y, damage);
   }
   enqueueTileUpdate(tile) {
     if (!tile || typeof tile.x !== "number" || typeof tile.y !== "number") {
@@ -7365,22 +7536,17 @@ var Nethack3DEngine = class {
     canvas.width = size;
     canvas.height = size;
     const context = canvas.getContext("2d");
-    const tonedBackground = this.toneColor(
-      baseColorHex,
-      0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
-    );
-    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
-    context.fillStyle = `#${contrastBackground}`;
-    context.fillRect(0, 0, size, size);
-    const trimmed = glyphChar.trim();
-    if (trimmed.length > 0) {
-      const fontSize = Math.floor(size * 0.6);
-      context.font = `bold ${fontSize}px monospace`;
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillStyle = textColor;
-      context.fillText(trimmed, size / 2, size / 2);
+    if (!context) {
+      throw new Error("Failed to create glyph texture canvas context");
     }
+    this.drawGlyphTextureToCanvas(
+      context,
+      size,
+      baseColorHex,
+      glyphChar,
+      textColor,
+      darkenFactor
+    );
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.anisotropy = Math.min(
@@ -7390,6 +7556,352 @@ var Nethack3DEngine = class {
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
     return texture;
+  }
+  drawGlyphTextureToCanvas(context, size, baseColorHex, glyphChar, textColor, darkenFactor = 1) {
+    context.clearRect(0, 0, size, size);
+    const tonedBackground = this.toneColor(
+      baseColorHex,
+      0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
+    );
+    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
+    context.fillStyle = `#${contrastBackground}`;
+    context.fillRect(0, 0, size, size);
+    const trimmed = glyphChar.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    const fontSize = Math.floor(size * 0.6);
+    context.font = `bold ${fontSize}px monospace`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillStyle = textColor;
+    context.fillText(trimmed, size / 2, size / 2);
+  }
+  startGlyphDamageFlash(key) {
+    const mesh = this.tileMap.get(key);
+    const overlay = this.glyphOverlayMap.get(key);
+    if (!mesh || !overlay || !overlay.texture || !mesh.userData || !mesh.userData.isDamageFlashableCharacter) {
+      return;
+    }
+    const glyphChar = typeof mesh.userData.glyphChar === "string" ? mesh.userData.glyphChar : "";
+    if (!glyphChar.trim()) {
+      return;
+    }
+    const baseColorHex = typeof mesh.userData.glyphBaseColorHex === "string" && mesh.userData.glyphBaseColorHex ? mesh.userData.glyphBaseColorHex : overlay.baseColorHex;
+    const darkenFactor = typeof mesh.userData.glyphDarkenFactor === "number" ? THREE.MathUtils.clamp(mesh.userData.glyphDarkenFactor, 0, 1) : 1;
+    let state = this.glyphDamageFlashes.get(key);
+    if (!state) {
+      const canvas = document.createElement("canvas");
+      const size = this.glyphDamageFlashTextureSize;
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return;
+      }
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      texture.anisotropy = Math.min(
+        4,
+        this.renderer.capabilities.getMaxAnisotropy()
+      );
+      texture.magFilter = THREE.LinearFilter;
+      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      state = {
+        key,
+        canvas,
+        context,
+        texture,
+        elapsedMs: 0,
+        durationMs: this.glyphDamageFlashDurationMs,
+        baseColorHex,
+        glyphChar,
+        darkenFactor
+      };
+      this.glyphDamageFlashes.set(key, state);
+    } else {
+      state.elapsedMs = 0;
+      state.baseColorHex = baseColorHex;
+      state.glyphChar = glyphChar;
+      state.darkenFactor = darkenFactor;
+    }
+    overlay.material.map = state.texture;
+    overlay.material.needsUpdate = true;
+    this.renderGlyphDamageFlash(state, 1);
+  }
+  renderGlyphDamageFlash(state, intensity) {
+    const clamped = THREE.MathUtils.clamp(intensity, 0, 1);
+    this.glyphDamageFlashColor.copy(this.glyphDamageFlashWhite).lerp(this.glyphDamageFlashRed, clamped);
+    const flashTextColor = `#${this.glyphDamageFlashColor.getHexString()}`;
+    this.drawGlyphTextureToCanvas(
+      state.context,
+      state.canvas.width,
+      state.baseColorHex,
+      state.glyphChar,
+      flashTextColor,
+      state.darkenFactor
+    );
+    state.texture.needsUpdate = true;
+  }
+  stopGlyphDamageFlash(key) {
+    const state = this.glyphDamageFlashes.get(key);
+    if (!state) {
+      return;
+    }
+    const overlay = this.glyphOverlayMap.get(key);
+    if (overlay) {
+      overlay.material.map = overlay.texture;
+      overlay.material.needsUpdate = true;
+    }
+    state.texture.dispose();
+    this.glyphDamageFlashes.delete(key);
+  }
+  updateGlyphDamageFlashes(deltaSeconds) {
+    if (this.glyphDamageFlashes.size === 0) {
+      return;
+    }
+    const deltaMs = deltaSeconds * 1e3;
+    const entries = Array.from(this.glyphDamageFlashes.entries());
+    for (const [key, state] of entries) {
+      if (!this.tileMap.has(key) || !this.glyphOverlayMap.has(key)) {
+        this.stopGlyphDamageFlash(key);
+        continue;
+      }
+      state.elapsedMs += deltaMs;
+      const progress = THREE.MathUtils.clamp(
+        state.elapsedMs / state.durationMs,
+        0,
+        1
+      );
+      const intensity = Math.exp(-8.5 * progress);
+      this.renderGlyphDamageFlash(state, intensity);
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        overlay.material.map = state.texture;
+      }
+      if (progress >= 1) {
+        this.stopGlyphDamageFlash(key);
+      }
+    }
+  }
+  createDamageNumberTexture(label) {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create damage number canvas context");
+    }
+    context.clearRect(0, 0, size, size);
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `900 ${Math.floor(size * 0.52)}px monospace`;
+    context.lineWidth = Math.max(3, Math.floor(size * 0.045));
+    context.strokeStyle = "rgba(18, 0, 0, 0.95)";
+    context.fillStyle = "#ff3a3a";
+    context.strokeText(label, size / 2, size / 2);
+    context.fillText(label, size / 2, size / 2);
+    const measured = context.measureText(label).width;
+    const aspectRatio = THREE.MathUtils.clamp(measured / (size * 0.42), 0.6, 2.3);
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy()
+    );
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    return { texture, aspectRatio };
+  }
+  spawnDamageNumberParticle(tileX, tileY, damage) {
+    const label = `-${Math.max(1, Math.round(Math.abs(damage)))}`;
+    const { texture, aspectRatio } = this.createDamageNumberTexture(label);
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      depthTest: true,
+      toneMapped: false
+    });
+    material.opacity = 1;
+    const sprite = new THREE.Sprite(material);
+    const scaleY = 0.42;
+    const scaleX = THREE.MathUtils.clamp(scaleY * aspectRatio, 0.36, 1.2);
+    const baseScale = new THREE.Vector2(scaleX, scaleY);
+    sprite.scale.set(baseScale.x, baseScale.y, 1);
+    sprite.position.set(
+      tileX * TILE_SIZE,
+      -tileY * TILE_SIZE,
+      this.damageParticleFloorZ + 0.28
+    );
+    sprite.renderOrder = 940;
+    this.scene.add(sprite);
+    this.damageParticles.push({
+      sprite,
+      velocity: new THREE.Vector3(
+        (Math.random() - 0.5) * 0.7,
+        (Math.random() - 0.5) * 0.7,
+        1.95 + Math.random() * 0.45
+      ),
+      ageMs: 0,
+      lifetimeMs: this.damageParticleLifetimeMs,
+      radius: 0.09,
+      baseScale
+    });
+  }
+  disposeDamageParticle(index) {
+    if (index < 0 || index >= this.damageParticles.length) {
+      return;
+    }
+    const [particle] = this.damageParticles.splice(index, 1);
+    this.scene.remove(particle.sprite);
+    const material = particle.sprite.material;
+    if (material instanceof THREE.SpriteMaterial) {
+      if (material.map) {
+        material.map.dispose();
+      }
+      material.dispose();
+    }
+  }
+  resolveDamageParticleAgainstWallTile(particle, tileX, tileY) {
+    const position = particle.sprite.position;
+    const half = TILE_SIZE / 2;
+    const centerX = tileX * TILE_SIZE;
+    const centerY = -tileY * TILE_SIZE;
+    const minX = centerX - half;
+    const maxX = centerX + half;
+    const minY = centerY - half;
+    const maxY = centerY + half;
+    const radius = particle.radius;
+    const closestX = THREE.MathUtils.clamp(position.x, minX, maxX);
+    const closestY = THREE.MathUtils.clamp(position.y, minY, maxY);
+    let nx = position.x - closestX;
+    let ny = position.y - closestY;
+    const distSq = nx * nx + ny * ny;
+    if (distSq >= radius * radius) {
+      return false;
+    }
+    let penetration = 0;
+    if (distSq > 1e-8) {
+      const dist = Math.sqrt(distSq);
+      nx /= dist;
+      ny /= dist;
+      penetration = radius - dist;
+    } else {
+      const toLeft = position.x - minX;
+      const toRight = maxX - position.x;
+      const toBottom = position.y - minY;
+      const toTop = maxY - position.y;
+      const minPenetration = Math.min(toLeft, toRight, toBottom, toTop);
+      if (minPenetration === toLeft) {
+        nx = -1;
+        ny = 0;
+        penetration = toLeft + radius;
+      } else if (minPenetration === toRight) {
+        nx = 1;
+        ny = 0;
+        penetration = toRight + radius;
+      } else if (minPenetration === toBottom) {
+        nx = 0;
+        ny = -1;
+        penetration = toBottom + radius;
+      } else {
+        nx = 0;
+        ny = 1;
+        penetration = toTop + radius;
+      }
+    }
+    position.x += nx * penetration;
+    position.y += ny * penetration;
+    const velocityIntoWall = particle.velocity.x * nx + particle.velocity.y * ny;
+    if (velocityIntoWall < 0) {
+      const bounce = (1 + this.damageParticleWallBounce) * velocityIntoWall;
+      particle.velocity.x -= bounce * nx;
+      particle.velocity.y -= bounce * ny;
+      particle.velocity.x *= 0.78;
+      particle.velocity.y *= 0.78;
+    }
+    return true;
+  }
+  resolveDamageParticleWallCollision(particle) {
+    if (particle.sprite.position.z > WALL_HEIGHT + 0.22) {
+      return;
+    }
+    const approxTileX = Math.round(particle.sprite.position.x / TILE_SIZE);
+    const approxTileY = Math.round(-particle.sprite.position.y / TILE_SIZE);
+    for (let x = approxTileX - 1; x <= approxTileX + 1; x += 1) {
+      for (let y = approxTileY - 1; y <= approxTileY + 1; y += 1) {
+        const wall = this.tileMap.get(`${x},${y}`);
+        if (!wall || !wall.userData?.isWall) {
+          continue;
+        }
+        this.resolveDamageParticleAgainstWallTile(particle, x, y);
+      }
+    }
+  }
+  updateDamageParticles(deltaSeconds) {
+    if (!this.damageParticles.length) {
+      return;
+    }
+    const deltaMs = deltaSeconds * 1e3;
+    const drag = Math.exp(-2.4 * deltaSeconds);
+    for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
+      const particle = this.damageParticles[i];
+      particle.ageMs += deltaMs;
+      particle.velocity.z -= this.damageParticleGravity * deltaSeconds;
+      particle.velocity.x *= drag;
+      particle.velocity.y *= drag;
+      particle.sprite.position.x += particle.velocity.x * deltaSeconds;
+      particle.sprite.position.y += particle.velocity.y * deltaSeconds;
+      particle.sprite.position.z += particle.velocity.z * deltaSeconds;
+      this.resolveDamageParticleWallCollision(particle);
+      if (particle.sprite.position.z < this.damageParticleFloorZ) {
+        particle.sprite.position.z = this.damageParticleFloorZ;
+        if (particle.velocity.z < 0) {
+          particle.velocity.z *= -0.22;
+        }
+        particle.velocity.x *= 0.82;
+        particle.velocity.y *= 0.82;
+      }
+      const material = particle.sprite.material;
+      if (!(material instanceof THREE.SpriteMaterial)) {
+        this.disposeDamageParticle(i);
+        continue;
+      }
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1
+      );
+      material.opacity = Math.max(0, 1 - lifeT * lifeT);
+      const scaleBoost = 1 + (1 - lifeT) * 0.08;
+      particle.sprite.scale.set(
+        particle.baseScale.x * scaleBoost,
+        particle.baseScale.y * scaleBoost,
+        1
+      );
+      if (lifeT >= 1 || material.opacity <= 0.01) {
+        this.disposeDamageParticle(i);
+      }
+    }
+  }
+  updateDamageEffects(deltaSeconds) {
+    this.updateGlyphDamageFlashes(deltaSeconds);
+    this.updateDamageParticles(deltaSeconds);
+    this.prunePendingCharacterDamage(Date.now());
+  }
+  clearDamageEffects() {
+    const flashKeys = Array.from(this.glyphDamageFlashes.keys());
+    for (const key of flashKeys) {
+      this.stopGlyphDamageFlash(key);
+    }
+    for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
+      this.disposeDamageParticle(i);
+    }
+    this.pendingCharacterDamageQueue = [];
+    this.lastParsedDamageMessage = "";
+    this.lastParsedDamageAtMs = 0;
   }
   applyGlyphMaterial(key, mesh, baseMaterial, glyphChar, textColor, isWall, darkenFactor = 1) {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
@@ -7411,6 +7923,14 @@ var Nethack3DEngine = class {
       overlay.textureKey = textureKey;
     }
     overlay.material.color.set("#ffffff");
+    const flashState = this.glyphDamageFlashes.get(key);
+    if (flashState) {
+      flashState.baseColorHex = baseColorHex;
+      flashState.glyphChar = glyphChar;
+      flashState.darkenFactor = clampedDarken;
+      overlay.material.map = flashState.texture;
+      overlay.material.needsUpdate = true;
+    }
     if (isWall) {
       mesh.material = [
         baseMaterial,
@@ -7471,6 +7991,7 @@ var Nethack3DEngine = class {
     }
   }
   clearScene() {
+    this.clearDamageEffects();
     console.log("\u{1F9F9} Clearing all tiles and glyph overlays from 3D scene");
     this.tileMap.forEach((mesh, key) => {
       this.scene.remove(mesh);
@@ -7530,6 +8051,11 @@ var Nethack3DEngine = class {
     mesh.userData.isWall = behavior.isWall;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
+    mesh.userData.isDamageFlashableCharacter = this.isDamageFlashableBehavior(behavior);
+    mesh.userData.glyphChar = behavior.glyphChar;
+    mesh.userData.glyphTextColor = behavior.textColor;
+    mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
+    mesh.userData.glyphBaseColorHex = material.color.getHexString();
     this.applyGlyphMaterial(
       key,
       mesh,
@@ -7741,6 +8267,18 @@ var Nethack3DEngine = class {
       parsedValue = String(value).trim();
     }
     console.log(`Updating status ${mappedField}: ${parsedValue}`);
+    const previousHp = this.playerStats.hp;
+    let playerDamageTaken = null;
+    if (mappedField === "hp" && typeof parsedValue === "number") {
+      const parsedChange = Number(data?.chg);
+      if (this.hasReceivedHpStatus) {
+        if (Number.isFinite(parsedChange) && parsedChange < 0) {
+          playerDamageTaken = Math.round(Math.abs(parsedChange));
+        } else if (parsedValue < previousHp) {
+          playerDamageTaken = Math.round(previousHp - parsedValue);
+        }
+      }
+    }
     if (mappedField === "maxhp") {
       this.playerStats.maxHp = parsedValue;
     } else if (mappedField === "maxpower") {
@@ -7749,6 +8287,16 @@ var Nethack3DEngine = class {
       this.playerStats.dlevel = parsedValue;
     } else {
       this.playerStats[mappedField] = parsedValue;
+    }
+    if (mappedField === "hp") {
+      this.hasReceivedHpStatus = true;
+      if (playerDamageTaken && playerDamageTaken > 0) {
+        this.triggerDamageEffectsAtTile(
+          this.playerPos.x,
+          this.playerPos.y,
+          playerDamageTaken
+        );
+      }
     }
     this.updateStatsDisplay();
   }
@@ -7837,6 +8385,13 @@ var Nethack3DEngine = class {
       }
     });
   }
+  isMultiSelectLootQuestion(question) {
+    if (typeof question !== "string") {
+      return false;
+    }
+    const normalizedQuestion = question.trim().toLowerCase();
+    return normalizedQuestion.includes("pick up what") || normalizedQuestion.includes("what do you want to pick up") || normalizedQuestion.includes("take out what");
+  }
   showQuestion(question, choices, defaultChoice, menuItems) {
     const needsExpansion = false;
     if (needsExpansion) {
@@ -7859,7 +8414,7 @@ var Nethack3DEngine = class {
     questionText.textContent = question;
     questionDialog.appendChild(questionText);
     if (menuItems && menuItems.length > 0) {
-      const isPickupDialog = question && (question.toLowerCase().includes("pick up what") || question.toLowerCase().includes("pick up") || question.toLowerCase().includes("what do you want to pick up"));
+      const isPickupDialog = this.isMultiSelectLootQuestion(question);
       if (isPickupDialog) {
         this.createPickupDialog(questionDialog, menuItems, question);
       } else {
@@ -7869,6 +8424,10 @@ var Nethack3DEngine = class {
       const choiceContainer = document.createElement("div");
       choiceContainer.className = "nh3d-choice-list";
       const parsedChoices = this.parseQuestionChoices(question, choices);
+      const useCompactChoiceLayout = parsedChoices.length > 0 && parsedChoices.every((choice) => choice.trim().length === 1);
+      if (useCompactChoiceLayout) {
+        choiceContainer.classList.add("is-compact");
+      }
       if (parsedChoices.length > 0) {
         for (const choice of parsedChoices) {
           const button = document.createElement("button");
@@ -8261,7 +8820,7 @@ var Nethack3DEngine = class {
     });
     const confirmInstruction = document.createElement("div");
     confirmInstruction.className = "nh3d-pickup-confirm";
-    confirmInstruction.textContent = "Press ENTER to confirm pickup, or ESC to cancel";
+    confirmInstruction.textContent = "Press ENTER to confirm selection, or ESC to cancel";
     questionDialog.appendChild(confirmInstruction);
     questionDialog.isPickupDialog = true;
     questionDialog.menuItems = menuItems;
@@ -8650,10 +9209,22 @@ var Nethack3DEngine = class {
     }
     this.sendInput(event.key);
   }
-  updateCamera() {
+  updateCamera(deltaSeconds) {
     const { x, y } = this.playerPos;
     const targetX = x * TILE_SIZE + this.cameraPanX;
     const targetY = -y * TILE_SIZE + this.cameraPanY;
+    this.cameraFollowTarget.set(targetX, targetY, 0);
+    if (!this.cameraFollowInitialized) {
+      this.cameraFollowCurrent.copy(this.cameraFollowTarget);
+      this.cameraFollowInitialized = true;
+    } else {
+      const alpha = 1 - Math.exp(
+        -Math.LN2 * deltaSeconds * 1e3 / this.cameraFollowHalfLifeMs
+      );
+      this.cameraFollowCurrent.lerp(this.cameraFollowTarget, alpha);
+    }
+    const followX = this.cameraFollowCurrent.x;
+    const followY = this.cameraFollowCurrent.y;
     const cosPitch = Math.cos(this.cameraPitch);
     const sinPitch = Math.sin(this.cameraPitch);
     const sinYaw = Math.sin(this.cameraYaw);
@@ -8661,10 +9232,10 @@ var Nethack3DEngine = class {
     const offsetX = this.cameraDistance * cosPitch * sinYaw;
     const offsetY = this.cameraDistance * cosPitch * cosYaw;
     const offsetZ = this.cameraDistance * sinPitch;
-    this.camera.position.x = targetX + offsetX;
-    this.camera.position.y = targetY + offsetY;
+    this.camera.position.x = followX + offsetX;
+    this.camera.position.y = followY + offsetY;
     this.camera.position.z = offsetZ;
-    this.camera.lookAt(targetX, targetY, 0);
+    this.camera.lookAt(followX, followY, 0);
   }
   wrapAngle(angle) {
     const twoPi = Math.PI * 2;
@@ -8765,11 +9336,15 @@ var Nethack3DEngine = class {
       overlayMaterial.color.copy(pulse);
     });
   }
-  animate() {
+  animate(timeMs = performance.now()) {
     requestAnimationFrame(this.animate.bind(this));
-    this.updateCamera();
+    const rawDeltaMs = this.lastFrameTimeMs === null ? 1e3 / 60 : timeMs - this.lastFrameTimeMs;
+    this.lastFrameTimeMs = timeMs;
+    const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1e3;
+    this.updateCamera(deltaSeconds);
     this.updateLightingOverlay();
-    this.updateEffectAnimations(performance.now());
+    this.updateEffectAnimations(timeMs);
+    this.updateDamageEffects(deltaSeconds);
     this.renderer.render(this.scene, this.camera);
   }
 };

@@ -569,6 +569,30 @@ class LocalNetHackRuntime {
     return { kind: "info_menu", lines };
   }
 
+  normalizeQuestionText(question) {
+    if (typeof question !== "string") {
+      return "";
+    }
+    return question.trim().toLowerCase();
+  }
+
+  isContainerLootTypeQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    return (
+      normalized.includes("take out what types of objects") ||
+      normalized.includes("take out what type of objects")
+    );
+  }
+
+  isMultiSelectLootQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    return (
+      normalized.includes("pick up what") ||
+      normalized.includes("what do you want to pick up") ||
+      normalized.includes("take out what")
+    );
+  }
+
   enqueueInput(input) {
     if (input === undefined || input === null) {
       return;
@@ -1070,6 +1094,12 @@ class LocalNetHackRuntime {
         // Store the question text for potential menu expansion
         this.lastQuestionText = question;
 
+        // Auto-select "all types" when looting containers.
+        if (this.isContainerLootTypeQuestion(question)) {
+          console.log('Auto-answering container loot type question with "a"');
+          return processKey("a");
+        }
+
         // Check if this is a direction question that needs special handling
         if (question && question.toLowerCase().includes("direction")) {
           console.log(
@@ -1265,16 +1295,10 @@ class LocalNetHackRuntime {
           console.log(
             `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
-          // Check if this is a multi-pickup dialog
-          const isPickupQuestion =
-            menuQuestion &&
-            (menuQuestion.toLowerCase().includes("pick up what") ||
-              menuQuestion.toLowerCase().includes("pick up") ||
-              menuQuestion
-                .toLowerCase()
-                .includes("what do you want to pick up"));
-          if (isPickupQuestion) {
-            console.log("📋 Multi-pickup dialog detected");
+          const isMultiSelectQuestion =
+            this.isMultiSelectLootQuestion(menuQuestion);
+          if (isMultiSelectQuestion) {
+            console.log("Multi-select loot dialog detected");
             this.isInMultiPickup = true;
           }
           // Send the inventory question to web client
@@ -1302,6 +1326,11 @@ class LocalNetHackRuntime {
           console.log(
             `📋 Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
+
+          if (this.isMultiSelectLootQuestion(menuQuestion)) {
+            console.log("Multi-select loot menu detected");
+            this.isInMultiPickup = true;
+          }
 
           // Send menu question to web client
           if (this.eventHandler) {
@@ -1380,6 +1409,11 @@ class LocalNetHackRuntime {
 
           // Only show dialog if we have actual selectable items
           if (selectableItems.length > 0) {
+            if (this.isMultiSelectLootQuestion(contextualQuestion)) {
+              console.log("Expanded multi-select loot menu detected");
+              this.isInMultiPickup = true;
+            }
+
             // Send expanded question to web client
             if (this.eventHandler) {
               this.emit({

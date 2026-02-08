@@ -48,4 +48,3 @@ Start here before making changes.
 - Avoid broad refactors while debugging callback timing; change one behavior at a time and re-test.
 - After runtime/input/callback edits, run:
   - `npm run build`
-  - `node --check server.js`

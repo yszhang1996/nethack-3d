@@ -523,6 +523,20 @@
       const lines = nonCategoryItems.map((item) => String(item.text || "").trim()).filter((text) => text.length > 0);
       return { kind: "info_menu", lines };
     }
+    normalizeQuestionText(question) {
+      if (typeof question !== "string") {
+        return "";
+      }
+      return question.trim().toLowerCase();
+    }
+    isContainerLootTypeQuestion(question) {
+      const normalized = this.normalizeQuestionText(question);
+      return normalized.includes("take out what types of objects") || normalized.includes("take out what type of objects");
+    }
+    isMultiSelectLootQuestion(question) {
+      const normalized = this.normalizeQuestionText(question);
+      return normalized.includes("pick up what") || normalized.includes("what do you want to pick up") || normalized.includes("take out what");
+    }
     enqueueInput(input) {
       if (input === void 0 || input === null) {
         return;
@@ -920,6 +934,10 @@
             `\u{1F914} Y/N Question: "${question}" choices: "${choices}" default: ${defaultChoice}`
           );
           this.lastQuestionText = question;
+          if (this.isContainerLootTypeQuestion(question)) {
+            console.log('Auto-answering container loot type question with "a"');
+            return processKey("a");
+          }
           if (question && question.toLowerCase().includes("direction")) {
             console.log(
               "\u{1F9ED} Direction question detected - waiting for user input"
@@ -1069,9 +1087,9 @@
             console.log(
               `\u{1F4CB} Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
             );
-            const isPickupQuestion = menuQuestion && (menuQuestion.toLowerCase().includes("pick up what") || menuQuestion.toLowerCase().includes("pick up") || menuQuestion.toLowerCase().includes("what do you want to pick up"));
-            if (isPickupQuestion) {
-              console.log("\u{1F4CB} Multi-pickup dialog detected");
+            const isMultiSelectQuestion = this.isMultiSelectLootQuestion(menuQuestion);
+            if (isMultiSelectQuestion) {
+              console.log("Multi-select loot dialog detected");
               this.isInMultiPickup = true;
             }
             if (this.eventHandler) {
@@ -1093,6 +1111,10 @@
             console.log(
               `\u{1F4CB} Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`
             );
+            if (this.isMultiSelectLootQuestion(menuQuestion)) {
+              console.log("Multi-select loot menu detected");
+              this.isInMultiPickup = true;
+            }
             if (this.eventHandler) {
               this.emit({
                 type: "question",
@@ -1133,6 +1155,10 @@
               contextualQuestion = "What would you like to use?";
             }
             if (selectableItems.length > 0) {
+              if (this.isMultiSelectLootQuestion(contextualQuestion)) {
+                console.log("Expanded multi-select loot menu detected");
+                this.isInMultiPickup = true;
+              }
               if (this.eventHandler) {
                 this.emit({
                   type: "question",

@@ -1,3 +1,8 @@
+/* Camera follow tuning consumed by the Three.js engine */
+:root {
+  --camera-follow-half-life-ms: 85;
+}
+
 /* Basic page styling to make the canvas fill the screen */
 html,
 body {
@@ -361,6 +366,12 @@ canvas {
   padding-right: 4px;
 }
 
+.nh3d-choice-list.is-compact {
+  flex-direction: row;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .nh3d-choice-button {
   padding: 8px 16px;
   background: #333;
@@ -372,6 +383,11 @@ canvas {
   width: fit-content;
   max-width: 100%;
   text-align: left;
+}
+
+.nh3d-choice-list.is-compact .nh3d-choice-button {
+  min-width: 44px;
+  text-align: center;
 }
 
 .nh3d-choice-button.nh3d-choice-button-default {
