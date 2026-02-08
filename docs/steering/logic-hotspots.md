@@ -1,6 +1,7 @@
 # Logic Hotspots Steering
 
 Use this file when deciding where to implement a change.
+Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
 
 ## If You Need To Change Rendering
 - Start in `src/game/Nethack3DEngine.ts` (`updateTile`).

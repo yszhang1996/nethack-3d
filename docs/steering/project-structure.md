@@ -1,5 +1,9 @@
 # Project Structure Steering
 
+## Related Steering Docs
+- Input and player/cursor movement pipeline: `docs/steering/movement-flow.md`.
+- Edit hotspots and change playbook: `docs/steering/logic-hotspots.md`.
+
 ## Top-Level Layout
 - `index.html`: Vite HTML entry.
 - `src/main.tsx`: React app entry.

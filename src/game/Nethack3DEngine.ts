@@ -123,6 +123,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private activeQuestionIsPickupDialog: boolean = false;
   private activePickupSelections: Set<string> = new Set();
   private positionHideTimerId: number | null = null;
+  private positionInputModeActive: boolean = false;
+  private positionCursor = { x: 0, y: 0 };
+  private positionCursorOutline: THREE.Line | null = null;
+  private readonly positionCursorOutlineColorHex: number = 0xffe15a;
+  private readonly positionCursorOutlineInset: number = 0.04;
+  private readonly positionCursorOutlineZ: number = WALL_HEIGHT + 0.03;
 
   // Player stats tracking
   private playerStats = {
@@ -805,6 +811,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "player_position":
+        if (this.positionInputModeActive) {
+          console.log(
+            `🎯 Ignoring player_position (${data.x}, ${data.y}) while position-input mode is active`,
+          );
+          break;
+        }
         console.log(
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
@@ -819,6 +831,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "force_player_redraw":
+        if (this.positionInputModeActive) {
+          console.log(
+            `🎯 Ignoring force_player_redraw while position-input mode is active`,
+          );
+          break;
+        }
         // Force update player visual position when NetHack doesn't send map updates
         console.log(
           `🎯 Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`,
@@ -866,6 +884,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(
           `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
         );
+        break;
+
+      case "position_input_state":
+        this.setPositionInputMode(Boolean(data.active));
+        break;
+
+      case "position_cursor":
+        if (typeof data.x === "number" && typeof data.y === "number") {
+          this.setPositionCursorPosition(data.x, data.y);
+        }
         break;
 
       case "text":
@@ -2021,6 +2049,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.clearTileRevealFades();
+    this.positionInputModeActive = false;
+    this.clearPositionCursor();
     console.log("🧹 Clearing all tiles and glyph overlays from 3D scene");
 
     // Clear all tile meshes
@@ -2044,6 +2074,80 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.markLightingDirty();
 
     console.log("🧹 Scene cleared - ready for new level");
+  }
+
+  private ensurePositionCursorOutline(): THREE.Line {
+    if (this.positionCursorOutline) {
+      return this.positionCursorOutline;
+    }
+
+    const half = TILE_SIZE / 2 - this.positionCursorOutlineInset;
+    const z = this.positionCursorOutlineZ;
+    const points = [
+      new THREE.Vector3(-half, half, z),
+      new THREE.Vector3(half, half, z),
+      new THREE.Vector3(half, -half, z),
+      new THREE.Vector3(-half, -half, z),
+      new THREE.Vector3(-half, half, z),
+    ];
+
+    const geometry = new THREE.BufferGeometry().setFromPoints(points);
+    const material = new THREE.LineBasicMaterial({
+      color: this.positionCursorOutlineColorHex,
+      transparent: true,
+      opacity: 0.96,
+      depthTest: false,
+    });
+
+    const outline = new THREE.Line(geometry, material);
+    outline.visible = false;
+    outline.renderOrder = 1000;
+    this.scene.add(outline);
+    this.positionCursorOutline = outline;
+    return outline;
+  }
+
+  private setPositionInputMode(active: boolean): void {
+    if (this.positionInputModeActive === active) {
+      return;
+    }
+
+    this.positionInputModeActive = active;
+    if (!active) {
+      this.clearPositionCursor();
+      return;
+    }
+
+    // Use the player tile until the runtime publishes an explicit cursor.
+    this.positionCursor = { ...this.playerPos };
+    this.updatePositionCursorOutline();
+  }
+
+  private setPositionCursorPosition(x: number, y: number): void {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    this.positionCursor = { x, y };
+    if (this.positionInputModeActive) {
+      this.updatePositionCursorOutline();
+    }
+  }
+
+  private updatePositionCursorOutline(): void {
+    const outline = this.ensurePositionCursorOutline();
+    outline.position.set(
+      this.positionCursor.x * TILE_SIZE,
+      -this.positionCursor.y * TILE_SIZE,
+      0,
+    );
+    outline.visible = true;
+  }
+
+  private clearPositionCursor(): void {
+    if (this.positionCursorOutline) {
+      this.positionCursorOutline.visible = false;
+    }
   }
 
   private updateTile(
@@ -3683,6 +3787,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Clear question states when escape is pressed
       this.isInQuestion = false;
       this.isInDirectionQuestion = false;
+      this.setPositionInputMode(false);
       return;
     }
 

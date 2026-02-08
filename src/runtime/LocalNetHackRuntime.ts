@@ -35,10 +35,15 @@ class LocalNetHackRuntime {
 
     // Simplified input handling with async support
     this.latestInput = null;
+    this.latestInputConsumedByResolver = false;
     this.waitingForInput = false;
     this.waitingForPosition = false;
     this.inputResolver = null;
     this.positionResolver = null;
+    this.positionInputActive = false;
+    this.positionCursor = null;
+    this.farLookPendingActivation = false;
+    this.farLookSessionActive = false;
 
     // Add cooldown for position requests
     this.lastInputTime = 0;
@@ -133,6 +138,10 @@ class LocalNetHackRuntime {
     }
     this.pendingMapGlyphs = [];
     this.latestInput = null;
+    this.latestInputConsumedByResolver = false;
+    this.farLookPendingActivation = false;
+    this.farLookSessionActive = false;
+    this.setPositionInputActive(false);
     this.queuedInputs = [];
     this.queuedEventInputs = [];
     this.queuedRawKeyCodes = [];
@@ -229,6 +238,8 @@ class LocalNetHackRuntime {
       const metaCharCode = metaKey.charCodeAt(0);
       this.lastInputTime = Date.now();
       this.latestInput = null;
+      this.latestInputConsumedByResolver = false;
+      this.farLookPendingActivation = false;
 
       if (this.waitingForInput && this.inputResolver) {
         console.log("Meta input routed to event resolver");
@@ -256,6 +267,7 @@ class LocalNetHackRuntime {
     // Store the input for potential reuse
     this.latestInput = input;
     this.lastInputTime = Date.now();
+    this.latestInputConsumedByResolver = false;
 
     // Track single-selection menu inputs (e.g., container loot ':' option).
     if (
@@ -377,6 +389,15 @@ class LocalNetHackRuntime {
       this.waitingForInput = false;
       const resolver = this.inputResolver;
       this.inputResolver = null;
+      if (this.isPositionModeInitiatorInput(input)) {
+        this.farLookPendingActivation = true;
+        this.latestInput = null;
+        this.latestInputConsumedByResolver = false;
+        console.log("Queued far-look activation for next position request");
+      } else {
+        this.farLookPendingActivation = false;
+        this.latestInputConsumedByResolver = false;
+      }
       resolver(this.processKey(input));
       return;
     }
@@ -387,6 +408,11 @@ class LocalNetHackRuntime {
       this.waitingForPosition = false;
       const resolver = this.positionResolver;
       this.positionResolver = null;
+      if (this.isFarLookPositionRequest()) {
+        // In far-look mode, each key should advance exactly one cursor step.
+        this.latestInput = null;
+      }
+      this.latestInputConsumedByResolver = false;
       resolver(this.processKey(input));
       return;
     }
@@ -538,6 +564,50 @@ class LocalNetHackRuntime {
       key.startsWith(this.metaInputPrefix) &&
       key.length > this.metaInputPrefix.length
     );
+  }
+
+  setPositionInputActive(active) {
+    const normalized = Boolean(active);
+    if (this.positionInputActive === normalized) {
+      return;
+    }
+
+    this.positionInputActive = normalized;
+    if (!normalized) {
+      this.positionCursor = null;
+    }
+
+    if (this.eventHandler) {
+      this.emit({
+          type: "position_input_state",
+          active: normalized,
+        });
+    }
+  }
+
+  emitPositionCursor(windowId, x, y, source = "curs") {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    this.positionCursor = { x, y, window: windowId };
+    if (this.eventHandler) {
+      this.emit({
+          type: "position_cursor",
+          x: x,
+          y: y,
+          window: windowId,
+          source: source,
+        });
+    }
+  }
+
+  isPositionModeInitiatorInput(input) {
+    return input === ";";
+  }
+
+  isFarLookPositionRequest() {
+    return this.farLookSessionActive || this.farLookPendingActivation;
   }
 
   isPrintableAccelerator(code) {
@@ -1075,6 +1145,11 @@ class LocalNetHackRuntime {
 
     switch (name) {
       case "shim_get_nh_event":
+        if (this.farLookSessionActive || this.positionInputActive) {
+          this.farLookSessionActive = false;
+          this.farLookPendingActivation = false;
+          this.setPositionInputActive(false);
+        }
         if (this.queuedRawKeyCodes.length > 0) {
           const rawCode = this.queuedRawKeyCodes.shift();
           console.log(`Using queued raw keycode for event: ${rawCode}`);
@@ -1094,9 +1169,18 @@ class LocalNetHackRuntime {
 
         // Check if we have recent input available (within input window)
         const timeSinceInput = Date.now() - this.lastInputTime;
-        if (this.latestInput && timeSinceInput < this.inputCooldown) {
+        if (
+          this.latestInput &&
+          timeSinceInput < this.inputCooldown
+        ) {
           const input = this.latestInput;
           this.latestInput = null; // Clear it after use
+          this.latestInputConsumedByResolver = false;
+          if (this.isPositionModeInitiatorInput(input)) {
+            this.farLookPendingActivation = true;
+          } else {
+            this.farLookPendingActivation = false;
+          }
           console.log(
             `🎮 Reusing recent input for event: ${input} (${timeSinceInput}ms ago)`,
           );
@@ -1174,6 +1258,22 @@ class LocalNetHackRuntime {
       case "shim_nh_poskey":
         const [xPtr, yPtr, modPtr] = args;
         console.log("🎮 NetHack requesting position key");
+        const farLookPositionRequest = this.isFarLookPositionRequest();
+        if (farLookPositionRequest) {
+          this.farLookSessionActive = true;
+          this.farLookPendingActivation = false;
+          this.setPositionInputActive(true);
+          if (!this.positionCursor) {
+            this.emitPositionCursor(
+              null,
+              this.playerPosition.x,
+              this.playerPosition.y,
+              "nh_poskey_start",
+            );
+          }
+        } else {
+          this.setPositionInputActive(false);
+        }
 
         if (this.queuedRawKeyCodes.length > 0) {
           const rawCode = this.queuedRawKeyCodes.shift();
@@ -1187,19 +1287,21 @@ class LocalNetHackRuntime {
           return processKey(queued);
         }
 
-        // Check if we have recent input available (within input window)
-        const timeSincePositionInput = Date.now() - this.lastInputTime;
-        if (
-          this.latestInput &&
-          !this.isMetaInput(this.latestInput) &&
-          timeSincePositionInput < this.inputCooldown
-        ) {
-          const input = this.latestInput;
-          // Don't clear it yet - let shim_get_nh_event potentially reuse it
-          console.log(
-            `🎮 Using recent input for position: ${input} (${timeSincePositionInput}ms ago)`,
-          );
-          return processKey(input);
+        if (!farLookPositionRequest) {
+          // Preserve single-key movement behavior for the normal gameplay input path.
+          const timeSincePositionInput = Date.now() - this.lastInputTime;
+          if (
+            this.latestInput &&
+            !this.isMetaInput(this.latestInput) &&
+            timeSincePositionInput < this.inputCooldown
+          ) {
+            const input = this.latestInput;
+            // Don't clear it yet - let shim_get_nh_event potentially reuse it.
+            console.log(
+              `Using recent input for position: ${input} (${timeSincePositionInput}ms ago)`,
+            );
+            return processKey(input);
+          }
         }
 
         // We're now in gameplay mode - use Asyncify to wait for real user input
@@ -1843,6 +1945,14 @@ class LocalNetHackRuntime {
           `🎯 Cliparound request for position (${clipX}, ${clipY}) - updating player position`,
         );
 
+        if (this.positionInputActive) {
+          console.log(
+            `🎯 Cliparound in position-input mode; routing to cursor at (${clipX}, ${clipY})`,
+          );
+          this.emitPositionCursor(null, clipX, clipY, "cliparound");
+          return 0;
+        }
+
         // Update player position when NetHack requests clipping around a position
         const oldPlayerPos = { ...this.playerPosition };
         this.playerPosition = { x: clipX, y: clipY };
@@ -1905,6 +2015,9 @@ class LocalNetHackRuntime {
         console.log(
           `🖱️ Setting cursor for window ${cursWin} to (${cursX}, ${cursY})`,
         );
+        if (this.positionInputActive) {
+          this.emitPositionCursor(cursWin, cursX, cursY, "curs");
+        }
         return 0;
 
       case "shim_status_update":
@@ -1949,6 +2062,7 @@ class LocalNetHackRuntime {
 
 
 export default LocalNetHackRuntime;
+
 
 
 
