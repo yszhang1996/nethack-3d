@@ -75,7 +75,7 @@ export function resolveGlyph(
   return {
     glyph,
     kind: entry.kind,
-    char: catalogChar ?? normalizedRuntimeChar,
+    char: normalizedRuntimeChar ?? catalogChar,
     color: typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
     special: typeof entry.special === "number" ? entry.special : null,
     isKnown: true,

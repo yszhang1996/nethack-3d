@@ -105,13 +105,38 @@ function parseQuestionChoices(question: string, choices: string): string[] {
   return merged;
 }
 
+function isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
+  if (!Array.isArray(parsedChoices) || parsedChoices.length === 0) {
+    return false;
+  }
+
+  const normalized = parsedChoices
+    .map((choice) => String(choice || "").trim().toLowerCase())
+    .filter((choice) => choice.length > 0);
+  if (normalized.length === 0) {
+    return false;
+  }
+
+  const allowedChoices = new Set(["y", "n", "a", "q"]);
+  const hasYes = normalized.includes("y");
+  const hasNo = normalized.includes("n");
+  const onlySimpleChoices = normalized.every(
+    (choice) => choice.length === 1 && allowedChoices.has(choice),
+  );
+  return hasYes && hasNo && onlySimpleChoices;
+}
+
 function getQuestionChoiceLabel(
   choice: string,
   inventoryItems: NethackMenuItem[],
+  useInventoryLabels = true,
 ): string {
   const normalizedChoice = choice.trim();
   if (!normalizedChoice) {
     return choice;
+  }
+  if (!useInventoryLabels) {
+    return normalizedChoice;
   }
   const inventoryItem = inventoryItems.find((item) => {
     if (!item || item.isCategory || typeof item.accelerator !== "string") {
@@ -176,6 +201,9 @@ export default function App(): JSX.Element {
   const parsedQuestionChoices = question
     ? parseQuestionChoices(question.text, question.choices)
     : [];
+  const useInventoryChoiceLabels = !isSimpleYesNoChoicePrompt(
+    parsedQuestionChoices,
+  );
 
   return (
     <>
@@ -353,13 +381,17 @@ export default function App(): JSX.Element {
                   className={`nh3d-choice-button${
                     choice === question.defaultChoice
                       ? " nh3d-choice-button-default"
-                      : ""
+                    : ""
                   }`}
                   key={choice}
                   onClick={() => controller?.chooseQuestionChoice(choice)}
                   type="button"
                 >
-                  {getQuestionChoiceLabel(choice, inventory.items)}
+                  {getQuestionChoiceLabel(
+                    choice,
+                    inventory.items,
+                    useInventoryChoiceLabels,
+                  )}
                 </button>
               ))}
             </div>

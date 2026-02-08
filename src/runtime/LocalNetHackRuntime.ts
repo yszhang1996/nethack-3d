@@ -66,24 +66,24 @@ class LocalNetHackRuntime {
 
     // Start from a clean client scene before replaying cached state.
     this.emit({
-        type: "clear_scene",
-        message: "Reconnected - restoring game state",
-      });
+      type: "clear_scene",
+      message: "Reconnected - restoring game state",
+    });
 
     const tiles = Array.from(this.gameMap.values());
     const chunkSize = 500;
     for (let i = 0; i < tiles.length; i += chunkSize) {
       this.emit({
-          type: "map_glyph_batch",
-          tiles: tiles.slice(i, i + chunkSize),
-        });
+        type: "map_glyph_batch",
+        tiles: tiles.slice(i, i + chunkSize),
+      });
     }
 
     this.emit({
-        type: "player_position",
-        x: this.playerPosition.x,
-        y: this.playerPosition.y,
-      });
+      type: "player_position",
+      x: this.playerPosition.x,
+      y: this.playerPosition.y,
+    });
 
     for (const payload of this.latestStatusUpdates.values()) {
       this.emit(payload);
@@ -91,20 +91,20 @@ class LocalNetHackRuntime {
 
     if (this.latestInventoryItems.length > 0) {
       this.emit({
-          type: "inventory_update",
-          items: this.latestInventoryItems,
-          window: 4,
-        });
+        type: "inventory_update",
+        items: this.latestInventoryItems,
+        window: 4,
+      });
     }
 
     const recentMessages = this.gameMessages.slice(-30);
     for (const msg of recentMessages) {
       this.emit({
-          type: "text",
-          text: msg.text,
-          window: msg.window,
-          attr: msg.attr,
-        });
+        type: "text",
+        text: msg.text,
+        window: msg.window,
+        attr: msg.attr,
+      });
     }
   }
 
@@ -208,11 +208,7 @@ class LocalNetHackRuntime {
       this.mapGlyphFlushTimer = null;
     }
 
-    if (
-      this.isClosed ||
-      !this.pendingMapGlyphs.length ||
-      !this.eventHandler
-    ) {
+    if (this.isClosed || !this.pendingMapGlyphs.length || !this.eventHandler) {
       this.pendingMapGlyphs = [];
       return;
     }
@@ -221,9 +217,9 @@ class LocalNetHackRuntime {
     this.pendingMapGlyphs = [];
 
     this.emit({
-        type: "map_glyph_batch",
-        tiles: batch,
-      });
+      type: "map_glyph_batch",
+      tiles: batch,
+    });
   }
 
   handleClientInputSequence(inputs) {
@@ -309,6 +305,20 @@ class LocalNetHackRuntime {
     if (this.isMetaInput(input)) {
       const metaKey = input.slice(this.metaInputPrefix.length).charAt(0);
       if (!metaKey) {
+        return;
+      }
+
+      const mappedExtCommand =
+        this.resolveMetaBoundExtendedCommandName(metaKey);
+      if (mappedExtCommand) {
+        console.log(
+          `Meta input Alt+${metaKey.toLowerCase()} mapped to extended command "${mappedExtCommand}"`,
+        );
+        this.handleClientInputSequence([
+          "#",
+          ...mappedExtCommand.split(""),
+          "Enter",
+        ]);
         return;
       }
 
@@ -532,11 +542,11 @@ class LocalNetHackRuntime {
       // Optionally, we could send a "blank" tile or request NetHack to redraw the area
       if (this.eventHandler) {
         this.emit({
-            type: "tile_not_found",
-            x: x,
-            y: y,
-            message: "Tile data not available - may not be explored yet",
-          });
+          type: "tile_not_found",
+          x: x,
+          y: y,
+          message: "Tile data not available - may not be explored yet",
+        });
       }
     }
   }
@@ -588,12 +598,12 @@ class LocalNetHackRuntime {
     // Send completion message
     if (this.eventHandler) {
       this.emit({
-          type: "area_refresh_complete",
-          centerX: centerX,
-          centerY: centerY,
-          radius: radius,
-          tilesRefreshed: tilesRefreshed,
-        });
+        type: "area_refresh_complete",
+        centerX: centerX,
+        centerY: centerY,
+        radius: radius,
+        tilesRefreshed: tilesRefreshed,
+      });
     }
   }
 
@@ -657,9 +667,9 @@ class LocalNetHackRuntime {
 
     if (this.eventHandler) {
       this.emit({
-          type: "position_input_state",
-          active: normalized,
-        });
+        type: "position_input_state",
+        active: normalized,
+      });
     }
   }
 
@@ -671,12 +681,12 @@ class LocalNetHackRuntime {
     this.positionCursor = { x, y, window: windowId };
     if (this.eventHandler) {
       this.emit({
-          type: "position_cursor",
-          x: x,
-          y: y,
-          window: windowId,
-          source: source,
-        });
+        type: "position_cursor",
+        x: x,
+        y: y,
+        window: windowId,
+        source: source,
+      });
     }
   }
 
@@ -789,11 +799,7 @@ class LocalNetHackRuntime {
       if (nextInput === "Escape") {
         return null;
       }
-      if (
-        nextInput === "Enter" ||
-        nextInput === "\r" ||
-        nextInput === "\n"
-      ) {
+      if (nextInput === "Enter" || nextInput === "\r" || nextInput === "\n") {
         break;
       }
       if (nextInput === "Backspace") {
@@ -861,6 +867,32 @@ class LocalNetHackRuntime {
     return -1;
   }
 
+  resolveMetaBoundExtendedCommandName(metaKey) {
+    if (typeof metaKey !== "string" || metaKey.length === 0) {
+      return null;
+    }
+
+    const normalized = metaKey.charAt(0).toLowerCase();
+    if (!/^[a-z]$/.test(normalized)) {
+      return null;
+    }
+
+    const metaKeyCode = normalized.charCodeAt(0) | 0x80;
+    const entries = this.getExtendedCommandEntries().filter(
+      (entry) => entry.keyCode === metaKeyCode,
+    );
+    if (entries.length === 0) {
+      return null;
+    }
+
+    const preferred =
+      entries.find((entry) => entry.name !== "#" && entry.name !== "?") ||
+      entries[0];
+    return preferred && typeof preferred.name === "string"
+      ? preferred.name
+      : null;
+  }
+
   getExtendedCommandEntries() {
     if (
       Array.isArray(this.extendedCommandEntries) &&
@@ -906,8 +938,7 @@ class LocalNetHackRuntime {
 
         const descPtr = this.nethackModule.HEAP32[(base + 8) >> 2];
         if (
-          this.readHeapCString(descPtr, 64) !==
-          "perform an extended command"
+          this.readHeapCString(descPtr, 64) !== "perform an extended command"
         ) {
           continue;
         }
@@ -953,6 +984,7 @@ class LocalNetHackRuntime {
         break;
       }
 
+      const keyCode = heap32[offset >> 2];
       const textPtr = heap32[(offset + 4) >> 2];
       if (!Number.isInteger(textPtr) || textPtr <= 0) {
         break;
@@ -970,6 +1002,7 @@ class LocalNetHackRuntime {
       entries.push({
         index,
         name: name.toLowerCase(),
+        keyCode: Number.isInteger(keyCode) ? keyCode : 0,
         flags: Number.isInteger(flags) ? flags : 0,
       });
     }
@@ -1101,6 +1134,26 @@ class LocalNetHackRuntime {
       "wieldquiver",
       "zap",
     ];
+    const fallbackMetaBindings = {
+      adjust: "a",
+      chat: "c",
+      dip: "d",
+      enhance: "e",
+      force: "f",
+      invoke: "i",
+      jump: "j",
+      loot: "l",
+      monster: "m",
+      offer: "o",
+      pray: "p",
+      quit: "q",
+      rub: "r",
+      sit: "s",
+      turn: "t",
+      untrap: "u",
+      version: "v",
+      wipe: "w",
+    };
 
     console.log(
       `Using fallback extended command table (${fallbackNames.length} entries)`,
@@ -1108,6 +1161,9 @@ class LocalNetHackRuntime {
     return fallbackNames.map((name, index) => ({
       index,
       name,
+      keyCode: fallbackMetaBindings[name]
+        ? fallbackMetaBindings[name].charCodeAt(0) | 0x80
+        : 0,
       flags: 0,
     }));
   }
@@ -1188,7 +1244,7 @@ class LocalNetHackRuntime {
       const primary = this.decodeShimArgValue(
         "shim_status_update",
         ptrToArg,
-        primaryType
+        primaryType,
       );
       if (primary !== null && primary !== undefined) {
         return {
@@ -1200,7 +1256,7 @@ class LocalNetHackRuntime {
     } catch (error) {
       console.log(
         `Status decode failed (${fieldName}, ${primaryType})`,
-        error && error.message ? error.message : error
+        error && error.message ? error.message : error,
       );
     }
 
@@ -1208,7 +1264,7 @@ class LocalNetHackRuntime {
       const fallback = this.decodeShimArgValue(
         "shim_status_update",
         ptrToArg,
-        fallbackType
+        fallbackType,
       );
       if (fallback !== null && fallback !== undefined) {
         return {
@@ -1220,7 +1276,7 @@ class LocalNetHackRuntime {
     } catch (error) {
       console.log(
         `Status decode fallback failed (${fieldName}, ${fallbackType})`,
-        error && error.message ? error.message : error
+        error && error.message ? error.message : error,
       );
     }
 
@@ -1251,7 +1307,6 @@ class LocalNetHackRuntime {
     return false;
   }
 
-
   writeMenuSelectionResult(menuListPtrPtr, selectionCount) {
     if (!this.nethackModule || !menuListPtrPtr) {
       return;
@@ -1262,7 +1317,9 @@ class LocalNetHackRuntime {
         ? this.nethackModule.HEAPU8.length
         : 0;
     const isAlignedPtr =
-      Number.isInteger(menuListPtrPtr) && menuListPtrPtr > 0 && (menuListPtrPtr & 3) === 0;
+      Number.isInteger(menuListPtrPtr) &&
+      menuListPtrPtr > 0 &&
+      (menuListPtrPtr & 3) === 0;
     const isInBounds = !heapSize || menuListPtrPtr + 4 <= heapSize;
     if (!isAlignedPtr || !isInBounds) {
       console.log(
@@ -1281,9 +1338,7 @@ class LocalNetHackRuntime {
       const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 12);
       const configuredCountOffset = process.env.NH_MENU_COUNT_OFFSET;
       const countOffsetPrimary =
-        configuredCountOffset !== undefined
-          ? Number(configuredCountOffset)
-          : 4;
+        configuredCountOffset !== undefined ? Number(configuredCountOffset) : 4;
       const configuredItemFlagsOffset = process.env.NH_MENU_ITEMFLAGS_OFFSET;
       const itemFlagsOffset =
         configuredItemFlagsOffset !== undefined
@@ -1303,7 +1358,9 @@ class LocalNetHackRuntime {
       }
 
       const priorOutPtr = this.nethackModule.getValue(menuListPtrPtr, "*");
-      const outPtr = this.nethackModule._malloc(selectionCount * bytesPerMenuItem);
+      const outPtr = this.nethackModule._malloc(
+        selectionCount * bytesPerMenuItem,
+      );
       this.nethackModule.setValue(menuListPtrPtr, outPtr, "*");
       if (this.nethackModule.HEAPU8 && bytesPerMenuItem > 0) {
         // Clear all bytes to avoid stale data in optional struct fields.
@@ -1365,23 +1422,19 @@ class LocalNetHackRuntime {
           canWriteCountAt(itemFlagsOffset) &&
           itemFlagsOffset !== countOffsetPrimary
         ) {
-          this.nethackModule.setValue(
-            structOffset + itemFlagsOffset,
-            0,
-            "i32",
-          );
+          this.nethackModule.setValue(structOffset + itemFlagsOffset, 0, "i32");
         }
         const debugItem = this.nethackModule.getValue(structOffset, "i32");
         const debugCountPrimary = canWriteCountAt(countOffsetPrimary)
-          ? this.nethackModule.getValue(structOffset + countOffsetPrimary, "i32")
+          ? this.nethackModule.getValue(
+              structOffset + countOffsetPrimary,
+              "i32",
+            )
           : null;
         const debugItemFlags =
           canWriteCountAt(itemFlagsOffset) &&
           itemFlagsOffset !== countOffsetPrimary
-            ? this.nethackModule.getValue(
-                structOffset + itemFlagsOffset,
-                "i32",
-              )
+            ? this.nethackModule.getValue(structOffset + itemFlagsOffset, "i32")
             : null;
         console.log(
           `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}`,
@@ -1393,7 +1446,9 @@ class LocalNetHackRuntime {
         const b = this.nethackModule.getValue(outPtr + i, "i8") & 0xff;
         dump.push(b.toString(16).padStart(2, "0"));
       }
-      console.log(`menu_item buffer dump (${dumpBytes} bytes): ${dump.join(" ")}`);
+      console.log(
+        `menu_item buffer dump (${dumpBytes} bytes): ${dump.join(" ")}`,
+      );
     } catch (error) {
       console.log("Error writing selections to NetHack memory:", error);
     }
@@ -1433,7 +1488,9 @@ class LocalNetHackRuntime {
                   if (!ptr) return 0;
                   return this.nethackModule.getValue(ptr, "*");
                 case "c":
-                  return String.fromCharCode(this.nethackModule.getValue(ptr, "i8"));
+                  return String.fromCharCode(
+                    this.nethackModule.getValue(ptr, "i8"),
+                  );
                 case "0":
                   return this.nethackModule.getValue(ptr, "i8");
                 case "1":
@@ -1507,6 +1564,8 @@ class LocalNetHackRuntime {
               "showscore",
               // Enable status highlight metadata in status callbacks.
               "statushilites",
+              "force_invmenu",
+              "boulder:0",
             ];
             const existingOptions =
               typeof moduleConfig.ENV.NETHACKOPTIONS === "string"
@@ -1613,10 +1672,7 @@ class LocalNetHackRuntime {
 
         // Check if we have recent input available (within input window)
         const timeSinceInput = Date.now() - this.lastInputTime;
-        if (
-          this.latestInput &&
-          timeSinceInput < this.inputCooldown
-        ) {
+        if (this.latestInput && timeSinceInput < this.inputCooldown) {
           const input = this.latestInput;
           this.latestInput = null; // Clear it after use
           this.latestInputConsumedByResolver = false;
@@ -1651,7 +1707,8 @@ class LocalNetHackRuntime {
           return -1;
         }
 
-        const extCommandIndex = this.resolveExtendedCommandIndex(extCommandText);
+        const extCommandIndex =
+          this.resolveExtendedCommandIndex(extCommandText);
         if (extCommandIndex < 0) {
           console.log(
             `Unknown extended command "${extCommandText}" (canceling command)`,
@@ -1688,11 +1745,11 @@ class LocalNetHackRuntime {
           // Send direction question to web client
           if (this.eventHandler) {
             this.emit({
-                type: "direction_question",
-                text: question,
-                choices: choices,
-                default: defaultChoice,
-              });
+              type: "direction_question",
+              text: question,
+              choices: choices,
+              default: defaultChoice,
+            });
           }
 
           // Wait for actual user input for direction questions
@@ -1707,13 +1764,13 @@ class LocalNetHackRuntime {
         // Send question to web client (don't include menu items for simple Y/N questions)
         if (this.eventHandler) {
           this.emit({
-              type: "question",
-              text: question,
-              choices: choices,
-              default: defaultChoice,
-              // Only include menuItems if this is actually a menu question, not a simple Y/N
-              menuItems: [],
-            });
+            type: "question",
+            text: question,
+            choices: choices,
+            default: defaultChoice,
+            // Only include menuItems if this is actually a menu question, not a simple Y/N
+            menuItems: [],
+          });
         }
 
         // Wait for actual user input instead of returning default choice automatically
@@ -1785,10 +1842,10 @@ class LocalNetHackRuntime {
         console.log("Initializing NetHack windows");
         if (this.eventHandler) {
           this.emit({
-              type: "name_request",
-              text: "What is your name, adventurer?",
-              maxLength: 30,
-            });
+            type: "name_request",
+            text: "What is your name, adventurer?",
+            maxLength: 30,
+          });
         }
         return 1;
       case "shim_create_nhwindow":
@@ -1864,24 +1921,22 @@ class LocalNetHackRuntime {
             if (classification.kind === "inventory") {
               this.latestInventoryItems = [...this.currentMenuItems];
               this.emit({
-                  type: "inventory_update",
-                  items: this.currentMenuItems,
-                  window: endMenuWinid,
-                });
+                type: "inventory_update",
+                items: this.currentMenuItems,
+                window: endMenuWinid,
+              });
             } else {
               const infoLines = classification.lines;
               const infoTitle =
-                infoLines.length > 0
-                  ? infoLines[0]
-                  : "NetHack Information";
+                infoLines.length > 0 ? infoLines[0] : "NetHack Information";
               const infoBody =
                 infoLines.length > 1 ? infoLines.slice(1) : infoLines;
               this.emit({
-                  type: "info_menu",
-                  title: infoTitle,
-                  lines: infoBody,
-                  window: endMenuWinid,
-                });
+                type: "info_menu",
+                title: infoTitle,
+                lines: infoBody,
+                window: endMenuWinid,
+              });
             }
           }
 
@@ -1901,12 +1956,12 @@ class LocalNetHackRuntime {
           // Send the inventory question to web client
           if (this.eventHandler) {
             this.emit({
-                type: "question",
-                text: menuQuestion,
-                choices: "",
-                default: "",
-                menuItems: this.currentMenuItems,
-              });
+              type: "question",
+              text: menuQuestion,
+              choices: "",
+              default: "",
+              menuItems: this.currentMenuItems,
+            });
           }
 
           // Wait for actual user input for inventory questions
@@ -1932,12 +1987,12 @@ class LocalNetHackRuntime {
           // Send menu question to web client
           if (this.eventHandler) {
             this.emit({
-                type: "question",
-                text: menuQuestion,
-                choices: "",
-                default: "",
-                menuItems: this.currentMenuItems,
-              });
+              type: "question",
+              text: menuQuestion,
+              choices: "",
+              default: "",
+              menuItems: this.currentMenuItems,
+            });
           }
 
           // Wait for actual user input for menu questions
@@ -2014,12 +2069,12 @@ class LocalNetHackRuntime {
             // Send expanded question to web client
             if (this.eventHandler) {
               this.emit({
-                  type: "question",
-                  text: contextualQuestion,
-                  choices: "",
-                  default: "",
-                  menuItems: this.currentMenuItems,
-                });
+                type: "question",
+                text: contextualQuestion,
+                choices: "",
+                default: "",
+                menuItems: this.currentMenuItems,
+              });
             }
 
             // Wait for actual user input for expanded questions
@@ -2137,15 +2192,15 @@ class LocalNetHackRuntime {
         // Send menu item to web client
         if (this.eventHandler) {
           this.emit({
-              type: "menu_item",
-              text: menuText,
-              accelerator: menuChar,
-              window: menuWinid,
-              glyph: menuGlyph,
-              glyphChar: glyphChar, // Include glyph character in client message
-              isCategory: isCategory,
-              menuItems: this.currentMenuItems,
-            });
+            type: "menu_item",
+            text: menuText,
+            accelerator: menuChar,
+            window: menuWinid,
+            glyph: menuGlyph,
+            glyphChar: glyphChar, // Include glyph character in client message
+            isCategory: isCategory,
+            menuItems: this.currentMenuItems,
+          });
         }
 
         return 0;
@@ -2163,11 +2218,11 @@ class LocalNetHackRuntime {
         }
         if (this.eventHandler) {
           this.emit({
-              type: "text",
-              text: textStr,
-              window: win,
-              attr: textAttr,
-            });
+            type: "text",
+            text: textStr,
+            window: win,
+            attr: textAttr,
+          });
         }
         return 0;
       case "shim_print_glyph":
@@ -2246,7 +2301,7 @@ class LocalNetHackRuntime {
         return 0;
       case "shim_player_selection":
         console.log("NetHack player selection started");
-        // Comment out character selection UI for automatic play        return 0;
+      // Comment out character selection UI for automatic play        return 0;
       case "shim_raw_print":
         const [rawText] = args;
         console.log(`📢 RAW PRINT: "${rawText}"`);
@@ -2254,9 +2309,9 @@ class LocalNetHackRuntime {
         // Send raw print messages to the UI log
         if (this.eventHandler && rawText && rawText.trim()) {
           this.emit({
-              type: "raw_print",
-              text: rawText.trim(),
-            });
+            type: "raw_print",
+            text: rawText.trim(),
+          });
         }
         return 0;
       case "shim_wait_synch":
@@ -2286,18 +2341,16 @@ class LocalNetHackRuntime {
         const isPlausiblePtr = (ptr) =>
           Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
         // Prefer arg pointer (single deref). Resolved pointer is fallback only.
-        const ptrMode =
-          isPlausiblePtr(ptrArgValue)
-            ? "arg"
-            : isPlausiblePtr(ptrResolvedValue)
-              ? "resolved_fallback"
-              : "invalid";
-        const menuListPtrPtr =
-          isPlausiblePtr(ptrArgValue)
-            ? ptrArgValue
-            : isPlausiblePtr(ptrResolvedValue)
-              ? ptrResolvedValue
-              : 0;
+        const ptrMode = isPlausiblePtr(ptrArgValue)
+          ? "arg"
+          : isPlausiblePtr(ptrResolvedValue)
+            ? "resolved_fallback"
+            : "invalid";
+        const menuListPtrPtr = isPlausiblePtr(ptrArgValue)
+          ? ptrArgValue
+          : isPlausiblePtr(ptrResolvedValue)
+            ? ptrResolvedValue
+            : 0;
         console.log(
           `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
@@ -2311,7 +2364,7 @@ class LocalNetHackRuntime {
             );
             const selectionCount = this.menuSelections.size;
 
-                        // Write selected menu_item entries and store pointer in *menu_list.
+            // Write selected menu_item entries and store pointer in *menu_list.
             this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
             // Clear all multi-pickup state
             this.menuSelections.clear();
@@ -2344,7 +2397,9 @@ class LocalNetHackRuntime {
           console.log(
             `Returning single menu selection count: 1 (${selectedItem.menuChar} ${selectedItem.text})`,
           );
-          this.menuSelections = new Map([[selectedItem.menuChar, selectedItem]]);
+          this.menuSelections = new Map([
+            [selectedItem.menuChar, selectedItem],
+          ]);
           this.writeMenuSelectionResult(menuListPtrPtr, 1);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
@@ -2389,10 +2444,10 @@ class LocalNetHackRuntime {
         console.log("NetHack is asking for player name, args:", args);
         if (this.eventHandler) {
           this.emit({
-              type: "name_request",
-              text: "What is your name?",
-              maxLength: 30,
-            });
+            type: "name_request",
+            text: "What is your name?",
+            maxLength: 30,
+          });
         }
 
         if (this.latestInput) {
@@ -2429,18 +2484,18 @@ class LocalNetHackRuntime {
         // Send updated player position to client
         if (this.eventHandler) {
           this.emit({
-              type: "player_position",
-              x: clipX,
-              y: clipY,
-            });
+            type: "player_position",
+            x: clipX,
+            y: clipY,
+          });
 
           // Also send a map update to clear the old player position and show new one
           // This helps when NetHack doesn't send explicit glyph updates
           this.emit({
-              type: "force_player_redraw",
-              oldPosition: oldPlayerPos,
-              newPosition: { x: clipX, y: clipY },
-            });
+            type: "force_player_redraw",
+            oldPosition: oldPlayerPos,
+            newPosition: { x: clipX, y: clipY },
+          });
         }
         return 0;
 
@@ -2453,9 +2508,9 @@ class LocalNetHackRuntime {
           // WIN_MAP = 2, but window 3 is also used for map display in some contexts
           console.log("Map window cleared - clearing 3D scene");
           this.emit({
-              type: "clear_scene",
-              message: "Level transition - clearing display",
-            });
+            type: "clear_scene",
+            // message: "Level transition - clearing display",
+          });
         }
         return 0;
 
@@ -2508,7 +2563,7 @@ class LocalNetHackRuntime {
         };
         this.latestStatusUpdates.set(field, statusPayload);
         console.log(
-          `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`
+          `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`,
         );
 
         if (this.eventHandler) {
@@ -2529,12 +2584,4 @@ class LocalNetHackRuntime {
   }
 }
 
-
 export default LocalNetHackRuntime;
-
-
-
-
-
-
-

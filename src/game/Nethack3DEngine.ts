@@ -2898,6 +2898,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       choiceContainer.className = "nh3d-choice-list";
 
       const parsedChoices = this.parseQuestionChoices(question, choices);
+      const useInventoryChoiceLabels =
+        !this.isSimpleYesNoChoicePrompt(parsedChoices);
       const useCompactChoiceLayout =
         parsedChoices.length > 0 &&
         parsedChoices.every((choice) => choice.trim().length === 1);
@@ -2911,7 +2913,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           if (choice === defaultChoice) {
             button.classList.add("nh3d-choice-button-default");
           }
-          button.textContent = this.getQuestionChoiceLabel(choice);
+          button.textContent = this.getQuestionChoiceLabel(
+            choice,
+            useInventoryChoiceLabels,
+          );
           button.onclick = () => {
             this.sendInput(choice);
             this.hideQuestion();
@@ -2980,6 +2985,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return merged;
   }
 
+  private isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
+    if (!Array.isArray(parsedChoices) || parsedChoices.length === 0) {
+      return false;
+    }
+
+    const normalized = parsedChoices
+      .map((choice) => String(choice || "").trim().toLowerCase())
+      .filter((choice) => choice.length > 0);
+    if (normalized.length === 0) {
+      return false;
+    }
+
+    const allowedChoices = new Set(["y", "n", "a", "q"]);
+    const hasYes = normalized.includes("y");
+    const hasNo = normalized.includes("n");
+    const onlySimpleChoices = normalized.every(
+      (choice) => choice.length === 1 && allowedChoices.has(choice),
+    );
+    return hasYes && hasNo && onlySimpleChoices;
+  }
+
   private expandChoiceSpec(spec: string): string[] {
     const normalized = (spec || "")
       .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -3046,10 +3072,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private getQuestionChoiceLabel(choice: string): string {
+  private getQuestionChoiceLabel(
+    choice: string,
+    useInventoryLabels = true,
+  ): string {
     const normalizedChoice = choice.trim();
     if (!normalizedChoice) {
       return choice;
+    }
+
+    if (!useInventoryLabels) {
+      return normalizedChoice;
     }
 
     const inventoryItem = this.currentInventory.find((item) => {
