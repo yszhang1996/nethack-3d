@@ -578,10 +578,12 @@ class LocalNetHackRuntime {
 
   isContainerLootTypeQuestion(question) {
     const normalized = this.normalizeQuestionText(question);
-    return (
-      normalized.includes("take out what types of objects") ||
-      normalized.includes("take out what type of objects")
-    );
+    const asksObjectTypes =
+      normalized.includes("what types of objects") ||
+      normalized.includes("what type of objects");
+    const isContainerTransferQuestion =
+      normalized.includes("take out") || normalized.includes("put in");
+    return asksObjectTypes && isContainerTransferQuestion;
   }
 
   isMultiSelectLootQuestion(question) {
@@ -589,7 +591,10 @@ class LocalNetHackRuntime {
     return (
       normalized.includes("pick up what") ||
       normalized.includes("what do you want to pick up") ||
-      normalized.includes("take out what")
+      normalized.includes("take out what") ||
+      normalized.includes("put in what") ||
+      normalized.includes("what do you want to put in") ||
+      normalized.includes("put in, then take out what")
     );
   }
 

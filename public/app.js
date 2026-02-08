@@ -6666,8 +6666,8 @@ var Nethack3DEngine = class {
     this.damageParticles = [];
     this.lastParsedDamageMessage = "";
     this.lastParsedDamageAtMs = 0;
-    this.damageParticleLifetimeMs = 620;
-    this.damageParticleGravity = 9.2;
+    this.damageParticleLifetimeMs = 1860;
+    this.damageParticleGravity = 18.4;
     this.damageParticleFloorZ = 0.02;
     this.damageParticleWallBounce = 0.35;
     // Pre-create geometries and materials
@@ -6954,7 +6954,11 @@ var Nethack3DEngine = class {
     context.globalCompositeOperation = "source-over";
     context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
     context.fillRect(0, 0, widthPixels, heightPixels);
-    const playerPixel = this.worldToLightingPixel(grid, this.playerPos.x, this.playerPos.y);
+    const playerPixel = this.worldToLightingPixel(
+      grid,
+      this.playerPos.x,
+      this.playerPos.y
+    );
     const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
     context.globalCompositeOperation = "destination-out";
     const radial = context.createRadialGradient(
@@ -6968,7 +6972,10 @@ var Nethack3DEngine = class {
     const stops = 16;
     for (let i = 0; i <= stops; i++) {
       const t = i / stops;
-      const alpha = Math.pow(Math.max(0, 1 - t), this.lightingFloorFalloffPower);
+      const alpha = Math.pow(
+        Math.max(0, 1 - t),
+        this.lightingFloorFalloffPower
+      );
       radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
     }
     context.fillStyle = radial;
@@ -7211,7 +7218,10 @@ var Nethack3DEngine = class {
           title: String(data.title || "NetHack Information"),
           lines: Array.isArray(data.lines) ? data.lines : []
         };
-        this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+        this.showInfoMenuDialog(
+          this.lastInfoMenu.title,
+          this.lastInfoMenu.lines
+        );
         break;
       case "position_request":
         if (data.text && data.text.trim() && !data.text.includes("cursor") && !data.text.includes("Select a position")) {
@@ -7243,7 +7253,9 @@ var Nethack3DEngine = class {
         }
         break;
       case "status_update":
-        console.log(`Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`);
+        console.log(
+          `Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`
+        );
         this.updatePlayerStats(data.field, data.value, data);
         break;
       case "damage_event":
@@ -7302,7 +7314,9 @@ var Nethack3DEngine = class {
     return null;
   }
   isCombatDamageMessage(message) {
-    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(message)) {
+    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(
+      message
+    )) {
       return true;
     }
     if (/\byou\s+(?:hit|bite|kick|slash|strike|punch|shoot|zap)\b/i.test(message)) {
@@ -7311,7 +7325,9 @@ var Nethack3DEngine = class {
     return /\btakes?\s+-?\d+\s+damage\b/i.test(message);
   }
   isPlayerDamageVictimMessage(message) {
-    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(message)) {
+    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(
+      message
+    )) {
       return true;
     }
     if (/\byou\s+(?:take|suffer|receive|lose)\s+-?\d+\s+damage\b/i.test(message)) {
@@ -7563,7 +7579,10 @@ var Nethack3DEngine = class {
       baseColorHex,
       0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
     );
-    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
+    const contrastBackground = this.ensureTextContrast(
+      tonedBackground,
+      textColor
+    );
     context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
     const trimmed = glyphChar.trim();
@@ -7696,14 +7715,18 @@ var Nethack3DEngine = class {
     context.clearRect(0, 0, size, size);
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.font = `900 ${Math.floor(size * 0.52)}px monospace`;
+    context.font = `900 ${Math.floor(size * 0.52)}px "Segoe UI", "Segoe UI Variable", sans-serif`;
     context.lineWidth = Math.max(3, Math.floor(size * 0.045));
     context.strokeStyle = "rgba(18, 0, 0, 0.95)";
     context.fillStyle = "#ff3a3a";
     context.strokeText(label, size / 2, size / 2);
     context.fillText(label, size / 2, size / 2);
     const measured = context.measureText(label).width;
-    const aspectRatio = THREE.MathUtils.clamp(measured / (size * 0.42), 0.6, 2.3);
+    const aspectRatio = THREE.MathUtils.clamp(
+      measured / (size * 0.42),
+      0.6,
+      2.3
+    );
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.anisotropy = Math.min(
@@ -7721,13 +7744,19 @@ var Nethack3DEngine = class {
       map: texture,
       transparent: true,
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
       toneMapped: false
     });
     material.opacity = 1;
     const sprite = new THREE.Sprite(material);
-    const scaleY = 0.42;
-    const scaleX = THREE.MathUtils.clamp(scaleY * aspectRatio, 0.36, 1.2);
+    const scaleMultiplier = 2.5;
+    const scaleY = 0.42 * scaleMultiplier;
+    const widthTighten = 0.72;
+    const scaleX = THREE.MathUtils.clamp(
+      scaleY * aspectRatio * widthTighten,
+      0.26 * scaleMultiplier,
+      0.92 * scaleMultiplier
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
@@ -7737,12 +7766,17 @@ var Nethack3DEngine = class {
     );
     sprite.renderOrder = 940;
     this.scene.add(sprite);
+    const launchSpeed = (1.95 + Math.random() * 0.45) * 2.5;
+    const launchAngleRad = THREE.MathUtils.degToRad(10);
+    const launchAzimuthRad = Math.random() * Math.PI * 2;
+    const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
+    const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
     this.damageParticles.push({
       sprite,
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.7,
-        (Math.random() - 0.5) * 0.7,
-        1.95 + Math.random() * 0.45
+        Math.cos(launchAzimuthRad) * horizontalSpeed,
+        Math.sin(launchAzimuthRad) * horizontalSpeed,
+        verticalSpeed
       ),
       ageMs: 0,
       lifetimeMs: this.damageParticleLifetimeMs,
@@ -7916,7 +7950,12 @@ var Nethack3DEngine = class {
       overlay.material.color.set("#ffffff");
       overlay.texture = this.acquireGlyphTexture(
         textureKey,
-        () => this.createGlyphTexture(baseColorHex, glyphChar, textColor, clampedDarken)
+        () => this.createGlyphTexture(
+          baseColorHex,
+          glyphChar,
+          textColor,
+          clampedDarken
+        )
       );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
@@ -8124,9 +8163,12 @@ var Nethack3DEngine = class {
       floatingText.style.transform = `translateY(-${this.floatingMessageRisePx}px)`;
       floatingText.style.opacity = "0";
     }, this.floatingMessageFadeDelayMs);
-    entry.removeTimerId = window.setTimeout(() => {
-      this.removeFloatingMessageEntry(entry);
-    }, this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80);
+    entry.removeTimerId = window.setTimeout(
+      () => {
+        this.removeFloatingMessageEntry(entry);
+      },
+      this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80
+    );
   }
   relayoutFloatingMessages() {
     for (let i = 0; i < this.floatingMessageEntries.length; i += 1) {
@@ -8258,7 +8300,9 @@ var Nethack3DEngine = class {
         const clean = String(value).trim();
         const match = clean.match(/^-?\d+/);
         if (!match) {
-          console.log(`Could not parse numeric status ${mappedField} from "${value}"`);
+          console.log(
+            `Could not parse numeric status ${mappedField} from "${value}"`
+          );
           return;
         }
         parsedValue = parseInt(match[0], 10);
@@ -8390,7 +8434,7 @@ var Nethack3DEngine = class {
       return false;
     }
     const normalizedQuestion = question.trim().toLowerCase();
-    return normalizedQuestion.includes("pick up what") || normalizedQuestion.includes("what do you want to pick up") || normalizedQuestion.includes("take out what");
+    return normalizedQuestion.includes("pick up what") || normalizedQuestion.includes("what do you want to pick up") || normalizedQuestion.includes("take out what") || normalizedQuestion.includes("put in what") || normalizedQuestion.includes("what do you want to put in") || normalizedQuestion.includes("put in, then take out what");
   }
   showQuestion(question, choices, defaultChoice, menuItems) {
     const needsExpansion = false;
@@ -9189,9 +9233,7 @@ var Nethack3DEngine = class {
             (item) => item.accelerator === event.key && !item.isCategory
           );
           if (matchingItem) {
-            const containers = questionDialog.querySelectorAll(
-              ".nh3d-pickup-item"
-            );
+            const containers = questionDialog.querySelectorAll(".nh3d-pickup-item");
             containers.forEach((container) => {
               if (container.accelerator === event.key && container.toggleItem) {
                 container.toggleItem();

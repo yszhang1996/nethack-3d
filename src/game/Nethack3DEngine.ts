@@ -13,7 +13,12 @@ import type {
   TileEffectKind,
   TileMaterialKind,
 } from "./glyphs";
-import type { GlyphOverlay, GlyphOverlayMap, TerrainSnapshot, TileMap } from "./types";
+import type {
+  GlyphOverlay,
+  GlyphOverlayMap,
+  TerrainSnapshot,
+  TileMap,
+} from "./types";
 
 type LightingGrid = {
   minX: number;
@@ -164,8 +169,8 @@ class Nethack3DEngine {
   private damageParticles: DamageNumberParticle[] = [];
   private lastParsedDamageMessage: string = "";
   private lastParsedDamageAtMs: number = 0;
-  private readonly damageParticleLifetimeMs: number = 620;
-  private readonly damageParticleGravity: number = 9.2;
+  private readonly damageParticleLifetimeMs: number = 1860;
+  private readonly damageParticleGravity: number = 18.4;
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.35;
 
@@ -174,7 +179,7 @@ class Nethack3DEngine {
   private wallGeometry = new THREE.BoxGeometry(
     TILE_SIZE,
     TILE_SIZE,
-    WALL_HEIGHT
+    WALL_HEIGHT,
   );
 
   // Materials for different glyph types
@@ -272,10 +277,7 @@ class Nethack3DEngine {
   private readonly lightingMaxDarkAlpha: number = 0.82;
   private readonly lightingDitherStrength: number = 0.05;
   private readonly lightingBayer4: number[] = [
-    0, 8, 2, 10,
-    12, 4, 14, 6,
-    3, 11, 1, 9,
-    15, 7, 13, 5,
+    0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
   ].map((value) => (value + 0.5) / 16);
 
   private isPersistentTerrainKind(kind: string): boolean {
@@ -358,7 +360,7 @@ class Nethack3DEngine {
   private worldToLightingPixel(
     grid: LightingGrid,
     worldX: number,
-    worldY: number
+    worldY: number,
   ): { x: number; y: number } {
     const tilePixels = this.lightingTilePixels;
     return {
@@ -430,7 +432,7 @@ class Nethack3DEngine {
 
       const geometry = new THREE.PlaneGeometry(
         grid.width * TILE_SIZE,
-        grid.height * TILE_SIZE
+        grid.height * TILE_SIZE,
       );
       const material = new THREE.MeshBasicMaterial({
         map: texture,
@@ -443,7 +445,7 @@ class Nethack3DEngine {
       mesh.position.set(
         ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
         ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
-        WALL_HEIGHT + 0.08
+        WALL_HEIGHT + 0.08,
       );
       mesh.renderOrder = 900;
       this.scene.add(mesh);
@@ -466,7 +468,7 @@ class Nethack3DEngine {
     return Boolean(
       this.lightingOverlayTexture &&
       this.lightingOverlayCanvas &&
-      this.lightingOverlayContext
+      this.lightingOverlayContext,
     );
   }
 
@@ -490,7 +492,11 @@ class Nethack3DEngine {
     context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
     context.fillRect(0, 0, widthPixels, heightPixels);
 
-    const playerPixel = this.worldToLightingPixel(grid, this.playerPos.x, this.playerPos.y);
+    const playerPixel = this.worldToLightingPixel(
+      grid,
+      this.playerPos.x,
+      this.playerPos.y,
+    );
     const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
 
     context.globalCompositeOperation = "destination-out";
@@ -500,12 +506,15 @@ class Nethack3DEngine {
       0,
       playerPixel.x,
       playerPixel.y,
-      radiusPixels
+      radiusPixels,
     );
     const stops = 16;
     for (let i = 0; i <= stops; i++) {
       const t = i / stops;
-      const alpha = Math.pow(Math.max(0, 1 - t), this.lightingFloorFalloffPower);
+      const alpha = Math.pow(
+        Math.max(0, 1 - t),
+        this.lightingFloorFalloffPower,
+      );
       radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
     }
     context.fillStyle = radial;
@@ -562,7 +571,7 @@ class Nethack3DEngine {
     this.cameraPitch = THREE.MathUtils.clamp(
       Math.PI / 2 - 0.2,
       this.minCameraPitch,
-      this.maxCameraPitch
+      this.maxCameraPitch,
     );
     // Yaw is in radians; start at 180 degrees to face the board correctly.
     this.cameraYaw = Math.PI;
@@ -575,7 +584,7 @@ class Nethack3DEngine {
       75,
       window.innerWidth / window.innerHeight,
       0.1,
-      1000
+      1000,
     );
     this.camera.up.set(0, 0, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -609,12 +618,12 @@ class Nethack3DEngine {
     window.addEventListener(
       "mousedown",
       this.handleMouseDown.bind(this),
-      false
+      false,
     );
     window.addEventListener(
       "mousemove",
       this.handleMouseMove.bind(this),
-      false
+      false,
     );
     window.addEventListener("mouseup", this.handleMouseUp.bind(this), false);
     window.addEventListener("contextmenu", (e) => e.preventDefault(), false); // Prevent right-click menu
@@ -697,14 +706,14 @@ class Nethack3DEngine {
 
       case "player_position":
         console.log(
-          `🎯 Received player position update: (${data.x}, ${data.y})`
+          `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
         const oldPos = { ...this.playerPos };
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
         this.markLightingDirty();
         console.log(
-          `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`
+          `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`,
         );
         this.updateStatus(`Player at (${data.x}, ${data.y}) - NetHack 3D`);
         break;
@@ -712,7 +721,7 @@ class Nethack3DEngine {
       case "force_player_redraw":
         // Force update player visual position when NetHack doesn't send map updates
         console.log(
-          `🎯 Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`
+          `🎯 Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`,
         );
 
         // Update the player position first
@@ -720,7 +729,7 @@ class Nethack3DEngine {
           data.oldPosition.x,
           data.oldPosition.y,
           data.newPosition.x,
-          data.newPosition.y
+          data.newPosition.y,
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
         this.markLightingDirty();
@@ -730,7 +739,7 @@ class Nethack3DEngine {
         const oldOverlay = this.glyphOverlayMap.get(oldKey);
         if (oldOverlay) {
           console.log(
-            `🎯 Clearing old player overlay at (${data.oldPosition.x}, ${data.oldPosition.y})`
+            `🎯 Clearing old player overlay at (${data.oldPosition.x}, ${data.oldPosition.y})`,
           );
           this.disposeGlyphOverlay(oldOverlay);
           this.glyphOverlayMap.delete(oldKey);
@@ -744,7 +753,7 @@ class Nethack3DEngine {
             data.oldPosition.y,
             oldTerrain.glyph,
             oldTerrain.char,
-            oldTerrain.color
+            oldTerrain.color,
           );
         } else {
           // Don't guess terrain when cache is missing; request authoritative tile data.
@@ -755,7 +764,7 @@ class Nethack3DEngine {
         // Use a typical player glyph number (around 331-360 range)
         this.updateTile(data.newPosition.x, data.newPosition.y, 331, "@", 0);
         console.log(
-          `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`
+          `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
         );
         break;
 
@@ -809,7 +818,7 @@ class Nethack3DEngine {
           data.text,
           data.choices,
           data.default,
-          data.menuItems
+          data.menuItems,
         );
         break;
 
@@ -820,7 +829,7 @@ class Nethack3DEngine {
           ? data.items.filter((item: any) => !item.isCategory)
           : [];
         console.log(
-          `📦 Received inventory update with ${itemCount} total items (${actualItems.length} actual items)`
+          `📦 Received inventory update with ${itemCount} total items (${actualItems.length} actual items)`,
         );
 
         // Store the current inventory for later display
@@ -843,7 +852,10 @@ class Nethack3DEngine {
           title: String(data.title || "NetHack Information"),
           lines: Array.isArray(data.lines) ? data.lines : [],
         };
-        this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+        this.showInfoMenuDialog(
+          this.lastInfoMenu.title,
+          this.lastInfoMenu.lines,
+        );
         break;
 
       case "position_request":
@@ -866,16 +878,16 @@ class Nethack3DEngine {
 
       case "area_refresh_complete":
         console.log(
-          `🔄 Area refresh completed: ${data.tilesRefreshed} tiles refreshed around (${data.centerX}, ${data.centerY})`
+          `🔄 Area refresh completed: ${data.tilesRefreshed} tiles refreshed around (${data.centerX}, ${data.centerY})`,
         );
         this.addGameMessage(
-          `Refreshed ${data.tilesRefreshed} tiles around (${data.centerX}, ${data.centerY})`
+          `Refreshed ${data.tilesRefreshed} tiles around (${data.centerX}, ${data.centerY})`,
         );
         break;
 
       case "tile_not_found":
         console.log(
-          `⚠️ Tile not found at (${data.x}, ${data.y}): ${data.message}`
+          `⚠️ Tile not found at (${data.x}, ${data.y}): ${data.message}`,
         );
         break;
 
@@ -888,7 +900,9 @@ class Nethack3DEngine {
         break;
 
       case "status_update":
-        console.log(`Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`);
+        console.log(
+          `Status update: ${data.fieldName || data.field} = "${data.value}" (type=${data.valueType || "unknown"})`,
+        );
         this.updatePlayerStats(data.field, data.value, data);
         break;
 
@@ -967,20 +981,32 @@ class Nethack3DEngine {
   }
 
   private isCombatDamageMessage(message: string): boolean {
-    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(message)) {
+    if (
+      /\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(
+        message,
+      )
+    ) {
       return true;
     }
-    if (/\byou\s+(?:hit|bite|kick|slash|strike|punch|shoot|zap)\b/i.test(message)) {
+    if (
+      /\byou\s+(?:hit|bite|kick|slash|strike|punch|shoot|zap)\b/i.test(message)
+    ) {
       return true;
     }
     return /\btakes?\s+-?\d+\s+damage\b/i.test(message);
   }
 
   private isPlayerDamageVictimMessage(message: string): boolean {
-    if (/\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(message)) {
+    if (
+      /\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(
+        message,
+      )
+    ) {
       return true;
     }
-    if (/\byou\s+(?:take|suffer|receive|lose)\s+-?\d+\s+damage\b/i.test(message)) {
+    if (
+      /\byou\s+(?:take|suffer|receive|lose)\s+-?\d+\s+damage\b/i.test(message)
+    ) {
       return true;
     }
     return /\byou are (?:hit|burned|zapped|injured|wounded)\b/i.test(message);
@@ -996,14 +1022,15 @@ class Nethack3DEngine {
     if (this.pendingCharacterDamageQueue.length > 8) {
       this.pendingCharacterDamageQueue.splice(
         0,
-        this.pendingCharacterDamageQueue.length - 8
+        this.pendingCharacterDamageQueue.length - 8,
       );
     }
   }
 
   private prunePendingCharacterDamage(nowMs: number): void {
     this.pendingCharacterDamageQueue = this.pendingCharacterDamageQueue.filter(
-      (entry) => nowMs - entry.createdAtMs <= this.pendingCharacterDamageMaxAgeMs
+      (entry) =>
+        nowMs - entry.createdAtMs <= this.pendingCharacterDamageMaxAgeMs,
     );
   }
 
@@ -1071,8 +1098,16 @@ class Nethack3DEngine {
     this.triggerDamageEffectsAtTile(tile.x, tile.y, nextDamage.amount);
   }
 
-  private triggerDamageEffectsAtTile(x: number, y: number, amount: number): void {
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(amount)) {
+  private triggerDamageEffectsAtTile(
+    x: number,
+    y: number,
+    amount: number,
+  ): void {
+    if (
+      !Number.isFinite(x) ||
+      !Number.isFinite(y) ||
+      !Number.isFinite(amount)
+    ) {
       return;
     }
 
@@ -1135,11 +1170,11 @@ class Nethack3DEngine {
   public requestAreaUpdate(
     centerX: number,
     centerY: number,
-    radius: number = 3
+    radius: number = 3,
   ): void {
     if (this.session) {
       console.log(
-        `Requesting area update centered at (${centerX}, ${centerY}) with radius ${radius}`
+        `Requesting area update centered at (${centerX}, ${centerY}) with radius ${radius}`,
       );
       this.session.requestAreaUpdate(centerX, centerY, radius);
     } else {
@@ -1152,7 +1187,7 @@ class Nethack3DEngine {
 
   private acquireGlyphTexture(
     textureKey: string,
-    factory: () => THREE.CanvasTexture
+    factory: () => THREE.CanvasTexture,
   ): THREE.CanvasTexture {
     const cached = this.glyphTextureCache.get(textureKey);
     if (cached) {
@@ -1216,7 +1251,7 @@ class Nethack3DEngine {
   private ensureTextContrast(
     tonedBackgroundHex: string,
     textColor: string,
-    minContrast: number = 4.5
+    minContrast: number = 4.5,
   ): string {
     const background = new THREE.Color(`#${tonedBackgroundHex}`);
     const text = new THREE.Color();
@@ -1238,7 +1273,7 @@ class Nethack3DEngine {
 
   private ensureGlyphOverlay(
     key: string,
-    baseMaterial: THREE.MeshLambertMaterial
+    baseMaterial: THREE.MeshLambertMaterial,
   ): GlyphOverlay {
     const baseColorHex = baseMaterial.color.getHexString();
     let overlay = this.glyphOverlayMap.get(key);
@@ -1272,7 +1307,7 @@ class Nethack3DEngine {
     glyphChar: string,
     textColor: string,
     darkenFactor: number = 1,
-    size: number = 256
+    size: number = 256,
   ): THREE.CanvasTexture {
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -1287,14 +1322,14 @@ class Nethack3DEngine {
       baseColorHex,
       glyphChar,
       textColor,
-      darkenFactor
+      darkenFactor,
     );
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.anisotropy = Math.min(
       4,
-      this.renderer.capabilities.getMaxAnisotropy()
+      this.renderer.capabilities.getMaxAnisotropy(),
     );
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -1308,15 +1343,18 @@ class Nethack3DEngine {
     baseColorHex: string,
     glyphChar: string,
     textColor: string,
-    darkenFactor: number = 1
+    darkenFactor: number = 1,
   ): void {
     context.clearRect(0, 0, size, size);
 
     const tonedBackground = this.toneColor(
       baseColorHex,
-      0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1)
+      0.8 * THREE.MathUtils.clamp(darkenFactor, 0, 1),
     );
-    const contrastBackground = this.ensureTextContrast(tonedBackground, textColor);
+    const contrastBackground = this.ensureTextContrast(
+      tonedBackground,
+      textColor,
+    );
     context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
 
@@ -1347,7 +1385,9 @@ class Nethack3DEngine {
     }
 
     const glyphChar =
-      typeof mesh.userData.glyphChar === "string" ? mesh.userData.glyphChar : "";
+      typeof mesh.userData.glyphChar === "string"
+        ? mesh.userData.glyphChar
+        : "";
     if (!glyphChar.trim()) {
       return;
     }
@@ -1377,7 +1417,7 @@ class Nethack3DEngine {
       texture.needsUpdate = true;
       texture.anisotropy = Math.min(
         4,
-        this.renderer.capabilities.getMaxAnisotropy()
+        this.renderer.capabilities.getMaxAnisotropy(),
       );
       texture.magFilter = THREE.LinearFilter;
       texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -1408,7 +1448,7 @@ class Nethack3DEngine {
 
   private renderGlyphDamageFlash(
     state: GlyphDamageFlashState,
-    intensity: number
+    intensity: number,
   ): void {
     const clamped = THREE.MathUtils.clamp(intensity, 0, 1);
     this.glyphDamageFlashColor
@@ -1422,7 +1462,7 @@ class Nethack3DEngine {
       state.baseColorHex,
       state.glyphChar,
       flashTextColor,
-      state.darkenFactor
+      state.darkenFactor,
     );
     state.texture.needsUpdate = true;
   }
@@ -1461,7 +1501,7 @@ class Nethack3DEngine {
       const progress = THREE.MathUtils.clamp(
         state.elapsedMs / state.durationMs,
         0,
-        1
+        1,
       );
       const intensity = Math.exp(-8.5 * progress);
       this.renderGlyphDamageFlash(state, intensity);
@@ -1493,7 +1533,7 @@ class Nethack3DEngine {
     context.clearRect(0, 0, size, size);
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.font = `900 ${Math.floor(size * 0.52)}px monospace`;
+    context.font = `900 ${Math.floor(size * 0.52)}px "Segoe UI", "Segoe UI Variable", sans-serif`;
     context.lineWidth = Math.max(3, Math.floor(size * 0.045));
     context.strokeStyle = "rgba(18, 0, 0, 0.95)";
     context.fillStyle = "#ff3a3a";
@@ -1501,13 +1541,17 @@ class Nethack3DEngine {
     context.fillText(label, size / 2, size / 2);
 
     const measured = context.measureText(label).width;
-    const aspectRatio = THREE.MathUtils.clamp(measured / (size * 0.42), 0.6, 2.3);
+    const aspectRatio = THREE.MathUtils.clamp(
+      measured / (size * 0.42),
+      0.6,
+      2.3,
+    );
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.anisotropy = Math.min(
       4,
-      this.renderer.capabilities.getMaxAnisotropy()
+      this.renderer.capabilities.getMaxAnisotropy(),
     );
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -1515,7 +1559,11 @@ class Nethack3DEngine {
     return { texture, aspectRatio };
   }
 
-  private spawnDamageNumberParticle(tileX: number, tileY: number, damage: number): void {
+  private spawnDamageNumberParticle(
+    tileX: number,
+    tileY: number,
+    damage: number,
+  ): void {
     const label = `-${Math.max(1, Math.round(Math.abs(damage)))}`;
     const { texture, aspectRatio } = this.createDamageNumberTexture(label);
 
@@ -1523,30 +1571,42 @@ class Nethack3DEngine {
       map: texture,
       transparent: true,
       depthWrite: false,
-      depthTest: true,
+      depthTest: false,
       toneMapped: false,
     });
     material.opacity = 1;
 
     const sprite = new THREE.Sprite(material);
-    const scaleY = 0.42;
-    const scaleX = THREE.MathUtils.clamp(scaleY * aspectRatio, 0.36, 1.2);
+    const scaleMultiplier = 2.5;
+    const scaleY = 0.42 * scaleMultiplier;
+    const widthTighten = 0.72;
+    const scaleX = THREE.MathUtils.clamp(
+      scaleY * aspectRatio * widthTighten,
+      0.26 * scaleMultiplier,
+      0.92 * scaleMultiplier,
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
       tileX * TILE_SIZE,
       -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + 0.28
+      this.damageParticleFloorZ + 0.28,
     );
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
+    const launchSpeed = (1.95 + Math.random() * 0.45) * 2.5;
+    const launchAngleRad = THREE.MathUtils.degToRad(10);
+    const launchAzimuthRad = Math.random() * Math.PI * 2;
+    const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
+    const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
+
     this.damageParticles.push({
       sprite,
       velocity: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.7,
-        (Math.random() - 0.5) * 0.7,
-        1.95 + Math.random() * 0.45
+        Math.cos(launchAzimuthRad) * horizontalSpeed,
+        Math.sin(launchAzimuthRad) * horizontalSpeed,
+        verticalSpeed,
       ),
       ageMs: 0,
       lifetimeMs: this.damageParticleLifetimeMs,
@@ -1575,7 +1635,7 @@ class Nethack3DEngine {
   private resolveDamageParticleAgainstWallTile(
     particle: DamageNumberParticle,
     tileX: number,
-    tileY: number
+    tileY: number,
   ): boolean {
     const position = particle.sprite.position;
     const half = TILE_SIZE / 2;
@@ -1632,7 +1692,8 @@ class Nethack3DEngine {
     position.x += nx * penetration;
     position.y += ny * penetration;
 
-    const velocityIntoWall = particle.velocity.x * nx + particle.velocity.y * ny;
+    const velocityIntoWall =
+      particle.velocity.x * nx + particle.velocity.y * ny;
     if (velocityIntoWall < 0) {
       const bounce = (1 + this.damageParticleWallBounce) * velocityIntoWall;
       particle.velocity.x -= bounce * nx;
@@ -1644,7 +1705,9 @@ class Nethack3DEngine {
     return true;
   }
 
-  private resolveDamageParticleWallCollision(particle: DamageNumberParticle): void {
+  private resolveDamageParticleWallCollision(
+    particle: DamageNumberParticle,
+  ): void {
     if (particle.sprite.position.z > WALL_HEIGHT + 0.22) {
       return;
     }
@@ -1702,7 +1765,7 @@ class Nethack3DEngine {
       const lifeT = THREE.MathUtils.clamp(
         particle.ageMs / particle.lifetimeMs,
         0,
-        1
+        1,
       );
       material.opacity = Math.max(0, 1 - lifeT * lifeT);
 
@@ -1710,7 +1773,7 @@ class Nethack3DEngine {
       particle.sprite.scale.set(
         particle.baseScale.x * scaleBoost,
         particle.baseScale.y * scaleBoost,
-        1
+        1,
       );
 
       if (lifeT >= 1 || material.opacity <= 0.01) {
@@ -1747,7 +1810,7 @@ class Nethack3DEngine {
     glyphChar: string,
     textColor: string,
     isWall: boolean,
-    darkenFactor: number = 1
+    darkenFactor: number = 1,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
@@ -1762,7 +1825,12 @@ class Nethack3DEngine {
       overlay.baseColorHex = baseColorHex;
       overlay.material.color.set("#ffffff");
       overlay.texture = this.acquireGlyphTexture(textureKey, () =>
-        this.createGlyphTexture(baseColorHex, glyphChar, textColor, clampedDarken)
+        this.createGlyphTexture(
+          baseColorHex,
+          glyphChar,
+          textColor,
+          clampedDarken,
+        ),
       );
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
@@ -1872,7 +1940,7 @@ class Nethack3DEngine {
     y: number,
     glyph: number,
     char?: string,
-    color?: number
+    color?: number,
   ): void {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
@@ -1932,7 +2000,7 @@ class Nethack3DEngine {
       behavior.glyphChar,
       behavior.textColor,
       behavior.isWall,
-      behavior.darkenFactor
+      behavior.darkenFactor,
     );
     this.markLightingDirty();
   }
@@ -1959,7 +2027,7 @@ class Nethack3DEngine {
     fromX: number,
     fromY: number,
     toX: number,
-    toY: number
+    toY: number,
   ): void {
     const moved = fromX !== toX || fromY !== toY;
 
@@ -1977,7 +2045,10 @@ class Nethack3DEngine {
   }
 
   private showFloatingGameMessage(message: string): void {
-    if (!this.floatingMessageLayer || !document.body.contains(this.floatingMessageLayer)) {
+    if (
+      !this.floatingMessageLayer ||
+      !document.body.contains(this.floatingMessageLayer)
+    ) {
       return;
     }
 
@@ -2004,7 +2075,8 @@ class Nethack3DEngine {
     this.floatingMessageEntries.unshift(entry);
 
     while (this.floatingMessageEntries.length > this.maxFloatingMessages) {
-      const oldest = this.floatingMessageEntries[this.floatingMessageEntries.length - 1];
+      const oldest =
+        this.floatingMessageEntries[this.floatingMessageEntries.length - 1];
       this.removeFloatingMessageEntry(oldest, false);
     }
     this.relayoutFloatingMessages();
@@ -2014,9 +2086,12 @@ class Nethack3DEngine {
       floatingText.style.opacity = "0";
     }, this.floatingMessageFadeDelayMs);
 
-    entry.removeTimerId = window.setTimeout(() => {
-      this.removeFloatingMessageEntry(entry);
-    }, this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80);
+    entry.removeTimerId = window.setTimeout(
+      () => {
+        this.removeFloatingMessageEntry(entry);
+      },
+      this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80,
+    );
   }
 
   private relayoutFloatingMessages(): void {
@@ -2028,7 +2103,7 @@ class Nethack3DEngine {
 
   private removeFloatingMessageEntry(
     entry: FloatingMessageEntry,
-    relayout: boolean = true
+    relayout: boolean = true,
   ): void {
     window.clearTimeout(entry.fadeTimerId);
     window.clearTimeout(entry.removeTimerId);
@@ -2063,7 +2138,7 @@ class Nethack3DEngine {
   private updatePlayerStats(
     field: number,
     value: string | number | null,
-    data: any
+    data: any,
   ): void {
     const legacyByIndex: { [key: number]: string } = {
       0: "name",
@@ -2115,7 +2190,8 @@ class Nethack3DEngine {
       BL_GOLD: "gold",
     };
 
-    const rawFieldName = typeof data?.fieldName === "string" ? data.fieldName : null;
+    const rawFieldName =
+      typeof data?.fieldName === "string" ? data.fieldName : null;
     const mappedField =
       (rawFieldName && byName[rawFieldName]) || legacyByIndex[field] || null;
 
@@ -2138,7 +2214,7 @@ class Nethack3DEngine {
 
     if (!mappedField || value === null || value === undefined) {
       console.log(
-        `Skipping status update: field=${field}, fieldName=${rawFieldName}, value=${value}`
+        `Skipping status update: field=${field}, fieldName=${rawFieldName}, value=${value}`,
       );
       return;
     }
@@ -2171,7 +2247,9 @@ class Nethack3DEngine {
         const clean = String(value).trim();
         const match = clean.match(/^-?\d+/);
         if (!match) {
-          console.log(`Could not parse numeric status ${mappedField} from "${value}"`);
+          console.log(
+            `Could not parse numeric status ${mappedField} from "${value}"`,
+          );
           return;
         }
         parsedValue = parseInt(match[0], 10);
@@ -2210,7 +2288,7 @@ class Nethack3DEngine {
         this.triggerDamageEffectsAtTile(
           this.playerPos.x,
           this.playerPos.y,
-          playerDamageTaken
+          playerDamageTaken,
         );
       }
     }
@@ -2229,7 +2307,7 @@ class Nethack3DEngine {
 
       // Adjust the game log position to accommodate the stats bar
       const gameLogContainer = document.querySelector(
-        ".top-left-ui"
+        ".top-left-ui",
       ) as HTMLElement;
       if (gameLogContainer) {
         gameLogContainer.classList.add("with-stats");
@@ -2289,11 +2367,11 @@ class Nethack3DEngine {
 
       <div class="nh3d-stats-location">
         <div class="nh3d-stats-dungeon">${this.playerStats.dungeon} ${
-      this.playerStats.dlevel
-    }</div>
+          this.playerStats.dlevel
+        }</div>
         <div class="nh3d-stats-hunger">${this.playerStats.hunger}${
-      this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
-    }</div>
+          this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
+        }</div>
       </div>
     `;
 
@@ -2345,7 +2423,10 @@ class Nethack3DEngine {
     return (
       normalizedQuestion.includes("pick up what") ||
       normalizedQuestion.includes("what do you want to pick up") ||
-      normalizedQuestion.includes("take out what")
+      normalizedQuestion.includes("take out what") ||
+      normalizedQuestion.includes("put in what") ||
+      normalizedQuestion.includes("what do you want to put in") ||
+      normalizedQuestion.includes("put in, then take out what")
     );
   }
 
@@ -2353,7 +2434,7 @@ class Nethack3DEngine {
     question: string,
     choices: string,
     defaultChoice: string,
-    menuItems: any[]
+    menuItems: any[],
   ): void {
     // Temporarily disable automatic "?" expansion to debug menu issues
     // TODO: Re-enable with better logic later
@@ -2361,7 +2442,7 @@ class Nethack3DEngine {
 
     if (needsExpansion) {
       console.log(
-        "🔍 Question includes '?' option, automatically expanding options..."
+        "🔍 Question includes '?' option, automatically expanding options...",
       );
       // Send "?" to get detailed menu items
       this.sendInput("?");
@@ -2491,7 +2572,8 @@ class Nethack3DEngine {
 
     for (let i = 0; i < normalized.length; i += 1) {
       const current = normalized[i];
-      const hasRangeEnd = i + 2 < normalized.length && normalized[i + 1] === "-";
+      const hasRangeEnd =
+        i + 2 < normalized.length && normalized[i + 1] === "-";
 
       if (hasRangeEnd) {
         const end = normalized[i + 2];
@@ -2657,7 +2739,8 @@ class Nethack3DEngine {
 
     const body = document.createElement("div");
     body.className = "nh3d-info-body";
-    body.textContent = lines && lines.length > 0 ? lines.join("\n") : "(No details)";
+    body.textContent =
+      lines && lines.length > 0 ? lines.join("\n") : "(No details)";
     infoDialog.appendChild(body);
 
     const hint = document.createElement("div");
@@ -2874,7 +2957,7 @@ class Nethack3DEngine {
   private createPickupDialog(
     questionDialog: HTMLElement,
     menuItems: any[],
-    question: string
+    question: string,
   ): void {
     // Track selected items for multi-pickup
     const selectedItems = new Set<string>();
@@ -2913,7 +2996,7 @@ class Nethack3DEngine {
 
         const applySelectionState = (
           isSelected: boolean,
-          shouldSendInput: boolean
+          shouldSendInput: boolean,
         ) => {
           checkbox.checked = isSelected;
           if (isSelected) {
@@ -2976,7 +3059,7 @@ class Nethack3DEngine {
 
   private createStandardMenu(
     questionDialog: HTMLElement,
-    menuItems: any[]
+    menuItems: any[],
   ): void {
     menuItems.forEach((item) => {
       if (
@@ -3214,7 +3297,7 @@ class Nethack3DEngine {
           console.log("🔄 Manual refresh requested for player tile");
           this.requestTileUpdate(this.playerPos.x, this.playerPos.y);
           this.addGameMessage(
-            `Refreshing tile at (${this.playerPos.x}, ${this.playerPos.y})...`
+            `Refreshing tile at (${this.playerPos.x}, ${this.playerPos.y})...`,
           );
           return;
 
@@ -3427,14 +3510,13 @@ class Nethack3DEngine {
           // Toggle item selection - find matching item and toggle it
           const menuItems = (questionDialog as any).menuItems || [];
           const matchingItem = menuItems.find(
-            (item: any) => item.accelerator === event.key && !item.isCategory
+            (item: any) => item.accelerator === event.key && !item.isCategory,
           );
 
           if (matchingItem) {
             // Find the corresponding item container and toggle it
-            const containers = questionDialog.querySelectorAll(
-              ".nh3d-pickup-item"
-            );
+            const containers =
+              questionDialog.querySelectorAll(".nh3d-pickup-item");
             containers.forEach((container: Element) => {
               if (
                 (container as any).accelerator === event.key &&
@@ -3474,7 +3556,7 @@ class Nethack3DEngine {
       const alpha =
         1 -
         Math.exp(
-          (-Math.LN2 * deltaSeconds * 1000) / this.cameraFollowHalfLifeMs
+          (-Math.LN2 * deltaSeconds * 1000) / this.cameraFollowHalfLifeMs,
         );
       this.cameraFollowCurrent.lerp(this.cameraFollowTarget, alpha);
     }
@@ -3533,7 +3615,7 @@ class Nethack3DEngine {
     const delta = event.deltaY > 0 ? zoomSpeed : -zoomSpeed;
     this.cameraDistance = Math.max(
       this.minDistance,
-      Math.min(this.maxDistance, this.cameraDistance + delta)
+      Math.min(this.maxDistance, this.cameraDistance + delta),
     );
   }
 
@@ -3561,12 +3643,12 @@ class Nethack3DEngine {
       const deltaY = event.clientY - this.lastMouseY;
 
       this.cameraYaw = this.wrapAngle(
-        this.cameraYaw - deltaX * this.rotationSpeed
+        this.cameraYaw - deltaX * this.rotationSpeed,
       );
       this.cameraPitch = THREE.MathUtils.clamp(
         this.cameraPitch - deltaY * this.rotationSpeed,
         this.minCameraPitch,
-        this.maxCameraPitch
+        this.maxCameraPitch,
       );
 
       this.lastMouseX = event.clientX;
@@ -3602,7 +3684,9 @@ class Nethack3DEngine {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   }
 
-  private getMeshOverlayMaterial(mesh: THREE.Mesh): THREE.MeshBasicMaterial | null {
+  private getMeshOverlayMaterial(
+    mesh: THREE.Mesh,
+  ): THREE.MeshBasicMaterial | null {
     const material = mesh.material;
     if (Array.isArray(material)) {
       const top = material[4];
@@ -3614,7 +3698,10 @@ class Nethack3DEngine {
   private updateEffectAnimations(timeMs: number): void {
     const phaseBase = timeMs / 240;
     this.tileMap.forEach((mesh) => {
-      const effectKind = mesh.userData.effectKind as TileEffectKind | null | undefined;
+      const effectKind = mesh.userData.effectKind as
+        | TileEffectKind
+        | null
+        | undefined;
       const overlayMaterial = this.getMeshOverlayMaterial(mesh);
       if (!overlayMaterial) {
         return;
@@ -3625,7 +3712,10 @@ class Nethack3DEngine {
         return;
       }
 
-      const wave = 0.72 + 0.28 * Math.sin(phaseBase + mesh.position.x * 0.2 + mesh.position.y * 0.2);
+      const wave =
+        0.72 +
+        0.28 *
+          Math.sin(phaseBase + mesh.position.x * 0.2 + mesh.position.y * 0.2);
       const pulse = this.effectColors[effectKind]
         .clone()
         .multiplyScalar(THREE.MathUtils.clamp(wave, 0.4, 1.2));
@@ -3649,5 +3739,3 @@ class Nethack3DEngine {
 }
 
 export default Nethack3DEngine;
-
-
