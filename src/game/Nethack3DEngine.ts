@@ -2780,14 +2780,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         <div class="nh3d-stats-secondary-exp">Exp:${this.playerStats.experience}</div>
         <div class="nh3d-stats-secondary-gold">$:${this.playerStats.gold}</div>
         <div class="nh3d-stats-secondary-time">T:${this.playerStats.time}</div>
+        <div class="nh3d-stats-hunger">${this.playerStats.hunger}${
+          this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
+        }</div>
       </div>
 
       <div class="nh3d-stats-location">
         <div class="nh3d-stats-dungeon">${this.playerStats.dungeon} ${
           this.playerStats.dlevel
-        }</div>
-        <div class="nh3d-stats-hunger">${this.playerStats.hunger}${
-          this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
         }</div>
       </div>
     `;

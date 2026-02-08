@@ -281,14 +281,14 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-stats-secondary-gold">$:{playerStats.gold}</div>
           <div className="nh3d-stats-secondary-time">T:{playerStats.time}</div>
+          <div className="nh3d-stats-hunger">
+            {playerStats.hunger}
+            {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
+          </div>
         </div>
         <div className="nh3d-stats-location">
           <div className="nh3d-stats-dungeon">
             {playerStats.dungeon} {playerStats.dlevel}
-          </div>
-          <div className="nh3d-stats-hunger">
-            {playerStats.hunger}
-            {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
           </div>
         </div>
       </div>
