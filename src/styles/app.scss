@@ -246,6 +246,9 @@ canvas {
 }
 
 .floating-message-text {
+  --floating-message-fade-delay-ms: 1500ms;
+  --floating-message-fade-duration-ms: 520ms;
+  --floating-message-rise-px: 44px;
   opacity: 1;
   color: #ffffff;
   font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
@@ -261,10 +264,30 @@ canvas {
   text-shadow:
     0 2px 3px rgba(0, 0, 0, 0.85),
     0 0 12px rgba(40, 180, 255, 0.55);
-  transition:
-    transform 520ms ease-out,
-    opacity 520ms ease-out;
+  animation-name: nh3d-floating-message-rise;
+  animation-duration: var(--floating-message-fade-duration-ms);
+  animation-delay: var(--floating-message-fade-delay-ms);
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
   will-change: transform, opacity;
+}
+
+@keyframes nh3d-floating-message-rise {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(calc(-1 * var(--floating-message-rise-px)));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .floating-message-text {
+    animation: none;
+  }
 }
 
 .nh3d-dialog {
