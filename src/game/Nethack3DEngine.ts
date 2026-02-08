@@ -759,12 +759,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       statusElement.innerHTML = "Starting local NetHack runtime...";
     }
 
-    const connStatus = document.createElement("div");
-    connStatus.id = "connection-status";
-    connStatus.setAttribute("data-state", "disconnected");
-    connStatus.innerHTML = "Disconnected";
-    document.body.appendChild(connStatus);
-
     const floatingMessageLayer = document.createElement("div");
     floatingMessageLayer.id = "floating-log-message-layer";
     document.body.appendChild(floatingMessageLayer);
@@ -2570,6 +2564,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       <div class="nh3d-stats-group">
         <div class="nh3d-stats-secondary-ac">AC:${this.playerStats.armor}</div>
+        <div class="nh3d-stats-secondary-exp">Exp:${this.playerStats.experience}</div>
         <div class="nh3d-stats-secondary-gold">$:${this.playerStats.gold}</div>
         <div class="nh3d-stats-secondary-time">T:${this.playerStats.time}</div>
       </div>

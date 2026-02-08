@@ -196,35 +196,6 @@ canvas {
   top: 65px;
 }
 
-#connection-status {
-  position: fixed;
-  top: 10px;
-  right: 10px;
-  color: #ffffff;
-  padding: 5px 10px;
-  border-radius: 3px;
-  font-family: Arial, sans-serif;
-  font-size: 12px;
-  z-index: 1000;
-  background: rgba(255, 0, 0, 0.8);
-}
-
-#connection-status[data-state="disconnected"] {
-  background: rgba(255, 0, 0, 0.8);
-}
-
-#connection-status[data-state="starting"] {
-  background: rgba(68, 68, 170, 0.9);
-}
-
-#connection-status[data-state="running"] {
-  background: rgba(0, 170, 0, 0.9);
-}
-
-#connection-status[data-state="error"] {
-  background: rgba(170, 0, 0, 0.9);
-}
-
 #floating-log-message-layer {
   position: fixed;
   left: 50%;
@@ -769,6 +740,10 @@ canvas {
 
 .nh3d-stats-secondary-ac {
   color: #aaaaff;
+}
+
+.nh3d-stats-secondary-exp {
+  color: #ffbb66;
 }
 
 .nh3d-stats-secondary-gold {

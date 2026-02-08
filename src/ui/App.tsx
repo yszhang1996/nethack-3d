@@ -135,8 +135,6 @@ export default function App(): JSX.Element {
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
   const statusText = useGameStore((state) => state.statusText);
-  const connectionState = useGameStore((state) => state.connectionState);
-  const connectionText = useGameStore((state) => state.connectionText);
   const gameMessages = useGameStore((state) => state.gameMessages);
   const floatingMessages = useGameStore((state) => state.floatingMessages);
   const playerStats = useGameStore((state) => state.playerStats);
@@ -197,10 +195,6 @@ export default function App(): JSX.Element {
         </div>
       </div>
 
-      <div id="connection-status" data-state={connectionState}>
-        {connectionText}
-      </div>
-
       <div id="floating-log-message-layer">
         {floatingMessages.map((entry, index) => (
           <div
@@ -254,6 +248,9 @@ export default function App(): JSX.Element {
         </div>
         <div className="nh3d-stats-group">
           <div className="nh3d-stats-secondary-ac">AC:{playerStats.armor}</div>
+          <div className="nh3d-stats-secondary-exp">
+            Exp:{playerStats.experience}
+          </div>
           <div className="nh3d-stats-secondary-gold">$:{playerStats.gold}</div>
           <div className="nh3d-stats-secondary-time">T:{playerStats.time}</div>
         </div>

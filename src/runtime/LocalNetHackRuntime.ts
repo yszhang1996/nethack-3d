@@ -1014,7 +1014,27 @@ class LocalNetHackRuntime {
             if (!moduleConfig.ENV) {
               moduleConfig.ENV = {};
             }
-            moduleConfig.ENV.NETHACKOPTIONS = "pickup_types:$,number_pad:1";
+            const runtimeOptions = [
+              // Input/menu behavior expected by the browser port.
+              "pickup_types:$",
+              "number_pad:1",
+              // Status tracking fields consumed by the HUD.
+              "time",
+              "showexp",
+              "showscore",
+              // Enable status highlight metadata in status callbacks.
+              "statushilites",
+            ];
+            const existingOptions =
+              typeof moduleConfig.ENV.NETHACKOPTIONS === "string"
+                ? moduleConfig.ENV.NETHACKOPTIONS.trim()
+                : "";
+            moduleConfig.ENV.NETHACKOPTIONS = existingOptions
+              ? `${existingOptions},${runtimeOptions.join(",")}`
+              : runtimeOptions.join(",");
+            console.log(
+              `Configured NETHACKOPTIONS: ${moduleConfig.ENV.NETHACKOPTIONS}`,
+            );
           },
         ],
         onRuntimeInitialized: async () => {
