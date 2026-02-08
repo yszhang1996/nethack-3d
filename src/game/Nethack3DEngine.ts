@@ -2303,6 +2303,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private parseGoldStatusValue(rawValue: string): number | null {
+    const clean = rawValue.trim();
+    if (!clean) {
+      return null;
+    }
+
+    // NetHack may encode gold as "\G....E:<amount>" for status rendering.
+    // In this format, the leading digits are metadata and the value after
+    // the trailing colon is the actual gold amount.
+    if (clean.startsWith("\\G")) {
+      const encodedAmountMatch = clean.match(/:(-?\d+)\s*$/);
+      if (encodedAmountMatch) {
+        return parseInt(encodedAmountMatch[1], 10);
+      }
+    }
+
+    const numericMatch = clean.match(/-?\d+/);
+    if (!numericMatch) {
+      return null;
+    }
+
+    return parseInt(numericMatch[0], 10);
+  }
+
   private updatePlayerStats(
     field: number,
     value: string | number | null,
@@ -2413,14 +2437,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
         parsedValue = value;
       } else {
         const clean = String(value).trim();
-        const match = clean.match(/^-?\d+/);
-        if (!match) {
-          console.log(
-            `Could not parse numeric status ${mappedField} from "${value}"`,
-          );
-          return;
+        if (mappedField === "gold") {
+          const parsedGold = this.parseGoldStatusValue(clean);
+          if (parsedGold === null) {
+            console.log(`Could not parse gold status from "${value}"`);
+            return;
+          }
+          parsedValue = parsedGold;
+        } else {
+          const match = clean.match(/-?\d+/);
+          if (!match) {
+            console.log(
+              `Could not parse numeric status ${mappedField} from "${value}"`,
+            );
+            return;
+          }
+          parsedValue = parseInt(match[0], 10);
         }
-        parsedValue = parseInt(match[0], 10);
       }
     } else {
       parsedValue = String(value).trim();
