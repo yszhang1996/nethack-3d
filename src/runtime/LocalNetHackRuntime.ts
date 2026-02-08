@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { loadNethackFactory } from "./factory-loader";
+import { resolveRuntimeAssetUrl } from "./runtime-assets";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
@@ -1004,9 +1005,9 @@ class LocalNetHackRuntime {
       moduleConfig = {
         locateFile: (assetPath) => {
           if (assetPath.endsWith(".wasm")) {
-            return "nethack.wasm";
+            return resolveRuntimeAssetUrl("nethack.wasm");
           }
-          return assetPath;
+          return resolveRuntimeAssetUrl(assetPath);
         },
         preRun: [
           () => {

@@ -1,0 +1,87 @@
+export type NethackConnectionState =
+  | "disconnected"
+  | "starting"
+  | "running"
+  | "error";
+
+export type NethackMenuItem = {
+  text?: string;
+  accelerator?: string;
+  isCategory?: boolean;
+  glyph?: number;
+  glyphChar?: string;
+  [key: string]: unknown;
+};
+
+export type PlayerStatsSnapshot = {
+  name: string;
+  hp: number;
+  maxHp: number;
+  power: number;
+  maxPower: number;
+  level: number;
+  experience: number;
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+  armor: number;
+  dungeon: string;
+  dlevel: number;
+  gold: number;
+  alignment: string;
+  hunger: string;
+  encumbrance: string;
+  time: number;
+  score: number;
+};
+
+export type QuestionDialogState = {
+  text: string;
+  choices: string;
+  defaultChoice: string;
+  menuItems: NethackMenuItem[];
+  isPickupDialog: boolean;
+  selectedAccelerators: string[];
+};
+
+export type InfoMenuState = {
+  title: string;
+  lines: string[];
+};
+
+export type InventoryDialogState = {
+  visible: boolean;
+  items: NethackMenuItem[];
+};
+
+export interface Nethack3DEngineUIAdapter {
+  setStatus(status: string): void;
+  setConnectionStatus(status: string, state: NethackConnectionState): void;
+  setLoadingVisible(visible: boolean): void;
+  setGameMessages(messages: string[]): void;
+  pushFloatingMessage(message: string): void;
+  setPlayerStats(stats: PlayerStatsSnapshot): void;
+  setQuestion(state: QuestionDialogState | null): void;
+  setDirectionQuestion(question: string | null): void;
+  setInfoMenu(state: InfoMenuState | null): void;
+  setInventory(state: InventoryDialogState): void;
+  setPositionRequest(text: string | null): void;
+}
+
+export interface Nethack3DEngineController {
+  chooseDirection(directionKey: string): void;
+  chooseQuestionChoice(choice: string): void;
+  togglePickupChoice(accelerator: string): void;
+  confirmPickupChoices(): void;
+  cancelActivePrompt(): void;
+  closeInventoryDialog(): void;
+  closeInfoMenuDialog(): void;
+}
+
+export interface Nethack3DEngineOptions {
+  mountElement?: HTMLElement | null;
+  uiAdapter?: Nethack3DEngineUIAdapter | null;
+}

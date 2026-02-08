@@ -19,6 +19,14 @@ import type {
   TerrainSnapshot,
   TileMap,
 } from "./types";
+import type {
+  Nethack3DEngineController,
+  Nethack3DEngineOptions,
+  Nethack3DEngineUIAdapter,
+  NethackConnectionState,
+  PlayerStatsSnapshot,
+  QuestionDialogState,
+} from "./ui-types";
 
 type LightingGrid = {
   minX: number;
@@ -72,10 +80,12 @@ type TileRevealFadeState = {
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
-class Nethack3DEngine {
+class Nethack3DEngine implements Nethack3DEngineController {
   private renderer!: THREE.WebGLRenderer;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
+  private readonly mountElement: HTMLElement | null;
+  private readonly uiAdapter: Nethack3DEngineUIAdapter | null;
 
   private tileMap: TileMap = new Map();
   private glyphOverlayMap: GlyphOverlayMap = new Map();
@@ -104,6 +114,15 @@ class Nethack3DEngine {
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
+  private isInventoryDialogVisible: boolean = false;
+  private isInfoDialogVisible: boolean = false;
+  private activeQuestionText: string = "";
+  private activeQuestionChoices: string = "";
+  private activeQuestionDefaultChoice: string = "";
+  private activeQuestionMenuItems: any[] = [];
+  private activeQuestionIsPickupDialog: boolean = false;
+  private activePickupSelections: Set<string> = new Set();
+  private positionHideTimerId: number | null = null;
 
   // Player stats tracking
   private playerStats = {
@@ -643,7 +662,9 @@ class Nethack3DEngine {
     this.renderLightingOverlay(grid);
   }
 
-  constructor() {
+  constructor(options: Nethack3DEngineOptions = {}) {
+    this.mountElement = options.mountElement ?? null;
+    this.uiAdapter = options.uiAdapter ?? null;
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -675,7 +696,8 @@ class Nethack3DEngine {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    document.body.appendChild(this.renderer.domElement);
+    const host = this.mountElement ?? document.body;
+    host.appendChild(this.renderer.domElement);
     this.loadCameraSmoothingFromCSS();
 
     // --- Lighting ---
@@ -725,13 +747,18 @@ class Nethack3DEngine {
   }
 
   private initUI(): void {
-    // Use existing game log and status elements from HTML instead of creating new ones
+    if (this.uiAdapter) {
+      this.uiAdapter.setStatus("Starting local NetHack runtime...");
+      this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
+      this.uiAdapter.setLoadingVisible(true);
+      return;
+    }
+
     const statusElement = document.getElementById("game-status");
     if (statusElement) {
       statusElement.innerHTML = "Starting local NetHack runtime...";
     }
 
-    // Create connection status (smaller, top-right corner)
     const connStatus = document.createElement("div");
     connStatus.id = "connection-status";
     connStatus.setAttribute("data-state", "disconnected");
@@ -746,7 +773,7 @@ class Nethack3DEngine {
 
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
-    this.updateConnectionStatus("Starting", "#4444aa");
+    this.updateConnectionStatus("Starting", "starting");
 
     this.session = new WorkerRuntimeBridge((payload: RuntimeEvent) => {
       this.handleRuntimeEvent(payload);
@@ -754,19 +781,16 @@ class Nethack3DEngine {
 
     try {
       await this.session.start();
-      this.updateConnectionStatus("Running", "#00aa00");
+      this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
       this.addGameMessage("Local NetHack runtime started");
-
-      const loading = document.getElementById("loading");
-      if (loading) {
-        loading.classList.add("is-hidden");
-      }
+      this.setLoadingVisible(false);
     } catch (error) {
       console.error("Failed to start local NetHack runtime:", error);
-      this.updateConnectionStatus("Error", "#aa0000");
+      this.updateConnectionStatus("Error", "error");
       this.updateStatus("Failed to start local NetHack runtime");
       this.addGameMessage("Failed to start local NetHack runtime");
+      this.setLoadingVisible(true);
     }
   }
 
@@ -2117,10 +2141,14 @@ class Nethack3DEngine {
       this.gameMessages.pop();
     }
 
-    const logElement = document.getElementById("game-log");
-    if (logElement) {
-      logElement.innerHTML = this.gameMessages.join("<br>");
-      logElement.scrollTop = 0; // Keep newest messages at top
+    if (this.uiAdapter) {
+      this.uiAdapter.setGameMessages([...this.gameMessages]);
+    } else {
+      const logElement = document.getElementById("game-log");
+      if (logElement) {
+        logElement.innerHTML = this.gameMessages.join("<br>");
+        logElement.scrollTop = 0; // Keep newest messages at top
+      }
     }
 
     if (this.hasPlayerMovedOnce) {
@@ -2150,6 +2178,11 @@ class Nethack3DEngine {
   }
 
   private showFloatingGameMessage(message: string): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.pushFloatingMessage(message);
+      return;
+    }
+
     if (
       !this.floatingMessageLayer ||
       !document.body.contains(this.floatingMessageLayer)
@@ -2226,17 +2259,47 @@ class Nethack3DEngine {
   }
 
   private updateStatus(status: string): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.setStatus(status);
+      return;
+    }
+
     const statusElement = document.getElementById("game-status");
     if (statusElement) {
       statusElement.innerHTML = status;
     }
   }
 
-  private updateConnectionStatus(status: string, color: string): void {
+  private updateConnectionStatus(
+    status: string,
+    state: NethackConnectionState,
+  ): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.setConnectionStatus(status, state);
+      return;
+    }
+
     const connElement = document.getElementById("connection-status");
     if (connElement) {
       connElement.innerHTML = status;
-      connElement.setAttribute("data-state", status.toLowerCase());
+      connElement.setAttribute("data-state", state);
+    }
+  }
+
+  private setLoadingVisible(visible: boolean): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.setLoadingVisible(visible);
+      return;
+    }
+
+    const loading = document.getElementById("loading");
+    if (!loading) {
+      return;
+    }
+    if (visible) {
+      loading.classList.remove("is-hidden");
+    } else {
+      loading.classList.add("is-hidden");
     }
   }
 
@@ -2402,6 +2465,14 @@ class Nethack3DEngine {
   }
 
   private updateStatsDisplay(): void {
+    if (this.uiAdapter) {
+      const snapshot: PlayerStatsSnapshot = {
+        ...this.playerStats,
+      };
+      this.uiAdapter.setPlayerStats(snapshot);
+      return;
+    }
+
     // Update or create the stats bar
     let statsBar = document.getElementById("stats-bar");
     if (!statsBar) {
@@ -2497,6 +2568,14 @@ class Nethack3DEngine {
   }
 
   private updateInventoryDisplay(items: any[]): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.setInventory({
+        visible: this.isInventoryDialogVisible,
+        items: Array.isArray(this.currentInventory) ? [...this.currentInventory] : [],
+      });
+      return;
+    }
+
     // Update inventory display without showing a dialog
     // This is for informational inventory updates from NetHack
 
@@ -2541,6 +2620,20 @@ class Nethack3DEngine {
     defaultChoice: string,
     menuItems: any[],
   ): void {
+    this.activeQuestionText = question || "";
+    this.activeQuestionChoices = choices || "";
+    this.activeQuestionDefaultChoice = defaultChoice || "";
+    this.activeQuestionMenuItems = Array.isArray(menuItems) ? [...menuItems] : [];
+    this.activeQuestionIsPickupDialog =
+      this.activeQuestionMenuItems.length > 0 &&
+      this.isMultiSelectLootQuestion(this.activeQuestionText);
+    this.activePickupSelections.clear();
+
+    if (this.uiAdapter) {
+      this.syncQuestionDialogState();
+      return;
+    }
+
     // Temporarily disable automatic "?" expansion to debug menu issues
     // TODO: Re-enable with better logic later
     const needsExpansion = false;
@@ -2624,6 +2717,27 @@ class Nethack3DEngine {
 
     // Show the dialog
     questionDialog.classList.add("is-visible");
+  }
+
+  private syncQuestionDialogState(): void {
+    if (!this.uiAdapter) {
+      return;
+    }
+
+    if (!this.isInQuestion) {
+      this.uiAdapter.setQuestion(null);
+      return;
+    }
+
+    const state: QuestionDialogState = {
+      text: this.activeQuestionText,
+      choices: this.activeQuestionChoices,
+      defaultChoice: this.activeQuestionDefaultChoice,
+      menuItems: [...this.activeQuestionMenuItems],
+      isPickupDialog: this.activeQuestionIsPickupDialog,
+      selectedAccelerators: Array.from(this.activePickupSelections),
+    };
+    this.uiAdapter.setQuestion(state);
   }
 
   private parseQuestionChoices(question: string, choices: string): string[] {
@@ -2757,6 +2871,11 @@ class Nethack3DEngine {
     // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
 
+    if (this.uiAdapter) {
+      this.uiAdapter.setDirectionQuestion(question);
+      return;
+    }
+
     // Create or get direction dialog
     let directionDialog = document.getElementById("direction-dialog");
     if (!directionDialog) {
@@ -2820,6 +2939,11 @@ class Nethack3DEngine {
   private hideDirectionQuestion(): void {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false; // Clear general question state
+    if (this.uiAdapter) {
+      this.uiAdapter.setDirectionQuestion(null);
+      return;
+    }
+
     const directionDialog = document.getElementById("direction-dialog");
     if (directionDialog) {
       directionDialog.classList.remove("is-visible");
@@ -2827,6 +2951,15 @@ class Nethack3DEngine {
   }
 
   private showInfoMenuDialog(title: string, lines: string[]): void {
+    this.isInfoDialogVisible = true;
+    if (this.uiAdapter) {
+      this.uiAdapter.setInfoMenu({
+        title: title || "NetHack Information",
+        lines: lines && lines.length > 0 ? [...lines] : [],
+      });
+      return;
+    }
+
     let infoDialog = document.getElementById("info-menu-dialog");
     if (!infoDialog) {
       infoDialog = document.createElement("div");
@@ -2857,6 +2990,12 @@ class Nethack3DEngine {
   }
 
   private hideInfoMenuDialog(): void {
+    this.isInfoDialogVisible = false;
+    if (this.uiAdapter) {
+      this.uiAdapter.setInfoMenu(null);
+      return;
+    }
+
     const infoDialog = document.getElementById("info-menu-dialog");
     if (infoDialog) {
       infoDialog.classList.remove("is-visible");
@@ -2864,8 +3003,7 @@ class Nethack3DEngine {
   }
 
   private toggleInfoMenuDialog(): void {
-    const infoDialog = document.getElementById("info-menu-dialog");
-    if (infoDialog && infoDialog.classList.contains("is-visible")) {
+    if (this.isInfoDialogVisible) {
       this.hideInfoMenuDialog();
       return;
     }
@@ -2878,6 +3016,15 @@ class Nethack3DEngine {
   }
 
   private showInventoryDialog(): void {
+    this.isInventoryDialogVisible = true;
+    if (this.uiAdapter) {
+      this.uiAdapter.setInventory({
+        visible: true,
+        items: [...this.currentInventory],
+      });
+      return;
+    }
+
     // Create or get inventory dialog
     let inventoryDialog = document.getElementById("inventory-dialog");
     if (!inventoryDialog) {
@@ -2967,6 +3114,16 @@ class Nethack3DEngine {
   }
 
   private hideInventoryDialog(): void {
+    this.isInventoryDialogVisible = false;
+    if (this.uiAdapter) {
+      this.uiAdapter.setInventory({
+        visible: false,
+        items: [...this.currentInventory],
+      });
+      this.pendingInventoryDialog = false;
+      return;
+    }
+
     const inventoryDialog = document.getElementById("inventory-dialog");
     if (inventoryDialog) {
       inventoryDialog.classList.remove("is-visible");
@@ -2976,6 +3133,19 @@ class Nethack3DEngine {
   }
 
   private showPositionRequest(text: string): void {
+    if (this.positionHideTimerId !== null) {
+      window.clearTimeout(this.positionHideTimerId);
+      this.positionHideTimerId = null;
+    }
+
+    if (this.uiAdapter) {
+      this.uiAdapter.setPositionRequest(text);
+      this.positionHideTimerId = window.setTimeout(() => {
+        this.uiAdapter?.setPositionRequest(null);
+      }, 3000);
+      return;
+    }
+
     // Create or get position dialog
     let posDialog = document.getElementById("position-dialog");
     if (!posDialog) {
@@ -2988,7 +3158,7 @@ class Nethack3DEngine {
     posDialog.classList.add("is-visible");
 
     // Auto-hide after 3 seconds
-    setTimeout(() => {
+    this.positionHideTimerId = window.setTimeout(() => {
       if (posDialog) {
         posDialog.classList.remove("is-visible");
       }
@@ -3049,6 +3219,18 @@ class Nethack3DEngine {
 
   private hideQuestion(): void {
     this.isInQuestion = false; // Clear general question state
+    this.activeQuestionText = "";
+    this.activeQuestionChoices = "";
+    this.activeQuestionDefaultChoice = "";
+    this.activeQuestionMenuItems = [];
+    this.activeQuestionIsPickupDialog = false;
+    this.activePickupSelections.clear();
+
+    if (this.uiAdapter) {
+      this.uiAdapter.setQuestion(null);
+      return;
+    }
+
     const questionDialog = document.getElementById("question-dialog");
     if (questionDialog) {
       questionDialog.classList.remove("is-visible");
@@ -3202,6 +3384,102 @@ class Nethack3DEngine {
     });
   }
 
+  private findActiveMenuItemByAccelerator(input: string): any | null {
+    if (typeof input !== "string" || input.length === 0) {
+      return null;
+    }
+
+    const exact = this.activeQuestionMenuItems.find(
+      (item) => item && !item.isCategory && item.accelerator === input,
+    );
+    if (exact) {
+      return exact;
+    }
+
+    const lower = input.toLowerCase();
+    return (
+      this.activeQuestionMenuItems.find((item) => {
+        if (!item || item.isCategory || typeof item.accelerator !== "string") {
+          return false;
+        }
+        return item.accelerator.toLowerCase() === lower;
+      }) ?? null
+    );
+  }
+
+  private togglePickupSelection(
+    accelerator: string,
+    shouldSendInput: boolean,
+  ): void {
+    if (this.activePickupSelections.has(accelerator)) {
+      this.activePickupSelections.delete(accelerator);
+    } else {
+      this.activePickupSelections.add(accelerator);
+    }
+
+    if (shouldSendInput) {
+      this.sendInput(accelerator);
+    }
+    this.syncQuestionDialogState();
+  }
+
+  public chooseDirection(directionKey: string): void {
+    if (!this.isInDirectionQuestion || !directionKey) {
+      return;
+    }
+    this.sendInput(directionKey);
+    this.hideDirectionQuestion();
+  }
+
+  public chooseQuestionChoice(choice: string): void {
+    if (!this.isInQuestion || !choice) {
+      return;
+    }
+
+    if (this.activeQuestionIsPickupDialog) {
+      this.togglePickupSelection(choice, true);
+      return;
+    }
+
+    this.sendInput(choice);
+    this.hideQuestion();
+  }
+
+  public togglePickupChoice(accelerator: string): void {
+    if (!this.isInQuestion || !this.activeQuestionIsPickupDialog) {
+      return;
+    }
+    const menuItem = this.findActiveMenuItemByAccelerator(accelerator);
+    if (!menuItem || typeof menuItem.accelerator !== "string") {
+      return;
+    }
+    this.togglePickupSelection(menuItem.accelerator, true);
+  }
+
+  public confirmPickupChoices(): void {
+    if (!this.isInQuestion || !this.activeQuestionIsPickupDialog) {
+      return;
+    }
+    this.sendInput("Enter");
+    this.hideQuestion();
+  }
+
+  public cancelActivePrompt(): void {
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      this.sendInput("Escape");
+    }
+    this.hideQuestion();
+    this.hideDirectionQuestion();
+  }
+
+  public closeInventoryDialog(): void {
+    this.hideInventoryDialog();
+  }
+
+  public closeInfoMenuDialog(): void {
+    this.hideInfoMenuDialog();
+  }
+
   private sendInput(input: string): void {
     if (
       !this.hasPlayerMovedOnce &&
@@ -3336,14 +3614,22 @@ class Nethack3DEngine {
 
     // Handle escape key to close dialogs
     if (event.key === "Escape") {
-      // Check if inventory dialog is open and close it
+      if (this.isInventoryDialogVisible) {
+        this.hideInventoryDialog();
+        return;
+      }
+
+      if (this.isInfoDialogVisible) {
+        this.hideInfoMenuDialog();
+        return;
+      }
+
       const inventoryDialog = document.getElementById("inventory-dialog");
       if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
         this.hideInventoryDialog();
         return;
       }
 
-      // Check if info dialog is open and close it
       const infoDialog = document.getElementById("info-menu-dialog");
       if (infoDialog && infoDialog.classList.contains("is-visible")) {
         this.hideInfoMenuDialog();
@@ -3362,6 +3648,9 @@ class Nethack3DEngine {
       const posDialog = document.getElementById("position-dialog");
       if (posDialog) {
         posDialog.classList.remove("is-visible");
+      }
+      if (this.uiAdapter) {
+        this.uiAdapter.setPositionRequest(null);
       }
       // Clear question states when escape is pressed
       this.isInQuestion = false;
@@ -3422,13 +3711,18 @@ class Nethack3DEngine {
     ) {
       event.preventDefault();
       this.hideInfoMenuDialog();
-
-      // Check if inventory dialog is already open
-      const inventoryDialog = document.getElementById("inventory-dialog");
-      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
+      if (this.isInventoryDialogVisible) {
         console.log("📦 Closing inventory dialog");
         this.hideInventoryDialog();
       } else {
+        const inventoryDialog = document.getElementById("inventory-dialog");
+        if (
+          inventoryDialog &&
+          inventoryDialog.classList.contains("is-visible")
+        ) {
+          this.hideInventoryDialog();
+          return;
+        }
         // If we already have inventory data, show it immediately
         if (this.currentInventory && this.currentInventory.length > 0) {
           console.log("📦 Showing inventory dialog with existing data");
@@ -3599,9 +3893,14 @@ class Nethack3DEngine {
         return; // Don't send other keys when in direction question mode
       }
 
+      const isPickupDialog = this.uiAdapter
+        ? this.activeQuestionIsPickupDialog
+        : Boolean(
+            (document.getElementById("question-dialog") as any)?.isPickupDialog,
+          );
+
       // For other questions, handle pickup dialogs specially
-      const questionDialog = document.getElementById("question-dialog");
-      if (questionDialog && (questionDialog as any).isPickupDialog) {
+      if (isPickupDialog) {
         // This is a pickup dialog - handle multi-selection
         if (event.key === "Enter") {
           // Confirm pickup and close dialog
@@ -3613,23 +3912,32 @@ class Nethack3DEngine {
           this.hideQuestion();
         } else {
           // Toggle item selection - find matching item and toggle it
-          const menuItems = (questionDialog as any).menuItems || [];
+          const menuItems = this.uiAdapter
+            ? this.activeQuestionMenuItems
+            : (document.getElementById("question-dialog") as any)?.menuItems ||
+              [];
           const matchingItem = menuItems.find(
             (item: any) => item.accelerator === event.key && !item.isCategory,
           );
 
           if (matchingItem) {
-            // Find the corresponding item container and toggle it
-            const containers =
-              questionDialog.querySelectorAll(".nh3d-pickup-item");
-            containers.forEach((container: Element) => {
-              if (
-                (container as any).accelerator === event.key &&
-                (container as any).toggleItem
-              ) {
-                (container as any).toggleItem();
+            if (this.uiAdapter) {
+              this.togglePickupChoice(event.key);
+            } else {
+              const questionDialog = document.getElementById("question-dialog");
+              if (questionDialog) {
+                const containers =
+                  questionDialog.querySelectorAll(".nh3d-pickup-item");
+                containers.forEach((container: Element) => {
+                  if (
+                    (container as any).accelerator === event.key &&
+                    (container as any).toggleItem
+                  ) {
+                    (container as any).toggleItem();
+                  }
+                });
               }
-            });
+            }
           } else {
             // Send the key anyway in case it's a valid NetHack command
             this.sendInput(event.key);
@@ -3845,3 +4153,4 @@ class Nethack3DEngine {
 }
 
 export default Nethack3DEngine;
+

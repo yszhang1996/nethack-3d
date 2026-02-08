@@ -5,9 +5,8 @@ Play here: https://jamesiv4.github.io/nethack-3d/
 ## Run locally
 
 1. `npm i`
-2. `npm run build`
-3. `npm start`
-4. Open `http://localhost:3000/`
+2. `npm run dev`
+3. Open `http://localhost:5173/`
 
 ## GitHub Pages Deploy
 
@@ -19,16 +18,13 @@ Play here: https://jamesiv4.github.io/nethack-3d/
 4. Push to `main` (or run the workflow manually).
 
 The workflow builds the app and deploys the `public/` folder, including:
-
-- `app.js`
-- `runtime-worker.js`
-- `nethack.js`
-- `nethack.wasm`
-- `index.html`
+The workflow builds the app with Vite and deploys the `dist/` folder.
 
 ## Architecture
 
-- Main app bootstrap: `src/app.ts`
+- Main app bootstrap/debug helpers: `src/app.ts`
+- React entry: `src/main.tsx`
+- React UI shell: `src/ui/App.tsx`
 - 3D engine and UI: `src/game/Nethack3DEngine.ts`
 - Glyph catalog + resolver: `src/game/glyphs/*`
 - Runtime worker bridge: `src/runtime/WorkerRuntimeBridge.ts`

@@ -1,8 +1,10 @@
 # Project Structure Steering
 
 ## Top-Level Layout
-- `server.js`: static file server for development hosting.
-- `src/app.ts`: app bootstrap + debug helpers.
+- `index.html`: Vite HTML entry.
+- `src/main.tsx`: React app entry.
+- `src/ui/App.tsx`: React UI shell (hooks + Zustand).
+- `src/app.ts`: debug helper registration.
 - `src/game/Nethack3DEngine.ts`: browser-side 3D engine and UI controller.
 - `src/game/glyphs/behavior.ts`: centralized glyph-to-render behavior rules.
 - `src/game/glyphs/registry.ts`: glyph catalog lookup/resolution helpers.
@@ -13,20 +15,19 @@
 - `src/runtime/factory-loader.ts`: loads `public/nethack.js` factory in main/worker contexts.
 - `scripts/glyphs/generate-glyph-catalog.mjs`: regenerates glyph catalog from runtime artifacts.
 - `scripts/glyphs/check-glyph-catalog.mjs`: verifies catalog is not stale.
-- `public/index.html`: static shell and mount points.
 - `public/nethack.js`, `public/nethack.wasm`: NetHack runtime artifacts.
-- `public/app.js`, `public/runtime-worker.js`: build outputs.
 - `package.json`: build/start scripts.
 
 ## Build And Run
 - Install deps: `npm i`.
 - Check glyph catalog freshness: `npm run glyphs:check`.
 - Regenerate glyph catalog when runtime changes: `npm run glyphs:generate`.
+- Start dev host: `npm run dev`.
 - Build bundles: `npm run build`.
-- Start dev host: `npm start`.
+- Preview production build: `npm run preview`.
 
 ## Runtime Architecture
-1. `src/app.ts` creates `Nethack3DEngine`.
+1. `src/main.tsx` mounts React and creates `Nethack3DEngine`.
 2. Engine creates `WorkerRuntimeBridge`.
 3. Bridge starts `public/runtime-worker.js`.
 4. Worker creates `LocalNetHackRuntime`.

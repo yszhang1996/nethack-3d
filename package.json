@@ -1,14 +1,13 @@
 {
   "name": "nethack3d",
   "version": "1.0.0",
-  "main": "server.js",
   "scripts": {
-    "build:styles": "npx sass src/styles/app.scss public/styles.css --no-source-map",
-    "build": "npm run build:styles && npx esbuild src/app.ts --outfile=public/app.js --format=esm --bundle --alias:three=./three.module.js --external:./three.module.js --external:./three.core.js --platform=browser --target=es2020 && npx esbuild src/runtime/runtime-worker.ts --outfile=public/runtime-worker.js --bundle --platform=browser --target=es2020",
+    "build": "vite build",
+    "dev": "vite",
     "glyphs:generate": "node scripts/glyphs/generate-glyph-catalog.mjs",
     "glyphs:check": "node scripts/glyphs/check-glyph-catalog.mjs",
-    "start": "node server.js",
-    "dev": "node server.js",
+    "start": "vite preview",
+    "preview": "vite preview",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -18,12 +17,17 @@
   "dependencies": {
     "@neth4ck/neth4ck": "^1.0.4",
     "@types/three": "^0.178.1",
-    "esbuild": "^0.25.8",
-    "express": "^4.18.2",
-    "node-fetch": "^3.3.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "sass": "^1.94.0",
     "three": "^0.178.0",
+    "zustand": "^5.0.8"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.5.0",
     "typescript": "^5.8.3",
-    "ws": "^8.14.2"
+    "vite": "^5.4.10"
   }
 }
