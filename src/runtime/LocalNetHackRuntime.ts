@@ -49,6 +49,7 @@ class LocalNetHackRuntime {
     this.lastInputTime = 0;
     this.inputCooldown = 100; // 100ms cooldown
     this.metaInputPrefix = "__META__:";
+    this.extendedCommandEntries = null;
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -776,6 +777,341 @@ class LocalNetHackRuntime {
     );
   }
 
+  consumeQueuedExtendedCommandInput() {
+    let commandText = "";
+
+    while (this.queuedInputs.length > 0) {
+      const nextInput = this.queuedInputs.shift();
+      if (nextInput === undefined || nextInput === null) {
+        continue;
+      }
+
+      if (nextInput === "Escape") {
+        return null;
+      }
+      if (
+        nextInput === "Enter" ||
+        nextInput === "\r" ||
+        nextInput === "\n"
+      ) {
+        break;
+      }
+      if (nextInput === "Backspace") {
+        commandText = commandText.slice(0, -1);
+        continue;
+      }
+
+      let token = null;
+      if (
+        typeof nextInput === "string" &&
+        nextInput.startsWith(this.metaInputPrefix) &&
+        nextInput.length > this.metaInputPrefix.length
+      ) {
+        token = nextInput.slice(this.metaInputPrefix.length).charAt(0);
+      } else if (typeof nextInput === "string" && nextInput.length === 1) {
+        token = nextInput;
+      } else {
+        // Preserve non-command input for the normal callback path.
+        this.queuedInputs.unshift(nextInput);
+        break;
+      }
+
+      if (!token || token === "#") {
+        continue;
+      }
+      if (/^[A-Za-z0-9_?-]$/.test(token)) {
+        commandText += token.toLowerCase();
+        continue;
+      }
+
+      // Preserve unexpected input for regular processing.
+      this.queuedInputs.unshift(nextInput);
+      break;
+    }
+
+    return commandText;
+  }
+
+  resolveExtendedCommandIndex(commandText) {
+    const normalized = String(commandText || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^#+/, "");
+    if (!normalized) {
+      return -1;
+    }
+
+    const entries = this.getExtendedCommandEntries();
+    if (!entries.length) {
+      return -1;
+    }
+
+    const exact = entries.find((entry) => entry.name === normalized);
+    if (exact) {
+      return exact.index;
+    }
+
+    const prefixMatches = entries.filter((entry) =>
+      entry.name.startsWith(normalized),
+    );
+    if (prefixMatches.length === 1) {
+      return prefixMatches[0].index;
+    }
+
+    return -1;
+  }
+
+  getExtendedCommandEntries() {
+    if (
+      Array.isArray(this.extendedCommandEntries) &&
+      this.extendedCommandEntries.length > 0
+    ) {
+      return this.extendedCommandEntries;
+    }
+
+    const extracted = this.extractExtendedCommandEntriesFromMemory();
+    if (extracted.length > 0) {
+      this.extendedCommandEntries = extracted;
+      return extracted;
+    }
+
+    this.extendedCommandEntries = this.getFallbackExtendedCommandEntries();
+    return this.extendedCommandEntries;
+  }
+
+  extractExtendedCommandEntriesFromMemory() {
+    if (
+      !this.nethackModule ||
+      !this.nethackModule.HEAPU8 ||
+      !this.nethackModule.HEAP32
+    ) {
+      return [];
+    }
+
+    const heapU8 = this.nethackModule.HEAPU8;
+    const candidateStrides = [24, 20];
+
+    for (const stride of candidateStrides) {
+      const flagsOffset = stride === 24 ? 16 : 12;
+      const maxBase = heapU8.length - stride;
+      for (let base = 0; base <= maxBase; base += 4) {
+        if (heapU8[base] !== "#".charCodeAt(0)) {
+          continue;
+        }
+
+        const textPtr = this.nethackModule.HEAP32[(base + 4) >> 2];
+        if (this.readHeapCString(textPtr, 4) !== "#") {
+          continue;
+        }
+
+        const descPtr = this.nethackModule.HEAP32[(base + 8) >> 2];
+        if (
+          this.readHeapCString(descPtr, 64) !==
+          "perform an extended command"
+        ) {
+          continue;
+        }
+
+        const entries = this.readExtendedCommandEntriesFromBase(
+          base,
+          stride,
+          flagsOffset,
+        );
+        if (
+          entries.length >= 20 &&
+          entries[0].name === "#" &&
+          entries.some((entry) => entry.name === "pray") &&
+          entries.some((entry) => entry.name === "chat")
+        ) {
+          console.log(
+            `Resolved extended command table from WASM memory (${entries.length} entries, stride=${stride}, base=${base})`,
+          );
+          return entries;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  readExtendedCommandEntriesFromBase(base, stride, flagsOffset) {
+    if (
+      !this.nethackModule ||
+      !this.nethackModule.HEAPU8 ||
+      !this.nethackModule.HEAP32
+    ) {
+      return [];
+    }
+
+    const heapU8 = this.nethackModule.HEAPU8;
+    const heap32 = this.nethackModule.HEAP32;
+    const entries = [];
+
+    for (let index = 0; index < 256; index++) {
+      const offset = base + index * stride;
+      if (offset + stride > heapU8.length) {
+        break;
+      }
+
+      const textPtr = heap32[(offset + 4) >> 2];
+      if (!Number.isInteger(textPtr) || textPtr <= 0) {
+        break;
+      }
+
+      const name = this.readHeapCString(textPtr, 64);
+      if (!this.isLikelyExtendedCommandName(name)) {
+        if (index === 0) {
+          return [];
+        }
+        break;
+      }
+
+      const flags = heap32[(offset + flagsOffset) >> 2];
+      entries.push({
+        index,
+        name: name.toLowerCase(),
+        flags: Number.isInteger(flags) ? flags : 0,
+      });
+    }
+
+    return entries;
+  }
+
+  readHeapCString(ptr, maxLength = 128) {
+    if (
+      !this.nethackModule ||
+      !this.nethackModule.HEAPU8 ||
+      !Number.isInteger(ptr) ||
+      ptr <= 0
+    ) {
+      return "";
+    }
+
+    const heap = this.nethackModule.HEAPU8;
+    if (ptr >= heap.length) {
+      return "";
+    }
+
+    const end = Math.min(heap.length, ptr + maxLength);
+    let text = "";
+    for (let i = ptr; i < end; i++) {
+      const code = heap[i];
+      if (code === 0) {
+        break;
+      }
+      if (code < 32 || code > 126) {
+        return "";
+      }
+      text += String.fromCharCode(code);
+    }
+    return text;
+  }
+
+  isLikelyExtendedCommandName(name) {
+    return (
+      typeof name === "string" &&
+      name.length > 0 &&
+      name.length <= 32 &&
+      /^[A-Za-z0-9_?#-]+$/.test(name)
+    );
+  }
+
+  getFallbackExtendedCommandEntries() {
+    const fallbackNames = [
+      "#",
+      "?",
+      "adjust",
+      "annotate",
+      "apply",
+      "attributes",
+      "autopickup",
+      "call",
+      "cast",
+      "chat",
+      "close",
+      "conduct",
+      "dip",
+      "drop",
+      "droptype",
+      "eat",
+      "engrave",
+      "enhance",
+      "explode",
+      "fight",
+      "fire",
+      "force",
+      "getpos",
+      "glance",
+      "history",
+      "invoke",
+      "jump",
+      "kick",
+      "known",
+      "knownclass",
+      "look",
+      "loot",
+      "monster",
+      "monsters",
+      "name",
+      "namefloor",
+      "offer",
+      "open",
+      "options",
+      "overview",
+      "pay",
+      "pickup",
+      "pray",
+      "prevmsg",
+      "puton",
+      "quaff",
+      "quit",
+      "quiver",
+      "read",
+      "redraw",
+      "remove",
+      "ride",
+      "rub",
+      "seeall",
+      "seeamulet",
+      "seegold",
+      "seeinv",
+      "seespells",
+      "semicolon",
+      "set",
+      "shell",
+      "sit",
+      "spells",
+      "takeoff",
+      "takeoffall",
+      "teleport",
+      "terrain",
+      "throw",
+      "tip",
+      "travel",
+      "turn",
+      "twoweapon",
+      "untrap",
+      "version",
+      "versionshort",
+      "wield",
+      "wipe",
+      "wear",
+      "whatdoes",
+      "whatis",
+      "wieldquiver",
+      "zap",
+    ];
+
+    console.log(
+      `Using fallback extended command table (${fallbackNames.length} entries)`,
+    );
+    return fallbackNames.map((name, index) => ({
+      index,
+      name,
+      flags: 0,
+    }));
+  }
+
   getStatusFieldName(field) {
     const fallback = {
       0: "BL_TITLE",
@@ -1198,6 +1534,11 @@ class LocalNetHackRuntime {
             if (moduleConfig.js_helpers_init) {
               moduleConfig.js_helpers_init();
             }
+
+            // NetHack's generated helper may reject "v" (void) arg types in
+            // local_callback argument decoding (observed in shim_get_ext_cmd).
+            // Treat those as a no-op value to avoid worker crashes.
+            this.installHelperCompatibilityShims();
           } catch (error) {
             console.error("Error setting up local NetHack runtime:", error);
           }
@@ -1210,6 +1551,32 @@ class LocalNetHackRuntime {
       throw error;
     }
   }
+
+  installHelperCompatibilityShims() {
+    if (
+      !globalThis.nethackGlobal ||
+      !globalThis.nethackGlobal.helpers ||
+      typeof globalThis.nethackGlobal.helpers.getPointerValue !== "function"
+    ) {
+      return;
+    }
+
+    const helpers = globalThis.nethackGlobal.helpers;
+    const existing = helpers.getPointerValue;
+    if (existing && existing.__nh3dVoidCompatPatched) {
+      return;
+    }
+
+    const wrapped = (name, ptr, type) => {
+      if (type === "v") {
+        return 0;
+      }
+      return existing(name, ptr, type);
+    };
+    wrapped.__nh3dVoidCompatPatched = true;
+    helpers.getPointerValue = wrapped;
+  }
+
   handleUICallback(name, args) {
     if (this.isClosed) {
       return 0;
@@ -1271,6 +1638,31 @@ class LocalNetHackRuntime {
           this.waitingForInput = true;
           // No timeout - wait for real user input via runtime bridge
         });
+
+      case "shim_get_ext_cmd":
+        const extCommandText = this.consumeQueuedExtendedCommandInput();
+        if (extCommandText === null) {
+          console.log("Extended command cancelled before submission");
+          return -1;
+        }
+
+        if (!extCommandText) {
+          console.log("Extended command submission was empty");
+          return -1;
+        }
+
+        const extCommandIndex = this.resolveExtendedCommandIndex(extCommandText);
+        if (extCommandIndex < 0) {
+          console.log(
+            `Unknown extended command "${extCommandText}" (canceling command)`,
+          );
+          return -1;
+        }
+
+        console.log(
+          `Resolved extended command "${extCommandText}" to index ${extCommandIndex}`,
+        );
+        return extCommandIndex;
 
       case "shim_yn_function":
         const [question, choices, defaultChoice] = args;
