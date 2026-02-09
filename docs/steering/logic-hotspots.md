@@ -22,16 +22,26 @@ Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
 
 ## If You Need To Change Input Or Menus
 - Browser key mapping and question gating: `src/game/Nethack3DEngine.ts` (`handleKeyDown`).
-- Runtime input staging and async resolver logic: `src/runtime/LocalNetHackRuntime.ts`.
+- Runtime input broker implementation: `src/runtime/input/RuntimeInputBroker.ts`.
+- Runtime key normalization + enqueue path: `handleClientInput` in `src/runtime/LocalNetHackRuntime.ts`.
+- Runtime consume path: `requestInputCode`, `consumeInputResult` in `src/runtime/LocalNetHackRuntime.ts`.
+- Runtime callback-kind token targeting (`targetKinds`) should be preserved for
+  synthetic/meta/menu key sequences.
 - Key callbacks:
-  - `shim_get_nh_event`
-  - `shim_yn_function`
-  - `shim_nh_poskey`
+  - `handleShimGetNhEvent`
+  - `handleShimYnFunction`
+  - `handleShimNhPoskey`
 - Menu callbacks:
   - `shim_start_menu`
   - `shim_add_menu`
   - `shim_end_menu`
   - `shim_select_menu`
+- Menu waiter isolation state:
+  - `pendingMenuSelection`
+  - `menuSelectionReadyCount`
+- Position/far-look state:
+  - `farLookMode` (`none | armed | active`)
+  - `position_input_state` / `position_cursor` emit paths
 
 ## If You Need To Change Inventory UX
 - Runtime inventory updates/questions are produced in `shim_end_menu` handling for window 4 (`src/runtime/LocalNetHackRuntime.ts`).
@@ -40,7 +50,10 @@ Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
   - UI display: `updateInventoryDisplay`, `showInventoryDialog`
 
 ## If You Need To Change Stats/HUD
-- Runtime status event and pointer decoding: `shim_status_update` (`src/runtime/LocalNetHackRuntime.ts`).
+- Runtime status decode and flush batching:
+  - `shim_status_update`
+  - `flushPendingStatusUpdates`
+  - `statusPending` / `latestStatusUpdates`
 - Engine field mapping/parsing: `updatePlayerStats`.
 - Rendering HUD bar: `updateStatsDisplay`.
 
@@ -56,6 +69,7 @@ Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
 ## Sanity Checklist For Agents
 - If changing worker protocol: verify both `src/runtime/*` and `src/game/*` compile logically.
 - If changing runtime artifacts (`public/nethack.js` or `public/nethack.wasm`): run `npm run glyphs:generate` and commit updated generated catalog.
-- If changing menus/input: confirm Esc, Enter, direction prompts, and inventory still work.
+- If changing menus/input: confirm Esc/Enter flow, direction prompts, inventory selection, and far-look transitions still work.
+- If changing broker behavior: ensure no callback bypasses `requestInputCode(...)` for key-consuming waits.
 - If changing tile logic: verify player tracking and map refresh (`Ctrl+T`, `Ctrl+R`) still function.
-- If changing status updates: verify numeric parsing and string fields do not regress.
+- If changing status updates: verify flush-trigger emission ordering and reconnect snapshot consistency.

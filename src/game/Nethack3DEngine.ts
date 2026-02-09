@@ -3903,6 +3903,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "End":
       case "PageUp":
       case "PageDown":
+      case "Numpad1":
+      case "Numpad2":
+      case "Numpad3":
+      case "Numpad4":
+      case "Numpad5":
+      case "Numpad6":
+      case "Numpad7":
+      case "Numpad8":
+      case "Numpad9":
         return true;
       default:
         return false;
@@ -4157,6 +4166,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else {
         this.sendInput(normalizedWaitKey);
       }
+      return;
+    }
+
+    // Preserve numpad intent in the runtime so movement digits are not
+    // conflated with top-row numeric count prefixes.
+    if (
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      event.code.startsWith("Numpad") &&
+      /^[1-9]$/.test(event.key)
+    ) {
+      event.preventDefault();
+      this.sendInput(`Numpad${event.key}`);
       return;
     }
 

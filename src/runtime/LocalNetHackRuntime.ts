@@ -1,5 +1,6 @@
 // @ts-nocheck
 import { loadNethackFactory } from "./factory-loader";
+import RuntimeInputBroker from "./input/RuntimeInputBroker";
 import { resolveRuntimeAssetUrl } from "./runtime-assets";
 
 const process =
@@ -25,31 +26,19 @@ class LocalNetHackRuntime {
     // Multi-pickup selection tracking
     this.menuSelections = new Map(); // Track selected items: key=menuChar, value={menuChar, originalAccelerator, menuIndex}
     this.isInMultiPickup = false;
-    this.waitingForMenuSelection = false;
-    this.menuSelectionResolver = null;
-    this.multiPickupReadyToConfirm = false;
-    this.pendingMenuListPtrPtr = 0;
-    this.queuedInputs = [];
-    this.queuedEventInputs = [];
-    this.queuedRawKeyCodes = [];
+    this.pendingMenuSelection = null;
+    this.menuSelectionReadyCount = null;
 
-    // Simplified input handling with async support
-    this.latestInput = null;
-    this.latestInputConsumedByResolver = false;
-    this.waitingForInput = false;
-    this.waitingForPosition = false;
-    this.inputResolver = null;
-    this.positionResolver = null;
+    this.inputBroker = new RuntimeInputBroker();
+    this.farLookMode = "none"; // none | armed | active
+    this.pendingTextResponses = [];
     this.positionInputActive = false;
     this.positionCursor = null;
-    this.farLookPendingActivation = false;
-    this.farLookSessionActive = false;
-
-    // Add cooldown for position requests
-    this.lastInputTime = 0;
-    this.inputCooldown = 100; // 100ms cooldown
+    this.activeInputRequest = null;
+    this.awaitingQuestionInput = false;
     this.metaInputPrefix = "__META__:";
     this.extendedCommandEntries = null;
+    this.statusPending = new Map();
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -142,21 +131,18 @@ class LocalNetHackRuntime {
       this.mapGlyphFlushTimer = null;
     }
     this.pendingMapGlyphs = [];
-    this.latestInput = null;
-    this.latestInputConsumedByResolver = false;
-    this.farLookPendingActivation = false;
-    this.farLookSessionActive = false;
+    this.inputBroker.drain();
+    this.pendingTextResponses = [];
+    this.farLookMode = "none";
     this.setPositionInputActive(false);
-    this.queuedInputs = [];
-    this.queuedEventInputs = [];
-    this.queuedRawKeyCodes = [];
+    this.activeInputRequest = null;
     this.menuSelections.clear();
+    this.awaitingQuestionInput = false;
 
-    if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-      const resolver = this.menuSelectionResolver;
-      this.waitingForMenuSelection = false;
-      this.menuSelectionResolver = null;
-      this.pendingMenuListPtrPtr = 0;
+    if (this.pendingMenuSelection && this.pendingMenuSelection.resolver) {
+      const resolver = this.pendingMenuSelection.resolver;
+      this.pendingMenuSelection = null;
+      this.menuSelectionReadyCount = null;
       try {
         resolver(0);
       } catch (error) {
@@ -164,27 +150,7 @@ class LocalNetHackRuntime {
       }
     }
 
-    if (this.waitingForInput && this.inputResolver) {
-      const resolver = this.inputResolver;
-      this.waitingForInput = false;
-      this.inputResolver = null;
-      try {
-        resolver(27); // Escape to unwind Asyncify waiters.
-      } catch (error) {
-        console.log("Input resolver shutdown error:", error);
-      }
-    }
-
-    if (this.waitingForPosition && this.positionResolver) {
-      const resolver = this.positionResolver;
-      this.waitingForPosition = false;
-      this.positionResolver = null;
-      try {
-        resolver(27); // Escape to unwind Asyncify waiters.
-      } catch (error) {
-        console.log("Position resolver shutdown error:", error);
-      }
-    }
+    this.inputBroker.cancelAll(27);
   }
 
   queueMapGlyphUpdate(tile) {
@@ -234,73 +200,22 @@ class LocalNetHackRuntime {
       return;
     }
 
-    console.log("🎮 Received client input sequence:", normalized);
+    console.log("Received client input sequence:", normalized);
     for (const input of normalized) {
-      this.enqueueInput(input);
-    }
-
-    this.lastInputTime = Date.now();
-    this.latestInput = null;
-    this.latestInputConsumedByResolver = false;
-
-    if (this.waitingForInput && this.inputResolver) {
-      const queuedInput = this.queuedInputs.shift();
-      if (queuedInput === undefined) {
-        return;
-      }
-      console.log(
-        "🎮 Resolving waiting input promise with queued sequence input:",
-        queuedInput,
-      );
-      this.waitingForInput = false;
-      const resolver = this.inputResolver;
-      this.inputResolver = null;
-      if (this.isPositionModeInitiatorInput(queuedInput)) {
-        this.farLookPendingActivation = true;
-        this.latestInput = null;
-        this.latestInputConsumedByResolver = false;
-        console.log("Queued far-look activation for next position request");
-      } else {
-        this.farLookPendingActivation = false;
-        this.latestInputConsumedByResolver = false;
-      }
-      resolver(this.processKey(queuedInput));
-      return;
-    }
-
-    if (this.waitingForPosition && this.positionResolver) {
-      const queuedInput = this.queuedInputs.shift();
-      if (queuedInput === undefined) {
-        return;
-      }
-      console.log(
-        "🎮 Resolving waiting position promise with queued sequence input:",
-        queuedInput,
-      );
-      this.waitingForPosition = false;
-      const resolver = this.positionResolver;
-      this.positionResolver = null;
-
-      if (this.isFarLookPositionRequest()) {
-        this.latestInput = null;
-        if (this.isFarLookExitInput(queuedInput)) {
-          this.farLookSessionActive = false;
-          this.farLookPendingActivation = false;
-          this.setPositionInputActive(false);
-        }
-      }
-
-      this.latestInputConsumedByResolver = false;
-      resolver(this.processKey(queuedInput));
+      this.handleClientInput(input, "synthetic");
     }
   }
 
   // Handle incoming input from the client
-  handleClientInput(input) {
+  handleClientInput(input, source = "user") {
     if (this.isClosed) {
       return;
     }
-    console.log("🎮 Received client input:", input);
+    if (typeof input !== "string" || input.length === 0) {
+      return;
+    }
+
+    console.log("Received client input:", input);
 
     if (this.isMetaInput(input)) {
       const metaKey = input.slice(this.metaInputPrefix.length).charAt(0);
@@ -314,201 +229,300 @@ class LocalNetHackRuntime {
         console.log(
           `Meta input Alt+${metaKey.toLowerCase()} mapped to extended command "${mappedExtCommand}"`,
         );
-        this.handleClientInputSequence([
-          "#",
-          ...mappedExtCommand.split(""),
-          "Enter",
-        ]);
+        this.enqueueInputKeys(
+          ["#", ...mappedExtCommand.split(""), "Enter"],
+          "meta",
+          ["event"],
+        );
         return;
       }
 
-      const escCode = 27;
-      const metaCharCode = metaKey.charCodeAt(0);
-      this.lastInputTime = Date.now();
-      this.latestInput = null;
-      this.latestInputConsumedByResolver = false;
-      this.farLookPendingActivation = false;
-
-      if (this.waitingForInput && this.inputResolver) {
-        console.log("Meta input routed to event resolver");
-        this.waitingForInput = false;
-        const resolver = this.inputResolver;
-        this.inputResolver = null;
-        this.enqueueRawKeyCode(metaCharCode);
-        resolver(escCode);
-        return;
-      }
-
-      this.enqueueRawKeyCode(escCode);
-      this.enqueueRawKeyCode(metaCharCode);
-
-      if (this.waitingForPosition && this.positionResolver) {
-        console.log("Meta input routed via position resolver with Escape");
-        this.waitingForPosition = false;
-        const resolver = this.positionResolver;
-        this.positionResolver = null;
-        resolver(this.queuedRawKeyCodes.shift());
-      }
+      this.enqueueInputKeys(["Escape", metaKey], "meta", ["event"]);
       return;
     }
 
-    // Store the input for potential reuse
-    this.latestInput = input;
-    this.lastInputTime = Date.now();
-    this.latestInputConsumedByResolver = false;
+    if (this.isLiteralTextInput(input)) {
+      this.pendingTextResponses.push(input);
+      console.log(`Queued text response input: "${input}"`);
+      return;
+    }
 
-    // Track single-selection menu inputs (e.g., container loot ':' option).
+    const normalizedInput = this.normalizeInputKey(input);
+
     if (
       !this.isInMultiPickup &&
-      this.waitingForInput &&
-      typeof input === "string" &&
-      input.length === 1 &&
+      this.awaitingQuestionInput &&
+      typeof normalizedInput === "string" &&
+      normalizedInput.length === 1 &&
       Array.isArray(this.currentMenuItems) &&
       this.currentMenuItems.length > 0
     ) {
       const menuItem = this.currentMenuItems.find(
-        (item) => item.accelerator === input && !item.isCategory,
+        (item) => item.accelerator === normalizedInput && !item.isCategory,
       );
       if (menuItem) {
         this.menuSelections.clear();
-        this.menuSelections.set(input, {
-          menuChar: input,
+        this.menuSelections.set(normalizedInput, {
+          menuChar: normalizedInput,
           originalAccelerator: menuItem.originalAccelerator,
           identifier: menuItem.identifier,
           menuIndex: menuItem.menuIndex,
           text: menuItem.text,
         });
         console.log(
-          `Recorded single menu selection: ${input} (${menuItem.text})`,
+          `Recorded single menu selection: ${normalizedInput} (${menuItem.text})`,
         );
       }
     }
 
-    // Track multi-pickup selections.
     if (
       this.isInMultiPickup &&
-      typeof input === "string" &&
-      input.length === 1 &&
-      input !== "\r" &&
-      input !== "\n"
+      typeof normalizedInput === "string" &&
+      normalizedInput.length === 1 &&
+      normalizedInput !== "\r" &&
+      normalizedInput !== "\n" &&
+      normalizedInput !== "Escape"
     ) {
       const menuItem = this.currentMenuItems.find(
-        (item) => item.accelerator === input && !item.isCategory,
+        (item) => item.accelerator === normalizedInput && !item.isCategory,
       );
       if (menuItem) {
-        if (this.menuSelections.has(input)) {
-          this.menuSelections.delete(input);
+        if (this.menuSelections.has(normalizedInput)) {
+          this.menuSelections.delete(normalizedInput);
           console.log(
-            `Deselected item: ${input} (${menuItem.text}). Current selections:`,
+            `Deselected item: ${normalizedInput} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys()),
           );
         } else {
-          this.menuSelections.set(input, {
-            menuChar: input,
+          this.menuSelections.set(normalizedInput, {
+            menuChar: normalizedInput,
             originalAccelerator: menuItem.originalAccelerator,
             identifier: menuItem.identifier,
             menuIndex: menuItem.menuIndex,
             text: menuItem.text,
           });
           console.log(
-            `Selected item: ${input} (${menuItem.text}). Current selections:`,
+            `Selected item: ${normalizedInput} (${menuItem.text}). Current selections:`,
             Array.from(this.menuSelections.keys()),
           );
         }
       } else {
-        console.log(`No menu item found for accelerator '${input}'`);
+        console.log(`No menu item found for accelerator '${normalizedInput}'`);
       }
       console.log("Multi-pickup item selection updated");
       return;
-    } else if (
+    }
+
+    if (
       this.isInMultiPickup &&
-      (input === "Enter" || input === "\r" || input === "\n")
+      (normalizedInput === "Enter" ||
+        normalizedInput === "\r" ||
+        normalizedInput === "\n")
     ) {
       const selectedItems = Array.from(this.menuSelections.values()).map(
         (item) => `${item.menuChar}:${item.text}`,
       );
       console.log("Confirming multi-pickup with selections:", selectedItems);
-
-      if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        this.waitingForMenuSelection = false;
-        const resolver = this.menuSelectionResolver;
-        this.menuSelectionResolver = null;
-        const menuListPtrPtr = this.pendingMenuListPtrPtr || 0;
-        this.pendingMenuListPtrPtr = 0;
-        const selectionCount = this.menuSelections.size;
-        this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
-        this.isInMultiPickup = false;
-        resolver(selectionCount);
-        return;
-      }
-
-      this.multiPickupReadyToConfirm = true;
-
-      if (this.waitingForInput && this.inputResolver) {
-        this.waitingForInput = false;
-        const resolver = this.inputResolver;
-        this.inputResolver = null;
-        resolver(this.processKey("Enter"));
-        return;
+      this.resolveMenuSelection(this.menuSelections.size);
+      if (this.inputBroker.hasPendingRequests("event")) {
+        this.enqueueInputKeys(["Enter"], source, ["event"]);
       }
       return;
-    } else if (this.isInMultiPickup && input === "Escape") {
+    }
+
+    if (this.isInMultiPickup && normalizedInput === "Escape") {
       this.menuSelections.clear();
-      this.multiPickupReadyToConfirm = false;
-
-      if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-        this.waitingForMenuSelection = false;
-        const resolver = this.menuSelectionResolver;
-        this.menuSelectionResolver = null;
-        const menuListPtrPtr = this.pendingMenuListPtrPtr || 0;
-        this.pendingMenuListPtrPtr = 0;
-        this.writeMenuSelectionResult(menuListPtrPtr, 0);
-        this.isInMultiPickup = false;
-        resolver(0);
-        return;
+      this.resolveMenuSelection(0);
+      if (this.inputBroker.hasPendingRequests("event")) {
+        this.enqueueInputKeys(["Escape"], source, ["event"]);
       }
-
-      this.isInMultiPickup = false;
-      return;
-    }
-    // If we're waiting for general input, resolve the promise immediately
-    if (this.waitingForInput && this.inputResolver) {
-      console.log("🎮 Resolving waiting input promise with:", input);
-      this.waitingForInput = false;
-      const resolver = this.inputResolver;
-      this.inputResolver = null;
-      if (this.isPositionModeInitiatorInput(input)) {
-        this.farLookPendingActivation = true;
-        this.latestInput = null;
-        this.latestInputConsumedByResolver = false;
-        console.log("Queued far-look activation for next position request");
-      } else {
-        this.farLookPendingActivation = false;
-        this.latestInputConsumedByResolver = false;
-      }
-      resolver(this.processKey(input));
       return;
     }
 
-    // If we're waiting for position input, resolve that promise
-    if (this.waitingForPosition && this.positionResolver) {
-      console.log("🎮 Resolving waiting position promise with:", input);
-      this.waitingForPosition = false;
-      const resolver = this.positionResolver;
-      this.positionResolver = null;
-      if (this.isFarLookPositionRequest()) {
-        // In far-look mode, each key should advance exactly one cursor step.
-        this.latestInput = null;
-      }
-      this.latestInputConsumedByResolver = false;
-      resolver(this.processKey(input));
-      return;
-    }
-
-    // Otherwise, just store for later use (for synchronous phases like character creation)
-    console.log("🎮 Storing input for later use:", input);
+    this.enqueueInputKeys([normalizedInput], source);
   }
 
+  enqueueInputKeys(keys, source = "user", targetKinds = "any") {
+    const now = Date.now();
+    const tokens = [];
+    for (const key of keys) {
+      if (typeof key !== "string" || key.length === 0) {
+        continue;
+      }
+      tokens.push({
+        key,
+        source,
+        createdAt: now,
+        targetKinds,
+      });
+    }
+    if (tokens.length > 0) {
+      this.inputBroker.enqueueTokens(tokens);
+    }
+  }
+
+  normalizeInputKey(input) {
+    if (input === "\r" || input === "\n") {
+      return "Enter";
+    }
+    return input;
+  }
+
+  isLiteralTextInput(input) {
+    if (typeof input !== "string" || input.length <= 1) {
+      return false;
+    }
+    if (this.isMetaInput(input)) {
+      return false;
+    }
+
+    const nonTextInputs = new Set([
+      "Enter",
+      "Escape",
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+      "Numpad1",
+      "Numpad2",
+      "Numpad3",
+      "Numpad4",
+      "Numpad5",
+      "Numpad6",
+      "Numpad7",
+      "Numpad8",
+      "Numpad9",
+      "NumpadDecimal",
+      "Backspace",
+      "Space",
+      "Spacebar",
+      "Tab",
+      "Insert",
+      "Delete",
+      "F1",
+      "F2",
+      "F3",
+      "F4",
+      "F5",
+      "F6",
+      "F7",
+      "F8",
+      "F9",
+      "F10",
+      "F11",
+      "F12",
+    ]);
+
+    return !nonTextInputs.has(input);
+  }
+
+  resolveMenuSelection(selectionCount) {
+    this.menuSelectionReadyCount = selectionCount;
+    this.isInMultiPickup = false;
+
+    if (
+      this.pendingMenuSelection &&
+      typeof this.pendingMenuSelection.resolver === "function"
+    ) {
+      const { resolver, menuListPtrPtr } = this.pendingMenuSelection;
+      this.pendingMenuSelection = null;
+      this.writeMenuSelectionResult(menuListPtrPtr || 0, selectionCount);
+      if (selectionCount <= 0) {
+        this.menuSelections.clear();
+      }
+      resolver(selectionCount);
+      this.menuSelectionReadyCount = null;
+      return;
+    }
+
+    if (selectionCount <= 0) {
+      this.menuSelections.clear();
+    }
+  }
+
+  consumeInputResult(result, requestKind) {
+    if (!result || result.cancelled) {
+      return typeof result?.cancelCode === "number" ? result.cancelCode : 27;
+    }
+
+    const token = result.token;
+    const key = token && typeof token.key === "string" ? token.key : "";
+    if (!key) {
+      return 0;
+    }
+
+    if (
+      requestKind === "event" &&
+      token &&
+      this.shouldRouteEventInputToPosition(key)
+    ) {
+      console.log(
+        `Routing directional input "${key}" from event callback to position callback`,
+      );
+      this.inputBroker.prependToken({
+        ...token,
+        targetKinds: ["position"],
+      });
+      return 0;
+    }
+
+    if (requestKind === "event") {
+      if (this.isPositionModeInitiatorInput(key)) {
+        this.farLookMode = "armed";
+      } else if (this.farLookMode === "armed") {
+        this.farLookMode = "none";
+      }
+    }
+
+    if (requestKind === "position" && this.farLookMode === "active") {
+      if (this.isFarLookExitInput(key)) {
+        this.farLookMode = "none";
+        this.setPositionInputActive(false);
+      }
+    }
+
+    return this.processKey(key);
+  }
+
+  requestInputCode(requestKind) {
+    if (this.activeInputRequest && this.activeInputRequest.promise) {
+      if (this.activeInputRequest.kind === requestKind) {
+        return this.activeInputRequest.promise;
+      }
+
+      console.log(
+        `Deferring ${requestKind} input request until pending ${this.activeInputRequest.kind} request completes`,
+      );
+      return this.activeInputRequest.promise.then(() =>
+        this.requestInputCode(requestKind),
+      );
+    }
+
+    const requested = this.inputBroker.requestNext(requestKind);
+    if (requested && typeof requested.then === "function") {
+      let pendingPromise = null;
+      pendingPromise = requested
+        .then((result) => this.consumeInputResult(result, requestKind))
+        .finally(() => {
+          if (
+            this.activeInputRequest &&
+            this.activeInputRequest.promise === pendingPromise
+          ) {
+            this.activeInputRequest = null;
+          }
+        });
+      this.activeInputRequest = {
+        kind: requestKind,
+        promise: pendingPromise,
+      };
+      return pendingPromise;
+    }
+    return this.consumeInputResult(requested, requestKind);
+  }
   // Handle request for tile update from client
   handleTileUpdateRequest(x, y) {
     if (this.isClosed) {
@@ -610,20 +624,6 @@ class LocalNetHackRuntime {
   // Helper method for key processing
   processKey(key) {
     if (
-      typeof key === "string" &&
-      key.startsWith(this.metaInputPrefix) &&
-      key.length > this.metaInputPrefix.length
-    ) {
-      const metaKey = key.slice(this.metaInputPrefix.length);
-      const primaryKey = metaKey.charAt(0);
-      if (!primaryKey) {
-        return 0;
-      }
-      this.enqueueRawKeyCode(primaryKey.charCodeAt(0));
-      return 27;
-    }
-
-    if (
       key === " " ||
       key === "Space" ||
       key === "Spacebar" ||
@@ -640,6 +640,15 @@ class LocalNetHackRuntime {
     if (key === "ArrowRight") return "6".charCodeAt(0);
     if (key === "ArrowUp") return "8".charCodeAt(0);
     if (key === "ArrowDown") return "2".charCodeAt(0);
+    if (key === "Numpad1") return "1".charCodeAt(0);
+    if (key === "Numpad2") return "2".charCodeAt(0);
+    if (key === "Numpad3") return "3".charCodeAt(0);
+    if (key === "Numpad4") return "4".charCodeAt(0);
+    if (key === "Numpad5") return "5".charCodeAt(0);
+    if (key === "Numpad6") return "6".charCodeAt(0);
+    if (key === "Numpad7") return "7".charCodeAt(0);
+    if (key === "Numpad8") return "8".charCodeAt(0);
+    if (key === "Numpad9") return "9".charCodeAt(0);
     if (key === "Enter") return 13;
     if (key === "Escape") return 27;
     if (key.length > 0) return key.charCodeAt(0);
@@ -695,7 +704,75 @@ class LocalNetHackRuntime {
   }
 
   isFarLookPositionRequest() {
-    return this.farLookSessionActive || this.farLookPendingActivation;
+    return this.farLookMode === "armed" || this.farLookMode === "active";
+  }
+
+  isDirectionalMovementInput(input) {
+    if (typeof input !== "string" || input.length === 0) {
+      return false;
+    }
+
+    if (input.length === 1) {
+      return (
+        input === "h" ||
+        input === "j" ||
+        input === "k" ||
+        input === "l" ||
+        input === "y" ||
+        input === "u" ||
+        input === "b" ||
+        input === "n" ||
+        input === "H" ||
+        input === "J" ||
+        input === "K" ||
+        input === "L" ||
+        input === "Y" ||
+        input === "U" ||
+        input === "B" ||
+        input === "N"
+      );
+    }
+
+    return (
+      input === "ArrowLeft" ||
+      input === "ArrowRight" ||
+      input === "ArrowUp" ||
+      input === "ArrowDown" ||
+      input === "Home" ||
+      input === "End" ||
+      input === "PageUp" ||
+      input === "PageDown" ||
+      input === "Numpad1" ||
+      input === "Numpad2" ||
+      input === "Numpad3" ||
+      input === "Numpad4" ||
+      input === "Numpad6" ||
+      input === "Numpad7" ||
+      input === "Numpad8" ||
+      input === "Numpad9"
+    );
+  }
+
+  shouldRouteEventInputToPosition(input) {
+    if (this.awaitingQuestionInput) {
+      return false;
+    }
+    if (this.isInMultiPickup) {
+      return false;
+    }
+    if (this.pendingMenuSelection) {
+      return false;
+    }
+    return this.isDirectionalMovementInput(input);
+  }
+
+  isFarLookExitInput(input) {
+    return (
+      input === "Escape" ||
+      input === "Enter" ||
+      input === "\r" ||
+      input === "\n"
+    );
   }
 
   isPrintableAccelerator(code) {
@@ -757,41 +834,16 @@ class LocalNetHackRuntime {
     );
   }
 
-  enqueueInput(input) {
-    if (input === undefined || input === null) {
-      return;
-    }
-    this.queuedInputs.push(input);
-    console.log(
-      `Queued synthetic input: ${input} (queue size=${this.queuedInputs.length})`,
-    );
-  }
-
-  enqueueEventInput(input) {
-    if (input === undefined || input === null) {
-      return;
-    }
-    this.queuedEventInputs.push(input);
-    console.log(
-      `Queued event-only input: ${input} (queue size=${this.queuedEventInputs.length})`,
-    );
-  }
-
-  enqueueRawKeyCode(code) {
-    if (typeof code !== "number") {
-      return;
-    }
-    this.queuedRawKeyCodes.push(code);
-    console.log(
-      `Queued raw keycode: ${code} (queue size=${this.queuedRawKeyCodes.length})`,
-    );
-  }
-
   consumeQueuedExtendedCommandInput() {
     let commandText = "";
 
-    while (this.queuedInputs.length > 0) {
-      const nextInput = this.queuedInputs.shift();
+    while (true) {
+      const nextToken = this.inputBroker.dequeueToken("event");
+      if (!nextToken) {
+        break;
+      }
+
+      const nextInput = nextToken.key;
       if (nextInput === undefined || nextInput === null) {
         continue;
       }
@@ -808,17 +860,11 @@ class LocalNetHackRuntime {
       }
 
       let token = null;
-      if (
-        typeof nextInput === "string" &&
-        nextInput.startsWith(this.metaInputPrefix) &&
-        nextInput.length > this.metaInputPrefix.length
-      ) {
-        token = nextInput.slice(this.metaInputPrefix.length).charAt(0);
-      } else if (typeof nextInput === "string" && nextInput.length === 1) {
+      if (typeof nextInput === "string" && nextInput.length === 1) {
         token = nextInput;
       } else {
         // Preserve non-command input for the normal callback path.
-        this.queuedInputs.unshift(nextInput);
+        this.inputBroker.prependToken(nextToken);
         break;
       }
 
@@ -831,7 +877,7 @@ class LocalNetHackRuntime {
       }
 
       // Preserve unexpected input for regular processing.
-      this.queuedInputs.unshift(nextInput);
+      this.inputBroker.prependToken(nextToken);
       break;
     }
 
@@ -1636,65 +1682,124 @@ class LocalNetHackRuntime {
     helpers.getPointerValue = wrapped;
   }
 
+  waitForQuestionInput() {
+    this.awaitingQuestionInput = true;
+    const requested = this.requestInputCode("event");
+    if (requested && typeof requested.then === "function") {
+      return requested.finally(() => {
+        this.awaitingQuestionInput = false;
+      });
+    }
+    this.awaitingQuestionInput = false;
+    return requested;
+  }
+
+  handleShimGetNhEvent() {
+    if (this.farLookMode === "active" || this.positionInputActive) {
+      // Keep get_nh_event non-blocking while position input drives command flow.
+      return 0;
+    }
+
+    const queuedEventToken = this.inputBroker.dequeueToken("event");
+    if (!queuedEventToken) {
+      // NetHack calls get_nh_event frequently as an event pump hook.
+      // Do not block Asyncify here; keyboard waits belong in nh_poskey/yn flows.
+      return 0;
+    }
+
+    return this.consumeInputResult(
+      {
+        requestKind: "event",
+        token: queuedEventToken,
+        cancelled: false,
+        cancelCode: null,
+        consumedFromQueue: true,
+      },
+      "event",
+    );
+  }
+
+  handleShimYnFunction(args) {
+    const [question, choices, defaultChoice] = args;
+    console.log(
+      `Y/N Question: "${question}" choices: "${choices}" default: ${defaultChoice}`,
+    );
+
+    this.lastQuestionText = question;
+
+    if (this.isContainerLootTypeQuestion(question)) {
+      console.log('Auto-answering container loot type question with "a"');
+      return this.processKey("a");
+    }
+
+    if (question && question.toLowerCase().includes("direction")) {
+      if (this.eventHandler) {
+        this.emit({
+          type: "direction_question",
+          text: question,
+          choices: choices,
+          default: defaultChoice,
+        });
+      }
+      return this.waitForQuestionInput();
+    }
+
+    if (this.eventHandler) {
+      this.emit({
+        type: "question",
+        text: question,
+        choices: choices,
+        default: defaultChoice,
+        menuItems: [],
+      });
+    }
+
+    return this.waitForQuestionInput();
+  }
+
+  handleShimNhPoskey(args) {
+    const [xPtr, yPtr, modPtr] = args;
+    void xPtr;
+    void yPtr;
+    void modPtr;
+    console.log("NetHack requesting position key");
+
+    if (this.farLookMode === "armed") {
+      this.farLookMode = "active";
+      this.setPositionInputActive(true);
+      if (!this.positionCursor) {
+        this.emitPositionCursor(
+          null,
+          this.playerPosition.x,
+          this.playerPosition.y,
+          "nh_poskey_start",
+        );
+      }
+    } else if (this.farLookMode === "active") {
+      this.setPositionInputActive(true);
+    } else {
+      this.setPositionInputActive(false);
+    }
+
+    return this.requestInputCode("position");
+  }
   handleUICallback(name, args) {
     if (this.isClosed) {
       return 0;
     }
     console.log(`🎮 UI Callback: ${name}`, args);
 
-    const processKey = (key) => {
-      return this.processKey(key);
+    const inputCallbackHandlers = {
+      shim_get_nh_event: () => this.handleShimGetNhEvent(),
+      shim_yn_function: () => this.handleShimYnFunction(args),
+      shim_nh_poskey: () => this.handleShimNhPoskey(args),
     };
+    const mappedInputHandler = inputCallbackHandlers[name];
+    if (mappedInputHandler) {
+      return mappedInputHandler();
+    }
 
     switch (name) {
-      case "shim_get_nh_event":
-        if (this.farLookSessionActive || this.positionInputActive) {
-          this.farLookSessionActive = false;
-          this.farLookPendingActivation = false;
-          this.setPositionInputActive(false);
-        }
-        if (this.queuedRawKeyCodes.length > 0) {
-          const rawCode = this.queuedRawKeyCodes.shift();
-          console.log(`Using queued raw keycode for event: ${rawCode}`);
-          return rawCode;
-        }
-        if (this.queuedEventInputs.length > 0) {
-          const queuedEvent = this.queuedEventInputs.shift();
-          console.log(`Using queued event-only input: ${queuedEvent}`);
-          return processKey(queuedEvent);
-        }
-
-        if (this.queuedInputs.length > 0) {
-          const queued = this.queuedInputs.shift();
-          console.log(`Using queued input for event: ${queued}`);
-          return processKey(queued);
-        }
-
-        // Check if we have recent input available (within input window)
-        const timeSinceInput = Date.now() - this.lastInputTime;
-        if (this.latestInput && timeSinceInput < this.inputCooldown) {
-          const input = this.latestInput;
-          this.latestInput = null; // Clear it after use
-          this.latestInputConsumedByResolver = false;
-          if (this.isPositionModeInitiatorInput(input)) {
-            this.farLookPendingActivation = true;
-          } else {
-            this.farLookPendingActivation = false;
-          }
-          console.log(
-            `🎮 Reusing recent input for event: ${input} (${timeSinceInput}ms ago)`,
-          );
-          return processKey(input);
-        }
-
-        // We're now in gameplay mode - use Asyncify to wait for real user input
-        console.log("🎮 Waiting for player input (async)...");
-        return new Promise((resolve) => {
-          this.inputResolver = resolve;
-          this.waitingForInput = true;
-          // No timeout - wait for real user input via runtime bridge
-        });
-
       case "shim_get_ext_cmd":
         const extCommandText = this.consumeQueuedExtendedCommandInput();
         if (extCommandText === null) {
@@ -1720,123 +1825,6 @@ class LocalNetHackRuntime {
           `Resolved extended command "${extCommandText}" to index ${extCommandIndex}`,
         );
         return extCommandIndex;
-
-      case "shim_yn_function":
-        const [question, choices, defaultChoice] = args;
-        console.log(
-          `🤔 Y/N Question: "${question}" choices: "${choices}" default: ${defaultChoice}`,
-        );
-
-        // Store the question text for potential menu expansion
-        this.lastQuestionText = question;
-
-        // Auto-select "all types" when looting containers.
-        if (this.isContainerLootTypeQuestion(question)) {
-          console.log('Auto-answering container loot type question with "a"');
-          return processKey("a");
-        }
-
-        // Check if this is a direction question that needs special handling
-        if (question && question.toLowerCase().includes("direction")) {
-          console.log(
-            "🧭 Direction question detected - waiting for user input",
-          );
-
-          // Send direction question to web client
-          if (this.eventHandler) {
-            this.emit({
-              type: "direction_question",
-              text: question,
-              choices: choices,
-              default: defaultChoice,
-            });
-          }
-
-          // Wait for actual user input for direction questions
-          console.log("🧭 Waiting for direction input (async)...");
-          return new Promise((resolve) => {
-            this.inputResolver = resolve;
-            this.waitingForInput = true;
-            // No timeout - wait for real user input via runtime bridge
-          });
-        }
-
-        // Send question to web client (don't include menu items for simple Y/N questions)
-        if (this.eventHandler) {
-          this.emit({
-            type: "question",
-            text: question,
-            choices: choices,
-            default: defaultChoice,
-            // Only include menuItems if this is actually a menu question, not a simple Y/N
-            menuItems: [],
-          });
-        }
-
-        // Wait for actual user input instead of returning default choice automatically
-        console.log("🤔 Y/N Question - waiting for user input (async)...");
-        return new Promise((resolve) => {
-          this.inputResolver = resolve;
-          this.waitingForInput = true;
-          // No timeout - wait for real user input via runtime bridge
-        });
-
-      case "shim_nh_poskey":
-        const [xPtr, yPtr, modPtr] = args;
-        console.log("🎮 NetHack requesting position key");
-        const farLookPositionRequest = this.isFarLookPositionRequest();
-        if (farLookPositionRequest) {
-          this.farLookSessionActive = true;
-          this.farLookPendingActivation = false;
-          this.setPositionInputActive(true);
-          if (!this.positionCursor) {
-            this.emitPositionCursor(
-              null,
-              this.playerPosition.x,
-              this.playerPosition.y,
-              "nh_poskey_start",
-            );
-          }
-        } else {
-          this.setPositionInputActive(false);
-        }
-
-        if (this.queuedRawKeyCodes.length > 0) {
-          const rawCode = this.queuedRawKeyCodes.shift();
-          console.log(`Using queued raw keycode for position: ${rawCode}`);
-          return rawCode;
-        }
-
-        if (this.queuedInputs.length > 0) {
-          const queued = this.queuedInputs.shift();
-          console.log(`Using queued input for position: ${queued}`);
-          return processKey(queued);
-        }
-
-        if (!farLookPositionRequest) {
-          // Preserve single-key movement behavior for the normal gameplay input path.
-          const timeSincePositionInput = Date.now() - this.lastInputTime;
-          if (
-            this.latestInput &&
-            !this.isMetaInput(this.latestInput) &&
-            timeSincePositionInput < this.inputCooldown
-          ) {
-            const input = this.latestInput;
-            // Don't clear it yet - let shim_get_nh_event potentially reuse it.
-            console.log(
-              `Using recent input for position: ${input} (${timeSincePositionInput}ms ago)`,
-            );
-            return processKey(input);
-          }
-        }
-
-        // We're now in gameplay mode - use Asyncify to wait for real user input
-        console.log("🎮 Waiting for position input (async)...");
-        return new Promise((resolve) => {
-          this.positionResolver = resolve;
-          this.waitingForPosition = true;
-          // No timeout - wait for real user input via runtime bridge
-        });
 
       case "shim_init_nhwindows":
         console.log("Initializing NetHack windows");
@@ -1867,13 +1855,11 @@ class LocalNetHackRuntime {
         // Reset selection tracking for new menus
         this.menuSelections.clear();
         this.isInMultiPickup = false;
-        this.multiPickupReadyToConfirm = false;
+        this.menuSelectionReadyCount = null;
 
-        // Also clear any waiting menu selection resolvers
-        if (this.waitingForMenuSelection && this.menuSelectionResolver) {
-          console.log("📋 Clearing previous menu selection resolver");
-          this.waitingForMenuSelection = false;
-          this.menuSelectionResolver = null;
+        if (this.pendingMenuSelection) {
+          console.log("Clearing previous pending menu selection resolver");
+          this.pendingMenuSelection = null;
         }
 
         // Log window type for debugging
@@ -1966,11 +1952,7 @@ class LocalNetHackRuntime {
 
           // Wait for actual user input for inventory questions
           console.log("📋 Waiting for inventory action selection (async)...");
-          return new Promise((resolve) => {
-            this.inputResolver = resolve;
-            this.waitingForInput = true;
-            // No timeout - wait for real user input via runtime bridge
-          });
+          return this.waitForQuestionInput();
         }
 
         // If there's a menu question (like "Pick up what?"), send it to the client
@@ -1997,11 +1979,7 @@ class LocalNetHackRuntime {
 
           // Wait for actual user input for menu questions
           console.log("📋 Waiting for menu selection (async)...");
-          return new Promise((resolve) => {
-            this.inputResolver = resolve;
-            this.waitingForInput = true;
-            // No timeout - wait for real user input via runtime bridge
-          });
+          return this.waitForQuestionInput();
         }
 
         // Check if we have menu items but no explicit question - could be a pickup or action menu
@@ -2079,11 +2057,7 @@ class LocalNetHackRuntime {
 
             // Wait for actual user input for expanded questions
             console.log("📋 Waiting for expanded menu selection (async)...");
-            return new Promise((resolve) => {
-              this.inputResolver = resolve;
-              this.waitingForInput = true;
-              // No timeout - wait for real user input via runtime bridge
-            });
+          return this.waitForQuestionInput();
           } else {
             console.log(
               "📋 Menu has no selectable items - treating as informational",
@@ -2301,7 +2275,8 @@ class LocalNetHackRuntime {
         return 0;
       case "shim_player_selection":
         console.log("NetHack player selection started");
-      // Comment out character selection UI for automatic play        return 0;
+        // Character selection UI is handled automatically in this port.
+        return 0;
       case "shim_raw_print":
         const [rawText] = args;
         console.log(`📢 RAW PRINT: "${rawText}"`);
@@ -2336,11 +2311,9 @@ class LocalNetHackRuntime {
             console.log("Pointer decode error in shim_select_menu:", error);
           }
         }
-        // The third argument is typed as opaque ("o"), so `menuPtrArg` points at the
-        // callback arg slot. One dereference yields the C pointer argument value.
+
         const isPlausiblePtr = (ptr) =>
           Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
-        // Prefer arg pointer (single deref). Resolved pointer is fallback only.
         const ptrMode = isPlausiblePtr(ptrArgValue)
           ? "arg"
           : isPlausiblePtr(ptrResolvedValue)
@@ -2352,40 +2325,41 @@ class LocalNetHackRuntime {
             ? ptrResolvedValue
             : 0;
         console.log(
-          `📋 Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
+          `Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
 
-        // For multi-pickup menus (how == PICK_ANY), check if we're ready to confirm
-        if (menuSelectHow === 2 && this.isInMultiPickup) {
-          // If user already confirmed selections, return immediately
-          if (this.multiPickupReadyToConfirm) {
-            console.log(
-              "📋 Multi-pickup already confirmed - returning selection count immediately",
-            );
-            const selectionCount = this.menuSelections.size;
-
-            // Write selected menu_item entries and store pointer in *menu_list.
+        if (menuSelectHow === 2) {
+          if (Number.isInteger(this.menuSelectionReadyCount)) {
+            const selectionCount = this.menuSelectionReadyCount;
+            this.menuSelectionReadyCount = null;
             this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
-            // Clear all multi-pickup state
             this.menuSelections.clear();
             this.isInMultiPickup = false;
-            this.multiPickupReadyToConfirm = false;
             return selectionCount;
           }
 
-          console.log(
-            "📋 Multi-pickup menu - waiting for completion (async)...",
-          );
-          this.pendingMenuListPtrPtr = menuListPtrPtr;
-          return new Promise((resolve) => {
-            // Set up a special resolver for menu selection completion
-            this.menuSelectionResolver = resolve;
-            this.waitingForMenuSelection = true;
-          });
+          if (this.menuSelections.size > 0 && !this.isInMultiPickup) {
+            const selectionCount = this.menuSelections.size;
+            this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
+            this.menuSelections.clear();
+            return selectionCount;
+          }
+
+          if (this.isInMultiPickup) {
+            console.log("Multi-pickup menu - waiting for completion (async)...");
+            this.pendingMenuSelection = {
+              resolver: null,
+              menuListPtrPtr,
+            };
+            return new Promise((resolve) => {
+              this.pendingMenuSelection = {
+                resolver: resolve,
+                menuListPtrPtr,
+              };
+            });
+          }
         }
 
-        // For single-selection menus (how == PICK_ONE), write one menu_item and
-        // return the selection count expected by NetHack.
         if (menuSelectHow === 1 && this.menuSelections.size > 0) {
           const selectedItems = Array.from(this.menuSelections.values());
           const selectedItem = selectedItems[0];
@@ -2403,7 +2377,6 @@ class LocalNetHackRuntime {
           this.writeMenuSelectionResult(menuListPtrPtr, 1);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
-          this.multiPickupReadyToConfirm = false;
           return 1;
         }
 
@@ -2412,32 +2385,26 @@ class LocalNetHackRuntime {
           this.writeMenuSelectionResult(menuListPtrPtr, 0);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
-          this.multiPickupReadyToConfirm = false;
           return 0;
         }
 
-        // If we have completed selections from multi-pickup, return the count.
         if (menuSelectHow === 2 && this.menuSelections.size > 0) {
           const selectedItems = Array.from(this.menuSelections.values());
           console.log(
-            `?? Returning ${this.menuSelections.size} selected items:`,
+            `Returning ${this.menuSelections.size} selected items:`,
             selectedItems.map((item) => `${item.menuChar}:${item.text}`),
           );
 
           const selectionCount = this.menuSelections.size;
           this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
-          // Clear selections and multi-pickup state after returning them
           this.menuSelections.clear();
           this.isInMultiPickup = false;
-          this.multiPickupReadyToConfirm = false;
           return selectionCount;
         }
 
-        // Default: no selection
         console.log("Returning 0 (no selection)");
         this.writeMenuSelectionResult(menuListPtrPtr, 0);
         this.menuSelections.clear();
-        this.multiPickupReadyToConfirm = false;
         return 0;
 
       case "shim_askname":
@@ -2450,11 +2417,12 @@ class LocalNetHackRuntime {
           });
         }
 
-        if (this.latestInput) {
-          const name = this.latestInput;
-          this.latestInput = null;
+        if (this.pendingTextResponses.length > 0) {
+          const name = String(this.pendingTextResponses.shift() || "").trim();
           console.log(`Using player name from input: ${name}`);
-          return name;
+          if (name.length > 0) {
+            return name;
+          }
         }
 
         console.log("No name provided, using default");
@@ -2547,6 +2515,15 @@ class LocalNetHackRuntime {
       case "shim_status_update":
         const [field, ptrToArg, chg, percent, color, colormask] = args;
         const fieldName = this.getStatusFieldName(field);
+        const isFlushSignal =
+          fieldName === "BL_FLUSH" ||
+          fieldName === "BL_RESET" ||
+          fieldName === "BL_CHARACTERISTICS";
+        if (isFlushSignal) {
+          this.flushPendingStatusUpdates(fieldName);
+          return 0;
+        }
+
         const decoded = this.decodeStatusValue(fieldName, ptrToArg);
         const statusPayload = {
           type: "status_update",
@@ -2561,19 +2538,40 @@ class LocalNetHackRuntime {
           color: color,
           colormask: colormask,
         };
+        this.statusPending.set(field, statusPayload);
         this.latestStatusUpdates.set(field, statusPayload);
         console.log(
-          `Status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`,
+          `Queued status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`,
         );
-
-        if (this.eventHandler) {
-          this.emit(statusPayload);
-        }
         return 0;
 
       default:
         console.log(`Unknown callback: ${name}`, args);
         return 0;
+    }
+  }
+
+  flushPendingStatusUpdates(reason = "flush") {
+    if (this.statusPending.size === 0) {
+      return;
+    }
+
+    const orderedUpdates = Array.from(this.statusPending.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([, payload]) => payload);
+    this.statusPending.clear();
+
+    console.log(
+      `Flushing ${orderedUpdates.length} pending status updates (reason=${reason})`,
+    );
+
+    for (const payload of orderedUpdates) {
+      if (payload && typeof payload.field === "number") {
+        this.latestStatusUpdates.set(payload.field, payload);
+      }
+      if (this.eventHandler) {
+        this.emit(payload);
+      }
     }
   }
 
@@ -2585,3 +2583,4 @@ class LocalNetHackRuntime {
 }
 
 export default LocalNetHackRuntime;
+
