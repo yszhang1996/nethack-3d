@@ -42,6 +42,7 @@ class LocalNetHackRuntime {
     this.mouseClickPrimaryMod = 1; // CLICK_1 (left click)
     this.mouseClickSecondaryMod = 2; // CLICK_2 (right click)
     this.extendedCommandEntries = null;
+    this.pendingExtendedCommands = [];
     this.statusPending = new Map();
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
@@ -145,6 +146,7 @@ class LocalNetHackRuntime {
     this.setPositionInputActive(false);
     this.activeInputRequest = null;
     this.menuSelections.clear();
+    this.pendingExtendedCommands = [];
     this.awaitingQuestionInput = false;
 
     if (this.pendingMenuSelection && this.pendingMenuSelection.resolver) {
@@ -209,6 +211,12 @@ class LocalNetHackRuntime {
     }
 
     console.log("Received client input sequence:", normalized);
+    const extendedCommandText = this.extractExtendedCommandSubmission(normalized);
+    if (extendedCommandText !== null) {
+      this.queueExtendedCommandSubmission(extendedCommandText, "synthetic");
+      return;
+    }
+
     for (const input of normalized) {
       this.handleClientInput(input, "synthetic");
     }
@@ -261,11 +269,7 @@ class LocalNetHackRuntime {
         console.log(
           `Meta input Alt+${metaKey.toLowerCase()} mapped to extended command "${mappedExtCommand}"`,
         );
-        this.enqueueInputKeys(
-          ["#", ...mappedExtCommand.split(""), "Enter"],
-          "meta",
-          ["event"],
-        );
+        this.queueExtendedCommandSubmission(mappedExtCommand, "meta");
         return;
       }
 
@@ -572,6 +576,62 @@ class LocalNetHackRuntime {
       return "Enter";
     }
     return input;
+  }
+
+  isExtendedCommandSubmitToken(input) {
+    return input === "Enter" || input === "\r" || input === "\n";
+  }
+
+  extractExtendedCommandSubmission(inputs) {
+    if (!Array.isArray(inputs) || inputs.length < 2) {
+      return null;
+    }
+
+    const first = inputs[0];
+    const last = inputs[inputs.length - 1];
+    if (first !== "#" || !this.isExtendedCommandSubmitToken(last)) {
+      return null;
+    }
+
+    let commandText = "";
+    for (let i = 1; i < inputs.length - 1; i += 1) {
+      const token = inputs[i];
+      if (token === "Backspace") {
+        commandText = commandText.slice(0, -1);
+        continue;
+      }
+      if (token === "#") {
+        continue;
+      }
+      if (typeof token === "string" && token.length === 1) {
+        if (/^[A-Za-z0-9_?-]$/.test(token)) {
+          commandText += token.toLowerCase();
+          continue;
+        }
+      }
+      return null;
+    }
+
+    return commandText;
+  }
+
+  queueExtendedCommandSubmission(commandText, source = "synthetic") {
+    const normalizedCommand =
+      typeof commandText === "string" ? commandText : "";
+    this.pendingExtendedCommands.push(normalizedCommand);
+    // Route "#" through the normal input path so whichever callback is active
+    // (event or position) can trigger NetHack's extended-command flow.
+    this.enqueueInputKeys(["#"], source);
+  }
+
+  dequeuePendingExtendedCommandSubmission() {
+    if (
+      !Array.isArray(this.pendingExtendedCommands) ||
+      this.pendingExtendedCommands.length === 0
+    ) {
+      return undefined;
+    }
+    return this.pendingExtendedCommands.shift();
   }
 
   isLiteralTextInput(input) {
@@ -2113,7 +2173,12 @@ class LocalNetHackRuntime {
 
     switch (name) {
       case "shim_get_ext_cmd":
-        const extCommandText = this.consumeQueuedExtendedCommandInput();
+        const queuedExtendedCommandText =
+          this.dequeuePendingExtendedCommandSubmission();
+        const extCommandText =
+          queuedExtendedCommandText !== undefined
+            ? queuedExtendedCommandText
+            : this.consumeQueuedExtendedCommandInput();
         if (extCommandText === null) {
           console.log("Extended command cancelled before submission");
           return -1;
