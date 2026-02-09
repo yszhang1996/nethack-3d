@@ -390,6 +390,37 @@ canvas {
   flex-wrap: wrap;
 }
 
+.nh3d-startup-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.nh3d-startup-config-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: #cccccc;
+  text-align: left;
+}
+
+.nh3d-startup-config-select {
+  background: #1f1f1f;
+  color: #ffffff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-family: "Courier New", monospace;
+}
+
+@media (max-width: 720px) {
+  .nh3d-startup-config-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .nh3d-choice-button {
   padding: 8px 16px;
   background: #333;

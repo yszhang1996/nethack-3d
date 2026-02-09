@@ -9,8 +9,12 @@ const process =
     : { env: {} };
 
 class LocalNetHackRuntime {
-  constructor(eventHandler) {
+  constructor(eventHandler, startupOptions = null) {
     this.eventHandler = eventHandler;
+    this.startupOptions =
+      startupOptions && typeof startupOptions === "object"
+        ? startupOptions
+        : {};
     this.isClosed = false;
     this.nethackInstance = null;
     this.gameMap = new Map();
@@ -55,6 +59,56 @@ class LocalNetHackRuntime {
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
 
     this.ready = this.initializeNetHack();
+  }
+
+  normalizeCharacterOptionValue(value) {
+    if (typeof value !== "string") {
+      return "";
+    }
+    const normalized = value.trim();
+    if (!normalized) {
+      return "";
+    }
+    return normalized;
+  }
+
+  buildCharacterCreationRuntimeOptions() {
+    const config =
+      this.startupOptions &&
+      this.startupOptions.characterCreation &&
+      typeof this.startupOptions.characterCreation === "object"
+        ? this.startupOptions.characterCreation
+        : null;
+    if (!config) {
+      return [];
+    }
+    if (config.mode === "random") {
+      return [
+        "role:random",
+        "race:random",
+        "gender:random",
+        "align:random",
+      ];
+    }
+
+    const role = this.normalizeCharacterOptionValue(config.role);
+    const race = this.normalizeCharacterOptionValue(config.race);
+    const gender = this.normalizeCharacterOptionValue(config.gender);
+    const align = this.normalizeCharacterOptionValue(config.align);
+    const options = [];
+    if (role) {
+      options.push(`role:${role}`);
+    }
+    if (race) {
+      options.push(`race:${race}`);
+    }
+    if (gender) {
+      options.push(`gender:${gender}`);
+    }
+    if (align) {
+      options.push(`align:${align}`);
+    }
+    return options;
   }
 
   sendReconnectSnapshot() {
@@ -2088,6 +2142,11 @@ class LocalNetHackRuntime {
               "force_invmenu",
               "boulder:0",
             ];
+            const characterRuntimeOptions =
+              this.buildCharacterCreationRuntimeOptions();
+            if (characterRuntimeOptions.length > 0) {
+              runtimeOptions.push(...characterRuntimeOptions);
+            }
             const existingOptions =
               typeof moduleConfig.ENV.NETHACKOPTIONS === "string"
                 ? moduleConfig.ENV.NETHACKOPTIONS.trim()

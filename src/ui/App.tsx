@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Nethack3DEngine } from "../game";
-import type { NethackMenuItem } from "../game/ui-types";
+import type {
+  CharacterCreationConfig,
+  NethackMenuItem,
+} from "../game/ui-types";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
@@ -167,8 +170,36 @@ function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
   return getMenuSelectionInput(item).trim().length > 0;
 }
 
+const startupRoleOptions = [
+  "Archeologist",
+  "Barbarian",
+  "Caveman",
+  "Healer",
+  "Knight",
+  "Monk",
+  "Priest",
+  "Ranger",
+  "Rogue",
+  "Samurai",
+  "Tourist",
+  "Valkyrie",
+  "Wizard",
+];
+
+const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
+const startupGenderOptions = ["male", "female"];
+const startupAlignOptions = ["lawful", "neutral", "chaotic"];
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
+  const [characterCreationConfig, setCharacterCreationConfig] =
+    useState<CharacterCreationConfig | null>(null);
+  const [isCreateCharacterSetupVisible, setIsCreateCharacterSetupVisible] =
+    useState(false);
+  const [createRole, setCreateRole] = useState(startupRoleOptions[0]);
+  const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
+  const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
+  const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
 
@@ -185,19 +216,20 @@ export default function App(): JSX.Element {
   const controller = useGameStore((state) => state.engineController);
 
   useEffect(() => {
-    if (!canvasRootRef.current) {
+    if (!canvasRootRef.current || !characterCreationConfig) {
       return;
     }
     const engine = new Nethack3DEngine({
       mountElement: canvasRootRef.current,
       uiAdapter: adapter,
+      characterCreationConfig,
     });
     setEngineController(engine);
     registerDebugHelpers(engine);
     return () => {
       setEngineController(null);
     };
-  }, [adapter, setEngineController]);
+  }, [adapter, characterCreationConfig, setEngineController]);
 
   const hpPercentage =
     playerStats.maxHp > 0
@@ -228,7 +260,124 @@ export default function App(): JSX.Element {
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
 
-      <div className={`loading${loadingVisible ? "" : " is-hidden"}`} id="loading">
+      {characterCreationConfig === null ? (
+        <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
+          {!isCreateCharacterSetupVisible ? (
+            <>
+              <div className="nh3d-question-text">Choose your character setup:</div>
+              <div className="nh3d-choice-list">
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => setCharacterCreationConfig({ mode: "random" })}
+                  type="button"
+                >
+                  Random character
+                </button>
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => setIsCreateCharacterSetupVisible(true)}
+                  type="button"
+                >
+                  Create character
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="nh3d-question-text">Create your character:</div>
+              <div className="nh3d-startup-config-grid">
+                <label className="nh3d-startup-config-field">
+                  <span>Role</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) => setCreateRole(event.target.value)}
+                    value={createRole}
+                  >
+                    {startupRoleOptions.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Race</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) => setCreateRace(event.target.value)}
+                    value={createRace}
+                  >
+                    {startupRaceOptions.map((race) => (
+                      <option key={race} value={race}>
+                        {race}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Gender</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) => setCreateGender(event.target.value)}
+                    value={createGender}
+                  >
+                    {startupGenderOptions.map((gender) => (
+                      <option key={gender} value={gender}>
+                        {gender}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Alignment</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) => setCreateAlign(event.target.value)}
+                    value={createAlign}
+                  >
+                    {startupAlignOptions.map((align) => (
+                      <option key={align} value={align}>
+                        {align}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="nh3d-menu-actions">
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                  onClick={() =>
+                    setCharacterCreationConfig({
+                      mode: "create",
+                      role: createRole,
+                      race: createRace,
+                      gender: createGender,
+                      align: createAlign,
+                    })
+                  }
+                  type="button"
+                >
+                  Start game
+                </button>
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                  onClick={() => setIsCreateCharacterSetupVisible(false)}
+                  type="button"
+                >
+                  Back
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
+      <div
+        className={`loading${
+          loadingVisible && characterCreationConfig !== null ? "" : " is-hidden"
+        }`}
+        id="loading"
+      >
         <div>NetHack 3D</div>
         <div className="loading-subtitle">Starting local runtime...</div>
       </div>
@@ -463,7 +612,7 @@ export default function App(): JSX.Element {
               ))}
             </div>
           )}
-          {question.menuItems.length > 0 ? (
+          {question.menuItems.length > 0 && questionMenuPageCount > 1 ? (
             <div className="nh3d-question-pagination">
               <button
                 className="nh3d-question-page-button"

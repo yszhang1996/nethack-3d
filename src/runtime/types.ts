@@ -14,8 +14,20 @@ export interface RuntimeBridge {
   requestAreaUpdate(centerX: number, centerY: number, radius: number): void;
 }
 
+export type RuntimeCharacterCreationConfig = {
+  mode: "random" | "create";
+  role?: string;
+  race?: string;
+  gender?: string;
+  align?: string;
+};
+
+export type RuntimeStartupOptions = {
+  characterCreation?: RuntimeCharacterCreationConfig;
+};
+
 export type RuntimeCommand =
-  | { type: "start" }
+  | { type: "start"; startupOptions?: RuntimeStartupOptions }
   | { type: "send_input"; input: string }
   | { type: "send_input_sequence"; inputs: string[] }
   | { type: "send_mouse_input"; x: number; y: number; button: number }

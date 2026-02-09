@@ -62,6 +62,14 @@ export type InventoryDialogState = {
   items: NethackMenuItem[];
 };
 
+export type CharacterCreationConfig = {
+  mode: "random" | "create";
+  role?: string;
+  race?: string;
+  gender?: string;
+  align?: string;
+};
+
 export interface Nethack3DEngineUIAdapter {
   setStatus(status: string): void;
   setConnectionStatus(status: string, state: NethackConnectionState): void;
@@ -92,4 +100,5 @@ export interface Nethack3DEngineController {
 export interface Nethack3DEngineOptions {
   mountElement?: HTMLElement | null;
   uiAdapter?: Nethack3DEngineUIAdapter | null;
+  characterCreationConfig?: CharacterCreationConfig;
 }

@@ -3,18 +3,24 @@ import type {
   RuntimeCommand,
   RuntimeEvent,
   RuntimeEventHandler,
+  RuntimeStartupOptions,
   RuntimeWorkerEnvelope,
 } from "./types";
 
 export default class WorkerRuntimeBridge implements RuntimeBridge {
   private readonly worker: Worker;
   private readonly onEvent: RuntimeEventHandler;
+  private readonly startupOptions: RuntimeStartupOptions | undefined;
   private startPromise: Promise<void> | null = null;
   private startResolve: (() => void) | null = null;
   private startReject: ((reason?: unknown) => void) | null = null;
 
-  constructor(onEvent: RuntimeEventHandler) {
+  constructor(
+    onEvent: RuntimeEventHandler,
+    startupOptions?: RuntimeStartupOptions,
+  ) {
     this.onEvent = onEvent;
+    this.startupOptions = startupOptions;
     this.worker = new Worker(new URL("./runtime-worker.ts", import.meta.url), {
       type: "module",
     });
@@ -37,7 +43,7 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     this.startPromise = new Promise<void>((resolve, reject) => {
       this.startResolve = resolve;
       this.startReject = reject;
-      this.postCommand({ type: "start" });
+      this.postCommand({ type: "start", startupOptions: this.startupOptions });
     });
 
     return this.startPromise;

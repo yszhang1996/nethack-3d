@@ -1,5 +1,10 @@
 import LocalNetHackRuntime from "./LocalNetHackRuntime";
-import type { RuntimeCommand, RuntimeEvent, RuntimeWorkerEnvelope } from "./types";
+import type {
+  RuntimeCommand,
+  RuntimeEvent,
+  RuntimeStartupOptions,
+  RuntimeWorkerEnvelope,
+} from "./types";
 
 let runtime: LocalNetHackRuntime | null = null;
 let started = false;
@@ -8,11 +13,14 @@ function postEnvelope(envelope: RuntimeWorkerEnvelope): void {
   (self as unknown as Worker).postMessage(envelope);
 }
 
-function ensureRuntime(): LocalNetHackRuntime {
+function ensureRuntime(startupOptions?: RuntimeStartupOptions): LocalNetHackRuntime {
   if (!runtime) {
-    runtime = new LocalNetHackRuntime((event: RuntimeEvent) => {
-      postEnvelope({ type: "runtime_event", event });
-    });
+    runtime = new LocalNetHackRuntime(
+      (event: RuntimeEvent) => {
+        postEnvelope({ type: "runtime_event", event });
+      },
+      startupOptions,
+    );
   }
   return runtime;
 }
@@ -20,30 +28,30 @@ function ensureRuntime(): LocalNetHackRuntime {
 self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
   try {
     const command = message.data;
-    const instance = ensureRuntime();
 
     switch (command.type) {
       case "start":
+        const startInstance = ensureRuntime(command.startupOptions);
         if (!started) {
-          await instance.start();
+          await startInstance.start();
           started = true;
         }
         postEnvelope({ type: "runtime_ready" });
         return;
       case "send_input":
-        instance.sendInput(command.input);
+        ensureRuntime().sendInput(command.input);
         return;
       case "send_input_sequence":
-        instance.sendInputSequence(command.inputs);
+        ensureRuntime().sendInputSequence(command.inputs);
         return;
       case "send_mouse_input":
-        instance.sendMouseInput(command.x, command.y, command.button);
+        ensureRuntime().sendMouseInput(command.x, command.y, command.button);
         return;
       case "request_tile_update":
-        instance.requestTileUpdate(command.x, command.y);
+        ensureRuntime().requestTileUpdate(command.x, command.y);
         return;
       case "request_area_update":
-        instance.requestAreaUpdate(
+        ensureRuntime().requestAreaUpdate(
           command.centerX,
           command.centerY,
           command.radius,

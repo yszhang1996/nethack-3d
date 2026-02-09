@@ -20,6 +20,7 @@ import type {
   TileMap,
 } from "./types";
 import type {
+  CharacterCreationConfig,
   Nethack3DEngineController,
   Nethack3DEngineOptions,
   Nethack3DEngineUIAdapter,
@@ -109,6 +110,13 @@ type TileRevealFadeState = {
   elapsedMs: number;
   durationMs: number;
   opacity: number;
+};
+
+type CharacterCreationQuestionPayload = {
+  text: string;
+  choices: string;
+  defaultChoice: string;
+  menuItems: any[];
 };
 
 /**
@@ -202,6 +210,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private session: RuntimeBridge | null = null;
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
+  private characterCreationConfig: CharacterCreationConfig = { mode: "create" };
+  private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   private altOrMetaHeld: boolean = false;
@@ -771,6 +781,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   constructor(options: Nethack3DEngineOptions = {}) {
     this.mountElement = options.mountElement ?? null;
     this.uiAdapter = options.uiAdapter ?? null;
+    this.characterCreationConfig = options.characterCreationConfig ?? {
+      mode: "create",
+    };
+    this.characterCreationMode = this.characterCreationConfig.mode;
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -954,9 +968,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     console.log("Starting local NetHack runtime");
     this.updateConnectionStatus("Starting", "starting");
 
-    this.session = new WorkerRuntimeBridge((payload: RuntimeEvent) => {
-      this.handleRuntimeEvent(payload);
-    });
+    this.session = new WorkerRuntimeBridge(
+      (payload: RuntimeEvent) => {
+        this.handleRuntimeEvent(payload);
+      },
+      {
+        characterCreation: {
+          mode: this.characterCreationConfig.mode,
+          role: this.characterCreationConfig.role,
+          race: this.characterCreationConfig.race,
+          gender: this.characterCreationConfig.gender,
+          align: this.characterCreationConfig.align,
+        },
+      },
+    );
 
     try {
       await this.session.start();
@@ -1099,29 +1124,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "question":
-        // Auto-handle character creation questions to avoid user interaction
-        if (
-          data.text &&
-          (data.text.includes("character") ||
-            data.text.includes("class") ||
-            data.text.includes("race") ||
-            data.text.includes("gender") ||
-            data.text.includes("alignment"))
-        ) {
-          console.log("Auto-handling character creation:", data.text);
-          // Send default character choices
-          if (data.menuItems && data.menuItems.length > 0) {
-            // Pick the first available option
-            const firstItem = data.menuItems[0];
-            this.sendInput(
-              this.getMenuSelectionInput(firstItem, firstItem?.accelerator || "a"),
-            );
-          } else if (data.default) {
-            this.sendInput(data.default);
-          } else {
-            this.sendInput("a"); // Default to 'a' (often Archeologist)
+        if (this.isCharacterCreationQuestion(String(data.text || ""))) {
+          const payload = this.toCharacterCreationQuestionPayload(data);
+          if (this.characterCreationMode === "random") {
+            this.autoAnswerCharacterCreationQuestion(payload);
+            return;
           }
-          return; // Don't show the dialog
+          this.isInQuestion = true;
+          this.showQuestion(
+            payload.text,
+            payload.choices,
+            payload.defaultChoice,
+            payload.menuItems,
+          );
+          return;
         }
 
         // For non-character creation questions, show normal dialog and pause movement
@@ -3673,6 +3689,70 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private isCharacterCreationQuestion(questionText: string): boolean {
+    const normalized = String(questionText || "").trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (
+      normalized.includes("character") &&
+      (normalized.includes("pick") ||
+        normalized.includes("class") ||
+        normalized.includes("race") ||
+        normalized.includes("gender") ||
+        normalized.includes("alignment") ||
+        normalized.includes("role"))
+    ) {
+      return true;
+    }
+    return (
+      normalized.includes("what kind of character") ||
+      normalized.includes("what role") ||
+      normalized.includes("what is your role") ||
+      normalized.includes("what race") ||
+      normalized.includes("what is your race") ||
+      normalized.includes("what gender") ||
+      normalized.includes("what is your gender") ||
+      normalized.includes("what alignment") ||
+      normalized.includes("what is your alignment") ||
+      normalized.includes("pick a character for you") ||
+      normalized.includes("shall i pick character") ||
+      normalized.includes("shall i pick a character")
+    );
+  }
+
+  private toCharacterCreationQuestionPayload(data: RuntimeEvent): CharacterCreationQuestionPayload {
+    return {
+      text: String(data.text || ""),
+      choices: String(data.choices || ""),
+      defaultChoice: String(data.default || ""),
+      menuItems: Array.isArray(data.menuItems) ? [...data.menuItems] : [],
+    };
+  }
+
+  private autoAnswerCharacterCreationQuestion(
+    payload: CharacterCreationQuestionPayload,
+  ): void {
+    console.log("Auto-handling character creation:", payload.text);
+    const firstSelectableItem = payload.menuItems.find(
+      (item) => item && !item.isCategory,
+    );
+    if (firstSelectableItem) {
+      this.sendInput(
+        this.getMenuSelectionInput(
+          firstSelectableItem,
+          firstSelectableItem?.accelerator || "a",
+        ),
+      );
+      return;
+    }
+    if (payload.defaultChoice) {
+      this.sendInput(payload.defaultChoice);
+      return;
+    }
+    this.sendInput("a");
+  }
+
   private isSelectableQuestionMenuItem(item: any): boolean {
     if (!item || item.isCategory) {
       return false;
@@ -4235,7 +4315,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private appendQuestionMenuPaginationControls(questionDialog: HTMLElement): void {
-    if (this.activeQuestionMenuItems.length === 0) {
+    if (
+      this.activeQuestionMenuItems.length === 0 ||
+      this.activeQuestionMenuPageCount <= 1
+    ) {
       return;
     }
 
