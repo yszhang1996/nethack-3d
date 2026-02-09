@@ -38,6 +38,9 @@ class LocalNetHackRuntime {
     this.awaitingQuestionInput = false;
     this.metaInputPrefix = "__META__:";
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
+    this.mouseInputTokenKey = "__MOUSE_INPUT__";
+    this.mouseClickPrimaryMod = 1; // CLICK_1 (left click)
+    this.mouseClickSecondaryMod = 2; // CLICK_2 (right click)
     this.extendedCommandEntries = null;
     this.statusPending = new Map();
 
@@ -109,6 +112,10 @@ class LocalNetHackRuntime {
 
   sendInputSequence(inputs) {
     this.handleClientInputSequence(inputs);
+  }
+
+  sendMouseInput(x, y, button) {
+    this.handleClientMouseInput(x, y, button);
   }
 
   requestTileUpdate(x, y) {
@@ -205,6 +212,30 @@ class LocalNetHackRuntime {
     for (const input of normalized) {
       this.handleClientInput(input, "synthetic");
     }
+  }
+
+  handleClientMouseInput(x, y, button, source = "user") {
+    if (this.isClosed) {
+      return;
+    }
+
+    const tileX = Math.trunc(Number(x));
+    const tileY = Math.trunc(Number(y));
+    const clickButton = Math.trunc(Number(button));
+    if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+      return;
+    }
+
+    const clickMod = this.resolveMouseClickMod(clickButton);
+    if (clickMod === null) {
+      return;
+    }
+
+    console.log(
+      `Received client mouse input: button=${clickButton} tile=(${tileX}, ${tileY}) mod=${clickMod}`,
+    );
+
+    this.enqueueMouseInput(tileX, tileY, clickMod, source);
   }
 
   // Handle incoming input from the client
@@ -407,6 +438,135 @@ class LocalNetHackRuntime {
     }
   }
 
+  resolveMouseClickMod(button) {
+    if (button === 0) {
+      return this.mouseClickPrimaryMod;
+    }
+    if (button === 2) {
+      return this.mouseClickSecondaryMod;
+    }
+    return null;
+  }
+
+  enqueueMouseInput(x, y, mod, source = "user") {
+    this.inputBroker.enqueueTokens([
+      {
+        key: this.mouseInputTokenKey,
+        source,
+        createdAt: Date.now(),
+        targetKinds: ["position"],
+        mouseX: x,
+        mouseY: y,
+        mouseMod: mod,
+      },
+    ]);
+  }
+
+  resolvePoskeyTargetPointer(ptr, label) {
+    if (
+      !this.nethackModule ||
+      typeof this.nethackModule.getValue !== "function" ||
+      !Number.isInteger(ptr) ||
+      ptr <= 0
+    ) {
+      console.log(
+        `Skipping nh_poskey ${label} pointer resolve (ptr=${ptr}): invalid pointer`,
+      );
+      return null;
+    }
+
+    const heapSize =
+      this.nethackModule.HEAPU8 && this.nethackModule.HEAPU8.length
+        ? this.nethackModule.HEAPU8.length
+        : 0;
+    const slotValue = this.nethackModule.getValue(ptr, "*");
+    const looksLikeTargetPtr =
+      Number.isInteger(slotValue) &&
+      slotValue > 1024 &&
+      (!heapSize || slotValue + 4 <= heapSize);
+    const targetPtr = looksLikeTargetPtr ? slotValue : ptr;
+    const inBounds = !heapSize || targetPtr + 4 <= heapSize;
+    if (!Number.isInteger(targetPtr) || targetPtr <= 0 || !inBounds) {
+      console.log(
+        `Skipping nh_poskey ${label} pointer resolve (slot=${ptr}, target=${targetPtr}, heapSize=${heapSize})`,
+      );
+      return null;
+    }
+
+    return targetPtr;
+  }
+
+  getPoskeyCoordStoreType(xTargetPtr, yTargetPtr) {
+    if (!Number.isInteger(xTargetPtr) || !Number.isInteger(yTargetPtr)) {
+      return "i32";
+    }
+
+    const delta = Math.abs(yTargetPtr - xTargetPtr);
+    if (delta === 1) {
+      return "i8";
+    }
+    if (delta === 2) {
+      return "i16";
+    }
+    return "i32";
+  }
+
+  writePoskeyTargetValue(targetPtr, value, label, storeType = "i32") {
+    if (
+      !this.nethackModule ||
+      typeof this.nethackModule.setValue !== "function" ||
+      !Number.isInteger(targetPtr) ||
+      targetPtr <= 0
+    ) {
+      console.log(
+        `Skipping nh_poskey ${label} write (target=${targetPtr}, value=${value})`,
+      );
+      return false;
+    }
+
+    this.nethackModule.setValue(targetPtr, value, storeType);
+    return true;
+  }
+
+  applyMouseTokenToPoskeyRequest(token, requestContext) {
+    if (!token) {
+      return false;
+    }
+
+    const mouseX = Math.trunc(Number(token.mouseX));
+    const mouseY = Math.trunc(Number(token.mouseY));
+    const mouseMod = Math.trunc(Number(token.mouseMod));
+    if (
+      !Number.isFinite(mouseX) ||
+      !Number.isFinite(mouseY) ||
+      !Number.isFinite(mouseMod)
+    ) {
+      return false;
+    }
+    if (!requestContext) {
+      return false;
+    }
+
+    const xTargetPtr = this.resolvePoskeyTargetPointer(requestContext.xPtr, "x");
+    const yTargetPtr = this.resolvePoskeyTargetPointer(requestContext.yPtr, "y");
+    const modTargetPtr = this.resolvePoskeyTargetPointer(
+      requestContext.modPtr,
+      "mod",
+    );
+    if (!xTargetPtr || !yTargetPtr || !modTargetPtr) {
+      return false;
+    }
+
+    const coordStoreType = this.getPoskeyCoordStoreType(xTargetPtr, yTargetPtr);
+    this.writePoskeyTargetValue(xTargetPtr, mouseX, "x", coordStoreType);
+    this.writePoskeyTargetValue(yTargetPtr, mouseY, "y", coordStoreType);
+    this.writePoskeyTargetValue(modTargetPtr, mouseMod, "mod", "i32");
+    console.log(
+      `Delivered mouse input to nh_poskey: (${mouseX}, ${mouseY}) mod=${mouseMod} (xPtr=${xTargetPtr}, yPtr=${yTargetPtr}, modPtr=${modTargetPtr}, coordType=${coordStoreType})`,
+    );
+    return true;
+  }
+
   normalizeInputKey(input) {
     if (input === "\r" || input === "\n") {
       return "Enter";
@@ -490,13 +650,28 @@ class LocalNetHackRuntime {
     }
   }
 
-  consumeInputResult(result, requestKind) {
+  consumeInputResult(result, requestKind, requestContext = null) {
     if (!result || result.cancelled) {
       return typeof result?.cancelCode === "number" ? result.cancelCode : 27;
     }
 
     const token = result.token;
-    const key = token && typeof token.key === "string" ? token.key : "";
+    if (
+      requestKind === "position" &&
+      this.applyMouseTokenToPoskeyRequest(token, requestContext)
+    ) {
+      if (this.farLookMode === "active") {
+        this.farLookMode = "none";
+        this.setPositionInputActive(false);
+      }
+      return 0;
+    }
+
+    const rawKey = token && typeof token.key === "string" ? token.key : "";
+    const key =
+      requestKind === "position"
+        ? this.normalizeFarLookPositionInput(rawKey)
+        : rawKey;
     if (!key) {
       return 0;
     }
@@ -538,7 +713,7 @@ class LocalNetHackRuntime {
     return this.processKey(key);
   }
 
-  requestInputCode(requestKind) {
+  requestInputCode(requestKind, requestContext = null) {
     if (this.activeInputRequest && this.activeInputRequest.promise) {
       if (this.activeInputRequest.kind === requestKind) {
         return this.activeInputRequest.promise;
@@ -548,7 +723,7 @@ class LocalNetHackRuntime {
         `Deferring ${requestKind} input request until pending ${this.activeInputRequest.kind} request completes`,
       );
       return this.activeInputRequest.promise.then(() =>
-        this.requestInputCode(requestKind),
+        this.requestInputCode(requestKind, requestContext),
       );
     }
 
@@ -556,7 +731,9 @@ class LocalNetHackRuntime {
     if (requested && typeof requested.then === "function") {
       let pendingPromise = null;
       pendingPromise = requested
-        .then((result) => this.consumeInputResult(result, requestKind))
+        .then((result) =>
+          this.consumeInputResult(result, requestKind, requestContext),
+        )
         .finally(() => {
           if (
             this.activeInputRequest &&
@@ -571,7 +748,7 @@ class LocalNetHackRuntime {
       };
       return pendingPromise;
     }
-    return this.consumeInputResult(requested, requestKind);
+    return this.consumeInputResult(requested, requestKind, requestContext);
   }
   // Handle request for tile update from client
   handleTileUpdateRequest(x, y) {
@@ -823,6 +1000,20 @@ class LocalNetHackRuntime {
       input === "\r" ||
       input === "\n"
     );
+  }
+
+  normalizeFarLookPositionInput(input) {
+    if (this.farLookMode !== "active") {
+      return input;
+    }
+
+    // NetHack look mode uses ';' for detailed object description.
+    // Treat Enter as that confirm key to avoid leaving far-look in a bad state.
+    if (input === "Enter" || input === "\r" || input === "\n") {
+      return ";";
+    }
+
+    return input;
   }
 
   isPrintableAccelerator(code) {
@@ -1726,6 +1917,8 @@ class LocalNetHackRuntime {
               // Input/menu behavior expected by the browser port.
               "pickup_types:$",
               "number_pad:1",
+              "mouse_support:1",
+              "clicklook:1",
               // Status tracking fields consumed by the HUD.
               "time",
               "showexp",
@@ -1881,9 +2074,6 @@ class LocalNetHackRuntime {
 
   handleShimNhPoskey(args) {
     const [xPtr, yPtr, modPtr] = args;
-    void xPtr;
-    void yPtr;
-    void modPtr;
     console.log("NetHack requesting position key");
 
     if (this.farLookMode === "armed") {
@@ -1903,7 +2093,7 @@ class LocalNetHackRuntime {
       this.setPositionInputActive(false);
     }
 
-    return this.requestInputCode("position");
+    return this.requestInputCode("position", { xPtr, yPtr, modPtr });
   }
   handleUICallback(name, args) {
     if (this.isClosed) {

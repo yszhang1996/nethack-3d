@@ -49,6 +49,20 @@ type FloatingMessageEntry = {
 type PendingCharacterDamage = {
   amount: number;
   createdAtMs: number;
+  expectedDirection: DirectionalAttackContext | null;
+};
+
+type DirectionalAttackContext = {
+  dx: number;
+  dy: number;
+  originX: number;
+  originY: number;
+  capturedAtMs: number;
+};
+
+type PendingMonsterDefeatSignal = {
+  createdAtMs: number;
+  expectedDirection: DirectionalAttackContext | null;
 };
 
 type GlyphDamageFlashState = {
@@ -61,6 +75,25 @@ type GlyphDamageFlashState = {
   baseColorHex: string;
   glyphChar: string;
   darkenFactor: number;
+};
+
+type GlyphDamageShakeState = {
+  key: string;
+  tileX: number;
+  tileY: number;
+  elapsedMs: number;
+  durationMs: number;
+  amplitude: number;
+  seed: number;
+};
+
+type BloodMistParticle = {
+  sprite: THREE.Sprite;
+  velocity: THREE.Vector3;
+  ageMs: number;
+  lifetimeMs: number;
+  radius: number;
+  baseScale: THREE.Vector2;
 };
 
 type DamageNumberParticle = {
@@ -127,6 +160,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private activeQuestionPageSelectionMap: Map<string, string> = new Map();
   private activeQuestionIsPickupDialog: boolean = false;
   private activePickupSelections: Set<string> = new Set();
+  private activePickupFocusIndex: number = 0;
+  private activeQuestionMenuFocusIndex: number = 0;
+  private activeQuestionActionFocusIndex: number = -1;
   private positionHideTimerId: number | null = null;
   private positionInputModeActive: boolean = false;
   private positionCursor = { x: 0, y: 0 };
@@ -186,6 +222,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastMouseY: number = 0;
   private minDistance: number = 5;
   private maxDistance: number = 50;
+  private readonly maxRendererPixelRatio: number = 2;
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -210,13 +247,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly glyphDamageFlashWhite = new THREE.Color("#ffffff");
   private readonly glyphDamageFlashColor = new THREE.Color("#ffffff");
   private glyphDamageFlashes: Map<string, GlyphDamageFlashState> = new Map();
-  private damageParticles: DamageNumberParticle[] = [];
+  private glyphDamageShakes: Map<string, GlyphDamageShakeState> = new Map();
+  private damageParticles: BloodMistParticle[] = [];
+  private playerDamageNumberParticles: DamageNumberParticle[] = [];
+  private bloodMistTexture: THREE.CanvasTexture | null = null;
   private lastParsedDamageMessage: string = "";
   private lastParsedDamageAtMs: number = 0;
-  private readonly damageParticleLifetimeMs: number = 1860;
-  private readonly damageParticleGravity: number = 18.4;
+  private lastParsedDefeatMessage: string = "";
+  private lastParsedDefeatAtMs: number = 0;
+  private lastDirectionalAttackContext: DirectionalAttackContext | null = null;
+  private pendingMonsterDefeatSignals: PendingMonsterDefeatSignal[] = [];
+  private readonly pendingMonsterDefeatMaxAgeMs: number = 820;
+  private readonly directionalAttackContextMaxAgeMs: number = 900;
+  private readonly glyphDamageShakeDurationMs: number = 155;
+  private readonly glyphDefeatShakeDurationMs: number = 240;
+  private readonly glyphDamageShakeAmplitude: number = TILE_SIZE * 0.08;
+  private readonly glyphDefeatShakeAmplitude: number = TILE_SIZE * 0.14;
+  private readonly bloodParticleHitLifetimeMs: number = 620;
+  private readonly bloodParticleDefeatLifetimeMs: number = 1250;
+  private readonly bloodParticleHitCountMin: number = 5;
+  private readonly bloodParticleHitCountMax: number = 10;
+  private readonly bloodParticleDefeatCountMin: number = 18;
+  private readonly bloodParticleDefeatCountMax: number = 32;
+  private readonly bloodParticleSpawnJitter: number = 0.12;
+  private readonly damageParticleGravity: number = 67;
+  private readonly damageParticleDrag: number = 4.2;
+  private readonly playerDamageNumberGravity: number = 18.4;
+  private readonly playerDamageNumberDrag: number = 2.4;
+  private readonly playerDamageNumberLifetimeMs: number = 1860;
+  private readonly playerDamageNumberWallBounce: number = 0.35;
   private readonly damageParticleFloorZ: number = 0.02;
-  private readonly damageParticleWallBounce: number = 0.35;
+  private readonly damageParticleWallBounce: number = 0.24;
   private readonly tileRevealFadeDurationMs: number = 240;
   private tileRevealFades: Map<string, TileRevealFadeState> = new Map();
 
@@ -736,7 +797,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     this.camera.up.set(0, 0, 1);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.updateRendererResolution();
     this.renderer.setClearColor(0x000011); // Dark blue void background
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1015,11 +1076,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "text":
+        this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
 
       case "raw_print":
+        this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
@@ -1175,6 +1238,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return true;
     }
 
+    return this.isMonsterLikeBehavior(behavior);
+  }
+
+  private isMonsterLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.isPlayerGlyph) {
+      return false;
+    }
+
     switch (behavior.effective.kind) {
       case "mon":
       case "pet":
@@ -1261,11 +1332,188 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return /\byou are (?:hit|burned|zapped|injured|wounded)\b/i.test(message);
   }
 
+  private isPlayerAttackMessage(message: string): boolean {
+    if (/\byou miss\b/i.test(message)) {
+      return false;
+    }
+    return /\byou\s+(?:hit|bite|kick|claw|slash|strike|punch|shoot|zap|stab|maul|wound|smite|throw|thrust)\b/i.test(
+      message,
+    );
+  }
+
+  private isPlayerHitMonsterMessage(message: string): boolean {
+    return /\byou hit (?:the |an? )?.+[.!]?$/i.test(message);
+  }
+
+  private isMonsterDefeatMessage(message: string): boolean {
+    return /\byou (?:kill|destroy) (?:the |an? )?.+[.!]?$/i.test(message);
+  }
+
+  private getDirectionVectorFromInput(input: string): { dx: number; dy: number } | null {
+    switch (input) {
+      case "k":
+      case "K":
+      case "8":
+      case "ArrowUp":
+      case "Numpad8":
+        return { dx: 0, dy: -1 };
+      case "j":
+      case "J":
+      case "2":
+      case "ArrowDown":
+      case "Numpad2":
+        return { dx: 0, dy: 1 };
+      case "h":
+      case "H":
+      case "4":
+      case "ArrowLeft":
+      case "Numpad4":
+        return { dx: -1, dy: 0 };
+      case "l":
+      case "L":
+      case "6":
+      case "ArrowRight":
+      case "Numpad6":
+        return { dx: 1, dy: 0 };
+      case "y":
+      case "Y":
+      case "7":
+      case "Home":
+      case "Numpad7":
+        return { dx: -1, dy: -1 };
+      case "u":
+      case "U":
+      case "9":
+      case "PageUp":
+      case "Numpad9":
+        return { dx: 1, dy: -1 };
+      case "b":
+      case "B":
+      case "1":
+      case "End":
+      case "Numpad1":
+        return { dx: -1, dy: 1 };
+      case "n":
+      case "N":
+      case "3":
+      case "PageDown":
+      case "Numpad3":
+        return { dx: 1, dy: 1 };
+      default:
+        return null;
+    }
+  }
+
+  private updateDirectionalAttackContext(input: string): void {
+    const direction = this.getDirectionVectorFromInput(input);
+    if (!direction) {
+      return;
+    }
+    this.lastDirectionalAttackContext = {
+      dx: direction.dx,
+      dy: direction.dy,
+      originX: this.playerPos.x,
+      originY: this.playerPos.y,
+      capturedAtMs: Date.now(),
+    };
+  }
+
+  private getRecentDirectionalAttackContext(
+    nowMs: number,
+  ): DirectionalAttackContext | null {
+    const context = this.lastDirectionalAttackContext;
+    if (!context) {
+      return null;
+    }
+    if (nowMs - context.capturedAtMs > this.directionalAttackContextMaxAgeMs) {
+      return null;
+    }
+    return { ...context };
+  }
+
+  private isTileInDirectionalAttackPath(
+    tileX: number,
+    tileY: number,
+    context: DirectionalAttackContext | null,
+  ): boolean {
+    if (!context) {
+      return false;
+    }
+
+    const deltaX = tileX - context.originX;
+    const deltaY = tileY - context.originY;
+    if (deltaX === 0 && deltaY === 0) {
+      return false;
+    }
+
+    return (
+      Math.sign(deltaX) === context.dx && Math.sign(deltaY) === context.dy
+    );
+  }
+
+  private queuePendingMonsterDefeatSignal(): void {
+    const now = Date.now();
+    this.pendingMonsterDefeatSignals.push({
+      createdAtMs: now,
+      expectedDirection: this.getRecentDirectionalAttackContext(now),
+    });
+    if (this.pendingMonsterDefeatSignals.length > 8) {
+      this.pendingMonsterDefeatSignals.splice(
+        0,
+        this.pendingMonsterDefeatSignals.length - 8,
+      );
+    }
+  }
+
+  private prunePendingMonsterDefeatSignals(nowMs: number): void {
+    this.pendingMonsterDefeatSignals = this.pendingMonsterDefeatSignals.filter(
+      (entry) => nowMs - entry.createdAtMs <= this.pendingMonsterDefeatMaxAgeMs,
+    );
+  }
+
+  private consumePendingMonsterDefeatSignal(tileX: number, tileY: number): boolean {
+    const now = Date.now();
+    this.prunePendingMonsterDefeatSignals(now);
+    const index = this.pendingMonsterDefeatSignals.findIndex((entry) =>
+      this.isTileInDirectionalAttackPath(tileX, tileY, entry.expectedDirection),
+    );
+    if (index < 0) {
+      return false;
+    }
+    this.pendingMonsterDefeatSignals.splice(index, 1);
+    return true;
+  }
+
+  private captureMonsterDefeatFromMessage(messageLike: unknown): void {
+    if (typeof messageLike !== "string") {
+      return;
+    }
+
+    const normalized = messageLike.replace(/\s+/g, " ").trim();
+    if (!normalized || !this.isMonsterDefeatMessage(normalized)) {
+      return;
+    }
+
+    const now = Date.now();
+    if (
+      normalized === this.lastParsedDefeatMessage &&
+      now - this.lastParsedDefeatAtMs < 120
+    ) {
+      return;
+    }
+
+    this.lastParsedDefeatMessage = normalized;
+    this.lastParsedDefeatAtMs = now;
+    this.queuePendingMonsterDefeatSignal();
+  }
+
   private queuePendingCharacterDamage(amount: number): void {
     const sanitized = Math.max(1, Math.round(Math.abs(amount)));
+    const now = Date.now();
     this.pendingCharacterDamageQueue.push({
       amount: sanitized,
-      createdAtMs: Date.now(),
+      createdAtMs: now,
+      expectedDirection: this.getRecentDirectionalAttackContext(now),
     });
 
     if (this.pendingCharacterDamageQueue.length > 8) {
@@ -1283,6 +1531,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private tryTriggerDirectionalMonsterHitSpray(amount: number): boolean {
+    const now = Date.now();
+    const context = this.getRecentDirectionalAttackContext(now);
+    if (!context) {
+      return false;
+    }
+
+    let targetX: number | null = null;
+    let targetY: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const [key, mesh] of this.tileMap.entries()) {
+      if (!mesh.userData?.isMonsterLikeCharacter) {
+        continue;
+      }
+      const [rawX, rawY] = key.split(",");
+      const x = Number.parseInt(rawX, 10);
+      const y = Number.parseInt(rawY, 10);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      if (!this.isTileInDirectionalAttackPath(x, y, context)) {
+        continue;
+      }
+      const distance = Math.max(
+        Math.abs(x - context.originX),
+        Math.abs(y - context.originY),
+      );
+      if (distance < 1 || distance >= bestDistance) {
+        continue;
+      }
+      bestDistance = distance;
+      targetX = x;
+      targetY = y;
+    }
+
+    if (targetX === null || targetY === null) {
+      return false;
+    }
+
+    this.triggerDamageEffectsAtTile(targetX, targetY, amount, "hit");
+    return true;
+  }
+
   private captureDamageFromMessage(messageLike: unknown): void {
     if (typeof messageLike !== "string") {
       return;
@@ -1293,12 +1584,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const amount = this.extractDamageAmountFromMessage(normalized);
-    if (!amount || !this.isCombatDamageMessage(normalized)) {
+    const explicitPlayerHit = this.isPlayerHitMonsterMessage(normalized);
+    if (!explicitPlayerHit && !this.isCombatDamageMessage(normalized)) {
       return;
     }
 
     if (this.isPlayerDamageVictimMessage(normalized)) {
+      return;
+    }
+
+    let amount = this.extractDamageAmountFromMessage(normalized);
+    if (!amount && (explicitPlayerHit || this.isPlayerAttackMessage(normalized))) {
+      // No explicit number from NetHack? still produce a lightweight hit cue.
+      amount = 1;
+    }
+    if (!amount) {
       return;
     }
 
@@ -1311,6 +1611,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.lastParsedDamageMessage = normalized;
     this.lastParsedDamageAtMs = now;
+
+    if (explicitPlayerHit && this.tryTriggerDirectionalMonsterHitSpray(amount)) {
+      return;
+    }
 
     this.queuePendingCharacterDamage(amount);
   }
@@ -1335,12 +1639,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const nextDamage = this.pendingCharacterDamageQueue.shift();
-    if (
-      !nextDamage ||
-      typeof tile.x !== "number" ||
-      typeof tile.y !== "number"
-    ) {
+    if (typeof tile.x !== "number" || typeof tile.y !== "number") {
+      return;
+    }
+
+    const queueIndex = this.pendingCharacterDamageQueue.findIndex((entry) =>
+      this.isTileInDirectionalAttackPath(tile.x, tile.y, entry.expectedDirection),
+    );
+    if (queueIndex < 0) {
+      return;
+    }
+
+    const [nextDamage] = this.pendingCharacterDamageQueue.splice(queueIndex, 1);
+    if (!nextDamage) {
       return;
     }
 
@@ -1351,6 +1662,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     x: number,
     y: number,
     amount: number,
+    variant: "hit" | "defeat" = "hit",
   ): void {
     if (
       !Number.isFinite(x) ||
@@ -1362,8 +1674,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
-    this.startGlyphDamageFlash(key);
-    this.spawnDamageNumberParticle(x, y, damage);
+    const isPlayerTarget = x === this.playerPos.x && y === this.playerPos.y;
+    if (variant === "hit") {
+      this.startGlyphDamageFlash(key);
+    }
+    if (isPlayerTarget && variant === "hit") {
+      this.spawnPlayerDamageNumberParticle(x, y, damage);
+    }
+    this.startGlyphDamageShake(x, y, variant);
+    this.spawnBloodMistParticles(x, y, damage, variant);
   }
 
   private enqueueTileUpdate(tile: any): void {
@@ -1768,6 +2087,151 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private startGlyphDamageShake(
+    tileX: number,
+    tileY: number,
+    variant: "hit" | "defeat",
+  ): void {
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh) {
+      return;
+    }
+
+    const amplitude =
+      variant === "defeat"
+        ? this.glyphDefeatShakeAmplitude
+        : this.glyphDamageShakeAmplitude;
+    const durationMs =
+      variant === "defeat"
+        ? this.glyphDefeatShakeDurationMs
+        : this.glyphDamageShakeDurationMs;
+
+    const existing = this.glyphDamageShakes.get(key);
+    if (existing) {
+      existing.elapsedMs = 0;
+      existing.durationMs = Math.max(existing.durationMs, durationMs);
+      existing.amplitude = Math.max(existing.amplitude, amplitude);
+      return;
+    }
+
+    this.glyphDamageShakes.set(key, {
+      key,
+      tileX,
+      tileY,
+      elapsedMs: 0,
+      durationMs,
+      amplitude,
+      seed: Math.random() * Math.PI * 2,
+    });
+  }
+
+  private stopGlyphDamageShake(key: string): void {
+    const state = this.glyphDamageShakes.get(key);
+    if (!state) {
+      return;
+    }
+
+    const mesh = this.tileMap.get(key);
+    if (mesh) {
+      const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
+      mesh.position.set(state.tileX * TILE_SIZE, -state.tileY * TILE_SIZE, baseZ);
+    }
+
+    this.glyphDamageShakes.delete(key);
+  }
+
+  private updateGlyphDamageShakes(deltaSeconds: number): void {
+    if (this.glyphDamageShakes.size === 0) {
+      return;
+    }
+
+    const deltaMs = deltaSeconds * 1000;
+    const entries = Array.from(this.glyphDamageShakes.entries());
+
+    for (const [key, state] of entries) {
+      const mesh = this.tileMap.get(key);
+      if (!mesh) {
+        this.glyphDamageShakes.delete(key);
+        continue;
+      }
+
+      state.elapsedMs += deltaMs;
+      const progress = THREE.MathUtils.clamp(
+        state.elapsedMs / state.durationMs,
+        0,
+        1,
+      );
+      const envelope = Math.pow(1 - progress, 2);
+      const jitter = state.amplitude * envelope;
+      const oscillationBase = state.elapsedMs / 1000;
+      const offsetX =
+        Math.sin(oscillationBase * 74 + state.seed) * jitter +
+        Math.sin(oscillationBase * 33 + state.seed * 1.37) * jitter * 0.5;
+      const offsetY =
+        Math.cos(oscillationBase * 81 + state.seed * 0.91) * jitter +
+        Math.cos(oscillationBase * 29 + state.seed * 1.71) * jitter * 0.4;
+      const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
+
+      mesh.position.set(
+        state.tileX * TILE_SIZE + offsetX,
+        -state.tileY * TILE_SIZE + offsetY,
+        baseZ,
+      );
+
+      if (progress >= 1) {
+        this.stopGlyphDamageShake(key);
+      }
+    }
+  }
+
+  private getBloodMistTexture(): THREE.CanvasTexture {
+    if (this.bloodMistTexture) {
+      return this.bloodMistTexture;
+    }
+
+    const size = 96;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create blood mist canvas context");
+    }
+
+    context.clearRect(0, 0, size, size);
+    const gradient = context.createRadialGradient(
+      size * 0.5,
+      size * 0.5,
+      size * 0.015,
+      size * 0.5,
+      size * 0.5,
+      size * 0.34,
+    );
+    gradient.addColorStop(0, "rgba(210, 22, 22, 1)");
+    gradient.addColorStop(0.22, "rgba(170, 10, 10, 0.99)");
+    gradient.addColorStop(0.58, "rgba(118, 4, 4, 0.73)");
+    gradient.addColorStop(0.9, "rgba(74, 0, 0, 0.13)");
+    gradient.addColorStop(1, "rgba(74, 0, 0, 0)");
+    context.fillStyle = gradient;
+    context.beginPath();
+    context.arc(size / 2, size / 2, size * 0.34, 0, Math.PI * 2);
+    context.fill();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+
+    this.bloodMistTexture = texture;
+    return texture;
+  }
+
   private createDamageNumberTexture(label: string): {
     texture: THREE.CanvasTexture;
     aspectRatio: number;
@@ -1810,14 +2274,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return { texture, aspectRatio };
   }
 
-  private spawnDamageNumberParticle(
+  private spawnPlayerDamageNumberParticle(
     tileX: number,
     tileY: number,
     damage: number,
   ): void {
     const label = `-${Math.max(1, Math.round(Math.abs(damage)))}`;
     const { texture, aspectRatio } = this.createDamageNumberTexture(label);
-
     const material = new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
@@ -1843,6 +2306,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       -tileY * TILE_SIZE,
       this.damageParticleFloorZ + 0.28,
     );
+    this.alignPlayerDamageNumberToCamera(sprite);
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
@@ -1852,7 +2316,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
     const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
 
-    this.damageParticles.push({
+    this.playerDamageNumberParticles.push({
       sprite,
       velocity: new THREE.Vector3(
         Math.cos(launchAzimuthRad) * horizontalSpeed,
@@ -1860,10 +2324,116 @@ class Nethack3DEngine implements Nethack3DEngineController {
         verticalSpeed,
       ),
       ageMs: 0,
-      lifetimeMs: this.damageParticleLifetimeMs,
+      lifetimeMs: this.playerDamageNumberLifetimeMs,
       radius: 0.09,
       baseScale,
     });
+  }
+
+  private alignPlayerDamageNumberToCamera(sprite: THREE.Sprite): void {
+    sprite.quaternion.copy(this.camera.quaternion);
+  }
+
+  private spawnBloodMistParticles(
+    tileX: number,
+    tileY: number,
+    damage: number,
+    variant: "hit" | "defeat",
+  ): void {
+    const sanitized = Math.max(1, Math.round(Math.abs(damage)));
+    const texture = this.getBloodMistTexture();
+    const awayFromPlayer = new THREE.Vector2(
+      tileX - this.playerPos.x,
+      -(tileY - this.playerPos.y),
+    );
+    if (awayFromPlayer.lengthSq() < 0.0001) {
+      const randomAngle = Math.random() * Math.PI * 2;
+      awayFromPlayer.set(Math.cos(randomAngle), Math.sin(randomAngle));
+    } else {
+      awayFromPlayer.normalize();
+    }
+
+    const spreadRadians =
+      variant === "defeat"
+        ? THREE.MathUtils.degToRad(52)
+        : THREE.MathUtils.degToRad(32);
+    const count =
+      variant === "defeat"
+        ? THREE.MathUtils.randInt(
+            this.bloodParticleDefeatCountMin,
+            this.bloodParticleDefeatCountMax,
+          )
+        : THREE.MathUtils.randInt(
+            this.bloodParticleHitCountMin,
+            this.bloodParticleHitCountMax,
+          );
+    const particleCount =
+      count + (variant === "defeat" ? Math.min(12, sanitized) : 0);
+    const baseLifetimeMs =
+      variant === "defeat"
+        ? this.bloodParticleDefeatLifetimeMs
+        : this.bloodParticleHitLifetimeMs;
+    const lifetimeJitterMs = variant === "defeat" ? 580 : 260;
+    const baseHorizontalSpeed = variant === "defeat" ? 4.2 : 3.1;
+    const horizontalBoost = variant === "defeat" ? 0.24 : 0.16;
+    const baseVerticalSpeed = variant === "defeat" ? 3.1 : 2.3;
+    const minScale = variant === "defeat" ? 0.086 : 0.049;
+    const maxScale = variant === "defeat" ? 0.214 : 0.118;
+
+    for (let i = 0; i < particleCount; i += 1) {
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      material.opacity = variant === "defeat" ? 0.95 : 0.88;
+
+      const sprite = new THREE.Sprite(material);
+      const sizeFactor = Math.pow(Math.random(), 1.35);
+      const baseScaleValue = THREE.MathUtils.lerp(minScale, maxScale, sizeFactor);
+      const baseScale = new THREE.Vector2(
+        baseScaleValue * (0.82 + Math.random() * 0.36),
+        baseScaleValue * (0.82 + Math.random() * 0.36),
+      );
+      sprite.scale.set(baseScale.x, baseScale.y, 1);
+      sprite.position.set(
+        tileX * TILE_SIZE +
+          (Math.random() - 0.5) * this.bloodParticleSpawnJitter,
+        -tileY * TILE_SIZE +
+          (Math.random() - 0.5) * this.bloodParticleSpawnJitter,
+        this.damageParticleFloorZ + 0.16 + Math.random() * 0.24,
+      );
+      sprite.renderOrder = 930;
+      this.scene.add(sprite);
+
+      const directionAngle =
+        Math.atan2(awayFromPlayer.y, awayFromPlayer.x) +
+        (Math.random() - 0.5) * spreadRadians;
+      const horizontalSpeed =
+        baseHorizontalSpeed +
+        Math.random() * (baseHorizontalSpeed * 0.7) +
+        sanitized * horizontalBoost +
+        (1 - sizeFactor) * (variant === "defeat" ? 2.6 : 1.9);
+      const verticalSpeed =
+        baseVerticalSpeed +
+        Math.random() * (variant === "defeat" ? 3.2 : 2.2) +
+        (1 - sizeFactor) * (variant === "defeat" ? 1.9 : 1.2);
+
+      this.damageParticles.push({
+        sprite,
+        velocity: new THREE.Vector3(
+          Math.cos(directionAngle) * horizontalSpeed,
+          Math.sin(directionAngle) * horizontalSpeed,
+          verticalSpeed,
+        ),
+        ageMs: 0,
+        lifetimeMs: baseLifetimeMs + Math.random() * lifetimeJitterMs,
+        radius: baseScaleValue * 0.52,
+        baseScale,
+      });
+    }
   }
 
   private disposeDamageParticle(index: number): void {
@@ -1876,6 +2446,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const material = particle.sprite.material;
     if (material instanceof THREE.SpriteMaterial) {
+      if (material.map && material.map !== this.bloodMistTexture) {
+        material.map.dispose();
+      }
+      material.dispose();
+    }
+  }
+
+  private disposePlayerDamageNumberParticle(index: number): void {
+    if (
+      index < 0 ||
+      index >= this.playerDamageNumberParticles.length
+    ) {
+      return;
+    }
+
+    const [particle] = this.playerDamageNumberParticles.splice(index, 1);
+    this.scene.remove(particle.sprite);
+
+    const material = particle.sprite.material;
+    if (material instanceof THREE.SpriteMaterial) {
       if (material.map) {
         material.map.dispose();
       }
@@ -1883,8 +2473,103 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private resolveDamageParticleAgainstWallTile(
+  private resolvePlayerDamageNumberAgainstWallTile(
     particle: DamageNumberParticle,
+    tileX: number,
+    tileY: number,
+  ): boolean {
+    const position = particle.sprite.position;
+    const half = TILE_SIZE / 2;
+    const centerX = tileX * TILE_SIZE;
+    const centerY = -tileY * TILE_SIZE;
+    const minX = centerX - half;
+    const maxX = centerX + half;
+    const minY = centerY - half;
+    const maxY = centerY + half;
+    const radius = particle.radius;
+
+    const closestX = THREE.MathUtils.clamp(position.x, minX, maxX);
+    const closestY = THREE.MathUtils.clamp(position.y, minY, maxY);
+    let nx = position.x - closestX;
+    let ny = position.y - closestY;
+    const distSq = nx * nx + ny * ny;
+
+    if (distSq >= radius * radius) {
+      return false;
+    }
+
+    let penetration = 0;
+    if (distSq > 1e-8) {
+      const dist = Math.sqrt(distSq);
+      nx /= dist;
+      ny /= dist;
+      penetration = radius - dist;
+    } else {
+      const toLeft = position.x - minX;
+      const toRight = maxX - position.x;
+      const toBottom = position.y - minY;
+      const toTop = maxY - position.y;
+      const minPenetration = Math.min(toLeft, toRight, toBottom, toTop);
+
+      if (minPenetration === toLeft) {
+        nx = -1;
+        ny = 0;
+        penetration = toLeft + radius;
+      } else if (minPenetration === toRight) {
+        nx = 1;
+        ny = 0;
+        penetration = toRight + radius;
+      } else if (minPenetration === toBottom) {
+        nx = 0;
+        ny = -1;
+        penetration = toBottom + radius;
+      } else {
+        nx = 0;
+        ny = 1;
+        penetration = toTop + radius;
+      }
+    }
+
+    position.x += nx * penetration;
+    position.y += ny * penetration;
+
+    const velocityIntoWall =
+      particle.velocity.x * nx + particle.velocity.y * ny;
+    if (velocityIntoWall < 0) {
+      const bounce =
+        (1 + this.playerDamageNumberWallBounce) * velocityIntoWall;
+      particle.velocity.x -= bounce * nx;
+      particle.velocity.y -= bounce * ny;
+      particle.velocity.x *= 0.78;
+      particle.velocity.y *= 0.78;
+    }
+
+    return true;
+  }
+
+  private resolvePlayerDamageNumberWallCollision(
+    particle: DamageNumberParticle,
+  ): void {
+    if (particle.sprite.position.z > WALL_HEIGHT + 0.22) {
+      return;
+    }
+
+    const approxTileX = Math.round(particle.sprite.position.x / TILE_SIZE);
+    const approxTileY = Math.round(-particle.sprite.position.y / TILE_SIZE);
+
+    for (let x = approxTileX - 1; x <= approxTileX + 1; x += 1) {
+      for (let y = approxTileY - 1; y <= approxTileY + 1; y += 1) {
+        const wall = this.tileMap.get(`${x},${y}`);
+        if (!wall || !wall.userData?.isWall) {
+          continue;
+        }
+        this.resolvePlayerDamageNumberAgainstWallTile(particle, x, y);
+      }
+    }
+  }
+
+  private resolveDamageParticleAgainstWallTile(
+    particle: BloodMistParticle,
     tileX: number,
     tileY: number,
   ): boolean {
@@ -1957,7 +2642,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private resolveDamageParticleWallCollision(
-    particle: DamageNumberParticle,
+    particle: BloodMistParticle,
   ): void {
     if (particle.sprite.position.z > WALL_HEIGHT + 0.22) {
       return;
@@ -1983,20 +2668,89 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const deltaMs = deltaSeconds * 1000;
-    const drag = Math.exp(-2.4 * deltaSeconds);
+    const drag = Math.exp(-this.damageParticleDrag * deltaSeconds);
 
     for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
       const particle = this.damageParticles[i];
       particle.ageMs += deltaMs;
-      particle.velocity.z -= this.damageParticleGravity * deltaSeconds;
+      const speed = particle.velocity.length();
+      const travelPerFrame = speed * deltaSeconds;
+      const subSteps = THREE.MathUtils.clamp(
+        Math.ceil(travelPerFrame / (TILE_SIZE * 0.35)),
+        1,
+        4,
+      );
+      const stepSeconds = deltaSeconds / subSteps;
+      const dragPerStep = Math.pow(drag, 1 / subSteps);
+
+      for (let step = 0; step < subSteps; step += 1) {
+        particle.velocity.z -= this.damageParticleGravity * stepSeconds;
+        particle.velocity.x *= dragPerStep;
+        particle.velocity.y *= dragPerStep;
+
+        particle.sprite.position.x += particle.velocity.x * stepSeconds;
+        particle.sprite.position.y += particle.velocity.y * stepSeconds;
+        particle.sprite.position.z += particle.velocity.z * stepSeconds;
+
+        this.resolveDamageParticleWallCollision(particle);
+
+        if (particle.sprite.position.z < this.damageParticleFloorZ) {
+          particle.sprite.position.z = this.damageParticleFloorZ;
+          if (particle.velocity.z < 0) {
+            particle.velocity.z *= -0.22;
+          }
+          particle.velocity.x *= 0.82;
+          particle.velocity.y *= 0.82;
+        }
+      }
+
+      const material = particle.sprite.material;
+      if (!(material instanceof THREE.SpriteMaterial)) {
+        this.disposeDamageParticle(i);
+        continue;
+      }
+
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1,
+      );
+      material.opacity = Math.max(0, 1 - Math.pow(lifeT, 2.1));
+
+      const scaleBoost = 1 + lifeT * 0.34;
+      particle.sprite.scale.set(
+        particle.baseScale.x * scaleBoost,
+        particle.baseScale.y * scaleBoost,
+        1,
+      );
+
+      if (lifeT >= 1 || material.opacity <= 0.01) {
+        this.disposeDamageParticle(i);
+      }
+    }
+  }
+
+  private updatePlayerDamageNumberParticles(deltaSeconds: number): void {
+    if (!this.playerDamageNumberParticles.length) {
+      return;
+    }
+
+    const deltaMs = deltaSeconds * 1000;
+    const drag = Math.exp(-this.playerDamageNumberDrag * deltaSeconds);
+
+    for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
+      const particle = this.playerDamageNumberParticles[i];
+      particle.ageMs += deltaMs;
+      particle.velocity.z -= this.playerDamageNumberGravity * deltaSeconds;
       particle.velocity.x *= drag;
       particle.velocity.y *= drag;
 
       particle.sprite.position.x += particle.velocity.x * deltaSeconds;
       particle.sprite.position.y += particle.velocity.y * deltaSeconds;
       particle.sprite.position.z += particle.velocity.z * deltaSeconds;
+      this.alignPlayerDamageNumberToCamera(particle.sprite);
 
-      this.resolveDamageParticleWallCollision(particle);
+      this.resolvePlayerDamageNumberWallCollision(particle);
 
       if (particle.sprite.position.z < this.damageParticleFloorZ) {
         particle.sprite.position.z = this.damageParticleFloorZ;
@@ -2009,7 +2763,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const material = particle.sprite.material;
       if (!(material instanceof THREE.SpriteMaterial)) {
-        this.disposeDamageParticle(i);
+        this.disposePlayerDamageNumberParticle(i);
         continue;
       }
 
@@ -2028,15 +2782,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
 
       if (lifeT >= 1 || material.opacity <= 0.01) {
-        this.disposeDamageParticle(i);
+        this.disposePlayerDamageNumberParticle(i);
       }
     }
   }
 
   private updateDamageEffects(deltaSeconds: number): void {
     this.updateGlyphDamageFlashes(deltaSeconds);
+    this.updateGlyphDamageShakes(deltaSeconds);
     this.updateDamageParticles(deltaSeconds);
-    this.prunePendingCharacterDamage(Date.now());
+    this.updatePlayerDamageNumberParticles(deltaSeconds);
+    const now = Date.now();
+    this.prunePendingCharacterDamage(now);
+    this.prunePendingMonsterDefeatSignals(now);
   }
 
   private clearDamageEffects(): void {
@@ -2045,13 +2803,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.stopGlyphDamageFlash(key);
     }
 
+    const shakeKeys = Array.from(this.glyphDamageShakes.keys());
+    for (const key of shakeKeys) {
+      this.stopGlyphDamageShake(key);
+    }
+
     for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
       this.disposeDamageParticle(i);
     }
+    for (
+      let i = this.playerDamageNumberParticles.length - 1;
+      i >= 0;
+      i -= 1
+    ) {
+      this.disposePlayerDamageNumberParticle(i);
+    }
 
     this.pendingCharacterDamageQueue = [];
+    this.pendingMonsterDefeatSignals = [];
+    this.lastDirectionalAttackContext = null;
     this.lastParsedDamageMessage = "";
     this.lastParsedDamageAtMs = 0;
+    this.lastParsedDefeatMessage = "";
+    this.lastParsedDefeatAtMs = 0;
   }
 
   private applyGlyphMaterial(
@@ -2298,6 +3072,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
     const hadMesh = Boolean(mesh);
+    const wasMonsterLikeCharacter = mesh
+      ? Boolean(mesh.userData?.isMonsterLikeCharacter)
+      : false;
     const wasUndiscovered = mesh
       ? Boolean(mesh.userData?.isUndiscovered)
       : true;
@@ -2307,6 +3084,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: typeof color === "number" ? color : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
+    const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
+    const triggerMonsterDefeatBurst =
+      wasMonsterLikeCharacter &&
+      !isMonsterLikeCharacter &&
+      this.consumePendingMonsterDefeatSignal(x, y);
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
     const shouldRevealFade = !isUndiscovered && (!hadMesh || wasUndiscovered);
 
@@ -2345,6 +3127,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.isWall = behavior.isWall;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
+    mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
+    mesh.userData.isMonsterLikeCharacter = isMonsterLikeCharacter;
     mesh.userData.isDamageFlashableCharacter =
       this.isDamageFlashableBehavior(behavior);
     mesh.userData.glyphChar = behavior.glyphChar;
@@ -2366,6 +3150,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.stopTileRevealFade(key);
     } else if (shouldRevealFade) {
       this.startTileRevealFade(key);
+    }
+    if (triggerMonsterDefeatBurst) {
+      this.triggerDamageEffectsAtTile(x, y, 1, "defeat");
     }
     this.markLightingDirty();
   }
@@ -2905,16 +3692,405 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.getMenuSelectionInput(item, fallback);
   }
 
+  private getVisiblePickupSelectableMenuItems(): any[] {
+    if (!Array.isArray(this.activeQuestionVisibleMenuItems)) {
+      return [];
+    }
+    return this.activeQuestionVisibleMenuItems.filter((item) =>
+      this.isSelectableQuestionMenuItem(item),
+    );
+  }
+
+  private normalizeActivePickupFocusIndex(): void {
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      this.activePickupFocusIndex = 0;
+      return;
+    }
+
+    if (
+      !Number.isInteger(this.activePickupFocusIndex) ||
+      this.activePickupFocusIndex < 0 ||
+      this.activePickupFocusIndex >= selectableItems.length
+    ) {
+      this.activePickupFocusIndex = 0;
+    }
+  }
+
+  private getActivePickupSelectionInput(): string | null {
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return null;
+    }
+    this.normalizeActivePickupFocusIndex();
+    const focusedItem = selectableItems[this.activePickupFocusIndex];
+    const selectionInput = this.getQuestionMenuSelectionInput(focusedItem);
+    return typeof selectionInput === "string" && selectionInput.length > 0
+      ? selectionInput
+      : null;
+  }
+
+  private isPickupSelectionInputFocused(selectionInput: string): boolean {
+    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
+      return false;
+    }
+    return this.getActivePickupSelectionInput() === selectionInput;
+  }
+
+  private setActivePickupFocusBySelectionInput(selectionInput: string): void {
+    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
+      return;
+    }
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    const index = selectableItems.findIndex((item) => {
+      return this.getQuestionMenuSelectionInput(item) === selectionInput;
+    });
+    if (index >= 0) {
+      this.activePickupFocusIndex = index;
+      this.clearQuestionActionFocus();
+    }
+  }
+
+  private updatePickupFocusVisualState(): void {
+    if (this.uiAdapter) {
+      this.syncQuestionDialogState();
+      return;
+    }
+
+    const questionDialog = document.getElementById("question-dialog");
+    if (!questionDialog) {
+      return;
+    }
+
+    const focusedSelectionInput = this.isQuestionActionFocused()
+      ? null
+      : this.getActivePickupSelectionInput();
+    const containers = questionDialog.querySelectorAll(".nh3d-pickup-item");
+    containers.forEach((container: Element) => {
+      const element = container as HTMLElement & { selectionInput?: string };
+      const isFocused =
+        typeof focusedSelectionInput === "string" &&
+        element.selectionInput === focusedSelectionInput;
+      element.classList.toggle("nh3d-pickup-item-active", isFocused);
+    });
+    this.updateQuestionActionFocusVisualStateDom(questionDialog);
+  }
+
+  private movePickupFocus(delta: number): void {
+    if (!this.activeQuestionIsPickupDialog || delta === 0) {
+      return;
+    }
+
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return;
+    }
+
+    this.normalizeActivePickupFocusIndex();
+    this.clearQuestionActionFocus();
+    const itemCount = selectableItems.length;
+    const nextIndex =
+      (((this.activePickupFocusIndex + delta) % itemCount) + itemCount) %
+      itemCount;
+    this.activePickupFocusIndex = nextIndex;
+    this.updatePickupFocusVisualState();
+  }
+
+  private toggleActivePickupFocusSelection(): void {
+    const focusedSelectionInput = this.getActivePickupSelectionInput();
+    if (!focusedSelectionInput) {
+      return;
+    }
+
+    if (this.uiAdapter) {
+      this.togglePickupChoice(focusedSelectionInput);
+      return;
+    }
+
+    const questionDialog = document.getElementById("question-dialog");
+    if (!questionDialog) {
+      return;
+    }
+    const containers = questionDialog.querySelectorAll(".nh3d-pickup-item");
+    for (const container of containers) {
+      const element = container as any;
+      if (
+        element.selectionInput === focusedSelectionInput &&
+        typeof element.toggleItem === "function"
+      ) {
+        element.toggleItem();
+        break;
+      }
+    }
+  }
+
+  private getActiveQuestionActionButtons(): Array<"confirm" | "cancel"> {
+    if (!this.isInQuestion || this.activeQuestionMenuItems.length === 0) {
+      return [];
+    }
+    const selectableCount = this.getVisiblePickupSelectableMenuItems().length;
+    if (selectableCount <= 1) {
+      return [];
+    }
+    if (this.activeQuestionIsPickupDialog) {
+      return ["confirm", "cancel"];
+    }
+    return ["cancel"];
+  }
+
+  private getActiveQuestionActionButton(): "confirm" | "cancel" | null {
+    const actions = this.getActiveQuestionActionButtons();
+    if (actions.length === 0) {
+      this.activeQuestionActionFocusIndex = -1;
+      return null;
+    }
+    if (this.activeQuestionActionFocusIndex < 0) {
+      return null;
+    }
+    if (this.activeQuestionActionFocusIndex >= actions.length) {
+      this.activeQuestionActionFocusIndex = actions.length - 1;
+    }
+    return actions[this.activeQuestionActionFocusIndex] ?? null;
+  }
+
+  private isQuestionActionFocused(): boolean {
+    return this.getActiveQuestionActionButton() !== null;
+  }
+
+  private setQuestionActionFocusIndex(index: number): void {
+    const actions = this.getActiveQuestionActionButtons();
+    if (actions.length === 0) {
+      this.activeQuestionActionFocusIndex = -1;
+    } else {
+      const clamped = Math.max(0, Math.min(actions.length - 1, index));
+      this.activeQuestionActionFocusIndex = clamped;
+    }
+    if (this.activeQuestionIsPickupDialog) {
+      this.updatePickupFocusVisualState();
+    } else {
+      this.updateQuestionMenuFocusVisualState();
+    }
+  }
+
+  private clearQuestionActionFocus(): void {
+    this.activeQuestionActionFocusIndex = -1;
+  }
+
+  private moveQuestionActionFocus(delta: number): boolean {
+    if (delta === 0) {
+      return false;
+    }
+    const actions = this.getActiveQuestionActionButtons();
+    if (actions.length === 0 || this.activeQuestionActionFocusIndex < 0) {
+      return false;
+    }
+    const nextIndex = Math.max(
+      0,
+      Math.min(actions.length - 1, this.activeQuestionActionFocusIndex + delta),
+    );
+    this.setQuestionActionFocusIndex(nextIndex);
+    return true;
+  }
+
+  private focusQuestionActionsStart(): boolean {
+    const actions = this.getActiveQuestionActionButtons();
+    if (actions.length === 0) {
+      return false;
+    }
+    this.setQuestionActionFocusIndex(0);
+    return true;
+  }
+
+  private activateFocusedQuestionAction(): boolean {
+    const action = this.getActiveQuestionActionButton();
+    if (!action) {
+      return false;
+    }
+    if (action === "cancel") {
+      this.cancelActivePrompt();
+      return true;
+    }
+    if (action === "confirm") {
+      if (this.activeQuestionIsPickupDialog) {
+        this.confirmPickupChoices();
+      } else {
+        this.confirmQuestionMenuChoice();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  private normalizeActiveQuestionMenuFocusIndex(): void {
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      this.activeQuestionMenuFocusIndex = 0;
+      return;
+    }
+
+    if (
+      !Number.isInteger(this.activeQuestionMenuFocusIndex) ||
+      this.activeQuestionMenuFocusIndex < 0 ||
+      this.activeQuestionMenuFocusIndex >= selectableItems.length
+    ) {
+      this.activeQuestionMenuFocusIndex = 0;
+    }
+  }
+
+  private getActiveQuestionMenuSelectionInput(): string | null {
+    if (
+      this.activeQuestionIsPickupDialog ||
+      this.activeQuestionMenuItems.length === 0
+    ) {
+      return null;
+    }
+
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return null;
+    }
+
+    this.normalizeActiveQuestionMenuFocusIndex();
+    const focusedItem = selectableItems[this.activeQuestionMenuFocusIndex];
+    const selectionInput = this.getQuestionMenuSelectionInput(focusedItem);
+    return typeof selectionInput === "string" && selectionInput.length > 0
+      ? selectionInput
+      : null;
+  }
+
+  private isQuestionMenuSelectionInputFocused(selectionInput: string): boolean {
+    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
+      return false;
+    }
+    return this.getActiveQuestionMenuSelectionInput() === selectionInput;
+  }
+
+  private setActiveQuestionMenuFocusBySelectionInput(selectionInput: string): void {
+    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
+      return;
+    }
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    const index = selectableItems.findIndex((item) => {
+      return this.getQuestionMenuSelectionInput(item) === selectionInput;
+    });
+    if (index >= 0) {
+      this.activeQuestionMenuFocusIndex = index;
+      this.clearQuestionActionFocus();
+    }
+  }
+
+  private updateQuestionMenuFocusVisualState(): void {
+    if (this.uiAdapter) {
+      this.syncQuestionDialogState();
+      return;
+    }
+
+    const questionDialog = document.getElementById("question-dialog");
+    if (!questionDialog) {
+      return;
+    }
+
+    const focusedSelectionInput = this.isQuestionActionFocused()
+      ? null
+      : this.getActiveQuestionMenuSelectionInput();
+    const buttons = questionDialog.querySelectorAll(".nh3d-menu-button");
+    buttons.forEach((button: Element) => {
+      const element = button as HTMLElement & { selectionInput?: string };
+      const isFocused =
+        typeof focusedSelectionInput === "string" &&
+        element.selectionInput === focusedSelectionInput;
+      element.classList.toggle("nh3d-menu-button-active", isFocused);
+    });
+    this.updateQuestionActionFocusVisualStateDom(questionDialog);
+  }
+
+  private updateQuestionActionFocusVisualStateDom(
+    questionDialog?: HTMLElement,
+  ): void {
+    const dialog = questionDialog ?? document.getElementById("question-dialog");
+    if (!dialog) {
+      return;
+    }
+
+    const focusedAction = this.getActiveQuestionActionButton();
+    const actionButtons = dialog.querySelectorAll("[data-question-action]");
+    actionButtons.forEach((button: Element) => {
+      const element = button as HTMLElement;
+      const action = element.getAttribute("data-question-action");
+      const isFocused =
+        typeof focusedAction === "string" &&
+        focusedAction.length > 0 &&
+        action === focusedAction;
+      element.classList.toggle("nh3d-action-button-active", isFocused);
+    });
+  }
+
+  private moveQuestionMenuFocus(delta: number): void {
+    if (
+      this.activeQuestionIsPickupDialog ||
+      this.activeQuestionMenuItems.length === 0 ||
+      delta === 0
+    ) {
+      return;
+    }
+
+    const selectableItems = this.getVisiblePickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return;
+    }
+
+    this.normalizeActiveQuestionMenuFocusIndex();
+    this.clearQuestionActionFocus();
+    const itemCount = selectableItems.length;
+    const nextIndex =
+      (((this.activeQuestionMenuFocusIndex + delta) % itemCount) + itemCount) %
+      itemCount;
+    this.activeQuestionMenuFocusIndex = nextIndex;
+    this.updateQuestionMenuFocusVisualState();
+  }
+
+  private confirmActiveQuestionMenuChoice(): void {
+    if (
+      !this.isInQuestion ||
+      this.activeQuestionIsPickupDialog ||
+      this.activeQuestionMenuItems.length === 0
+    ) {
+      return;
+    }
+
+    const selectionInput = this.getActiveQuestionMenuSelectionInput();
+    if (!selectionInput) {
+      return;
+    }
+
+    const selectedItem = this.findActiveMenuItemBySelectionInput(selectionInput);
+    if (!selectedItem) {
+      return;
+    }
+
+    this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+    this.hideQuestion();
+  }
+
   private rebuildActiveQuestionMenuPagination(): void {
     this.activeQuestionVisibleMenuItems = [];
     this.activeQuestionPageSelectionMap.clear();
     this.activeQuestionMenuPageCount = 1;
     this.activeQuestionMenuPageIndex = Math.max(0, this.activeQuestionMenuPageIndex);
+    this.activeQuestionActionFocusIndex = -1;
+    if (this.activeQuestionIsPickupDialog) {
+      this.activeQuestionMenuFocusIndex = 0;
+    } else {
+      this.activePickupFocusIndex = 0;
+    }
 
     if (
       !Array.isArray(this.activeQuestionMenuItems) ||
       this.activeQuestionMenuItems.length === 0
     ) {
+      this.activePickupFocusIndex = 0;
+      this.activeQuestionMenuFocusIndex = 0;
+      this.activeQuestionActionFocusIndex = -1;
       return;
     }
 
@@ -2924,6 +4100,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (selectableItems.length === 0) {
       this.activeQuestionVisibleMenuItems = [...this.activeQuestionMenuItems];
       this.activeQuestionMenuPageIndex = 0;
+      this.activePickupFocusIndex = 0;
+      this.activeQuestionMenuFocusIndex = 0;
+      this.activeQuestionActionFocusIndex = -1;
       return;
     }
 
@@ -2968,19 +4147,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
         categoryRowsInjected = true;
       }
 
-      const displayAccelerator =
+      const gameAccelerator =
+        typeof menuItem.accelerator === "string" ? menuItem.accelerator : "";
+      const fallbackAccelerator =
         this.questionMenuPageAccelerators[selectableInPage] ?? "?";
+      const displayAccelerator =
+        gameAccelerator.trim().length > 0 ? gameAccelerator : fallbackAccelerator;
       const selectionInput = this.getQuestionMenuSelectionInput(menuItem);
 
       this.activeQuestionVisibleMenuItems.push({
         ...menuItem,
         accelerator: displayAccelerator,
         originalAccelerator:
-          typeof menuItem.accelerator === "string" ? menuItem.accelerator : "",
+          gameAccelerator,
         selectionInput,
       });
       this.activeQuestionPageSelectionMap.set(displayAccelerator, selectionInput);
       selectableInPage += 1;
+    }
+
+    if (this.activeQuestionIsPickupDialog) {
+      this.normalizeActivePickupFocusIndex();
+      this.activeQuestionMenuFocusIndex = 0;
+      this.activeQuestionActionFocusIndex = -1;
+    } else {
+      this.activePickupFocusIndex = 0;
+      this.normalizeActiveQuestionMenuFocusIndex();
+      this.activeQuestionActionFocusIndex = -1;
     }
   }
 
@@ -3074,6 +4267,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
     questionDialog.appendChild(controls);
   }
 
+  private appendQuestionMenuActionControls(questionDialog: HTMLElement): void {
+    if (
+      this.activeQuestionMenuItems.length === 0 ||
+      this.activeQuestionIsPickupDialog
+    ) {
+      return;
+    }
+    const selectableItemCount = this.activeQuestionVisibleMenuItems.filter((item) =>
+      this.isSelectableQuestionMenuItem(item),
+    ).length;
+    if (selectableItemCount <= 1) {
+      return;
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "nh3d-menu-actions";
+
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
+    cancelButton.setAttribute("data-question-action", "cancel");
+    cancelButton.textContent = "Cancel";
+    cancelButton.onclick = () => this.cancelActivePrompt();
+
+    actions.appendChild(cancelButton);
+    questionDialog.appendChild(actions);
+  }
+
   private renderQuestionDialogDom(): void {
     // Create or get question dialog
     let questionDialog = document.getElementById("question-dialog");
@@ -3105,11 +4326,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.activeQuestionVisibleMenuItems,
           this.activeQuestionText,
         );
+        this.updatePickupFocusVisualState();
       } else {
         // Create standard single-selection menu
         this.createStandardMenu(questionDialog, this.activeQuestionVisibleMenuItems);
+        this.updateQuestionMenuFocusVisualState();
       }
 
+      this.appendQuestionMenuActionControls(questionDialog);
       this.appendQuestionMenuPaginationControls(questionDialog);
     } else {
       // Add choice buttons for simple y/n questions
@@ -3183,6 +4407,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.activeQuestionMenuItems.length > 0 &&
       this.isMultiSelectLootQuestion(this.activeQuestionText);
     this.activePickupSelections.clear();
+    this.activePickupFocusIndex = 0;
+    this.activeQuestionMenuFocusIndex = 0;
+    this.activeQuestionActionFocusIndex = -1;
     this.activeQuestionMenuPageIndex = 0;
     this.rebuildActiveQuestionMenuPagination();
 
@@ -3229,6 +4456,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         typeof item.accelerator === "string" ? item.accelerator : "",
       )
       .filter((value) => value.length > 0);
+    const activeActionButton = this.getActiveQuestionActionButton();
+    const activeMenuSelectionInput =
+      this.activeQuestionMenuItems.length > 0 && !activeActionButton
+        ? this.activeQuestionIsPickupDialog
+          ? this.getActivePickupSelectionInput()
+          : this.getActiveQuestionMenuSelectionInput()
+        : null;
 
     const state: QuestionDialogState = {
       text: this.activeQuestionText,
@@ -3237,6 +4471,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       menuItems: [...this.activeQuestionVisibleMenuItems],
       isPickupDialog: this.activeQuestionIsPickupDialog,
       selectedAccelerators,
+      activePickupSelectionInput: this.activeQuestionIsPickupDialog
+        ? activeMenuSelectionInput
+        : null,
+      activeMenuSelectionInput,
+      activeActionButton,
       menuPageIndex: this.activeQuestionMenuPageIndex,
       menuPageCount: this.activeQuestionMenuPageCount,
     };
@@ -3467,6 +4706,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel";
     directionDialog.appendChild(escapeText);
 
+    const actions = document.createElement("div");
+    actions.className = "nh3d-menu-actions";
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
+    cancelButton.textContent = "Cancel";
+    cancelButton.onclick = () => this.cancelActivePrompt();
+    actions.appendChild(cancelButton);
+    directionDialog.appendChild(actions);
+
     // Show the dialog
     directionDialog.classList.add("is-visible");
   }
@@ -3518,8 +4767,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const hint = document.createElement("div");
     hint.className = "nh3d-info-hint";
-    hint.textContent = "Press ESC to close. Press Ctrl+M to reopen.";
+    hint.textContent = "Press ENTER or ESC to close. Press Ctrl+M to reopen.";
     infoDialog.appendChild(hint);
+
+    const actions = document.createElement("div");
+    actions.className = "nh3d-menu-actions";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
+    closeButton.textContent = "Close";
+    closeButton.onclick = () => this.hideInfoMenuDialog();
+    actions.appendChild(closeButton);
+    infoDialog.appendChild(actions);
 
     infoDialog.classList.add("is-visible");
   }
@@ -3641,8 +4900,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Add close instructions
     const closeText = document.createElement("div");
     closeText.className = "nh3d-inventory-close";
-    closeText.textContent = "Press ESC or 'i' to close";
+    closeText.textContent = "Press ENTER, ESC, or 'i' to close";
     inventoryDialog.appendChild(closeText);
+
+    const actions = document.createElement("div");
+    actions.className = "nh3d-menu-actions";
+    const closeButton = document.createElement("button");
+    closeButton.type = "button";
+    closeButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
+    closeButton.textContent = "Close";
+    closeButton.onclick = () => this.hideInventoryDialog();
+    actions.appendChild(closeButton);
+    inventoryDialog.appendChild(actions);
 
     // Show the dialog
     inventoryDialog.classList.add("is-visible");
@@ -3764,6 +5033,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionPageSelectionMap.clear();
     this.activeQuestionIsPickupDialog = false;
     this.activePickupSelections.clear();
+    this.activePickupFocusIndex = 0;
+    this.activeQuestionMenuFocusIndex = 0;
+    this.activeQuestionActionFocusIndex = -1;
 
     if (this.uiAdapter) {
       this.uiAdapter.setQuestion(null);
@@ -3785,6 +5057,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     menuItems: any[],
     question: string,
   ): void {
+    const selectableItemCount = menuItems.filter((item) =>
+      this.isSelectableQuestionMenuItem(item),
+    ).length;
+
     menuItems.forEach((item) => {
       if (
         item.isCategory ||
@@ -3802,6 +5078,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         itemContainer.className = "nh3d-pickup-item";
         const selectionStateKey = this.getMenuSelectionStateKey(item);
         const selectionInput = this.getQuestionMenuSelectionInput(item);
+        if (this.isPickupSelectionInputFocused(selectionInput)) {
+          itemContainer.classList.add("nh3d-pickup-item-active");
+        }
 
         // Checkbox
         const checkbox = document.createElement("input");
@@ -3835,7 +5114,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             // Send the key to NetHack to keep game state in sync
             this.sendInput(selectionInput);
           }
-          this.syncQuestionDialogState();
+          this.updatePickupFocusVisualState();
         };
 
         applySelectionState(
@@ -3851,6 +5130,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Click handlers
         itemContainer.onclick = (e) => {
           e.preventDefault();
+          this.setActivePickupFocusBySelectionInput(selectionInput);
+          this.updatePickupFocusVisualState();
           toggleItem();
         };
 
@@ -3862,6 +5143,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         checkbox.onchange = (e) => {
           e.stopPropagation();
           // Checkbox state is already updated by the browser click action.
+          this.setActivePickupFocusBySelectionInput(selectionInput);
+          this.updatePickupFocusVisualState();
           applySelectionState(checkbox.checked, true);
         };
 
@@ -3877,12 +5160,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     });
 
-    // Add confirmation instruction
-    const confirmInstruction = document.createElement("div");
-    confirmInstruction.className = "nh3d-pickup-confirm";
-    confirmInstruction.textContent =
-      "Press ENTER to confirm selection, or ESC to cancel";
-    questionDialog.appendChild(confirmInstruction);
+    if (selectableItemCount > 1) {
+      const actions = document.createElement("div");
+      actions.className = "nh3d-pickup-actions";
+
+      const confirmButton = document.createElement("button");
+      confirmButton.type = "button";
+      confirmButton.className = "nh3d-pickup-action-button nh3d-pickup-action-confirm";
+      confirmButton.setAttribute("data-question-action", "confirm");
+      confirmButton.textContent = "Confirm";
+      confirmButton.onclick = () => this.confirmPickupChoices();
+
+      const cancelButton = document.createElement("button");
+      cancelButton.type = "button";
+      cancelButton.className = "nh3d-pickup-action-button nh3d-pickup-action-cancel";
+      cancelButton.setAttribute("data-question-action", "cancel");
+      cancelButton.textContent = "Cancel";
+      cancelButton.onclick = () => this.cancelActivePrompt();
+
+      actions.appendChild(confirmButton);
+      actions.appendChild(cancelButton);
+      questionDialog.appendChild(actions);
+    }
 
     // Store that this is a pickup dialog for keyboard handling
     (questionDialog as any).isPickupDialog = true;
@@ -3908,6 +5207,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Standard single-selection button
         const menuButton = document.createElement("button");
         menuButton.className = "nh3d-menu-button";
+        const selectionInput = this.getQuestionMenuSelectionInput(item);
+        if (this.isQuestionMenuSelectionInputFocused(selectionInput)) {
+          menuButton.classList.add("nh3d-menu-button-active");
+        }
 
         // Format the button text with key and description
         const keyPart = document.createElement("span");
@@ -3921,9 +5224,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         menuButton.appendChild(textPart);
 
         menuButton.onclick = () => {
-          this.sendInput(this.getQuestionMenuSelectionInput(item));
+          this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
+          this.sendInput(selectionInput);
           this.hideQuestion();
         };
+        (menuButton as any).selectionInput = selectionInput;
         questionDialog.appendChild(menuButton);
       }
     });
@@ -4018,6 +5323,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const selectionKey = this.getMenuSelectionStateKey(menuItem);
+    const canonicalSelectionInput = this.getQuestionMenuSelectionInput(menuItem);
+    this.setActivePickupFocusBySelectionInput(canonicalSelectionInput);
+
     if (this.activePickupSelections.has(selectionKey)) {
       this.activePickupSelections.delete(selectionKey);
     } else {
@@ -4025,9 +5333,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (shouldSendInput) {
-      this.sendInput(this.getQuestionMenuSelectionInput(menuItem));
+      this.sendInput(canonicalSelectionInput);
     }
-    this.syncQuestionDialogState();
+    this.updatePickupFocusVisualState();
   }
 
   public chooseDirection(directionKey: string): void {
@@ -4051,7 +5359,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const selectedItem = this.findActiveMenuItemBySelectionInput(resolvedChoice);
     if (selectedItem) {
-      this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+      const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
+      this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
+      this.sendInput(selectionInput);
       this.hideQuestion();
       return;
     }
@@ -4062,6 +5372,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.sendInput(resolvedChoice);
     this.hideQuestion();
+  }
+
+  public confirmQuestionMenuChoice(): void {
+    this.confirmActiveQuestionMenuChoice();
   }
 
   public togglePickupChoice(accelerator: string): void {
@@ -4110,6 +5424,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lastMovementInputAtMs = Date.now();
     }
 
+    this.updateDirectionalAttackContext(input);
+
     if (this.session) {
       this.session.sendInput(input);
     }
@@ -4120,6 +5436,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.session.sendInputSequence(inputs);
+  }
+
+  private sendMouseInput(x: number, y: number, button: number): void {
+    if (!this.session) {
+      return;
+    }
+    this.session.sendMouseInput(x, y, button);
   }
 
   private canStartMetaCommandMode(): boolean {
@@ -4255,6 +5578,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return false;
     }
   }
+
+  private isInventoryDialogOpen(): boolean {
+    if (this.isInventoryDialogVisible) {
+      return true;
+    }
+
+    const inventoryDialog = document.getElementById("inventory-dialog");
+    return Boolean(
+      inventoryDialog && inventoryDialog.classList.contains("is-visible"),
+    );
+  }
+
   private getModifiedInput(event: KeyboardEvent): string | null {
     // NetHack meta commands are represented as ESC + key in the runtime bridge.
     const hasMetaModifier = event.altKey || event.metaKey || this.altOrMetaHeld;
@@ -4319,6 +5654,44 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
+  private getModalNavigationDirection(
+    event: KeyboardEvent,
+  ): "up" | "down" | "left" | "right" | null {
+    switch (event.key) {
+      case "ArrowUp":
+        return "up";
+      case "ArrowDown":
+        return "down";
+      case "ArrowLeft":
+        return "left";
+      case "ArrowRight":
+        return "right";
+      default:
+        break;
+    }
+
+    if (!event.code.startsWith("Numpad")) {
+      return null;
+    }
+
+    switch (event.code) {
+      case "Numpad8":
+      case "Numpad7":
+      case "Numpad9":
+        return "up";
+      case "Numpad2":
+      case "Numpad1":
+      case "Numpad3":
+        return "down";
+      case "Numpad4":
+        return "left";
+      case "Numpad6":
+        return "right";
+      default:
+        return null;
+    }
+  }
+
   private handleKeyDown(event: KeyboardEvent): void {
     if (this.handleMetaCommandKeyDown(event)) {
       return;
@@ -4360,9 +5733,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return;
       }
 
-      // If we're in a question, send escape to NetHack to cancel the question
-      if (this.isInQuestion || this.isInDirectionQuestion) {
-        console.log("🔄 Sending Escape to NetHack to cancel question");
+      // If we're in a prompt/position mode, send Escape to NetHack so the
+      // runtime can cancel the active flow (question, direction, far-look, etc.).
+      if (
+        this.isInQuestion ||
+        this.isInDirectionQuestion ||
+        this.positionInputModeActive
+      ) {
+        console.log("🔄 Sending Escape to NetHack to cancel active prompt");
         this.sendInput("Escape");
       }
 
@@ -4381,6 +5759,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.isInDirectionQuestion = false;
       this.setPositionInputMode(false);
       return;
+    }
+
+    if (event.key === "Enter") {
+      if (this.isInventoryDialogVisible) {
+        this.hideInventoryDialog();
+        return;
+      }
+
+      if (this.isInfoDialogVisible) {
+        this.hideInfoMenuDialog();
+        return;
+      }
+
+      const inventoryDialog = document.getElementById("inventory-dialog");
+      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
+        this.hideInventoryDialog();
+        return;
+      }
+
+      const infoDialog = document.getElementById("info-menu-dialog");
+      if (infoDialog && infoDialog.classList.contains("is-visible")) {
+        this.hideInfoMenuDialog();
+        return;
+      }
+
+      if (
+        !event.altKey &&
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.shiftKey &&
+        !this.isAnyModalVisible() &&
+        !this.isInQuestion &&
+        !this.isInDirectionQuestion &&
+        !this.positionInputModeActive &&
+        !this.metaCommandModeActive
+      ) {
+        event.preventDefault();
+        this.sendMouseInput(this.playerPos.x, this.playerPos.y, 0);
+        return;
+      }
     }
 
     const modifiedInput = this.getModifiedInput(event);
@@ -4463,6 +5881,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    // Keep gameplay movement frozen while inventory is open.
+    // Close controls (Esc/Enter/i) are handled above.
+    if (
+      this.isInventoryDialogOpen() &&
+      (this.isMovementInput(event.key) || this.isMovementInput(event.code))
+    ) {
+      event.preventDefault();
+      return;
+    }
+
     // Filter out modifier keys that shouldn't be sent to NetHack
     // Note: Home, End, PageUp, PageDown are NOT filtered as they can be used for diagonal movement
     const modifierKeys = [
@@ -4496,14 +5924,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const normalizedWaitKey = this.normalizeWaitKey(event);
-    if (normalizedWaitKey) {
+    if (normalizedWaitKey && !this.isInQuestion && !this.isInDirectionQuestion) {
       event.preventDefault();
-      if (this.isInDirectionQuestion) {
-        this.sendInput(normalizedWaitKey);
-        this.hideDirectionQuestion();
-      } else {
-        this.sendInput(normalizedWaitKey);
-      }
+      this.sendInput(normalizedWaitKey);
       return;
     }
 
@@ -4637,6 +6060,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             (document.getElementById("question-dialog") as any)?.isPickupDialog,
           );
       const isMenuQuestion = this.activeQuestionMenuItems.length > 0;
+      const modalDirection = this.getModalNavigationDirection(event);
 
       if (isMenuQuestion && this.activeQuestionMenuPageCount > 1) {
         if (event.key === "<") {
@@ -4653,17 +6077,76 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       // For other questions, handle pickup dialogs specially
       if (isPickupDialog) {
+        if (modalDirection) {
+          event.preventDefault();
+          const isActionFocused = this.isQuestionActionFocused();
+          const selectableItems = this.getVisiblePickupSelectableMenuItems();
+          if (isActionFocused) {
+            if (modalDirection === "up") {
+              this.clearQuestionActionFocus();
+              if (selectableItems.length > 0) {
+                this.activePickupFocusIndex = selectableItems.length - 1;
+              }
+              this.updatePickupFocusVisualState();
+              return;
+            }
+            if (modalDirection === "left") {
+              this.moveQuestionActionFocus(-1);
+              return;
+            }
+            if (modalDirection === "right" || modalDirection === "down") {
+              this.moveQuestionActionFocus(1);
+              return;
+            }
+          } else {
+            if (modalDirection === "down") {
+              this.normalizeActivePickupFocusIndex();
+              const atBottom =
+                selectableItems.length > 0 &&
+                this.activePickupFocusIndex >= selectableItems.length - 1;
+              if (atBottom && this.focusQuestionActionsStart()) {
+                return;
+              }
+              this.movePickupFocus(1);
+              return;
+            }
+            if (modalDirection === "up" || modalDirection === "left") {
+              this.movePickupFocus(-1);
+              return;
+            }
+            if (modalDirection === "right") {
+              this.movePickupFocus(1);
+              return;
+            }
+          }
+          return;
+        }
+
+        if (
+          event.key === " " ||
+          event.key === "Space" ||
+          event.key === "Spacebar"
+        ) {
+          event.preventDefault();
+          if (this.activateFocusedQuestionAction()) {
+            return;
+          }
+          this.toggleActivePickupFocusSelection();
+          return;
+        }
+
         // This is a pickup dialog - handle multi-selection
         if (event.key === "Enter") {
           event.preventDefault();
-          // Confirm pickup and close dialog
-          this.sendInput("Enter");
-          this.hideQuestion();
+          if (this.activateFocusedQuestionAction()) {
+            return;
+          }
+          this.confirmPickupChoices();
+          return;
         } else if (event.key === "Escape") {
           event.preventDefault();
-          // Cancel pickup
-          this.sendInput("Escape");
-          this.hideQuestion();
+          this.cancelActivePrompt();
+          return;
         } else {
           const resolvedSelectionInput = isMenuQuestion
             ? this.resolveQuestionSelectionInputForKeyPress(event.key)
@@ -4697,6 +6180,67 @@ class Nethack3DEngine implements Nethack3DEngineController {
           }
         }
       } else {
+        if (isMenuQuestion) {
+          if (modalDirection) {
+            event.preventDefault();
+            const isActionFocused = this.isQuestionActionFocused();
+            const selectableItems = this.getVisiblePickupSelectableMenuItems();
+            if (isActionFocused) {
+              if (modalDirection === "up") {
+                this.clearQuestionActionFocus();
+                if (selectableItems.length > 0) {
+                  this.activeQuestionMenuFocusIndex = selectableItems.length - 1;
+                }
+                this.updateQuestionMenuFocusVisualState();
+                return;
+              }
+              if (modalDirection === "left") {
+                this.moveQuestionActionFocus(-1);
+                return;
+              }
+              if (modalDirection === "right" || modalDirection === "down") {
+                this.moveQuestionActionFocus(1);
+                return;
+              }
+            } else {
+              if (modalDirection === "down") {
+                this.normalizeActiveQuestionMenuFocusIndex();
+                const atBottom =
+                  selectableItems.length > 0 &&
+                  this.activeQuestionMenuFocusIndex >=
+                    selectableItems.length - 1;
+                if (atBottom && this.focusQuestionActionsStart()) {
+                  return;
+                }
+                this.moveQuestionMenuFocus(1);
+                return;
+              }
+              if (modalDirection === "up" || modalDirection === "left") {
+                this.moveQuestionMenuFocus(-1);
+                return;
+              }
+              if (modalDirection === "right") {
+                this.moveQuestionMenuFocus(1);
+                return;
+              }
+            }
+          }
+
+          if (
+            event.key === " " ||
+            event.key === "Space" ||
+            event.key === "Spacebar" ||
+            event.key === "Enter"
+          ) {
+            event.preventDefault();
+            if (this.activateFocusedQuestionAction()) {
+              return;
+            }
+            this.confirmQuestionMenuChoice();
+            return;
+          }
+        }
+
         // Standard single-selection dialog - send key and close
         const resolvedSelectionInput = isMenuQuestion
           ? this.resolveQuestionSelectionInputForKeyPress(event.key)
@@ -4706,7 +6250,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : null;
         if (selectedItem && resolvedSelectionInput) {
           event.preventDefault();
-          this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+          const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
+          this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
+          this.sendInput(selectionInput);
           this.hideQuestion();
         } else if (!isMenuQuestion) {
           this.sendInput(event.key);
@@ -4812,7 +6358,94 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private canUseMapMouseInput(event: MouseEvent): boolean {
+    if (!this.session) {
+      return false;
+    }
+    if (event.button !== 0 && event.button !== 2) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      return false;
+    }
+    if (this.metaCommandModeActive) {
+      return false;
+    }
+    return true;
+  }
+
+  private getClickedTilePosition(
+    event: MouseEvent,
+  ): { x: number; y: number } | null {
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    const mouse = new THREE.Vector2(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera);
+
+    const tiles = Array.from(this.tileMap.values());
+    if (tiles.length === 0) {
+      return null;
+    }
+
+    const intersections = raycaster.intersectObjects(tiles, false);
+    if (intersections.length === 0) {
+      return null;
+    }
+
+    const hit = intersections[0].object;
+    if (!(hit instanceof THREE.Mesh)) {
+      return null;
+    }
+
+    const x = Math.round(hit.position.x / TILE_SIZE);
+    const y = Math.round(-hit.position.y / TILE_SIZE);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  private handleMapMouseInput(event: MouseEvent): boolean {
+    if (!this.canUseMapMouseInput(event)) {
+      return false;
+    }
+
+    const target = this.getClickedTilePosition(event);
+    if (!target) {
+      return false;
+    }
+
+    if (event.button === 0 && !this.hasPlayerMovedOnce) {
+      this.lastMovementInputAtMs = Date.now();
+    }
+
+    this.sendMouseInput(target.x, target.y, event.button);
+    return true;
+  }
+
   private handleMouseDown(event: MouseEvent): void {
+    if (this.handleMapMouseInput(event)) {
+      event.preventDefault();
+      return;
+    }
+
     if (event.button === 1) {
       // Middle mouse button - rotation
       event.preventDefault();
@@ -4871,10 +6504,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private updateRendererResolution(): void {
+    const pixelRatio = THREE.MathUtils.clamp(
+      window.devicePixelRatio || 1,
+      1,
+      this.maxRendererPixelRatio,
+    );
+    this.renderer.setPixelRatio(pixelRatio);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+  }
+
   private onWindowResize(): void {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.updateRendererResolution();
   }
 
   private getMeshOverlayMaterial(

@@ -160,6 +160,13 @@ function getMenuSelectionInput(item: NethackMenuItem): string {
   return typeof item.accelerator === "string" ? item.accelerator : "";
 }
 
+function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
+  if (!item || item.isCategory) {
+    return false;
+  }
+  return getMenuSelectionInput(item).trim().length > 0;
+}
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
@@ -213,6 +220,9 @@ export default function App(): JSX.Element {
   );
   const questionMenuPageIndex = question?.menuPageIndex ?? 0;
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
+  const questionSelectableMenuItemCount = question
+    ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item)).length
+    : 0;
 
   return (
     <>
@@ -323,6 +333,11 @@ export default function App(): JSX.Element {
                         )
                           ? " nh3d-pickup-item-selected"
                           : ""
+                      }${
+                        question.activeMenuSelectionInput ===
+                        getMenuSelectionInput(item)
+                          ? " nh3d-pickup-item-active"
+                          : ""
                       }`}
                       key={`pickup-${item.accelerator}-${index}`}
                       onClick={() =>
@@ -345,9 +360,32 @@ export default function App(): JSX.Element {
                     </div>
                   ),
                 )}
-                <div className="nh3d-pickup-confirm">
-                  Press ENTER to confirm selection, or ESC to cancel
-                </div>
+                {questionSelectableMenuItemCount > 1 ? (
+                  <div className="nh3d-pickup-actions">
+                    <button
+                      className={`nh3d-pickup-action-button nh3d-pickup-action-confirm${
+                        question.activeActionButton === "confirm"
+                          ? " nh3d-action-button-active"
+                          : ""
+                      }`}
+                      onClick={() => controller?.confirmPickupChoices()}
+                      type="button"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      className={`nh3d-pickup-action-button nh3d-pickup-action-cancel${
+                        question.activeActionButton === "cancel"
+                          ? " nh3d-action-button-active"
+                          : ""
+                      }`}
+                      onClick={() => controller?.cancelActivePrompt()}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : (
               <>
@@ -360,7 +398,12 @@ export default function App(): JSX.Element {
                     </div>
                   ) : (
                     <button
-                      className="nh3d-menu-button"
+                      className={`nh3d-menu-button${
+                        question.activeMenuSelectionInput ===
+                        getMenuSelectionInput(item)
+                          ? " nh3d-menu-button-active"
+                          : ""
+                      }`}
                       key={`menu-${item.accelerator}-${index}`}
                       onClick={() =>
                         controller?.chooseQuestionChoice(getMenuSelectionInput(item))
@@ -374,6 +417,21 @@ export default function App(): JSX.Element {
                     </button>
                   ),
                 )}
+                {questionSelectableMenuItemCount > 1 ? (
+                  <div className="nh3d-menu-actions">
+                    <button
+                      className={`nh3d-menu-action-button nh3d-menu-action-cancel${
+                        question.activeActionButton === "cancel"
+                          ? " nh3d-action-button-active"
+                          : ""
+                      }`}
+                      onClick={() => controller?.cancelActivePrompt()}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
               </>
             )
           ) : (
@@ -455,6 +513,15 @@ export default function App(): JSX.Element {
           <div className="nh3d-dialog-hint">
             Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel
           </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => controller?.cancelActivePrompt()}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -464,7 +531,18 @@ export default function App(): JSX.Element {
           <div className="nh3d-info-body">
             {infoMenu.lines.length > 0 ? infoMenu.lines.join("\n") : "(No details)"}
           </div>
-          <div className="nh3d-info-hint">Press ESC to close. Press Ctrl+M to reopen.</div>
+          <div className="nh3d-info-hint">
+            Press ENTER or ESC to close. Press Ctrl+M to reopen.
+          </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => controller?.closeInfoMenuDialog()}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -517,7 +595,16 @@ export default function App(): JSX.Element {
               <span className="nh3d-inventory-command-key">(</span>)tools
             </div>
           </div>
-          <div className="nh3d-inventory-close">Press ESC or 'i' to close</div>
+          <div className="nh3d-inventory-close">Press ENTER, ESC, or 'i' to close</div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => controller?.closeInventoryDialog()}
+              type="button"
+            >
+              Close
+            </button>
+          </div>
         </div>
       ) : null}
 

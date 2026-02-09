@@ -9,6 +9,9 @@ export interface InputToken {
   source: InputSource;
   createdAt: number;
   targetKinds?: InputTargetKinds;
+  mouseX?: number;
+  mouseY?: number;
+  mouseMod?: number;
 }
 
 export interface PendingInputRequest {

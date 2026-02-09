@@ -36,6 +36,9 @@ self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
       case "send_input_sequence":
         instance.sendInputSequence(command.inputs);
         return;
+      case "send_mouse_input":
+        instance.sendMouseInput(command.x, command.y, command.button);
+        return;
       case "request_tile_update":
         instance.requestTileUpdate(command.x, command.y);
         return;

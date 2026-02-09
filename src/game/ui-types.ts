@@ -45,6 +45,9 @@ export type QuestionDialogState = {
   menuItems: NethackMenuItem[];
   isPickupDialog: boolean;
   selectedAccelerators: string[];
+  activePickupSelectionInput?: string | null;
+  activeMenuSelectionInput?: string | null;
+  activeActionButton?: "confirm" | "cancel" | null;
   menuPageIndex?: number;
   menuPageCount?: number;
 };
@@ -76,6 +79,7 @@ export interface Nethack3DEngineUIAdapter {
 export interface Nethack3DEngineController {
   chooseDirection(directionKey: string): void;
   chooseQuestionChoice(choice: string): void;
+  confirmQuestionMenuChoice(): void;
   togglePickupChoice(accelerator: string): void;
   goToPreviousQuestionMenuPage(): void;
   goToNextQuestionMenuPage(): void;
