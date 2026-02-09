@@ -189,17 +189,30 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
+type StartupFlowStep = "choose" | "create" | "random-name";
+
+function normalizeStartupCharacterName(value: string): string {
+  const normalized = String(value || "")
+    .replace(/,/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "Player";
+  }
+  return normalized.slice(0, 30);
+}
 
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const [characterCreationConfig, setCharacterCreationConfig] =
     useState<CharacterCreationConfig | null>(null);
-  const [isCreateCharacterSetupVisible, setIsCreateCharacterSetupVisible] =
-    useState(false);
+  const [startupFlowStep, setStartupFlowStep] =
+    useState<StartupFlowStep>("choose");
   const [createRole, setCreateRole] = useState(startupRoleOptions[0]);
   const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
+  const [createName, setCreateName] = useState("Player");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
 
@@ -262,23 +275,61 @@ export default function App(): JSX.Element {
 
       {characterCreationConfig === null ? (
         <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
-          {!isCreateCharacterSetupVisible ? (
+          {startupFlowStep === "choose" ? (
             <>
               <div className="nh3d-question-text">Choose your character setup:</div>
               <div className="nh3d-choice-list">
                 <button
                   className="nh3d-choice-button"
-                  onClick={() => setCharacterCreationConfig({ mode: "random" })}
+                  onClick={() => setStartupFlowStep("random-name")}
                   type="button"
                 >
                   Random character
                 </button>
                 <button
                   className="nh3d-choice-button"
-                  onClick={() => setIsCreateCharacterSetupVisible(true)}
+                  onClick={() => setStartupFlowStep("create")}
                   type="button"
                 >
                   Create character
+                </button>
+              </div>
+            </>
+          ) : startupFlowStep === "random-name" ? (
+            <>
+              <div className="nh3d-question-text">Random character name:</div>
+              <div className="nh3d-startup-config-grid">
+                <label className="nh3d-startup-config-field">
+                  <span>Name</span>
+                  <input
+                    className="nh3d-startup-config-input"
+                    maxLength={30}
+                    onChange={(event) => setCreateName(event.target.value)}
+                    placeholder="Player"
+                    type="text"
+                    value={createName}
+                  />
+                </label>
+              </div>
+              <div className="nh3d-menu-actions">
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                  onClick={() =>
+                    setCharacterCreationConfig({
+                      mode: "random",
+                      name: normalizeStartupCharacterName(createName),
+                    })
+                  }
+                  type="button"
+                >
+                  Start game
+                </button>
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                  onClick={() => setStartupFlowStep("choose")}
+                  type="button"
+                >
+                  Back
                 </button>
               </div>
             </>
@@ -286,6 +337,17 @@ export default function App(): JSX.Element {
             <>
               <div className="nh3d-question-text">Create your character:</div>
               <div className="nh3d-startup-config-grid">
+                <label className="nh3d-startup-config-field">
+                  <span>Name</span>
+                  <input
+                    className="nh3d-startup-config-input"
+                    maxLength={30}
+                    onChange={(event) => setCreateName(event.target.value)}
+                    placeholder="Player"
+                    type="text"
+                    value={createName}
+                  />
+                </label>
                 <label className="nh3d-startup-config-field">
                   <span>Role</span>
                   <select
@@ -349,6 +411,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "create",
+                      name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,
                       gender: createGender,
@@ -361,7 +424,7 @@ export default function App(): JSX.Element {
                 </button>
                 <button
                   className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                  onClick={() => setIsCreateCharacterSetupVisible(false)}
+                  onClick={() => setStartupFlowStep("choose")}
                   type="button"
                 >
                   Back
@@ -681,7 +744,7 @@ export default function App(): JSX.Element {
             {infoMenu.lines.length > 0 ? infoMenu.lines.join("\n") : "(No details)"}
           </div>
           <div className="nh3d-info-hint">
-            Press ENTER or ESC to close. Press Ctrl+M to reopen.
+            Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
           </div>
           <div className="nh3d-menu-actions">
             <button

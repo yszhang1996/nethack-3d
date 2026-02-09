@@ -975,6 +975,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       {
         characterCreation: {
           mode: this.characterCreationConfig.mode,
+          name: this.characterCreationConfig.name,
           role: this.characterCreationConfig.role,
           race: this.characterCreationConfig.race,
           gender: this.characterCreationConfig.gender,
@@ -987,7 +988,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       await this.session.start();
       this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
-      this.addGameMessage("Local NetHack runtime started");
+      // this.addGameMessage("Local NetHack runtime started");
       this.setLoadingVisible(false);
     } catch (error) {
       console.error("Failed to start local NetHack runtime:", error);
@@ -1199,9 +1200,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "name_request":
-        // Auto-provide a default name to avoid user interaction
-        console.log("Auto-providing default name for:", data.text);
-        this.sendInput("Player");
+        // Auto-provide configured name for startup prompts to avoid extra dialogs.
+        const configuredCharacterName = this.getConfiguredCharacterName();
+        console.log(
+          `Auto-providing configured name "${configuredCharacterName}" for:`,
+          data.text,
+        );
+        this.sendInput(configuredCharacterName);
         break;
 
       case "area_refresh_complete":
@@ -1365,7 +1370,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return /\byou (?:kill|destroy) (?:the |an? )?.+[.!]?$/i.test(message);
   }
 
-  private getDirectionVectorFromInput(input: string): { dx: number; dy: number } | null {
+  private getDirectionVectorFromInput(
+    input: string,
+  ): { dx: number; dy: number } | null {
     switch (input) {
       case "k":
       case "K":
@@ -1462,9 +1469,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    return (
-      Math.sign(deltaX) === context.dx && Math.sign(deltaY) === context.dy
-    );
+    return Math.sign(deltaX) === context.dx && Math.sign(deltaY) === context.dy;
   }
 
   private queuePendingMonsterDefeatSignal(): void {
@@ -1487,7 +1492,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private consumePendingMonsterDefeatSignal(tileX: number, tileY: number): boolean {
+  private consumePendingMonsterDefeatSignal(
+    tileX: number,
+    tileY: number,
+  ): boolean {
     const now = Date.now();
     this.prunePendingMonsterDefeatSignals(now);
     const index = this.pendingMonsterDefeatSignals.findIndex((entry) =>
@@ -1610,7 +1618,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     let amount = this.extractDamageAmountFromMessage(normalized);
-    if (!amount && (explicitPlayerHit || this.isPlayerAttackMessage(normalized))) {
+    if (
+      !amount &&
+      (explicitPlayerHit || this.isPlayerAttackMessage(normalized))
+    ) {
       // No explicit number from NetHack? still produce a lightweight hit cue.
       amount = 1;
     }
@@ -1628,7 +1639,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastParsedDamageMessage = normalized;
     this.lastParsedDamageAtMs = now;
 
-    if (explicitPlayerHit && this.tryTriggerDirectionalMonsterHitSpray(amount)) {
+    if (
+      explicitPlayerHit &&
+      this.tryTriggerDirectionalMonsterHitSpray(amount)
+    ) {
       return;
     }
 
@@ -1660,7 +1674,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const queueIndex = this.pendingCharacterDamageQueue.findIndex((entry) =>
-      this.isTileInDirectionalAttackPath(tile.x, tile.y, entry.expectedDirection),
+      this.isTileInDirectionalAttackPath(
+        tile.x,
+        tile.y,
+        entry.expectedDirection,
+      ),
     );
     if (queueIndex < 0) {
       return;
@@ -2151,7 +2169,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const mesh = this.tileMap.get(key);
     if (mesh) {
       const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
-      mesh.position.set(state.tileX * TILE_SIZE, -state.tileY * TILE_SIZE, baseZ);
+      mesh.position.set(
+        state.tileX * TILE_SIZE,
+        -state.tileY * TILE_SIZE,
+        baseZ,
+      );
     }
 
     this.glyphDamageShakes.delete(key);
@@ -2408,7 +2430,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const sprite = new THREE.Sprite(material);
       const sizeFactor = Math.pow(Math.random(), 1.35);
-      const baseScaleValue = THREE.MathUtils.lerp(minScale, maxScale, sizeFactor);
+      const baseScaleValue = THREE.MathUtils.lerp(
+        minScale,
+        maxScale,
+        sizeFactor,
+      );
       const baseScale = new THREE.Vector2(
         baseScaleValue * (0.82 + Math.random() * 0.36),
         baseScaleValue * (0.82 + Math.random() * 0.36),
@@ -2470,10 +2496,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private disposePlayerDamageNumberParticle(index: number): void {
-    if (
-      index < 0 ||
-      index >= this.playerDamageNumberParticles.length
-    ) {
+    if (index < 0 || index >= this.playerDamageNumberParticles.length) {
       return;
     }
 
@@ -2552,8 +2575,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const velocityIntoWall =
       particle.velocity.x * nx + particle.velocity.y * ny;
     if (velocityIntoWall < 0) {
-      const bounce =
-        (1 + this.playerDamageNumberWallBounce) * velocityIntoWall;
+      const bounce = (1 + this.playerDamageNumberWallBounce) * velocityIntoWall;
       particle.velocity.x -= bounce * nx;
       particle.velocity.y -= bounce * ny;
       particle.velocity.x *= 0.78;
@@ -2827,11 +2849,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
       this.disposeDamageParticle(i);
     }
-    for (
-      let i = this.playerDamageNumberParticles.length - 1;
-      i >= 0;
-      i -= 1
-    ) {
+    for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       this.disposePlayerDamageNumberParticle(i);
     }
 
@@ -3690,7 +3708,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isCharacterCreationQuestion(questionText: string): boolean {
-    const normalized = String(questionText || "").trim().toLowerCase();
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
     if (!normalized) {
       return false;
     }
@@ -3721,7 +3741,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private toCharacterCreationQuestionPayload(data: RuntimeEvent): CharacterCreationQuestionPayload {
+  private toCharacterCreationQuestionPayload(
+    data: RuntimeEvent,
+  ): CharacterCreationQuestionPayload {
     return {
       text: String(data.text || ""),
       choices: String(data.choices || ""),
@@ -3753,6 +3775,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.sendInput("a");
   }
 
+  private getConfiguredCharacterName(): string {
+    const configuredName =
+      typeof this.characterCreationConfig?.name === "string"
+        ? this.characterCreationConfig.name
+        : "";
+    const normalized = configuredName
+      .replace(/,/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) {
+      return "Player";
+    }
+    return normalized.slice(0, 30);
+  }
+
   private isSelectableQuestionMenuItem(item: any): boolean {
     if (!item || item.isCategory) {
       return false;
@@ -3760,11 +3797,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (Number.isInteger(item.menuIndex)) {
       return true;
     }
-    return typeof item.accelerator === "string" && item.accelerator.trim() !== "";
+    return (
+      typeof item.accelerator === "string" && item.accelerator.trim() !== ""
+    );
   }
 
   private getQuestionMenuSelectionInput(item: any): string {
-    if (item && typeof item.selectionInput === "string" && item.selectionInput) {
+    if (
+      item &&
+      typeof item.selectionInput === "string" &&
+      item.selectionInput
+    ) {
       return item.selectionInput;
     }
     const fallback =
@@ -4045,7 +4088,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.getActiveQuestionMenuSelectionInput() === selectionInput;
   }
 
-  private setActiveQuestionMenuFocusBySelectionInput(selectionInput: string): void {
+  private setActiveQuestionMenuFocusBySelectionInput(
+    selectionInput: string,
+  ): void {
     if (typeof selectionInput !== "string" || selectionInput.length === 0) {
       return;
     }
@@ -4143,7 +4188,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const selectedItem = this.findActiveMenuItemBySelectionInput(selectionInput);
+    const selectedItem =
+      this.findActiveMenuItemBySelectionInput(selectionInput);
     if (!selectedItem) {
       return;
     }
@@ -4156,7 +4202,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionVisibleMenuItems = [];
     this.activeQuestionPageSelectionMap.clear();
     this.activeQuestionMenuPageCount = 1;
-    this.activeQuestionMenuPageIndex = Math.max(0, this.activeQuestionMenuPageIndex);
+    this.activeQuestionMenuPageIndex = Math.max(
+      0,
+      this.activeQuestionMenuPageIndex,
+    );
     this.activeQuestionActionFocusIndex = -1;
     if (this.activeQuestionIsPickupDialog) {
       this.activeQuestionMenuFocusIndex = 0;
@@ -4216,7 +4265,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const selectableIndex = selectableSeen;
       selectableSeen += 1;
       lastItemWasSelectable = true;
-      if (selectableIndex < startSelectable || selectableIndex >= endSelectable) {
+      if (
+        selectableIndex < startSelectable ||
+        selectableIndex >= endSelectable
+      ) {
         continue;
       }
 
@@ -4232,17 +4284,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const fallbackAccelerator =
         this.questionMenuPageAccelerators[selectableInPage] ?? "?";
       const displayAccelerator =
-        gameAccelerator.trim().length > 0 ? gameAccelerator : fallbackAccelerator;
+        gameAccelerator.trim().length > 0
+          ? gameAccelerator
+          : fallbackAccelerator;
       const selectionInput = this.getQuestionMenuSelectionInput(menuItem);
 
       this.activeQuestionVisibleMenuItems.push({
         ...menuItem,
         accelerator: displayAccelerator,
-        originalAccelerator:
-          gameAccelerator,
+        originalAccelerator: gameAccelerator,
         selectionInput,
       });
-      this.activeQuestionPageSelectionMap.set(displayAccelerator, selectionInput);
+      this.activeQuestionPageSelectionMap.set(
+        displayAccelerator,
+        selectionInput,
+      );
       selectableInPage += 1;
     }
 
@@ -4314,7 +4370,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderQuestionDialogDom();
   }
 
-  private appendQuestionMenuPaginationControls(questionDialog: HTMLElement): void {
+  private appendQuestionMenuPaginationControls(
+    questionDialog: HTMLElement,
+  ): void {
     if (
       this.activeQuestionMenuItems.length === 0 ||
       this.activeQuestionMenuPageCount <= 1
@@ -4357,8 +4415,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       return;
     }
-    const selectableItemCount = this.activeQuestionVisibleMenuItems.filter((item) =>
-      this.isSelectableQuestionMenuItem(item),
+    const selectableItemCount = this.activeQuestionVisibleMenuItems.filter(
+      (item) => this.isSelectableQuestionMenuItem(item),
     ).length;
     if (selectableItemCount <= 1) {
       return;
@@ -4412,7 +4470,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.updatePickupFocusVisualState();
       } else {
         // Create standard single-selection menu
-        this.createStandardMenu(questionDialog, this.activeQuestionVisibleMenuItems);
+        this.createStandardMenu(
+          questionDialog,
+          this.activeQuestionVisibleMenuItems,
+        );
         this.updateQuestionMenuFocusVisualState();
       }
 
@@ -4460,15 +4521,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Add escape instruction
     const escapeText = document.createElement("div");
     escapeText.className = "nh3d-dialog-hint";
-    if (this.activeQuestionMenuItems.length > 0 && this.activeQuestionMenuPageCount > 1) {
-      escapeText.textContent = "Use < and > to change pages. Press ESC to cancel";
+    if (
+      this.activeQuestionMenuItems.length > 0 &&
+      this.activeQuestionMenuPageCount > 1
+    ) {
+      escapeText.textContent =
+        "Use < and > to change pages. Press ESC to cancel";
     } else {
       escapeText.textContent = "Press ESC to cancel";
     }
     questionDialog.appendChild(escapeText);
 
     (questionDialog as any).isPickupDialog = this.activeQuestionIsPickupDialog;
-    (questionDialog as any).menuItems = [...this.activeQuestionVisibleMenuItems];
+    (questionDialog as any).menuItems = [
+      ...this.activeQuestionVisibleMenuItems,
+    ];
 
     // Show the dialog
     questionDialog.classList.add("is-visible");
@@ -4850,7 +4917,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const hint = document.createElement("div");
     hint.className = "nh3d-info-hint";
-    hint.textContent = "Press ENTER or ESC to close. Press Ctrl+M to reopen.";
+    hint.textContent =
+      "Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.";
     infoDialog.appendChild(hint);
 
     const actions = document.createElement("div");
@@ -5249,14 +5317,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const confirmButton = document.createElement("button");
       confirmButton.type = "button";
-      confirmButton.className = "nh3d-pickup-action-button nh3d-pickup-action-confirm";
+      confirmButton.className =
+        "nh3d-pickup-action-button nh3d-pickup-action-confirm";
       confirmButton.setAttribute("data-question-action", "confirm");
       confirmButton.textContent = "Confirm";
       confirmButton.onclick = () => this.confirmPickupChoices();
 
       const cancelButton = document.createElement("button");
       cancelButton.type = "button";
-      cancelButton.className = "nh3d-pickup-action-button nh3d-pickup-action-cancel";
+      cancelButton.className =
+        "nh3d-pickup-action-button nh3d-pickup-action-cancel";
       cancelButton.setAttribute("data-question-action", "cancel");
       cancelButton.textContent = "Cancel";
       cancelButton.onclick = () => this.cancelActivePrompt();
@@ -5406,7 +5476,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const selectionKey = this.getMenuSelectionStateKey(menuItem);
-    const canonicalSelectionInput = this.getQuestionMenuSelectionInput(menuItem);
+    const canonicalSelectionInput =
+      this.getQuestionMenuSelectionInput(menuItem);
     this.setActivePickupFocusBySelectionInput(canonicalSelectionInput);
 
     if (this.activePickupSelections.has(selectionKey)) {
@@ -5440,7 +5511,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const selectedItem = this.findActiveMenuItemBySelectionInput(resolvedChoice);
+    const selectedItem =
+      this.findActiveMenuItemBySelectionInput(resolvedChoice);
     if (selectedItem) {
       const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
       this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
@@ -5470,7 +5542,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!menuItem) {
       return;
     }
-    this.togglePickupSelection(this.getQuestionMenuSelectionInput(menuItem), true);
+    this.togglePickupSelection(
+      this.getQuestionMenuSelectionInput(menuItem),
+      true,
+    );
   }
 
   public confirmPickupChoices(): void {
@@ -5670,6 +5745,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const inventoryDialog = document.getElementById("inventory-dialog");
     return Boolean(
       inventoryDialog && inventoryDialog.classList.contains("is-visible"),
+    );
+  }
+
+  private isInfoDialogOpen(): boolean {
+    if (this.isInfoDialogVisible) {
+      return true;
+    }
+
+    const infoDialog = document.getElementById("info-menu-dialog");
+    return Boolean(infoDialog && infoDialog.classList.contains("is-visible"));
+  }
+
+  private isSpaceDismissKey(event: KeyboardEvent): boolean {
+    return (
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "Space" ||
+      event.code === "Space"
     );
   }
 
@@ -5884,6 +5977,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
+    if (this.isInfoDialogOpen()) {
+      if (this.isSpaceDismissKey(event)) {
+        event.preventDefault();
+        this.hideInfoMenuDialog();
+        return;
+      }
+
+      if (this.isMovementInput(event.key) || this.isMovementInput(event.code)) {
+        event.preventDefault();
+        return;
+      }
+    }
+
     const modifiedInput = this.getModifiedInput(event);
     if (modifiedInput) {
       event.preventDefault();
@@ -6007,7 +6113,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const normalizedWaitKey = this.normalizeWaitKey(event);
-    if (normalizedWaitKey && !this.isInQuestion && !this.isInDirectionQuestion) {
+    if (
+      normalizedWaitKey &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion
+    ) {
       event.preventDefault();
       this.sendInput(normalizedWaitKey);
       return;
@@ -6249,7 +6359,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
                   questionDialog.querySelectorAll(".nh3d-pickup-item");
                 containers.forEach((container: Element) => {
                   if (
-                    (container as any).selectionInput === resolvedSelectionInput &&
+                    (container as any).selectionInput ===
+                      resolvedSelectionInput &&
                     (container as any).toggleItem
                   ) {
                     (container as any).toggleItem();
@@ -6272,7 +6383,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
               if (modalDirection === "up") {
                 this.clearQuestionActionFocus();
                 if (selectableItems.length > 0) {
-                  this.activeQuestionMenuFocusIndex = selectableItems.length - 1;
+                  this.activeQuestionMenuFocusIndex =
+                    selectableItems.length - 1;
                 }
                 this.updateQuestionMenuFocusVisualState();
                 return;
@@ -6333,7 +6445,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : null;
         if (selectedItem && resolvedSelectionInput) {
           event.preventDefault();
-          const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
+          const selectionInput =
+            this.getQuestionMenuSelectionInput(selectedItem);
           this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
           this.sendInput(selectionInput);
           this.hideQuestion();

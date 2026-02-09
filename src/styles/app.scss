@@ -415,6 +415,15 @@ canvas {
   font-family: "Courier New", monospace;
 }
 
+.nh3d-startup-config-input {
+  background: #1f1f1f;
+  color: #ffffff;
+  border: 1px solid #555;
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-family: "Courier New", monospace;
+}
+
 @media (max-width: 720px) {
   .nh3d-startup-config-grid {
     grid-template-columns: 1fr;

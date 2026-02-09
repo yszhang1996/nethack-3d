@@ -72,6 +72,17 @@ class LocalNetHackRuntime {
     return normalized;
   }
 
+  normalizeCharacterNameValue(value) {
+    if (typeof value !== "string") {
+      return "";
+    }
+    const normalized = value.replace(/,/g, " ").replace(/\s+/g, " ").trim();
+    if (!normalized) {
+      return "";
+    }
+    return normalized.slice(0, 30);
+  }
+
   buildCharacterCreationRuntimeOptions() {
     const config =
       this.startupOptions &&
@@ -82,13 +93,18 @@ class LocalNetHackRuntime {
     if (!config) {
       return [];
     }
+    const name = this.normalizeCharacterNameValue(config.name);
     if (config.mode === "random") {
-      return [
+      const randomOptions = [
         "role:random",
         "race:random",
         "gender:random",
         "align:random",
       ];
+      if (name) {
+        randomOptions.push(`name:${name}`);
+      }
+      return randomOptions;
     }
 
     const role = this.normalizeCharacterOptionValue(config.role);
@@ -108,6 +124,9 @@ class LocalNetHackRuntime {
     if (align) {
       options.push(`align:${align}`);
     }
+    if (name) {
+      options.push(`name:${name}`);
+    }
     return options;
   }
 
@@ -119,7 +138,7 @@ class LocalNetHackRuntime {
     // Start from a clean client scene before replaying cached state.
     this.emit({
       type: "clear_scene",
-      message: "Reconnected - restoring game state",
+      // message: "Reconnected - restoring game state",
     });
 
     const tiles = Array.from(this.gameMap.values());
@@ -1151,6 +1170,50 @@ class LocalNetHackRuntime {
     return winId === 4 || winId === 5 || winId === 6;
   }
 
+  shouldLogWindowTextInsteadOfDialog(lines) {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return false;
+    }
+    const firstNonEmptyLine = lines.find(
+      (line) => String(line || "").trim().length > 0,
+    );
+    if (!firstNonEmptyLine) {
+      return false;
+    }
+    return firstNonEmptyLine
+      .trim()
+      .toLowerCase()
+      .startsWith("things that are here:");
+  }
+
+  emitWindowTextLinesToLog(lines, winId, source = "display_nhwindow") {
+    const normalizedLines = Array.isArray(lines) ? lines : [];
+    for (const rawLine of normalizedLines) {
+      const text = String(rawLine || "").replace(/\u0000/g, "");
+      if (!text.trim()) {
+        continue;
+      }
+      this.gameMessages.push({
+        text: text,
+        window: winId,
+        timestamp: Date.now(),
+        attr: 0,
+      });
+      if (this.gameMessages.length > 100) {
+        this.gameMessages.shift();
+      }
+      if (this.eventHandler) {
+        this.emit({
+          type: "text",
+          text: text,
+          window: winId,
+          attr: 0,
+          source: source,
+        });
+      }
+    }
+  }
+
   resetWindowTextBuffer(winId) {
     if (!Number.isInteger(winId)) {
       return;
@@ -1253,7 +1316,9 @@ class LocalNetHackRuntime {
       return true;
     }
 
-    const text = String(menuItem.text || "").trim().toLowerCase();
+    const text = String(menuItem.text || "")
+      .trim()
+      .toLowerCase();
     return text === "something on the map";
   }
 
@@ -2425,7 +2490,9 @@ class LocalNetHackRuntime {
         const normalizedMenuQuestion =
           typeof menuQuestion === "string" ? menuQuestion : "";
         const hasMenuQuestion = normalizedMenuQuestion.trim().length > 0;
-        this.currentMenuQuestionText = hasMenuQuestion ? normalizedMenuQuestion : "";
+        this.currentMenuQuestionText = hasMenuQuestion
+          ? normalizedMenuQuestion
+          : "";
         this.lastEndedMenuWindow = endMenuWinid;
         this.lastEndedMenuHadQuestion = hasMenuQuestion;
 
@@ -2615,21 +2682,27 @@ class LocalNetHackRuntime {
         return 0;
       case "shim_display_nhwindow":
         const [winid, blocking] = args;
-        console.log(`🖥️ DISPLAY WINDOW [Win ${winid}], blocking: ${blocking}`);
+        console.log(`DISPLAY WINDOW [Win ${winid}], blocking: ${blocking}`);
         const displayLines = this.consumeWindowTextBuffer(winid);
         const hasDisplayText = displayLines.some(
           (line) => String(line || "").trim().length > 0,
         );
-        if (
-          hasDisplayText &&
-          this.shouldCaptureWindowTextForDialog(winid) &&
-          this.eventHandler
-        ) {
+        if (hasDisplayText && this.shouldCaptureWindowTextForDialog(winid)) {
           const normalizedLines = displayLines.map((line) =>
             String(line || "").replace(/\u0000/g, ""),
           );
+          if (this.shouldLogWindowTextInsteadOfDialog(normalizedLines)) {
+            console.log(
+              `Routing window ${winid} text to message log (${normalizedLines.length} lines)`,
+            );
+            this.emitWindowTextLinesToLog(normalizedLines, winid);
+            return 0;
+          }
+          if (!this.eventHandler) {
+            return 0;
+          }
           console.log(
-            `📄 Emitting info dialog for window ${winid} with ${normalizedLines.length} lines`,
+            `Emitting info dialog for window ${winid} with ${normalizedLines.length} lines`,
           );
           this.emit({
             type: "info_menu",
@@ -3056,11 +3129,21 @@ class LocalNetHackRuntime {
         }
 
         if (this.pendingTextResponses.length > 0) {
-          const name = String(this.pendingTextResponses.shift() || "").trim();
+          const name = this.normalizeCharacterNameValue(
+            String(this.pendingTextResponses.shift() || ""),
+          );
           console.log(`Using player name from input: ${name}`);
           if (name.length > 0) {
             return name;
           }
+        }
+
+        const configuredName = this.normalizeCharacterNameValue(
+          this.startupOptions?.characterCreation?.name,
+        );
+        if (configuredName.length > 0) {
+          console.log(`Using configured startup name: ${configuredName}`);
+          return configuredName;
         }
 
         console.log("No name provided, using default");

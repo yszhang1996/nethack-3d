@@ -64,6 +64,7 @@ export type InventoryDialogState = {
 
 export type CharacterCreationConfig = {
   mode: "random" | "create";
+  name?: string;
   role?: string;
   race?: string;
   gender?: string;
