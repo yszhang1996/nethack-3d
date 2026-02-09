@@ -28,6 +28,9 @@ class LocalNetHackRuntime {
     this.isInMultiPickup = false;
     this.pendingMenuSelection = null;
     this.menuSelectionReadyCount = null;
+    this.lastEndedMenuWindow = null;
+    this.lastEndedMenuHadQuestion = false;
+    this.windowTextBuffers = new Map();
 
     this.inputBroker = new RuntimeInputBroker();
     this.farLookMode = "none"; // none | armed | active
@@ -148,6 +151,7 @@ class LocalNetHackRuntime {
     this.menuSelections.clear();
     this.pendingExtendedCommands = [];
     this.awaitingQuestionInput = false;
+    this.windowTextBuffers.clear();
 
     if (this.pendingMenuSelection && this.pendingMenuSelection.resolver) {
       const resolver = this.pendingMenuSelection.resolver;
@@ -1078,6 +1082,55 @@ class LocalNetHackRuntime {
 
   isPrintableAccelerator(code) {
     return typeof code === "number" && code > 32 && code < 127;
+  }
+
+  shouldCaptureWindowTextForDialog(winId) {
+    return winId === 4 || winId === 5 || winId === 6;
+  }
+
+  resetWindowTextBuffer(winId) {
+    if (!Number.isInteger(winId)) {
+      return;
+    }
+    this.windowTextBuffers.set(winId, []);
+  }
+
+  appendWindowTextBuffer(winId, text) {
+    if (!Number.isInteger(winId)) {
+      return;
+    }
+    const normalized = typeof text === "string" ? text : String(text ?? "");
+    const existing = this.windowTextBuffers.get(winId);
+    if (Array.isArray(existing)) {
+      existing.push(normalized);
+      return;
+    }
+    this.windowTextBuffers.set(winId, [normalized]);
+  }
+
+  consumeWindowTextBuffer(winId) {
+    if (!Number.isInteger(winId)) {
+      return [];
+    }
+    const existing = this.windowTextBuffers.get(winId);
+    this.windowTextBuffers.set(winId, []);
+    if (!Array.isArray(existing)) {
+      return [];
+    }
+    return existing;
+  }
+
+  getWindowTextDialogTitle(winId) {
+    if (winId === 4) {
+      return "NetHack Message";
+    }
+    if (winId === 5) {
+      return "NetHack Text";
+    }
+    if (winId === 6) {
+      return "NetHack Information";
+    }
+    return "NetHack Information";
   }
 
   classifyInventoryWindowMenu(menuItems) {
@@ -2215,6 +2268,7 @@ class LocalNetHackRuntime {
         return 1;
       case "shim_create_nhwindow":
         const [windowType] = args;
+        this.resetWindowTextBuffer(windowType);
         console.log(
           `Creating window [ ${windowType} ] returning ${windowType}`,
         );
@@ -2228,6 +2282,9 @@ class LocalNetHackRuntime {
         this.currentMenuItems = []; // Clear previous menu items
         this.currentWindow = menuWinId;
         this.lastQuestionText = null; // Clear any previous question text when starting new menu
+        this.lastEndedMenuWindow = null;
+        this.lastEndedMenuHadQuestion = false;
+        this.resetWindowTextBuffer(menuWinId);
 
         // Reset selection tracking for new menus
         this.menuSelections.clear();
@@ -2258,7 +2315,11 @@ class LocalNetHackRuntime {
 
         // Check if this is just an inventory update vs an actual question
         const isInventoryWindow = endMenuWinid === 4; // WIN_INVEN = 4
-        const hasMenuQuestion = menuQuestion && menuQuestion.trim();
+        const normalizedMenuQuestion =
+          typeof menuQuestion === "string" ? menuQuestion : "";
+        const hasMenuQuestion = normalizedMenuQuestion.trim().length > 0;
+        this.lastEndedMenuWindow = endMenuWinid;
+        this.lastEndedMenuHadQuestion = hasMenuQuestion;
 
         // Log the menu details for debugging
         console.log(
@@ -2446,6 +2507,30 @@ class LocalNetHackRuntime {
       case "shim_display_nhwindow":
         const [winid, blocking] = args;
         console.log(`🖥️ DISPLAY WINDOW [Win ${winid}], blocking: ${blocking}`);
+        const displayLines = this.consumeWindowTextBuffer(winid);
+        const hasDisplayText = displayLines.some(
+          (line) => String(line || "").trim().length > 0,
+        );
+        if (
+          hasDisplayText &&
+          this.shouldCaptureWindowTextForDialog(winid) &&
+          this.eventHandler
+        ) {
+          const normalizedLines = displayLines.map((line) =>
+            String(line || "").replace(/\u0000/g, ""),
+          );
+          console.log(
+            `📄 Emitting info dialog for window ${winid} with ${normalizedLines.length} lines`,
+          );
+          this.emit({
+            type: "info_menu",
+            title: this.getWindowTextDialogTitle(winid),
+            lines: normalizedLines,
+            window: winid,
+            blocking: blocking,
+            source: "display_nhwindow",
+          });
+        }
         return 0;
       case "shim_add_menu":
         const [
@@ -2558,22 +2643,26 @@ class LocalNetHackRuntime {
       case "shim_putstr":
         const [win, textAttr, textStr] = args;
         console.log(`💬 TEXT [Win ${win}]: "${textStr}"`);
-        this.gameMessages.push({
-          text: textStr,
-          window: win,
-          timestamp: Date.now(),
-          attr: textAttr,
-        });
-        if (this.gameMessages.length > 100) {
-          this.gameMessages.shift();
-        }
-        if (this.eventHandler) {
-          this.emit({
-            type: "text",
+        this.appendWindowTextBuffer(win, textStr);
+
+        if (!this.shouldCaptureWindowTextForDialog(win)) {
+          this.gameMessages.push({
             text: textStr,
             window: win,
+            timestamp: Date.now(),
             attr: textAttr,
           });
+          if (this.gameMessages.length > 100) {
+            this.gameMessages.shift();
+          }
+          if (this.eventHandler) {
+            this.emit({
+              type: "text",
+              text: textStr,
+              window: win,
+              attr: textAttr,
+            });
+          }
         }
         return 0;
       case "shim_print_glyph":
@@ -2757,6 +2846,66 @@ class LocalNetHackRuntime {
           return 1;
         }
 
+        const shouldAwaitQuestionlessInventoryPickOne =
+          menuSelectHow === 1 &&
+          menuSelectWinid === 4 &&
+          this.lastEndedMenuWindow === menuSelectWinid &&
+          !this.lastEndedMenuHadQuestion &&
+          this.menuSelections.size === 0 &&
+          Array.isArray(this.currentMenuItems) &&
+          this.currentMenuItems.some((item) => item && !item.isCategory);
+
+        if (shouldAwaitQuestionlessInventoryPickOne) {
+          console.log(
+            "PICK_ONE for questionless WIN_INVEN menu - waiting for async selection...",
+          );
+          if (this.eventHandler) {
+            this.emit({
+              type: "question",
+              text: "Choose an inventory item:",
+              choices: "",
+              default: "",
+              menuItems: this.currentMenuItems,
+            });
+          }
+
+          const pendingSelection = this.waitForQuestionInput();
+          const finalizeSelection = () => {
+            if (this.menuSelections.size > 0) {
+              const selectedItems = Array.from(this.menuSelections.values());
+              const selectedItem = selectedItems[0];
+              if (selectedItems.length > 1) {
+                console.log(
+                  `PICK_ONE had ${selectedItems.length} selections after async wait; using first item only`,
+                );
+              }
+              console.log(
+                `Returning single menu selection count after async wait: 1 (${selectedItem.menuChar} ${selectedItem.text})`,
+              );
+              this.menuSelections = new Map([
+                [selectedItem.menuChar, selectedItem],
+              ]);
+              this.writeMenuSelectionResult(menuListPtrPtr, 1);
+              this.menuSelections.clear();
+              this.isInMultiPickup = false;
+              return 1;
+            }
+
+            console.log(
+              "Questionless WIN_INVEN PICK_ONE completed with no selection; returning 0",
+            );
+            this.writeMenuSelectionResult(menuListPtrPtr, 0);
+            this.menuSelections.clear();
+            this.isInMultiPickup = false;
+            return 0;
+          };
+
+          if (pendingSelection && typeof pendingSelection.then === "function") {
+            return pendingSelection.then(() => finalizeSelection());
+          }
+          return finalizeSelection();
+        }
+
         if (menuSelectHow === 1) {
           console.log("PICK_ONE requested with no selection; returning 0");
           this.writeMenuSelectionResult(menuListPtrPtr, 0);
@@ -2847,6 +2996,7 @@ class LocalNetHackRuntime {
       case "shim_clear_nhwindow":
         const [clearWinId] = args;
         console.log(`🗑️ Clearing window ${clearWinId}`);
+        this.resetWindowTextBuffer(clearWinId);
 
         // If clearing the map window, clear the 3D scene
         if (clearWinId === 2 || clearWinId === 3) {
@@ -2878,6 +3028,7 @@ class LocalNetHackRuntime {
       case "shim_destroy_nhwindow":
         const [destroyWinId] = args;
         console.log(`🗑️ Destroying window ${destroyWinId}`);
+        this.resetWindowTextBuffer(destroyWinId);
         return 0;
       case "shim_curs":
         const [cursWin, cursX, cursY] = args;
