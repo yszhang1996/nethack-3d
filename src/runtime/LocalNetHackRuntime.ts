@@ -516,16 +516,20 @@ class LocalNetHackRuntime {
       return 0;
     }
 
-    if (requestKind === "event") {
-      if (this.isPositionModeInitiatorInput(key)) {
-        this.farLookMode = "armed";
-      } else if (this.farLookMode === "armed") {
-        this.farLookMode = "none";
-      }
+    if (
+      this.farLookMode === "none" &&
+      this.isPositionModeInitiatorInput(key)
+    ) {
+      // ";" can be consumed through either event or position requests.
+      this.farLookMode = "armed";
+    } else if (requestKind === "event" && this.farLookMode === "armed") {
+      this.farLookMode = "none";
     }
 
     if (requestKind === "position" && this.farLookMode === "active") {
-      if (this.isFarLookExitInput(key)) {
+      const shouldExitFarLook =
+        this.isFarLookExitInput(key) || !this.isDirectionalMovementInput(key);
+      if (shouldExitFarLook) {
         this.farLookMode = "none";
         this.setPositionInputActive(false);
       }
@@ -2555,7 +2559,7 @@ class LocalNetHackRuntime {
           `🎯 Cliparound request for position (${clipX}, ${clipY}) - updating player position`,
         );
 
-        if (this.positionInputActive) {
+        if (this.positionInputActive || this.isFarLookPositionRequest()) {
           console.log(
             `🎯 Cliparound in position-input mode; routing to cursor at (${clipX}, ${clipY})`,
           );
@@ -2625,7 +2629,7 @@ class LocalNetHackRuntime {
         console.log(
           `🖱️ Setting cursor for window ${cursWin} to (${cursX}, ${cursY})`,
         );
-        if (this.positionInputActive) {
+        if (this.positionInputActive || this.isFarLookPositionRequest()) {
           this.emitPositionCursor(cursWin, cursX, cursY, "curs");
         }
         return 0;

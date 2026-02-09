@@ -130,10 +130,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private positionHideTimerId: number | null = null;
   private positionInputModeActive: boolean = false;
   private positionCursor = { x: 0, y: 0 };
+  private hasRuntimePositionCursor: boolean = false;
   private positionCursorOutline: THREE.Line | null = null;
   private readonly positionCursorOutlineColorHex: number = 0xffe15a;
   private readonly positionCursorOutlineInset: number = 0.04;
-  private readonly positionCursorOutlineZ: number = WALL_HEIGHT + 0.03;
+  private readonly positionCursorGroundZ: number = 0.03;
+  private readonly positionCursorWallZ: number = WALL_HEIGHT + 0.03;
 
   // Player stats tracking
   private playerStats = {
@@ -2169,6 +2171,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.clearDamageEffects();
     this.clearTileRevealFades();
     this.positionInputModeActive = false;
+    this.hasRuntimePositionCursor = false;
     this.clearPositionCursor();
     console.log("🧹 Clearing all tiles and glyph overlays from 3D scene");
 
@@ -2201,7 +2204,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const half = TILE_SIZE / 2 - this.positionCursorOutlineInset;
-    const z = this.positionCursorOutlineZ;
+    const z = 0;
     const points = [
       new THREE.Vector3(-half, half, z),
       new THREE.Vector3(half, half, z),
@@ -2227,18 +2230,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private setPositionInputMode(active: boolean): void {
-    if (this.positionInputModeActive === active) {
-      return;
-    }
-
-    this.positionInputModeActive = active;
     if (!active) {
+      this.positionInputModeActive = false;
+      this.hasRuntimePositionCursor = false;
       this.clearPositionCursor();
       return;
     }
 
-    // Use the player tile until the runtime publishes an explicit cursor.
-    this.positionCursor = { ...this.playerPos };
+    if (this.positionInputModeActive === active) {
+      return;
+    }
+
+    this.positionInputModeActive = true;
+
+    // Preserve any cursor published before the active-state event arrives.
+    if (!this.hasRuntimePositionCursor) {
+      this.positionCursor = { ...this.playerPos };
+    }
     this.updatePositionCursorOutline();
   }
 
@@ -2248,17 +2256,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.positionCursor = { x, y };
+    this.hasRuntimePositionCursor = true;
     if (this.positionInputModeActive) {
       this.updatePositionCursorOutline();
     }
   }
 
   private updatePositionCursorOutline(): void {
+    if (!this.positionInputModeActive) {
+      this.clearPositionCursor();
+      return;
+    }
+
     const outline = this.ensurePositionCursorOutline();
+    const key = `${this.positionCursor.x},${this.positionCursor.y}`;
+    const targetTileMesh = this.tileMap.get(key);
+    const outlineZ = targetTileMesh?.userData?.isWall
+      ? this.positionCursorWallZ
+      : this.positionCursorGroundZ;
     outline.position.set(
       this.positionCursor.x * TILE_SIZE,
       -this.positionCursor.y * TILE_SIZE,
-      0,
+      outlineZ,
     );
     outline.visible = true;
   }
