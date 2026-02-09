@@ -20,6 +20,7 @@ class LocalNetHackRuntime {
     this.latestStatusUpdates = new Map();
     this.currentMenuItems = [];
     this.currentWindow = null;
+    this.currentMenuQuestionText = "";
     this.hasShownCharacterSelection = false;
     this.lastQuestionText = null; // Store the last question for menu expansion
 
@@ -355,6 +356,10 @@ class LocalNetHackRuntime {
         console.log(
           `Recorded single menu selection: ${normalizedInput} (${menuItem.text})`,
         );
+        if (this.isLookAtMapMenuSelection(menuItem)) {
+          this.enqueueInputKeys([";"], source, ["event"]);
+          return;
+        }
       }
     }
 
@@ -1170,6 +1175,34 @@ class LocalNetHackRuntime {
     return question.trim().toLowerCase();
   }
 
+  isLookAtMenuQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    return normalized.includes("what do you want to look at");
+  }
+
+  isLookAtMapMenuSelection(menuItem) {
+    if (!menuItem || menuItem.isCategory) {
+      return false;
+    }
+
+    const accelerator =
+      typeof menuItem.accelerator === "string" ? menuItem.accelerator : "";
+    const originalAccelerator = menuItem.originalAccelerator;
+    const identifier = menuItem.identifier;
+    const selectsMapTarget =
+      accelerator === "/" || originalAccelerator === 47 || identifier === 47;
+    if (!selectsMapTarget) {
+      return false;
+    }
+
+    if (this.isLookAtMenuQuestion(this.currentMenuQuestionText)) {
+      return true;
+    }
+
+    const text = String(menuItem.text || "").trim().toLowerCase();
+    return text === "something on the map";
+  }
+
   isMenuSelectionInput(input) {
     return (
       typeof input === "string" &&
@@ -1209,6 +1242,13 @@ class LocalNetHackRuntime {
   }
 
   getMenuSelectionWakeInput(menuItem) {
+    if (this.isLookAtMapMenuSelection(menuItem)) {
+      console.log(
+        "Look menu map selection detected; using ';' wake input to arm far-look mode",
+      );
+      return ";";
+    }
+
     if (
       menuItem &&
       typeof menuItem.accelerator === "string" &&
@@ -2288,6 +2328,7 @@ class LocalNetHackRuntime {
         console.log("NetHack starting menu:", args);
         this.currentMenuItems = []; // Clear previous menu items
         this.currentWindow = menuWinId;
+        this.currentMenuQuestionText = "";
         this.lastQuestionText = null; // Clear any previous question text when starting new menu
         this.lastEndedMenuWindow = null;
         this.lastEndedMenuHadQuestion = false;
@@ -2325,6 +2366,7 @@ class LocalNetHackRuntime {
         const normalizedMenuQuestion =
           typeof menuQuestion === "string" ? menuQuestion : "";
         const hasMenuQuestion = normalizedMenuQuestion.trim().length > 0;
+        this.currentMenuQuestionText = hasMenuQuestion ? normalizedMenuQuestion : "";
         this.lastEndedMenuWindow = endMenuWinid;
         this.lastEndedMenuHadQuestion = hasMenuQuestion;
 
@@ -2491,6 +2533,7 @@ class LocalNetHackRuntime {
 
             // Send expanded question to web client
             if (this.eventHandler) {
+              this.currentMenuQuestionText = contextualQuestion;
               this.emit({
                 type: "question",
                 text: contextualQuestion,
@@ -2869,6 +2912,7 @@ class LocalNetHackRuntime {
             "PICK_ONE for questionless WIN_INVEN menu - waiting for async selection...",
           );
           if (this.eventHandler) {
+            this.currentMenuQuestionText = "Choose an inventory item:";
             this.emit({
               type: "question",
               text: "Choose an inventory item:",
