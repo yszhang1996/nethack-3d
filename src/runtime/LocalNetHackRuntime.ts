@@ -215,7 +215,8 @@ class LocalNetHackRuntime {
     }
 
     console.log("Received client input sequence:", normalized);
-    const extendedCommandText = this.extractExtendedCommandSubmission(normalized);
+    const extendedCommandText =
+      this.extractExtendedCommandSubmission(normalized);
     if (extendedCommandText !== null) {
       this.queueExtendedCommandSubmission(extendedCommandText, "synthetic");
       return;
@@ -555,8 +556,14 @@ class LocalNetHackRuntime {
       return false;
     }
 
-    const xTargetPtr = this.resolvePoskeyTargetPointer(requestContext.xPtr, "x");
-    const yTargetPtr = this.resolvePoskeyTargetPointer(requestContext.yPtr, "y");
+    const xTargetPtr = this.resolvePoskeyTargetPointer(
+      requestContext.xPtr,
+      "x",
+    );
+    const yTargetPtr = this.resolvePoskeyTargetPointer(
+      requestContext.yPtr,
+      "y",
+    );
     const modTargetPtr = this.resolvePoskeyTargetPointer(
       requestContext.modPtr,
       "mod",
@@ -755,10 +762,7 @@ class LocalNetHackRuntime {
       return 0;
     }
 
-    if (
-      this.farLookMode === "none" &&
-      this.isPositionModeInitiatorInput(key)
-    ) {
+    if (this.farLookMode === "none" && this.isPositionModeInitiatorInput(key)) {
       // ";" can be consumed through either event or position requests.
       this.farLookMode = "armed";
     } else if (requestKind === "event" && this.farLookMode === "armed") {
@@ -1125,7 +1129,7 @@ class LocalNetHackRuntime {
       return "NetHack Message";
     }
     if (winId === 5) {
-      return "NetHack Text";
+      return "NetHack Message";
     }
     if (winId === 6) {
       return "NetHack Information";
@@ -1224,7 +1228,10 @@ class LocalNetHackRuntime {
     if (!Number.isInteger(menuIndex)) {
       return null;
     }
-    if (!Array.isArray(this.currentMenuItems) || this.currentMenuItems.length === 0) {
+    if (
+      !Array.isArray(this.currentMenuItems) ||
+      this.currentMenuItems.length === 0
+    ) {
       return null;
     }
     return (
@@ -2495,7 +2502,7 @@ class LocalNetHackRuntime {
 
             // Wait for actual user input for expanded questions
             console.log("📋 Waiting for expanded menu selection (async)...");
-          return this.waitForQuestionInput();
+            return this.waitForQuestionInput();
           } else {
             console.log(
               "📋 Menu has no selectable items - treating as informational",
@@ -2812,7 +2819,9 @@ class LocalNetHackRuntime {
           }
 
           if (this.isInMultiPickup) {
-            console.log("Multi-pickup menu - waiting for completion (async)...");
+            console.log(
+              "Multi-pickup menu - waiting for completion (async)...",
+            );
             this.pendingMenuSelection = {
               resolver: null,
               menuListPtrPtr,
@@ -3111,4 +3120,3 @@ class LocalNetHackRuntime {
 }
 
 export default LocalNetHackRuntime;
-
