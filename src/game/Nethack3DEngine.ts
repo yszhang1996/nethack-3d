@@ -230,6 +230,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isRightMouseDown: boolean = false;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
+  private touchSwipeStart:
+    | { x: number; y: number; startedAtMs: number }
+    | null = null;
+  private readonly touchSwipeMinDistancePx: number = 26;
+  private readonly touchSwipeMaxDurationMs: number = 720;
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
@@ -850,6 +855,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
       false,
     );
     window.addEventListener("mouseup", this.handleMouseUp.bind(this), false);
+    this.renderer.domElement.addEventListener(
+      "touchstart",
+      this.handleTouchStart.bind(this),
+      { passive: false },
+    );
+    this.renderer.domElement.addEventListener(
+      "touchmove",
+      this.handleTouchMove.bind(this),
+      { passive: false },
+    );
+    this.renderer.domElement.addEventListener(
+      "touchend",
+      this.handleTouchEnd.bind(this),
+      { passive: false },
+    );
+    this.renderer.domElement.addEventListener(
+      "touchcancel",
+      this.handleTouchCancel.bind(this),
+      false,
+    );
     window.addEventListener("contextmenu", (e) => e.preventDefault(), false); // Prevent right-click menu
 
     // Start render loop
@@ -950,6 +975,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.uiAdapter.setStatus("Starting local NetHack runtime...");
       this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
       this.uiAdapter.setLoadingVisible(true);
+      this.uiAdapter.setExtendedCommands([]);
       return;
     }
 
@@ -1205,6 +1231,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log("Name request received from runtime:", data);
         break;
 
+      case "extended_commands":
+        this.uiAdapter?.setExtendedCommands(
+          this.normalizeRuntimeExtendedCommands(data.commands),
+        );
+        break;
+
       case "area_refresh_complete":
         console.log(
           `🔄 Area refresh completed: ${data.tilesRefreshed} tiles refreshed around (${data.centerX}, ${data.centerY})`,
@@ -1248,6 +1280,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
       default:
         console.log("Unknown message type:", data.type, data);
     }
+  }
+
+  private normalizeRuntimeExtendedCommands(rawCommands: unknown): string[] {
+    if (!Array.isArray(rawCommands)) {
+      return [];
+    }
+
+    const uniqueCommands: string[] = [];
+    const seen = new Set<string>();
+    for (const raw of rawCommands) {
+      const normalized = String(raw || "")
+        .trim()
+        .toLowerCase();
+      if (!normalized || normalized === "#" || normalized === "?") {
+        continue;
+      }
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      uniqueCommands.push(normalized);
+    }
+    return uniqueCommands;
   }
 
   private isDamageFlashableBehavior(behavior: TileBehaviorResult): boolean {
@@ -5623,13 +5678,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "close":
         this.sendInput("c");
         return;
-      case "pray":
-        this.sendInputSequence(["#", "p", "r", "a", "y", "Enter"]);
-        return;
       default:
         console.log(`Unknown quick action requested: ${actionId}`);
         return;
     }
+  }
+
+  public runExtendedCommand(commandText: string): void {
+    const normalizedCommandText = String(commandText || "").trim().toLowerCase();
+    if (!normalizedCommandText || !this.session) {
+      return;
+    }
+
+    if (
+      this.metaCommandModeActive ||
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.positionInputModeActive
+    ) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      this.hideInventoryDialog();
+    }
+
+    const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
+    this.sendInputSequence(sequence);
   }
 
   public closeInventoryDialog(): void {
@@ -6675,6 +6751,62 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
+  private isTouchEventOnGameCanvas(event: TouchEvent): boolean {
+    if (event.target === this.renderer.domElement) {
+      return true;
+    }
+    if (typeof event.composedPath === "function") {
+      return event.composedPath().includes(this.renderer.domElement);
+    }
+    return false;
+  }
+
+  private canUseMapTouchInput(event: TouchEvent): boolean {
+    if (!this.session) {
+      return false;
+    }
+    if (!this.isTouchEventOnGameCanvas(event)) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      return false;
+    }
+    if (this.metaCommandModeActive || this.positionInputModeActive) {
+      return false;
+    }
+    return true;
+  }
+
+  private resolveSwipeDirectionInput(dx: number, dy: number): string | null {
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (absX < 1 && absY < 1) {
+      return null;
+    }
+
+    const axisBiasRatio = 0.55;
+    if (absX <= absY * axisBiasRatio) {
+      return dy < 0 ? "8" : "2";
+    }
+    if (absY <= absX * axisBiasRatio) {
+      return dx < 0 ? "4" : "6";
+    }
+
+    if (dx < 0 && dy < 0) {
+      return "7";
+    }
+    if (dx > 0 && dy < 0) {
+      return "9";
+    }
+    if (dx < 0 && dy > 0) {
+      return "1";
+    }
+    return "3";
+  }
+
   private getClickedTilePosition(
     event: MouseEvent,
   ): { x: number; y: number } | null {
@@ -6751,6 +6883,72 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     }
+  }
+
+  private handleTouchStart(event: TouchEvent): void {
+    if (!this.canUseMapTouchInput(event)) {
+      this.touchSwipeStart = null;
+      return;
+    }
+    if (event.touches.length !== 1) {
+      this.touchSwipeStart = null;
+      return;
+    }
+
+    const touch = event.touches[0];
+    this.touchSwipeStart = {
+      x: touch.clientX,
+      y: touch.clientY,
+      startedAtMs: Date.now(),
+    };
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+  }
+
+  private handleTouchMove(event: TouchEvent): void {
+    if (!this.touchSwipeStart || !this.canUseMapTouchInput(event)) {
+      return;
+    }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+  }
+
+  private handleTouchEnd(event: TouchEvent): void {
+    const start = this.touchSwipeStart;
+    this.touchSwipeStart = null;
+    if (!start || !this.canUseMapTouchInput(event)) {
+      return;
+    }
+    if (!event.changedTouches || event.changedTouches.length === 0) {
+      return;
+    }
+
+    const touch = event.changedTouches[0];
+    const dx = touch.clientX - start.x;
+    const dy = touch.clientY - start.y;
+    const distance = Math.hypot(dx, dy);
+    const durationMs = Date.now() - start.startedAtMs;
+    if (
+      distance < this.touchSwipeMinDistancePx ||
+      durationMs > this.touchSwipeMaxDurationMs
+    ) {
+      return;
+    }
+
+    const swipeInput = this.resolveSwipeDirectionInput(dx, dy);
+    if (!swipeInput) {
+      return;
+    }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    this.sendInput(swipeInput);
+  }
+
+  private handleTouchCancel(): void {
+    this.touchSwipeStart = null;
   }
 
   private handleMouseMove(event: MouseEvent): void {

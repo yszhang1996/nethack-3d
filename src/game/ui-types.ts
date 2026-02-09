@@ -82,6 +82,7 @@ export interface Nethack3DEngineUIAdapter {
   setDirectionQuestion(question: string | null): void;
   setInfoMenu(state: InfoMenuState | null): void;
   setInventory(state: InventoryDialogState): void;
+  setExtendedCommands(commands: string[]): void;
   setPositionRequest(text: string | null): void;
 }
 
@@ -96,6 +97,7 @@ export interface Nethack3DEngineController {
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
   runQuickAction(actionId: string): void;
+  runExtendedCommand(commandText: string): void;
   closeInventoryDialog(): void;
   closeInfoMenuDialog(): void;
 }

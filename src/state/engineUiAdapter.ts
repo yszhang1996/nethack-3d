@@ -43,6 +43,9 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     setInventory(state: InventoryDialogState): void {
       useGameStore.getState().setInventory(state);
     },
+    setExtendedCommands(commands: string[]): void {
+      useGameStore.getState().setExtendedCommands(commands);
+    },
     setPositionRequest(text: string | null): void {
       useGameStore.getState().setPositionRequest(text);
     },

@@ -142,6 +142,7 @@ class LocalNetHackRuntime {
       type: "clear_scene",
       // message: "Reconnected - restoring game state",
     });
+    this.emitExtendedCommands("snapshot");
 
     const tiles = Array.from(this.gameMap.values());
     const chunkSize = 500;
@@ -1571,6 +1572,32 @@ class LocalNetHackRuntime {
 
     this.extendedCommandEntries = this.getFallbackExtendedCommandEntries();
     return this.extendedCommandEntries;
+  }
+
+  emitExtendedCommands(source = "runtime") {
+    if (!this.eventHandler) {
+      return;
+    }
+
+    const entries = this.getExtendedCommandEntries();
+    const uniqueNames = [];
+    const seen = new Set();
+    for (const entry of entries) {
+      const name = String(entry?.name || "")
+        .trim()
+        .toLowerCase();
+      if (!name || name === "#" || name === "?" || seen.has(name)) {
+        continue;
+      }
+      seen.add(name);
+      uniqueNames.push(name);
+    }
+
+    this.emit({
+      type: "extended_commands",
+      commands: uniqueNames,
+      source,
+    });
   }
 
   extractExtendedCommandEntriesFromMemory() {

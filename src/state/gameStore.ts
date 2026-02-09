@@ -50,6 +50,7 @@ type GameStore = {
   directionQuestion: string | null;
   infoMenu: InfoMenuState | null;
   inventory: InventoryDialogState;
+  extendedCommands: string[];
   positionRequest: string | null;
   engineController: Nethack3DEngineController | null;
   nextFloatingMessageId: number;
@@ -67,6 +68,7 @@ type GameStore = {
   setDirectionQuestion: (text: string | null) => void;
   setInfoMenu: (menu: InfoMenuState | null) => void;
   setInventory: (inventory: InventoryDialogState) => void;
+  setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
 };
@@ -86,6 +88,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   directionQuestion: null,
   infoMenu: null,
   inventory: { visible: false, items: [] },
+  extendedCommands: [],
   positionRequest: null,
   engineController: null,
   nextFloatingMessageId: 1,
@@ -144,6 +147,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setInventory: (inventory) => {
     set({ inventory });
+  },
+  setExtendedCommands: (commands) => {
+    set({ extendedCommands: commands });
   },
   setPositionRequest: (text) => {
     set({ positionRequest: text });

@@ -983,6 +983,35 @@ canvas {
   gap: 8px;
 }
 
+.nh3d-mobile-actions-grid.is-extended {
+  grid-template-columns: 1fr;
+}
+
+.nh3d-mobile-actions-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(42vh, 340px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.nh3d-mobile-actions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nh3d-mobile-actions-subheader {
+  color: #8dd7ff;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid #2b5a76;
+  padding-bottom: 4px;
+}
+
 .nh3d-mobile-actions-button {
   min-height: 38px;
   border: 1px solid #496d84;
@@ -994,7 +1023,33 @@ canvas {
   font-weight: bold;
 }
 
+.nh3d-mobile-actions-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid #2b5a76;
+  padding-top: 10px;
+}
+
+.nh3d-mobile-actions-secondary-button {
+  min-height: 34px;
+  min-width: 76px;
+  border: 1px solid #4b6a9b;
+  border-radius: 6px;
+  background: #1a2f4a;
+  color: #d5e7ff;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
+}
+
 @media (max-width: 900px) and (pointer: coarse) {
+  .nh3d-canvas-root,
+  .nh3d-canvas-root canvas {
+    touch-action: none;
+  }
+
   #stats-bar {
     gap: 8px;
     padding: 8px 10px;

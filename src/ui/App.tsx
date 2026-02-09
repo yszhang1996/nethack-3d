@@ -194,6 +194,7 @@ type MobileQuickAction = {
   id: string;
   label: string;
 };
+type MobileActionSheetMode = "quick" | "extended";
 
 const mobileQuickActions: MobileQuickAction[] = [
   { id: "wait", label: "Wait" },
@@ -203,7 +204,103 @@ const mobileQuickActions: MobileQuickAction[] = [
   { id: "loot", label: "Loot" },
   { id: "open", label: "Open" },
   { id: "close", label: "Close" },
-  { id: "pray", label: "Pray" },
+  { id: "extended", label: "Extended" },
+];
+const fallbackExtendedCommandNames = [
+  "adjust",
+  "annotate",
+  "apply",
+  "attributes",
+  "autopickup",
+  "call",
+  "cast",
+  "chat",
+  "close",
+  "conduct",
+  "dip",
+  "drop",
+  "droptype",
+  "eat",
+  "engrave",
+  "enhance",
+  "explode",
+  "fight",
+  "fire",
+  "force",
+  "getpos",
+  "glance",
+  "history",
+  "invoke",
+  "jump",
+  "kick",
+  "known",
+  "knownclass",
+  "look",
+  "loot",
+  "monster",
+  "monsters",
+  "name",
+  "namefloor",
+  "offer",
+  "open",
+  "options",
+  "overview",
+  "pay",
+  "pickup",
+  "pray",
+  "prevmsg",
+  "puton",
+  "quaff",
+  "quit",
+  "quiver",
+  "read",
+  "redraw",
+  "remove",
+  "ride",
+  "rub",
+  "seeall",
+  "seeamulet",
+  "seegold",
+  "seeinv",
+  "seespells",
+  "semicolon",
+  "set",
+  "shell",
+  "sit",
+  "spells",
+  "takeoff",
+  "takeoffall",
+  "teleport",
+  "terrain",
+  "throw",
+  "tip",
+  "travel",
+  "turn",
+  "twoweapon",
+  "untrap",
+  "version",
+  "versionshort",
+  "wield",
+  "wipe",
+  "wear",
+  "whatdoes",
+  "whatis",
+  "wieldquiver",
+  "zap",
+];
+const commonExtendedCommandWhitelist = [
+  "wield",
+  "wear",
+  "takeoff",
+  "takeoffall",
+  "puton",
+  "remove",
+  "apply",
+  "eat",
+  "quaff",
+  "read",
+  "throw",
+  "zap",
 ];
 
 function normalizeStartupCharacterName(value: string): string {
@@ -231,6 +328,8 @@ export default function App(): JSX.Element {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
+  const [mobileActionSheetMode, setMobileActionSheetMode] =
+    useState<MobileActionSheetMode>("quick");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
 
@@ -245,6 +344,7 @@ export default function App(): JSX.Element {
   const inventory = useGameStore((state) => state.inventory);
   const positionRequest = useGameStore((state) => state.positionRequest);
   const connectionState = useGameStore((state) => state.connectionState);
+  const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
 
   useEffect(() => {
@@ -299,6 +399,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!isMobileGameRunning) {
       setIsMobileActionSheetVisible(false);
+      setMobileActionSheetMode("quick");
     }
   }, [isMobileGameRunning]);
 
@@ -326,6 +427,34 @@ export default function App(): JSX.Element {
   const questionSelectableMenuItemCount = question
     ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item)).length
     : 0;
+  const mobileExtendedCommandNames = useMemo(() => {
+    const rawCommands =
+      Array.isArray(extendedCommands) && extendedCommands.length > 0
+        ? extendedCommands
+        : fallbackExtendedCommandNames;
+    const uniqueCommands: string[] = [];
+    const seen = new Set<string>();
+    for (const rawCommand of rawCommands) {
+      const normalized = String(rawCommand || "")
+        .trim()
+        .toLowerCase();
+      if (!normalized || normalized === "#" || normalized === "?") {
+        continue;
+      }
+      if (seen.has(normalized)) {
+        continue;
+      }
+      seen.add(normalized);
+      uniqueCommands.push(normalized);
+    }
+    return uniqueCommands;
+  }, [extendedCommands]);
+  const mobileCommonExtendedCommandNames = useMemo(() => {
+    const available = new Set(mobileExtendedCommandNames);
+    return commonExtendedCommandWhitelist.filter((command) =>
+      available.has(command),
+    );
+  }, [mobileExtendedCommandNames]);
 
   return (
     <>
@@ -882,21 +1011,100 @@ export default function App(): JSX.Element {
 
       {isMobileGameRunning && isMobileActionSheetVisible ? (
         <div className="nh3d-mobile-actions-sheet">
-          <div className="nh3d-mobile-actions-title">Quick Actions</div>
-          <div className="nh3d-mobile-actions-grid">
-            {mobileQuickActions.map((action) => (
+          <div className="nh3d-mobile-actions-title">
+            {mobileActionSheetMode === "quick"
+              ? "Quick Actions"
+              : "Extended Commands"}
+          </div>
+          {mobileActionSheetMode === "quick" ? (
+            <div className="nh3d-mobile-actions-grid">
+              {mobileQuickActions.map((action) => (
+                <button
+                  className="nh3d-mobile-actions-button"
+                  key={action.id}
+                  onClick={() => {
+                    if (action.id === "extended") {
+                      setMobileActionSheetMode("extended");
+                      return;
+                    }
+                    controller?.runQuickAction(action.id);
+                    if (action.id !== "search") {
+                      setIsMobileActionSheetVisible(false);
+                    }
+                  }}
+                  type="button"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {mobileActionSheetMode === "extended" ? (
+            <div className="nh3d-mobile-actions-sections">
+              {mobileCommonExtendedCommandNames.length > 0 ? (
+                <div className="nh3d-mobile-actions-section">
+                  <div className="nh3d-mobile-actions-subheader">
+                    Common commands
+                  </div>
+                  <div className="nh3d-mobile-actions-grid is-extended">
+                    {mobileCommonExtendedCommandNames.map((command) => (
+                      <button
+                        className="nh3d-mobile-actions-button"
+                        key={`common-${command}`}
+                        onClick={() => {
+                          controller?.runExtendedCommand(command);
+                          setIsMobileActionSheetVisible(false);
+                          setMobileActionSheetMode("quick");
+                        }}
+                        type="button"
+                      >
+                        {command}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div className="nh3d-mobile-actions-section">
+                <div className="nh3d-mobile-actions-subheader">All commands</div>
+                <div className="nh3d-mobile-actions-grid is-extended">
+                  {mobileExtendedCommandNames.map((command) => (
+                    <button
+                      className="nh3d-mobile-actions-button"
+                      key={`all-${command}`}
+                      onClick={() => {
+                        controller?.runExtendedCommand(command);
+                        setIsMobileActionSheetVisible(false);
+                        setMobileActionSheetMode("quick");
+                      }}
+                      type="button"
+                    >
+                      {command}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className="nh3d-mobile-actions-footer">
+            {mobileActionSheetMode === "extended" ? (
               <button
-                className="nh3d-mobile-actions-button"
-                key={action.id}
-                onClick={() => {
-                  controller?.runQuickAction(action.id);
-                  setIsMobileActionSheetVisible(false);
-                }}
+                className="nh3d-mobile-actions-secondary-button"
+                onClick={() => setMobileActionSheetMode("quick")}
                 type="button"
               >
-                {action.label}
+                Back
               </button>
-            ))}
+            ) : null}
+            <button
+              className="nh3d-mobile-actions-secondary-button"
+              onClick={() => {
+                setIsMobileActionSheetVisible(false);
+                setMobileActionSheetMode("quick");
+              }}
+              type="button"
+            >
+              Close
+            </button>
           </div>
         </div>
       ) : null}
@@ -914,9 +1122,15 @@ export default function App(): JSX.Element {
             className={`nh3d-mobile-bottom-button${
               isMobileActionSheetVisible ? " is-active" : ""
             }`}
-            onClick={() =>
-              setIsMobileActionSheetVisible((visible) => !visible)
-            }
+            onClick={() => {
+              setIsMobileActionSheetVisible((visible) => {
+                const nextVisible = !visible;
+                if (nextVisible) {
+                  setMobileActionSheetMode("quick");
+                }
+                return nextVisible;
+              });
+            }}
             type="button"
           >
             Actions
