@@ -121,6 +121,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private activeQuestionChoices: string = "";
   private activeQuestionDefaultChoice: string = "";
   private activeQuestionMenuItems: any[] = [];
+  private activeQuestionVisibleMenuItems: any[] = [];
+  private activeQuestionMenuPageIndex: number = 0;
+  private activeQuestionMenuPageCount: number = 1;
+  private activeQuestionPageSelectionMap: Map<string, string> = new Map();
   private activeQuestionIsPickupDialog: boolean = false;
   private activePickupSelections: Set<string> = new Set();
   private positionHideTimerId: number | null = null;
@@ -159,6 +163,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private session: RuntimeBridge | null = null;
   private readonly metaInputPrefix = "__META__:";
+  private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
+  private readonly questionMenuPageAccelerators: string[] =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   private altOrMetaHeld: boolean = false;
   private metaCommandModeActive: boolean = false;
   private metaCommandBuffer: string = "";
@@ -1040,7 +1047,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           // Send default character choices
           if (data.menuItems && data.menuItems.length > 0) {
             // Pick the first available option
-            this.sendInput(data.menuItems[0].accelerator);
+            const firstItem = data.menuItems[0];
+            this.sendInput(
+              this.getMenuSelectionInput(firstItem, firstItem?.accelerator || "a"),
+            );
           } else if (data.default) {
             this.sendInput(data.default);
           } else {
@@ -2857,42 +2867,195 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private showQuestion(
-    question: string,
-    choices: string,
-    defaultChoice: string,
-    menuItems: any[],
-  ): void {
-    this.activeQuestionText = question || "";
-    this.activeQuestionChoices = choices || "";
-    this.activeQuestionDefaultChoice = defaultChoice || "";
-    this.activeQuestionMenuItems = Array.isArray(menuItems)
-      ? [...menuItems]
-      : [];
-    this.activeQuestionIsPickupDialog =
-      this.activeQuestionMenuItems.length > 0 &&
-      this.isMultiSelectLootQuestion(this.activeQuestionText);
-    this.activePickupSelections.clear();
+  private isSelectableQuestionMenuItem(item: any): boolean {
+    if (!item || item.isCategory) {
+      return false;
+    }
+    if (Number.isInteger(item.menuIndex)) {
+      return true;
+    }
+    return typeof item.accelerator === "string" && item.accelerator.trim() !== "";
+  }
 
+  private getQuestionMenuSelectionInput(item: any): string {
+    if (item && typeof item.selectionInput === "string" && item.selectionInput) {
+      return item.selectionInput;
+    }
+    const fallback =
+      item && typeof item.accelerator === "string" ? item.accelerator : "";
+    return this.getMenuSelectionInput(item, fallback);
+  }
+
+  private rebuildActiveQuestionMenuPagination(): void {
+    this.activeQuestionVisibleMenuItems = [];
+    this.activeQuestionPageSelectionMap.clear();
+    this.activeQuestionMenuPageCount = 1;
+    this.activeQuestionMenuPageIndex = Math.max(0, this.activeQuestionMenuPageIndex);
+
+    if (
+      !Array.isArray(this.activeQuestionMenuItems) ||
+      this.activeQuestionMenuItems.length === 0
+    ) {
+      return;
+    }
+
+    const selectableItems = this.activeQuestionMenuItems.filter((item) =>
+      this.isSelectableQuestionMenuItem(item),
+    );
+    if (selectableItems.length === 0) {
+      this.activeQuestionVisibleMenuItems = [...this.activeQuestionMenuItems];
+      this.activeQuestionMenuPageIndex = 0;
+      return;
+    }
+
+    const pageSize = this.questionMenuPageAccelerators.length;
+    const pageCount = Math.ceil(selectableItems.length / pageSize);
+    this.activeQuestionMenuPageCount = Math.max(1, pageCount);
+    this.activeQuestionMenuPageIndex = Math.min(
+      this.activeQuestionMenuPageIndex,
+      this.activeQuestionMenuPageCount - 1,
+    );
+
+    const startSelectable = this.activeQuestionMenuPageIndex * pageSize;
+    const endSelectable = startSelectable + pageSize;
+    let selectableSeen = 0;
+    let selectableInPage = 0;
+    let pendingCategoryRows: any[] = [];
+    let categoryRowsInjected = false;
+    let lastItemWasSelectable = false;
+
+    for (const menuItem of this.activeQuestionMenuItems) {
+      if (!this.isSelectableQuestionMenuItem(menuItem)) {
+        if (lastItemWasSelectable) {
+          pendingCategoryRows = [];
+        }
+        pendingCategoryRows.push(menuItem);
+        categoryRowsInjected = false;
+        lastItemWasSelectable = false;
+        continue;
+      }
+
+      const selectableIndex = selectableSeen;
+      selectableSeen += 1;
+      lastItemWasSelectable = true;
+      if (selectableIndex < startSelectable || selectableIndex >= endSelectable) {
+        continue;
+      }
+
+      if (!categoryRowsInjected && pendingCategoryRows.length > 0) {
+        for (const categoryRow of pendingCategoryRows) {
+          this.activeQuestionVisibleMenuItems.push({ ...categoryRow });
+        }
+        categoryRowsInjected = true;
+      }
+
+      const displayAccelerator =
+        this.questionMenuPageAccelerators[selectableInPage] ?? "?";
+      const selectionInput = this.getQuestionMenuSelectionInput(menuItem);
+
+      this.activeQuestionVisibleMenuItems.push({
+        ...menuItem,
+        accelerator: displayAccelerator,
+        originalAccelerator:
+          typeof menuItem.accelerator === "string" ? menuItem.accelerator : "",
+        selectionInput,
+      });
+      this.activeQuestionPageSelectionMap.set(displayAccelerator, selectionInput);
+      selectableInPage += 1;
+    }
+  }
+
+  private resolveQuestionSelectionInput(input: string): string {
+    if (typeof input !== "string" || input.length === 0) {
+      return "";
+    }
+    const mapped = this.activeQuestionPageSelectionMap.get(input);
+    if (typeof mapped === "string" && mapped.length > 0) {
+      return mapped;
+    }
+    return input;
+  }
+
+  private resolveQuestionSelectionInputForKeyPress(key: string): string | null {
+    if (typeof key !== "string" || key.length === 0) {
+      return null;
+    }
+    if (this.activeQuestionMenuItems.length === 0) {
+      return key;
+    }
+    const mapped = this.activeQuestionPageSelectionMap.get(key);
+    return typeof mapped === "string" && mapped.length > 0 ? mapped : null;
+  }
+
+  public goToPreviousQuestionMenuPage(): void {
+    this.changeQuestionMenuPage(-1);
+  }
+
+  public goToNextQuestionMenuPage(): void {
+    this.changeQuestionMenuPage(1);
+  }
+
+  private changeQuestionMenuPage(delta: number): void {
+    if (
+      !this.isInQuestion ||
+      this.activeQuestionMenuItems.length === 0 ||
+      this.activeQuestionMenuPageCount <= 1
+    ) {
+      return;
+    }
+    const nextPage = Math.max(
+      0,
+      Math.min(
+        this.activeQuestionMenuPageCount - 1,
+        this.activeQuestionMenuPageIndex + delta,
+      ),
+    );
+    if (nextPage === this.activeQuestionMenuPageIndex) {
+      return;
+    }
+    this.activeQuestionMenuPageIndex = nextPage;
+    this.rebuildActiveQuestionMenuPagination();
     if (this.uiAdapter) {
       this.syncQuestionDialogState();
       return;
     }
+    this.renderQuestionDialogDom();
+  }
 
-    // Temporarily disable automatic "?" expansion to debug menu issues
-    // TODO: Re-enable with better logic later
-    const needsExpansion = false;
-
-    if (needsExpansion) {
-      console.log(
-        "🔍 Question includes '?' option, automatically expanding options...",
-      );
-      // Send "?" to get detailed menu items
-      this.sendInput("?");
-      // Don't show the dialog yet - wait for expanded menu items
+  private appendQuestionMenuPaginationControls(questionDialog: HTMLElement): void {
+    if (this.activeQuestionMenuItems.length === 0) {
       return;
     }
 
+    const controls = document.createElement("div");
+    controls.className = "nh3d-question-pagination";
+
+    const prevButton = document.createElement("button");
+    prevButton.className = "nh3d-question-page-button";
+    prevButton.type = "button";
+    prevButton.textContent = "<";
+    prevButton.disabled = this.activeQuestionMenuPageIndex <= 0;
+    prevButton.onclick = () => this.goToPreviousQuestionMenuPage();
+
+    const nextButton = document.createElement("button");
+    nextButton.className = "nh3d-question-page-button";
+    nextButton.type = "button";
+    nextButton.textContent = ">";
+    nextButton.disabled =
+      this.activeQuestionMenuPageIndex >= this.activeQuestionMenuPageCount - 1;
+    nextButton.onclick = () => this.goToNextQuestionMenuPage();
+
+    const pageText = document.createElement("div");
+    pageText.className = "nh3d-question-page-indicator";
+    pageText.textContent = `Page ${this.activeQuestionMenuPageIndex + 1} / ${this.activeQuestionMenuPageCount}`;
+
+    controls.appendChild(prevButton);
+    controls.appendChild(pageText);
+    controls.appendChild(nextButton);
+    questionDialog.appendChild(controls);
+  }
+
+  private renderQuestionDialogDom(): void {
     // Create or get question dialog
     let questionDialog = document.getElementById("question-dialog");
     if (!questionDialog) {
@@ -2908,27 +3071,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Add question text
     const questionText = document.createElement("div");
     questionText.className = "nh3d-question-text";
-    questionText.textContent = question;
+    questionText.textContent = this.activeQuestionText;
     questionDialog.appendChild(questionText);
 
     // Add menu items if available
-    if (menuItems && menuItems.length > 0) {
-      // Use multi-select UI for floor pickup and container looting menus.
-      const isPickupDialog = this.isMultiSelectLootQuestion(question);
-
-      if (isPickupDialog) {
+    if (
+      this.activeQuestionVisibleMenuItems &&
+      this.activeQuestionVisibleMenuItems.length > 0
+    ) {
+      if (this.activeQuestionIsPickupDialog) {
         // Create multi-selection pickup dialog
-        this.createPickupDialog(questionDialog, menuItems, question);
+        this.createPickupDialog(
+          questionDialog,
+          this.activeQuestionVisibleMenuItems,
+          this.activeQuestionText,
+        );
       } else {
         // Create standard single-selection menu
-        this.createStandardMenu(questionDialog, menuItems);
+        this.createStandardMenu(questionDialog, this.activeQuestionVisibleMenuItems);
       }
+
+      this.appendQuestionMenuPaginationControls(questionDialog);
     } else {
       // Add choice buttons for simple y/n questions
       const choiceContainer = document.createElement("div");
       choiceContainer.className = "nh3d-choice-list";
 
-      const parsedChoices = this.parseQuestionChoices(question, choices);
+      const parsedChoices = this.parseQuestionChoices(
+        this.activeQuestionText,
+        this.activeQuestionChoices,
+      );
       const useInventoryChoiceLabels =
         !this.isSimpleYesNoChoicePrompt(parsedChoices);
       const useCompactChoiceLayout =
@@ -2941,7 +3113,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         for (const choice of parsedChoices) {
           const button = document.createElement("button");
           button.className = "nh3d-choice-button";
-          if (choice === defaultChoice) {
+          if (choice === this.activeQuestionDefaultChoice) {
             button.classList.add("nh3d-choice-button-default");
           }
           button.textContent = this.getQuestionChoiceLabel(
@@ -2962,11 +3134,58 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Add escape instruction
     const escapeText = document.createElement("div");
     escapeText.className = "nh3d-dialog-hint";
-    escapeText.textContent = "Press ESC to cancel";
+    if (this.activeQuestionMenuItems.length > 0 && this.activeQuestionMenuPageCount > 1) {
+      escapeText.textContent = "Use < and > to change pages. Press ESC to cancel";
+    } else {
+      escapeText.textContent = "Press ESC to cancel";
+    }
     questionDialog.appendChild(escapeText);
+
+    (questionDialog as any).isPickupDialog = this.activeQuestionIsPickupDialog;
+    (questionDialog as any).menuItems = [...this.activeQuestionVisibleMenuItems];
 
     // Show the dialog
     questionDialog.classList.add("is-visible");
+  }
+
+  private showQuestion(
+    question: string,
+    choices: string,
+    defaultChoice: string,
+    menuItems: any[],
+  ): void {
+    this.activeQuestionText = question || "";
+    this.activeQuestionChoices = choices || "";
+    this.activeQuestionDefaultChoice = defaultChoice || "";
+    this.activeQuestionMenuItems = Array.isArray(menuItems)
+      ? [...menuItems]
+      : [];
+    this.activeQuestionIsPickupDialog =
+      this.activeQuestionMenuItems.length > 0 &&
+      this.isMultiSelectLootQuestion(this.activeQuestionText);
+    this.activePickupSelections.clear();
+    this.activeQuestionMenuPageIndex = 0;
+    this.rebuildActiveQuestionMenuPagination();
+
+    if (this.uiAdapter) {
+      this.syncQuestionDialogState();
+      return;
+    }
+
+    // Temporarily disable automatic "?" expansion to debug menu issues
+    // TODO: Re-enable with better logic later
+    const needsExpansion = false;
+
+    if (needsExpansion) {
+      console.log(
+        "🔍 Question includes '?' option, automatically expanding options...",
+      );
+      // Send "?" to get detailed menu items
+      this.sendInput("?");
+      // Don't show the dialog yet - wait for expanded menu items
+      return;
+    }
+    this.renderQuestionDialogDom();
   }
 
   private syncQuestionDialogState(): void {
@@ -2979,13 +3198,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    const selectedAccelerators = this.activeQuestionVisibleMenuItems
+      .filter((item) => {
+        if (!this.isSelectableQuestionMenuItem(item)) {
+          return false;
+        }
+        const selectionKey = this.getMenuSelectionStateKey(item);
+        return this.activePickupSelections.has(selectionKey);
+      })
+      .map((item) =>
+        typeof item.accelerator === "string" ? item.accelerator : "",
+      )
+      .filter((value) => value.length > 0);
+
     const state: QuestionDialogState = {
       text: this.activeQuestionText,
       choices: this.activeQuestionChoices,
       defaultChoice: this.activeQuestionDefaultChoice,
-      menuItems: [...this.activeQuestionMenuItems],
+      menuItems: [...this.activeQuestionVisibleMenuItems],
       isPickupDialog: this.activeQuestionIsPickupDialog,
-      selectedAccelerators: Array.from(this.activePickupSelections),
+      selectedAccelerators,
+      menuPageIndex: this.activeQuestionMenuPageIndex,
+      menuPageCount: this.activeQuestionMenuPageCount,
     };
     this.uiAdapter.setQuestion(state);
   }
@@ -3505,6 +3739,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionChoices = "";
     this.activeQuestionDefaultChoice = "";
     this.activeQuestionMenuItems = [];
+    this.activeQuestionVisibleMenuItems = [];
+    this.activeQuestionMenuPageIndex = 0;
+    this.activeQuestionMenuPageCount = 1;
+    this.activeQuestionPageSelectionMap.clear();
     this.activeQuestionIsPickupDialog = false;
     this.activePickupSelections.clear();
 
@@ -3528,9 +3766,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     menuItems: any[],
     question: string,
   ): void {
-    // Track selected items for multi-pickup
-    const selectedItems = new Set<string>();
-
     menuItems.forEach((item) => {
       if (
         item.isCategory ||
@@ -3546,11 +3781,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Selectable item with checkbox
         const itemContainer = document.createElement("div");
         itemContainer.className = "nh3d-pickup-item";
+        const selectionStateKey = this.getMenuSelectionStateKey(item);
+        const selectionInput = this.getQuestionMenuSelectionInput(item);
 
         // Checkbox
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
-        checkbox.id = `pickup-${item.accelerator}`;
+        checkbox.id = `pickup-${selectionStateKey.replace(/[^A-Za-z0-9_-]/g, "_")}`;
         checkbox.className = "nh3d-pickup-checkbox";
 
         // Key label
@@ -3569,17 +3806,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ) => {
           checkbox.checked = isSelected;
           if (isSelected) {
-            selectedItems.add(item.accelerator);
+            this.activePickupSelections.add(selectionStateKey);
             itemContainer.classList.add("nh3d-pickup-item-selected");
           } else {
-            selectedItems.delete(item.accelerator);
+            this.activePickupSelections.delete(selectionStateKey);
             itemContainer.classList.remove("nh3d-pickup-item-selected");
           }
           if (shouldSendInput) {
             // Send the key to NetHack to keep game state in sync
-            this.sendInput(item.accelerator);
+            this.sendInput(selectionInput);
           }
+          this.syncQuestionDialogState();
         };
+
+        applySelectionState(
+          this.activePickupSelections.has(selectionStateKey),
+          false,
+        );
 
         // Toggle function
         const toggleItem = () => {
@@ -3606,6 +3849,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Store toggle function for keyboard access
         (itemContainer as any).toggleItem = toggleItem;
         (itemContainer as any).accelerator = item.accelerator;
+        (itemContainer as any).selectionInput = selectionInput;
 
         itemContainer.appendChild(checkbox);
         itemContainer.appendChild(keyPart);
@@ -3658,12 +3902,68 @@ class Nethack3DEngine implements Nethack3DEngineController {
         menuButton.appendChild(textPart);
 
         menuButton.onclick = () => {
-          this.sendInput(item.accelerator);
+          this.sendInput(this.getQuestionMenuSelectionInput(item));
           this.hideQuestion();
         };
         questionDialog.appendChild(menuButton);
       }
     });
+  }
+
+  private decodeMenuSelectionIndexFromInput(input: string): number | null {
+    if (
+      typeof input !== "string" ||
+      !input.startsWith(this.menuSelectionInputPrefix)
+    ) {
+      return null;
+    }
+    const raw = input.slice(this.menuSelectionInputPrefix.length).trim();
+    if (!/^-?\d+$/.test(raw)) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  private getMenuSelectionInput(item: any, fallbackInput = ""): string {
+    if (item && Number.isInteger(item.menuIndex)) {
+      return `${this.menuSelectionInputPrefix}${item.menuIndex}`;
+    }
+    if (item && typeof item.accelerator === "string" && item.accelerator) {
+      return item.accelerator;
+    }
+    return fallbackInput;
+  }
+
+  private getMenuSelectionStateKey(item: any): string {
+    if (item && Number.isInteger(item.menuIndex)) {
+      return `menu-index:${item.menuIndex}`;
+    }
+    const originalAccelerator =
+      item && typeof item.originalAccelerator === "string"
+        ? item.originalAccelerator
+        : "";
+    const accelerator =
+      item && typeof item.accelerator === "string" ? item.accelerator : "";
+    const stableAccelerator = originalAccelerator || accelerator;
+    return `accelerator:${stableAccelerator}`;
+  }
+
+  private findActiveMenuItemBySelectionInput(input: string): any | null {
+    const menuIndex = this.decodeMenuSelectionIndexFromInput(input);
+    if (Number.isInteger(menuIndex)) {
+      const indexed = this.activeQuestionMenuItems.find(
+        (item) =>
+          item &&
+          !item.isCategory &&
+          Number.isInteger(item.menuIndex) &&
+          item.menuIndex === menuIndex,
+      );
+      if (indexed) {
+        return indexed;
+      }
+    }
+    return this.findActiveMenuItemByAccelerator(input);
   }
 
   private findActiveMenuItemByAccelerator(input: string): any | null {
@@ -3690,17 +3990,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private togglePickupSelection(
-    accelerator: string,
+    selectionInput: string,
     shouldSendInput: boolean,
   ): void {
-    if (this.activePickupSelections.has(accelerator)) {
-      this.activePickupSelections.delete(accelerator);
+    const menuItem = this.findActiveMenuItemBySelectionInput(selectionInput);
+    if (!menuItem) {
+      return;
+    }
+
+    const selectionKey = this.getMenuSelectionStateKey(menuItem);
+    if (this.activePickupSelections.has(selectionKey)) {
+      this.activePickupSelections.delete(selectionKey);
     } else {
-      this.activePickupSelections.add(accelerator);
+      this.activePickupSelections.add(selectionKey);
     }
 
     if (shouldSendInput) {
-      this.sendInput(accelerator);
+      this.sendInput(this.getQuestionMenuSelectionInput(menuItem));
     }
     this.syncQuestionDialogState();
   }
@@ -3717,13 +4023,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isInQuestion || !choice) {
       return;
     }
+    const resolvedChoice = this.resolveQuestionSelectionInput(choice);
 
     if (this.activeQuestionIsPickupDialog) {
-      this.togglePickupSelection(choice, true);
+      this.togglePickupSelection(resolvedChoice, true);
       return;
     }
 
-    this.sendInput(choice);
+    const selectedItem = this.findActiveMenuItemBySelectionInput(resolvedChoice);
+    if (selectedItem) {
+      this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+      this.hideQuestion();
+      return;
+    }
+
+    if (this.activeQuestionMenuItems.length > 0) {
+      return;
+    }
+
+    this.sendInput(resolvedChoice);
     this.hideQuestion();
   }
 
@@ -3731,11 +4049,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isInQuestion || !this.activeQuestionIsPickupDialog) {
       return;
     }
-    const menuItem = this.findActiveMenuItemByAccelerator(accelerator);
-    if (!menuItem || typeof menuItem.accelerator !== "string") {
+    const resolvedInput = this.resolveQuestionSelectionInput(accelerator);
+    const menuItem = this.findActiveMenuItemBySelectionInput(resolvedInput);
+    if (!menuItem) {
       return;
     }
-    this.togglePickupSelection(menuItem.accelerator, true);
+    this.togglePickupSelection(this.getQuestionMenuSelectionInput(menuItem), true);
   }
 
   public confirmPickupChoices(): void {
@@ -4298,31 +4617,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : Boolean(
             (document.getElementById("question-dialog") as any)?.isPickupDialog,
           );
+      const isMenuQuestion = this.activeQuestionMenuItems.length > 0;
+
+      if (isMenuQuestion && this.activeQuestionMenuPageCount > 1) {
+        if (event.key === "<") {
+          event.preventDefault();
+          this.goToPreviousQuestionMenuPage();
+          return;
+        }
+        if (event.key === ">") {
+          event.preventDefault();
+          this.goToNextQuestionMenuPage();
+          return;
+        }
+      }
 
       // For other questions, handle pickup dialogs specially
       if (isPickupDialog) {
         // This is a pickup dialog - handle multi-selection
         if (event.key === "Enter") {
+          event.preventDefault();
           // Confirm pickup and close dialog
           this.sendInput("Enter");
           this.hideQuestion();
         } else if (event.key === "Escape") {
+          event.preventDefault();
           // Cancel pickup
           this.sendInput("Escape");
           this.hideQuestion();
         } else {
-          // Toggle item selection - find matching item and toggle it
-          const menuItems = this.uiAdapter
-            ? this.activeQuestionMenuItems
-            : (document.getElementById("question-dialog") as any)?.menuItems ||
-              [];
-          const matchingItem = menuItems.find(
-            (item: any) => item.accelerator === event.key && !item.isCategory,
-          );
+          const resolvedSelectionInput = isMenuQuestion
+            ? this.resolveQuestionSelectionInputForKeyPress(event.key)
+            : this.resolveQuestionSelectionInput(event.key);
+          const matchingItem = resolvedSelectionInput
+            ? this.findActiveMenuItemBySelectionInput(resolvedSelectionInput)
+            : null;
 
-          if (matchingItem) {
+          if (matchingItem && resolvedSelectionInput) {
+            event.preventDefault();
             if (this.uiAdapter) {
-              this.togglePickupChoice(event.key);
+              this.togglePickupChoice(resolvedSelectionInput);
             } else {
               const questionDialog = document.getElementById("question-dialog");
               if (questionDialog) {
@@ -4330,7 +4664,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
                   questionDialog.querySelectorAll(".nh3d-pickup-item");
                 containers.forEach((container: Element) => {
                   if (
-                    (container as any).accelerator === event.key &&
+                    (container as any).selectionInput === resolvedSelectionInput &&
                     (container as any).toggleItem
                   ) {
                     (container as any).toggleItem();
@@ -4338,15 +4672,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 });
               }
             }
-          } else {
+          } else if (!isMenuQuestion) {
             // Send the key anyway in case it's a valid NetHack command
             this.sendInput(event.key);
           }
         }
       } else {
         // Standard single-selection dialog - send key and close
-        this.sendInput(event.key);
-        this.hideQuestion();
+        const resolvedSelectionInput = isMenuQuestion
+          ? this.resolveQuestionSelectionInputForKeyPress(event.key)
+          : this.resolveQuestionSelectionInput(event.key);
+        const selectedItem = resolvedSelectionInput
+          ? this.findActiveMenuItemBySelectionInput(resolvedSelectionInput)
+          : null;
+        if (selectedItem && resolvedSelectionInput) {
+          event.preventDefault();
+          this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+          this.hideQuestion();
+        } else if (!isMenuQuestion) {
+          this.sendInput(event.key);
+          this.hideQuestion();
+        } else {
+          return;
+        }
       }
       return; // Don't allow normal movement during questions
     }
@@ -4402,13 +4750,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return angle > Math.PI ? angle - twoPi : angle;
   }
 
+  private isAnyModalVisible(): boolean {
+    if (this.metaCommandModal?.classList.contains("is-visible")) {
+      return true;
+    }
+
+    return Boolean(document.querySelector(".nh3d-dialog.is-visible"));
+  }
+
   private handleMouseWheel(event: WheelEvent): void {
-    // Disable camera zoom while the inventory dialog is visible.
-    const inventoryDialog = document.getElementById("inventory-dialog");
-    if (
-      this.isInventoryDialogVisible ||
-      (inventoryDialog && inventoryDialog.classList.contains("is-visible"))
-    ) {
+    // Disable camera zoom while any modal/dialog is visible.
+    if (this.isAnyModalVisible()) {
       return;
     }
 

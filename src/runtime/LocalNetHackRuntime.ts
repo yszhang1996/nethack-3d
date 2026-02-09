@@ -37,6 +37,7 @@ class LocalNetHackRuntime {
     this.activeInputRequest = null;
     this.awaitingQuestionInput = false;
     this.metaInputPrefix = "__META__:";
+    this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.extendedCommandEntries = null;
     this.statusPending = new Map();
 
@@ -241,6 +242,49 @@ class LocalNetHackRuntime {
       return;
     }
 
+    const selectedMenuItem = this.resolveMenuItemFromSelectionInput(input);
+    if (selectedMenuItem) {
+      const selectionEntry =
+        this.createSelectionEntryFromMenuItem(selectedMenuItem);
+      if (!selectionEntry) {
+        return;
+      }
+      const selectionKey = this.getMenuSelectionKey(selectionEntry);
+
+      if (this.isInMultiPickup) {
+        if (this.menuSelections.has(selectionKey)) {
+          this.menuSelections.delete(selectionKey);
+          console.log(
+            `Deselected item: ${selectionEntry.menuChar} (${selectionEntry.text}). Current selections:`,
+            Array.from(this.menuSelections.values()).map(
+              (item) => `${item.menuChar}:${item.text}`,
+            ),
+          );
+        } else {
+          this.menuSelections.set(selectionKey, selectionEntry);
+          console.log(
+            `Selected item: ${selectionEntry.menuChar} (${selectionEntry.text}). Current selections:`,
+            Array.from(this.menuSelections.values()).map(
+              (item) => `${item.menuChar}:${item.text}`,
+            ),
+          );
+        }
+        return;
+      }
+
+      this.menuSelections.clear();
+      this.menuSelections.set(selectionKey, selectionEntry);
+      console.log(
+        `Recorded single menu selection by index: ${selectionEntry.menuIndex} (${selectionEntry.menuChar} ${selectionEntry.text})`,
+      );
+
+      if (this.awaitingQuestionInput) {
+        const wakeInput = this.getMenuSelectionWakeInput(selectedMenuItem);
+        this.enqueueInputKeys([wakeInput], source, ["event"]);
+      }
+      return;
+    }
+
     if (this.isLiteralTextInput(input)) {
       this.pendingTextResponses.push(input);
       console.log(`Queued text response input: "${input}"`);
@@ -262,13 +306,12 @@ class LocalNetHackRuntime {
       );
       if (menuItem) {
         this.menuSelections.clear();
-        this.menuSelections.set(normalizedInput, {
-          menuChar: normalizedInput,
-          originalAccelerator: menuItem.originalAccelerator,
-          identifier: menuItem.identifier,
-          menuIndex: menuItem.menuIndex,
-          text: menuItem.text,
-        });
+        const selectionEntry = this.createSelectionEntryFromMenuItem(menuItem);
+        if (!selectionEntry) {
+          return;
+        }
+        const selectionKey = this.getMenuSelectionKey(selectionEntry);
+        this.menuSelections.set(selectionKey, selectionEntry);
         console.log(
           `Recorded single menu selection: ${normalizedInput} (${menuItem.text})`,
         );
@@ -287,23 +330,26 @@ class LocalNetHackRuntime {
         (item) => item.accelerator === normalizedInput && !item.isCategory,
       );
       if (menuItem) {
-        if (this.menuSelections.has(normalizedInput)) {
-          this.menuSelections.delete(normalizedInput);
+        const selectionEntry = this.createSelectionEntryFromMenuItem(menuItem);
+        if (!selectionEntry) {
+          return;
+        }
+        const selectionKey = this.getMenuSelectionKey(selectionEntry);
+        if (this.menuSelections.has(selectionKey)) {
+          this.menuSelections.delete(selectionKey);
           console.log(
             `Deselected item: ${normalizedInput} (${menuItem.text}). Current selections:`,
-            Array.from(this.menuSelections.keys()),
+            Array.from(this.menuSelections.values()).map(
+              (item) => `${item.menuChar}:${item.text}`,
+            ),
           );
         } else {
-          this.menuSelections.set(normalizedInput, {
-            menuChar: normalizedInput,
-            originalAccelerator: menuItem.originalAccelerator,
-            identifier: menuItem.identifier,
-            menuIndex: menuItem.menuIndex,
-            text: menuItem.text,
-          });
+          this.menuSelections.set(selectionKey, selectionEntry);
           console.log(
             `Selected item: ${normalizedInput} (${menuItem.text}). Current selections:`,
-            Array.from(this.menuSelections.keys()),
+            Array.from(this.menuSelections.values()).map(
+              (item) => `${item.menuChar}:${item.text}`,
+            ),
           );
         }
       } else {
@@ -810,6 +856,78 @@ class LocalNetHackRuntime {
       return "";
     }
     return question.trim().toLowerCase();
+  }
+
+  isMenuSelectionInput(input) {
+    return (
+      typeof input === "string" &&
+      input.startsWith(this.menuSelectionInputPrefix) &&
+      input.length > this.menuSelectionInputPrefix.length
+    );
+  }
+
+  decodeMenuSelectionIndex(input) {
+    if (!this.isMenuSelectionInput(input)) {
+      return null;
+    }
+    const raw = input.slice(this.menuSelectionInputPrefix.length).trim();
+    if (!/^-?\d+$/.test(raw)) {
+      return null;
+    }
+    const parsed = Number(raw);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  getMenuSelectionKey(item) {
+    const menuIndex = Number.isInteger(item?.menuIndex) ? item.menuIndex : -1;
+    return `menu-index:${menuIndex}`;
+  }
+
+  createSelectionEntryFromMenuItem(menuItem) {
+    if (!menuItem) {
+      return null;
+    }
+    return {
+      menuChar: menuItem.accelerator,
+      originalAccelerator: menuItem.originalAccelerator,
+      identifier: menuItem.identifier,
+      menuIndex: menuItem.menuIndex,
+      text: menuItem.text,
+    };
+  }
+
+  getMenuSelectionWakeInput(menuItem) {
+    if (
+      menuItem &&
+      typeof menuItem.accelerator === "string" &&
+      menuItem.accelerator.length === 1
+    ) {
+      return menuItem.accelerator;
+    }
+    const original = menuItem?.originalAccelerator;
+    if (typeof original === "number" && original > 32 && original < 127) {
+      return String.fromCharCode(original);
+    }
+    return "Enter";
+  }
+
+  resolveMenuItemFromSelectionInput(input) {
+    const menuIndex = this.decodeMenuSelectionIndex(input);
+    if (!Number.isInteger(menuIndex)) {
+      return null;
+    }
+    if (!Array.isArray(this.currentMenuItems) || this.currentMenuItems.length === 0) {
+      return null;
+    }
+    return (
+      this.currentMenuItems.find(
+        (item) =>
+          item &&
+          !item.isCategory &&
+          Number.isInteger(item.menuIndex) &&
+          item.menuIndex === menuIndex,
+      ) || null
+    );
   }
 
   isContainerLootTypeQuestion(question) {

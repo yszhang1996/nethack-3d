@@ -153,6 +153,13 @@ function getQuestionChoiceLabel(
   return `${normalizedChoice}) ${inventoryItem.text.trim()}`;
 }
 
+function getMenuSelectionInput(item: NethackMenuItem): string {
+  if (typeof item.selectionInput === "string" && item.selectionInput.trim()) {
+    return item.selectionInput;
+  }
+  return typeof item.accelerator === "string" ? item.accelerator : "";
+}
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
@@ -204,6 +211,8 @@ export default function App(): JSX.Element {
   const useInventoryChoiceLabels = !isSimpleYesNoChoicePrompt(
     parsedQuestionChoices,
   );
+  const questionMenuPageIndex = question?.menuPageIndex ?? 0;
+  const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
 
   return (
     <>
@@ -317,7 +326,7 @@ export default function App(): JSX.Element {
                       }`}
                       key={`pickup-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.togglePickupChoice(String(item.accelerator))
+                        controller?.togglePickupChoice(getMenuSelectionInput(item))
                       }
                     >
                       <input
@@ -327,7 +336,7 @@ export default function App(): JSX.Element {
                         className="nh3d-pickup-checkbox"
                         onClick={(event) => event.stopPropagation()}
                         onChange={() =>
-                          controller?.togglePickupChoice(String(item.accelerator))
+                          controller?.togglePickupChoice(getMenuSelectionInput(item))
                         }
                         type="checkbox"
                       />
@@ -354,7 +363,7 @@ export default function App(): JSX.Element {
                       className="nh3d-menu-button"
                       key={`menu-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.chooseQuestionChoice(String(item.accelerator))
+                        controller?.chooseQuestionChoice(getMenuSelectionInput(item))
                       }
                       type="button"
                     >
@@ -396,7 +405,34 @@ export default function App(): JSX.Element {
               ))}
             </div>
           )}
-          <div className="nh3d-dialog-hint">Press ESC to cancel</div>
+          {question.menuItems.length > 0 ? (
+            <div className="nh3d-question-pagination">
+              <button
+                className="nh3d-question-page-button"
+                disabled={questionMenuPageIndex <= 0}
+                onClick={() => controller?.goToPreviousQuestionMenuPage()}
+                type="button"
+              >
+                {"<"}
+              </button>
+              <div className="nh3d-question-page-indicator">
+                Page {questionMenuPageIndex + 1} / {questionMenuPageCount}
+              </div>
+              <button
+                className="nh3d-question-page-button"
+                disabled={questionMenuPageIndex >= questionMenuPageCount - 1}
+                onClick={() => controller?.goToNextQuestionMenuPage()}
+                type="button"
+              >
+                {">"}
+              </button>
+            </div>
+          ) : null}
+          <div className="nh3d-dialog-hint">
+            {question.menuItems.length > 0 && questionMenuPageCount > 1
+              ? "Use < and > to change pages. Press ESC to cancel"
+              : "Press ESC to cancel"}
+          </div>
         </div>
       ) : null}
 
