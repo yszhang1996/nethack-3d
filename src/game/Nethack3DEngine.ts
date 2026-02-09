@@ -575,7 +575,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       mesh.position.set(
         ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
         ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
-        WALL_HEIGHT + 0.08,
+        WALL_HEIGHT,
       );
       mesh.renderOrder = 900;
       this.scene.add(mesh);
