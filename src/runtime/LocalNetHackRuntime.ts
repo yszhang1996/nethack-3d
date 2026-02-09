@@ -52,6 +52,8 @@ class LocalNetHackRuntime {
     this.extendedCommandEntries = null;
     this.pendingExtendedCommands = [];
     this.statusPending = new Map();
+    this.nameRequestDebugCounter = 0;
+    this.nameInitDebugCounter = 0;
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -334,7 +336,12 @@ class LocalNetHackRuntime {
       return;
     }
 
-    console.log("Received client input:", input);
+    console.log("Received client input:", input, {
+      source,
+      awaitingQuestionInput: this.awaitingQuestionInput,
+      pendingTextResponses: this.pendingTextResponses.length,
+      activeInputRequestType: this.activeInputRequest?.type || null,
+    });
 
     if (this.isMetaInput(input)) {
       const metaKey = input.slice(this.metaInputPrefix.length).charAt(0);
@@ -400,8 +407,14 @@ class LocalNetHackRuntime {
     }
 
     if (this.isLiteralTextInput(input)) {
+      const queueBefore = this.pendingTextResponses.length;
       this.pendingTextResponses.push(input);
-      console.log(`Queued text response input: "${input}"`);
+      console.log(`Queued text response input: "${input}"`, {
+        source,
+        queueBefore,
+        queueAfter: this.pendingTextResponses.length,
+        isLikelyNameInput: this.isLikelyNameInputForDebug(input),
+      });
       return;
     }
 
@@ -665,6 +678,17 @@ class LocalNetHackRuntime {
       return "Enter";
     }
     return input;
+  }
+
+  isLikelyNameInputForDebug(input) {
+    const trimmed = String(input || "").trim();
+    if (trimmed.length < 2 || trimmed.length > 30) {
+      return false;
+    }
+    if (trimmed.startsWith("__") || trimmed.includes(":")) {
+      return false;
+    }
+    return /^[A-Za-z][A-Za-z0-9 _'-]*$/.test(trimmed);
   }
 
   isExtendedCommandSubmitToken(input) {
@@ -2428,12 +2452,22 @@ class LocalNetHackRuntime {
         return extCommandIndex;
 
       case "shim_init_nhwindows":
-        console.log("Initializing NetHack windows");
+        this.nameInitDebugCounter += 1;
+        console.log("[NAME_DEBUG] shim_init_nhwindows", {
+          callId: this.nameInitDebugCounter,
+          args,
+          pendingTextResponses: this.pendingTextResponses.length,
+          configuredName: this.normalizeCharacterNameValue(
+            this.startupOptions?.characterCreation?.name,
+          ),
+        });
         if (this.eventHandler) {
           this.emit({
             type: "name_request",
             text: "What is your name, adventurer?",
             maxLength: 30,
+            source: "init_nhwindows",
+            callId: this.nameInitDebugCounter,
           });
         }
         return 1;
@@ -3119,35 +3153,58 @@ class LocalNetHackRuntime {
         return 0;
 
       case "shim_askname":
-        console.log("NetHack is asking for player name, args:", args);
+        this.nameRequestDebugCounter += 1;
+        const askNameCallId = this.nameRequestDebugCounter;
+        const configuredName = this.normalizeCharacterNameValue(
+          this.startupOptions?.characterCreation?.name,
+        );
+        console.log("[NAME_DEBUG] shim_askname entered", {
+          callId: askNameCallId,
+          args,
+          pendingTextResponses: this.pendingTextResponses.length,
+          configuredName,
+          awaitingQuestionInput: this.awaitingQuestionInput,
+          activeInputRequestType: this.activeInputRequest?.type || null,
+        });
         if (this.eventHandler) {
           this.emit({
             type: "name_request",
             text: "What is your name?",
             maxLength: 30,
+            source: "askname",
+            callId: askNameCallId,
+            pendingTextResponses: this.pendingTextResponses.length,
           });
         }
 
         if (this.pendingTextResponses.length > 0) {
+          const queueBefore = this.pendingTextResponses.length;
           const name = this.normalizeCharacterNameValue(
             String(this.pendingTextResponses.shift() || ""),
           );
-          console.log(`Using player name from input: ${name}`);
+          console.log("[NAME_DEBUG] shim_askname consumed queued input", {
+            callId: askNameCallId,
+            name,
+            queueBefore,
+            queueAfter: this.pendingTextResponses.length,
+          });
           if (name.length > 0) {
             return name;
           }
         }
 
-        const configuredName = this.normalizeCharacterNameValue(
-          this.startupOptions?.characterCreation?.name,
-        );
         if (configuredName.length > 0) {
-          console.log(`Using configured startup name: ${configuredName}`);
+          console.log("[NAME_DEBUG] shim_askname using configured name", {
+            callId: askNameCallId,
+            configuredName,
+          });
           return configuredName;
         }
 
-        console.log("No name provided, using default");
-        return "Player";
+        console.log("[NAME_DEBUG] shim_askname falling back to default Web_user", {
+          callId: askNameCallId,
+        });
+        return "Web_user";
       case "shim_mark_synch":
         console.log("NetHack marking synchronization");
         return 0;

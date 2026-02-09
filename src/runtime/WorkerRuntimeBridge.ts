@@ -50,6 +50,16 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
   }
 
   sendInput(input: string): void {
+    if (this.isLikelyNameInputForDebug(input)) {
+      const stackPreview = (new Error().stack || "")
+        .split("\n")
+        .slice(2, 7)
+        .map((line) => line.trim());
+      console.log("[NAME_DEBUG] Bridge sendInput(name-like)", {
+        input,
+        stackPreview,
+      });
+    }
     this.postCommand({ type: "send_input", input });
   }
 
@@ -76,6 +86,17 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
 
   private postCommand(command: RuntimeCommand): void {
     this.worker.postMessage(command);
+  }
+
+  private isLikelyNameInputForDebug(input: string): boolean {
+    const trimmed = String(input || "").trim();
+    if (trimmed.length < 2 || trimmed.length > 30) {
+      return false;
+    }
+    if (trimmed.startsWith("__") || trimmed.includes(":")) {
+      return false;
+    }
+    return /^[A-Za-z][A-Za-z0-9 _'-]*$/.test(trimmed);
   }
 
   private handleWorkerMessage(message: RuntimeWorkerEnvelope): void {

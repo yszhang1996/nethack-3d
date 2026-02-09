@@ -9,6 +9,17 @@ import type {
 let runtime: LocalNetHackRuntime | null = null;
 let started = false;
 
+function isLikelyNameInputForDebug(input: string): boolean {
+  const trimmed = String(input || "").trim();
+  if (trimmed.length < 2 || trimmed.length > 30) {
+    return false;
+  }
+  if (trimmed.startsWith("__") || trimmed.includes(":")) {
+    return false;
+  }
+  return /^[A-Za-z][A-Za-z0-9 _'-]*$/.test(trimmed);
+}
+
 function postEnvelope(envelope: RuntimeWorkerEnvelope): void {
   (self as unknown as Worker).postMessage(envelope);
 }
@@ -39,6 +50,11 @@ self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
         postEnvelope({ type: "runtime_ready" });
         return;
       case "send_input":
+        if (isLikelyNameInputForDebug(command.input)) {
+          console.log("[NAME_DEBUG] Worker received send_input(name-like)", {
+            input: command.input,
+          });
+        }
         ensureRuntime().sendInput(command.input);
         return;
       case "send_input_sequence":

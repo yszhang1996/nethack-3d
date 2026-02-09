@@ -94,6 +94,8 @@ export interface Nethack3DEngineController {
   goToNextQuestionMenuPage(): void;
   confirmPickupChoices(): void;
   cancelActivePrompt(): void;
+  toggleInventoryDialog(): void;
+  runQuickAction(actionId: string): void;
   closeInventoryDialog(): void;
   closeInfoMenuDialog(): void;
 }

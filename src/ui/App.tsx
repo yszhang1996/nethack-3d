@@ -190,6 +190,21 @@ const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
 type StartupFlowStep = "choose" | "create" | "random-name";
+type MobileQuickAction = {
+  id: string;
+  label: string;
+};
+
+const mobileQuickActions: MobileQuickAction[] = [
+  { id: "wait", label: "Wait" },
+  { id: "search", label: "Search" },
+  { id: "pickup", label: "Pick Up" },
+  { id: "look", label: "Look" },
+  { id: "loot", label: "Loot" },
+  { id: "open", label: "Open" },
+  { id: "close", label: "Close" },
+  { id: "pray", label: "Pray" },
+];
 
 function normalizeStartupCharacterName(value: string): string {
   const normalized = String(value || "")
@@ -197,7 +212,7 @@ function normalizeStartupCharacterName(value: string): string {
     .replace(/\s+/g, " ")
     .trim();
   if (!normalized) {
-    return "Player";
+    return "Web_user";
   }
   return normalized.slice(0, 30);
 }
@@ -212,7 +227,10 @@ export default function App(): JSX.Element {
   const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
-  const [createName, setCreateName] = useState("Player");
+  const [createName, setCreateName] = useState("Web_user");
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
+    useState(false);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
 
@@ -226,6 +244,7 @@ export default function App(): JSX.Element {
   const infoMenu = useGameStore((state) => state.infoMenu);
   const inventory = useGameStore((state) => state.inventory);
   const positionRequest = useGameStore((state) => state.positionRequest);
+  const connectionState = useGameStore((state) => state.connectionState);
   const controller = useGameStore((state) => state.engineController);
 
   useEffect(() => {
@@ -243,6 +262,45 @@ export default function App(): JSX.Element {
       setEngineController(null);
     };
   }, [adapter, characterCreationConfig, setEngineController]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(
+      "(max-width: 900px) and (pointer: coarse)",
+    );
+    const handleMediaQueryChange = (): void => {
+      setIsMobileViewport(mediaQuery.matches);
+    };
+
+    handleMediaQueryChange();
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", handleMediaQueryChange);
+    } else {
+      mediaQuery.addListener(handleMediaQueryChange);
+    }
+    return () => {
+      if (typeof mediaQuery.removeEventListener === "function") {
+        mediaQuery.removeEventListener("change", handleMediaQueryChange);
+      } else {
+        mediaQuery.removeListener(handleMediaQueryChange);
+      }
+    };
+  }, []);
+
+  const isMobileGameRunning =
+    isMobileViewport &&
+    characterCreationConfig !== null &&
+    connectionState === "running" &&
+    !loadingVisible;
+
+  useEffect(() => {
+    if (!isMobileGameRunning) {
+      setIsMobileActionSheetVisible(false);
+    }
+  }, [isMobileGameRunning]);
 
   const hpPercentage =
     playerStats.maxHp > 0
@@ -305,7 +363,7 @@ export default function App(): JSX.Element {
                     className="nh3d-startup-config-input"
                     maxLength={30}
                     onChange={(event) => setCreateName(event.target.value)}
-                    placeholder="Player"
+                    placeholder="Web_user"
                     type="text"
                     value={createName}
                   />
@@ -343,7 +401,7 @@ export default function App(): JSX.Element {
                     className="nh3d-startup-config-input"
                     maxLength={30}
                     onChange={(event) => setCreateName(event.target.value)}
-                    placeholder="Player"
+                    placeholder="Web_user"
                     type="text"
                     value={createName}
                   />
@@ -445,14 +503,16 @@ export default function App(): JSX.Element {
         <div className="loading-subtitle">Starting local runtime...</div>
       </div>
 
-      <div className="top-left-ui with-stats">
-        <div id="game-status">{statusText}</div>
-        <div id="game-log">
-          {gameMessages.map((message, index) => (
-            <div key={`${index}-${message}`}>{message}</div>
-          ))}
+      {!isMobileGameRunning ? (
+        <div className="top-left-ui with-stats">
+          <div id="game-status">{statusText}</div>
+          <div id="game-log">
+            {gameMessages.map((message, index) => (
+              <div key={`${index}-${message}`}>{message}</div>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
 
       <div id="floating-log-message-layer">
         {floatingMessages.map((entry, index) => (
@@ -817,6 +877,50 @@ export default function App(): JSX.Element {
               Close
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {isMobileGameRunning && isMobileActionSheetVisible ? (
+        <div className="nh3d-mobile-actions-sheet">
+          <div className="nh3d-mobile-actions-title">Quick Actions</div>
+          <div className="nh3d-mobile-actions-grid">
+            {mobileQuickActions.map((action) => (
+              <button
+                className="nh3d-mobile-actions-button"
+                key={action.id}
+                onClick={() => {
+                  controller?.runQuickAction(action.id);
+                  setIsMobileActionSheetVisible(false);
+                }}
+                type="button"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {isMobileGameRunning ? (
+        <div className="nh3d-mobile-bottom-bar">
+          <button
+            className="nh3d-mobile-bottom-button"
+            onClick={() => controller?.toggleInventoryDialog()}
+            type="button"
+          >
+            Inventory
+          </button>
+          <button
+            className={`nh3d-mobile-bottom-button${
+              isMobileActionSheetVisible ? " is-active" : ""
+            }`}
+            onClick={() =>
+              setIsMobileActionSheetVisible((visible) => !visible)
+            }
+            type="button"
+          >
+            Actions
+          </button>
         </div>
       ) : null}
 

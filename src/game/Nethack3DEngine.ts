@@ -1200,13 +1200,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "name_request":
-        // Auto-provide configured name for startup prompts to avoid extra dialogs.
-        const configuredCharacterName = this.getConfiguredCharacterName();
-        console.log(
-          `Auto-providing configured name "${configuredCharacterName}" for:`,
-          data.text,
-        );
-        this.sendInput(configuredCharacterName);
+        // Runtime handles askname with startup-configured fallback to avoid
+        // feedback loops from repeated async name_request events.
+        console.log("Name request received from runtime:", data);
         break;
 
       case "area_refresh_complete":
@@ -3775,21 +3771,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.sendInput("a");
   }
 
-  private getConfiguredCharacterName(): string {
-    const configuredName =
-      typeof this.characterCreationConfig?.name === "string"
-        ? this.characterCreationConfig.name
-        : "";
-    const normalized = configuredName
-      .replace(/,/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-    if (!normalized) {
-      return "Player";
-    }
-    return normalized.slice(0, 30);
-  }
-
   private isSelectableQuestionMenuItem(item: any): boolean {
     if (!item || item.isCategory) {
       return false;
@@ -5087,6 +5068,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingInventoryDialog = false;
   }
 
+  private toggleInventoryDialogState(): void {
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive
+    ) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      console.log("📦 Closing inventory dialog");
+      this.hideInventoryDialog();
+      return;
+    }
+
+    if (this.currentInventory && this.currentInventory.length > 0) {
+      console.log("📦 Showing inventory dialog with existing data");
+      this.showInventoryDialog();
+      return;
+    }
+
+    if (!this.session) {
+      return;
+    }
+
+    console.log("📦 Requesting current inventory from NetHack...");
+    this.sendInput("i");
+    this.pendingInventoryDialog = true;
+  }
+
   private showPositionRequest(text: string): void {
     if (this.positionHideTimerId !== null) {
       window.clearTimeout(this.positionHideTimerId);
@@ -5564,6 +5577,61 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideDirectionQuestion();
   }
 
+  public toggleInventoryDialog(): void {
+    this.toggleInventoryDialogState();
+  }
+
+  public runQuickAction(actionId: string): void {
+    const normalizedActionId = String(actionId || "").trim().toLowerCase();
+    if (!normalizedActionId || !this.session) {
+      return;
+    }
+
+    if (
+      this.metaCommandModeActive ||
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.positionInputModeActive
+    ) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      this.hideInventoryDialog();
+    }
+
+    switch (normalizedActionId) {
+      case "wait":
+        this.sendInput(".");
+        return;
+      case "search":
+        this.sendInput("s");
+        return;
+      case "pickup":
+        this.sendInput(",");
+        return;
+      case "look":
+        this.sendInput("/");
+        return;
+      case "loot":
+        this.sendInput("l");
+        return;
+      case "open":
+        this.sendInput("o");
+        return;
+      case "close":
+        this.sendInput("c");
+        return;
+      case "pray":
+        this.sendInputSequence(["#", "p", "r", "a", "y", "Enter"]);
+        return;
+      default:
+        console.log(`Unknown quick action requested: ${actionId}`);
+        return;
+    }
+  }
+
   public closeInventoryDialog(): void {
     this.hideInventoryDialog();
   }
@@ -5572,7 +5640,59 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
   }
 
+  private isLikelyNameInputForDebug(input: string): boolean {
+    const trimmed = String(input || "").trim();
+    if (trimmed.length < 2 || trimmed.length > 30) {
+      return false;
+    }
+    if (trimmed.startsWith("__") || trimmed.includes(":")) {
+      return false;
+    }
+    if (!/^[A-Za-z][A-Za-z0-9 _'-]*$/.test(trimmed)) {
+      return false;
+    }
+    const nonNameTokens = new Set([
+      "Enter",
+      "Escape",
+      "Space",
+      "Spacebar",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+      "Backspace",
+      "Tab",
+    ]);
+    return !nonNameTokens.has(trimmed);
+  }
+
+  private logNameInputTrace(input: string): void {
+    if (!this.isLikelyNameInputForDebug(input)) {
+      return;
+    }
+
+    const stackPreview = (new Error().stack || "")
+      .split("\n")
+      .slice(2, 7)
+      .map((line) => line.trim());
+    console.log("[NAME_DEBUG] Engine sendInput(name-like)", {
+      input,
+      isInQuestion: this.isInQuestion,
+      isInDirectionQuestion: this.isInDirectionQuestion,
+      positionInputModeActive: this.positionInputModeActive,
+      metaCommandModeActive: this.metaCommandModeActive,
+      hasSession: Boolean(this.session),
+      stackPreview,
+    });
+  }
+
   private sendInput(input: string): void {
+    this.logNameInputTrace(input);
+
     if (
       !this.hasPlayerMovedOnce &&
       !this.isInQuestion &&
@@ -6042,31 +6162,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !this.isInDirectionQuestion
     ) {
       event.preventDefault();
-      this.hideInfoMenuDialog();
-      if (this.isInventoryDialogVisible) {
-        console.log("📦 Closing inventory dialog");
-        this.hideInventoryDialog();
-      } else {
-        const inventoryDialog = document.getElementById("inventory-dialog");
-        if (
-          inventoryDialog &&
-          inventoryDialog.classList.contains("is-visible")
-        ) {
-          this.hideInventoryDialog();
-          return;
-        }
-        // If we already have inventory data, show it immediately
-        if (this.currentInventory && this.currentInventory.length > 0) {
-          console.log("📦 Showing inventory dialog with existing data");
-          this.showInventoryDialog();
-        } else {
-          console.log("📦 Requesting current inventory from NetHack...");
-          // First send "i" to NetHack to fetch current inventory
-          this.sendInput("i");
-          // Set a flag to show dialog when inventory update arrives
-          this.pendingInventoryDialog = true;
-        }
-      }
+      this.toggleInventoryDialogState();
       return;
     }
 
@@ -6773,3 +6869,4 @@ class Nethack3DEngine implements Nethack3DEngineController {
 }
 
 export default Nethack3DEngine;
+

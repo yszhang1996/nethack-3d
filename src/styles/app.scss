@@ -78,6 +78,10 @@ canvas {
   border-radius: 4px;
 }
 
+.nh3d-mobile-log-hidden {
+  display: none;
+}
+
 .question-ui {
   position: fixed;
   bottom: 60px;
@@ -300,6 +304,18 @@ canvas {
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
+}
+
+#character-setup-dialog {
+  width: min(92vw, 680px);
+}
+
+#character-setup-dialog .nh3d-question-text {
+  font-size: clamp(15px, 2.4vw, 19px);
+}
+
+#character-setup-dialog .nh3d-choice-list {
+  width: min(560px, 100%);
 }
 
 .nh3d-dialog-direction {
@@ -901,4 +917,195 @@ canvas {
 
 .nh3d-stats-hunger {
   color: #ffaaff;
+}
+
+.nh3d-mobile-bottom-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1900;
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.88) 0%,
+    rgba(0, 0, 0, 0.97) 100%
+  );
+  border-top: 2px solid #66ccff;
+  box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.5);
+}
+
+.nh3d-mobile-bottom-button {
+  flex: 1 1 0;
+  min-height: 42px;
+  border: 1px solid #4b6a9b;
+  border-radius: 6px;
+  background: #16253d;
+  color: #d5e7ff;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.nh3d-mobile-bottom-button.is-active {
+  border-color: #66ccff;
+  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.6);
+}
+
+.nh3d-mobile-actions-sheet {
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  z-index: 1910;
+  border: 2px solid #66ccff;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.95);
+  padding: 12px;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.55);
+}
+
+.nh3d-mobile-actions-title {
+  color: #66ccff;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #66ccff;
+  padding-bottom: 8px;
+}
+
+.nh3d-mobile-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.nh3d-mobile-actions-button {
+  min-height: 38px;
+  border: 1px solid #496d84;
+  border-radius: 6px;
+  background: #133040;
+  color: #dff6ff;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+@media (max-width: 900px) and (pointer: coarse) {
+  #stats-bar {
+    gap: 8px;
+    padding: 8px 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    overflow-x: visible;
+    white-space: normal;
+  }
+
+  #stats-bar .nh3d-stats-name {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  #stats-bar .nh3d-stats-meter {
+    flex: 1 1 150px;
+    min-width: 130px;
+  }
+
+  #stats-bar .nh3d-stats-group {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  #stats-bar .nh3d-stats-location {
+    flex: 1 1 100%;
+    text-align: left;
+  }
+
+  .nh3d-dialog {
+    top: 52%;
+    left: 50%;
+    width: calc(100vw - 20px);
+    max-width: none;
+    max-height: calc(100vh - 160px - env(safe-area-inset-bottom));
+    padding: 14px;
+    border-radius: 8px;
+    overflow-y: auto;
+  }
+
+  .nh3d-dialog-question,
+  .nh3d-dialog-direction,
+  .nh3d-dialog-info,
+  .nh3d-dialog-inventory,
+  .nh3d-dialog-name {
+    min-width: 0;
+    max-width: none;
+    width: calc(100vw - 20px);
+  }
+
+  #character-setup-dialog {
+    top: 50%;
+    width: calc(100vw - 16px);
+    max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
+    padding: 12px;
+  }
+
+  #character-setup-dialog .nh3d-question-text {
+    margin-bottom: 12px;
+  }
+
+  #character-setup-dialog .nh3d-choice-list {
+    margin-top: 10px;
+    width: 100%;
+  }
+
+  #character-setup-dialog .nh3d-choice-button {
+    width: 100%;
+    text-align: center;
+  }
+
+  .nh3d-startup-config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .nh3d-choice-list {
+    width: 100%;
+    max-height: min(38vh, 280px);
+  }
+
+  .nh3d-direction-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .nh3d-direction-button {
+    width: 100%;
+    height: 68px;
+  }
+
+  .nh3d-menu-actions,
+  .nh3d-pickup-actions {
+    flex-wrap: wrap;
+  }
+
+  .nh3d-menu-action-button,
+  .nh3d-pickup-action-button {
+    flex: 1 1 40%;
+    min-width: 120px;
+  }
+
+  .nh3d-mobile-actions-sheet {
+    left: 8px;
+    right: 8px;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    max-height: 45vh;
+    overflow-y: auto;
+  }
+
+  #position-dialog {
+    max-width: calc(100vw - 20px);
+  }
 }
