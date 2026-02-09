@@ -19,15 +19,15 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        id: checkout
-        continue-on-error: true
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      # - name: Checkout
+      #   id: checkout
+      #   continue-on-error: true
+      #   uses: actions/checkout@v4
+      #   with:
+      #     fetch-depth: 1
 
       - name: Fallback checkout via tarball
-        if: steps.checkout.outcome != 'success'
+        # if: steps.checkout.outcome != 'success'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
