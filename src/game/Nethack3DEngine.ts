@@ -6877,6 +6877,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return "3";
   }
 
+  private resolveDirectionFromDelta(dx: number, dy: number): string | null {
+    if (dx === 0 && dy === 0) {
+      return null;
+    }
+
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const axisBiasRatio = 0.55;
+    if (absX <= absY * axisBiasRatio) {
+      return dy < 0 ? "8" : "2";
+    }
+    if (absY <= absX * axisBiasRatio) {
+      return dx < 0 ? "4" : "6";
+    }
+
+    if (dx < 0 && dy < 0) {
+      return "7";
+    }
+    if (dx > 0 && dy < 0) {
+      return "9";
+    }
+    if (dx < 0 && dy > 0) {
+      return "1";
+    }
+    return "3";
+  }
+
   private getTilePositionFromClientCoordinates(
     clientX: number,
     clientY: number,
@@ -6938,6 +6965,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (event.button === 0 && !this.hasPlayerMovedOnce) {
       this.lastMovementInputAtMs = Date.now();
+    }
+
+    if (event.button === 0) {
+      const targetMesh = this.tileMap.get(`${target.x},${target.y}`);
+      if (targetMesh?.userData?.isUndiscovered) {
+        const dx = target.x - this.playerPos.x;
+        const dy = target.y - this.playerPos.y;
+        const direction = this.resolveDirectionFromDelta(dx, dy);
+        if (direction) {
+          this.sendInputSequence(["5", direction]);
+          return true;
+        }
+      }
     }
 
     this.sendMouseInput(target.x, target.y, event.button);
@@ -7027,6 +7067,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (event.cancelable) {
         event.preventDefault();
       }
+      const targetMesh = this.tileMap.get(`${target.x},${target.y}`);
+      if (targetMesh?.userData?.isUndiscovered) {
+        const dx = target.x - this.playerPos.x;
+        const dy = target.y - this.playerPos.y;
+        const direction = this.resolveDirectionFromDelta(dx, dy);
+        if (direction) {
+          this.sendInputSequence(["5", direction]);
+          return;
+        }
+      }
+
       this.sendMouseInput(target.x, target.y, 0);
       return;
     }
