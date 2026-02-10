@@ -599,6 +599,29 @@ class LocalNetHackRuntime {
     return targetPtr;
   }
 
+  resolveTextInputBufferPointer(ptr) {
+    if (
+      !this.nethackModule ||
+      !this.nethackModule.HEAPU8 ||
+      typeof this.nethackModule.getValue !== "function" ||
+      !Number.isInteger(ptr) ||
+      ptr <= 0
+    ) {
+      return null;
+    }
+
+    const heapSize = this.nethackModule.HEAPU8.length;
+    const slotValue = this.nethackModule.getValue(ptr, "*");
+    const looksLikeTargetPtr =
+      Number.isInteger(slotValue) &&
+      slotValue > 1024 &&
+      slotValue < heapSize &&
+      slotValue + 1 <= heapSize;
+    const targetPtr = looksLikeTargetPtr ? slotValue : ptr;
+    const inBounds = targetPtr > 0 && targetPtr + 1 <= heapSize;
+    return inBounds ? targetPtr : null;
+  }
+
   getPoskeyCoordStoreType(xTargetPtr, yTargetPtr) {
     if (!Number.isInteger(xTargetPtr) || !Number.isInteger(yTargetPtr)) {
       return "i32";

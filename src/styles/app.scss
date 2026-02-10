@@ -1188,6 +1188,14 @@ canvas {
     flex-wrap: wrap;
   }
 
+  .nh3d-pickup-actions {
+    position: sticky;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.9);
+    padding: 8px 0;
+    margin-top: 12px;
+  }
+
   .nh3d-menu-action-button,
   .nh3d-pickup-action-button {
     flex: 1 1 40%;

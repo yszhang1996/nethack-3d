@@ -484,6 +484,9 @@ export default function App(): JSX.Element {
   const questionSelectableMenuItemCount = question
     ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item)).length
     : 0;
+  const showPickupActionButtons =
+    Boolean(question?.isPickupDialog) &&
+    (questionSelectableMenuItemCount > 1 || isMobileViewport);
   const mobileExtendedCommandNames = useMemo(() => {
     const rawCommands =
       Array.isArray(extendedCommands) && extendedCommands.length > 0
@@ -880,7 +883,7 @@ export default function App(): JSX.Element {
                     </div>
                   ),
                 )}
-                {questionSelectableMenuItemCount > 1 ? (
+                {showPickupActionButtons ? (
                   <div className="nh3d-pickup-actions">
                     <button
                       className={`nh3d-pickup-action-button nh3d-pickup-action-confirm${
