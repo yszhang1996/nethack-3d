@@ -6807,8 +6807,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return "3";
   }
 
-  private getClickedTilePosition(
-    event: MouseEvent,
+  private getTilePositionFromClientCoordinates(
+    clientX: number,
+    clientY: number,
   ): { x: number; y: number } | null {
     const canvas = this.renderer.domElement;
     const rect = canvas.getBoundingClientRect();
@@ -6817,8 +6818,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const mouse = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
     );
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(mouse, this.camera);
@@ -6844,6 +6845,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
     return { x, y };
+  }
+
+  private getClickedTilePosition(
+    event: MouseEvent,
+  ): { x: number; y: number } | null {
+    return this.getTilePositionFromClientCoordinates(
+      event.clientX,
+      event.clientY,
+    );
   }
 
   private handleMapMouseInput(event: MouseEvent): boolean {
@@ -6934,6 +6944,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       distance < this.touchSwipeMinDistancePx ||
       durationMs > this.touchSwipeMaxDurationMs
     ) {
+      const target = this.getTilePositionFromClientCoordinates(
+        touch.clientX,
+        touch.clientY,
+      );
+      if (!target) {
+        return;
+      }
+      if (!this.hasPlayerMovedOnce) {
+        this.lastMovementInputAtMs = Date.now();
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      this.sendMouseInput(target.x, target.y, 0);
       return;
     }
 
