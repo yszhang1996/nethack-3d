@@ -220,6 +220,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private metaCommandModeActive: boolean = false;
   private metaCommandBuffer: string = "";
   private metaCommandModal: HTMLDivElement | null = null;
+  private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -6758,7 +6759,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return true;
     }
 
-    return Boolean(document.querySelector(".nh3d-dialog.is-visible"));
+    if (document.querySelector(".nh3d-dialog.is-visible")) {
+      return true;
+    }
+    if (document.querySelector(".nh3d-mobile-actions-sheet")) {
+      return true;
+    }
+    const mobileLog = document.querySelector(".nh3d-mobile-log");
+    if (mobileLog && !mobileLog.classList.contains("nh3d-mobile-log-hidden")) {
+      return true;
+    }
+    const positionDialog = document.getElementById("position-dialog");
+    if (positionDialog?.classList.contains("is-visible")) {
+      return true;
+    }
+    return false;
   }
 
   private handleMouseWheel(event: WheelEvent): void {
@@ -6878,12 +6893,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private resolveDirectionFromDelta(dx: number, dy: number): string | null {
-    if (dx === 0 && dy === 0) {
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (absX < 0.25 && absY < 0.25) {
       return null;
     }
 
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
     const axisBiasRatio = 0.55;
     if (absX <= absY * axisBiasRatio) {
       return dy < 0 ? "8" : "2";
@@ -6944,6 +6959,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return { x, y };
   }
 
+  private getGridPositionFromClientCoordinates(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    const mouse = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(mouse, this.camera);
+
+    const intersection = new THREE.Vector3();
+    const hit = raycaster.ray.intersectPlane(this.groundPlane, intersection);
+    if (!hit) {
+      return null;
+    }
+
+    return {
+      x: intersection.x / TILE_SIZE,
+      y: -intersection.y / TILE_SIZE,
+    };
+  }
+
   private getClickedTilePosition(
     event: MouseEvent,
   ): { x: number; y: number } | null {
@@ -6959,6 +7003,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const target = this.getClickedTilePosition(event);
+    if (!target && event.button === 0) {
+      const gridTarget = this.getGridPositionFromClientCoordinates(
+        event.clientX,
+        event.clientY,
+      );
+      if (gridTarget) {
+        const dx = gridTarget.x - this.playerPos.x;
+        const dy = gridTarget.y - this.playerPos.y;
+        const direction = this.resolveDirectionFromDelta(dx, dy);
+        if (direction) {
+          this.sendInputSequence(["5", direction]);
+          return true;
+        }
+      }
+      return false;
+    }
     if (!target) {
       return false;
     }
@@ -7059,6 +7119,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
         touch.clientY,
       );
       if (!target) {
+        const gridTarget = this.getGridPositionFromClientCoordinates(
+          touch.clientX,
+          touch.clientY,
+        );
+        if (!gridTarget) {
+          return;
+        }
+        const dx = gridTarget.x - this.playerPos.x;
+        const dy = gridTarget.y - this.playerPos.y;
+        const direction = this.resolveDirectionFromDelta(dx, dy);
+        if (direction) {
+          if (event.cancelable) {
+            event.preventDefault();
+          }
+          this.sendInputSequence(["5", direction]);
+        }
         return;
       }
       if (!this.hasPlayerMovedOnce) {
