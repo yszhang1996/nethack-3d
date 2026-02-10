@@ -134,7 +134,11 @@ function isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
   }
 
   const normalized = parsedChoices
-    .map((choice) => String(choice || "").trim().toLowerCase())
+    .map((choice) =>
+      String(choice || "")
+        .trim()
+        .toLowerCase(),
+    )
     .filter((choice) => choice.length > 0);
   if (normalized.length === 0) {
     return false;
@@ -364,7 +368,9 @@ export default function App(): JSX.Element {
   const [statsBarHeight, setStatsBarHeight] = useState(0);
   const [textInputValue, setTextInputValue] = useState("");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
-  const setEngineController = useGameStore((state) => state.setEngineController);
+  const setEngineController = useGameStore(
+    (state) => state.setEngineController,
+  );
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
   const statusText = useGameStore((state) => state.statusText);
@@ -505,7 +511,8 @@ export default function App(): JSX.Element {
   const questionMenuPageIndex = question?.menuPageIndex ?? 0;
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
   const questionSelectableMenuItemCount = question
-    ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item)).length
+    ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item))
+        .length
     : 0;
   const showPickupActionButtons =
     Boolean(question?.isPickupDialog) &&
@@ -549,10 +556,15 @@ export default function App(): JSX.Element {
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
 
       {characterCreationConfig === null ? (
-        <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-question is-visible"
+          id="character-setup-dialog"
+        >
           {startupFlowStep === "choose" ? (
             <>
-              <div className="nh3d-question-text">Choose your character setup:</div>
+              <div className="nh3d-question-text">
+                Choose your character setup:
+              </div>
               <div className="nh3d-choice-list">
                 <button
                   className="nh3d-choice-button"
@@ -818,7 +830,10 @@ export default function App(): JSX.Element {
       </div>
 
       {textInputRequest ? (
-        <div className="nh3d-dialog nh3d-dialog-text is-visible" id="text-input-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-text is-visible"
+          id="text-input-dialog"
+        >
           <div className="nh3d-question-text">{textInputRequest.text}</div>
           <input
             className="nh3d-text-input"
@@ -859,7 +874,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {question ? (
-        <div className="nh3d-dialog nh3d-dialog-question is-visible" id="question-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-question is-visible"
+          id="question-dialog"
+        >
           <div className="nh3d-question-text">{question.text}</div>
           {question.menuItems.length > 0 ? (
             question.isPickupDialog ? (
@@ -887,7 +905,9 @@ export default function App(): JSX.Element {
                       }`}
                       key={`pickup-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.togglePickupChoice(getMenuSelectionInput(item))
+                        controller?.togglePickupChoice(
+                          getMenuSelectionInput(item),
+                        )
                       }
                     >
                       <input
@@ -897,11 +917,15 @@ export default function App(): JSX.Element {
                         className="nh3d-pickup-checkbox"
                         onClick={(event) => event.stopPropagation()}
                         onChange={() =>
-                          controller?.togglePickupChoice(getMenuSelectionInput(item))
+                          controller?.togglePickupChoice(
+                            getMenuSelectionInput(item),
+                          )
                         }
                         type="checkbox"
                       />
-                      <span className="nh3d-pickup-key">{item.accelerator})</span>
+                      <span className="nh3d-pickup-key">
+                        {item.accelerator})
+                      </span>
                       <span className="nh3d-pickup-text">{item.text}</span>
                     </div>
                   ),
@@ -952,7 +976,9 @@ export default function App(): JSX.Element {
                       }`}
                       key={`menu-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.chooseQuestionChoice(getMenuSelectionInput(item))
+                        controller?.chooseQuestionChoice(
+                          getMenuSelectionInput(item),
+                        )
                       }
                       type="button"
                     >
@@ -984,7 +1010,9 @@ export default function App(): JSX.Element {
             <div
               className={`nh3d-choice-list${
                 parsedQuestionChoices.length > 0 &&
-                parsedQuestionChoices.every((choice) => choice.trim().length === 1)
+                parsedQuestionChoices.every(
+                  (choice) => choice.trim().length === 1,
+                )
                   ? " is-compact"
                   : ""
               }`}
@@ -994,7 +1022,7 @@ export default function App(): JSX.Element {
                   className={`nh3d-choice-button${
                     choice === question.defaultChoice
                       ? " nh3d-choice-button-default"
-                    : ""
+                      : ""
                   }`}
                   key={choice}
                   onClick={() => controller?.chooseQuestionChoice(choice)}
@@ -1041,7 +1069,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {directionQuestion ? (
-        <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-direction is-visible"
+          id="direction-dialog"
+        >
           <div className="nh3d-direction-text">{directionQuestion}</div>
           <div className="nh3d-direction-grid">
             {getDirectionChoices(numberPadModeEnabled).map((direction) => (
@@ -1072,10 +1103,17 @@ export default function App(): JSX.Element {
       ) : null}
 
       {infoMenu ? (
-        <div className="nh3d-dialog nh3d-dialog-info is-visible" id="info-menu-dialog">
-          <div className="nh3d-info-title">{infoMenu.title || "NetHack Information"}</div>
+        <div
+          className="nh3d-dialog nh3d-dialog-info is-visible"
+          id="info-menu-dialog"
+        >
+          <div className="nh3d-info-title">
+            {infoMenu.title || "NetHack Information"}
+          </div>
           <div className="nh3d-info-body">
-            {infoMenu.lines.length > 0 ? infoMenu.lines.join("\n") : "(No details)"}
+            {infoMenu.lines.length > 0
+              ? infoMenu.lines.join("\n")
+              : "(No details)"}
           </div>
           <div className="nh3d-info-hint">
             Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
@@ -1093,11 +1131,16 @@ export default function App(): JSX.Element {
       ) : null}
 
       {inventory.visible ? (
-        <div className="nh3d-dialog nh3d-dialog-inventory is-visible" id="inventory-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-inventory is-visible"
+          id="inventory-dialog"
+        >
           <div className="nh3d-inventory-title">📦 INVENTORY</div>
           <div className="nh3d-inventory-items">
             {inventory.items.length === 0 ? (
-              <div className="nh3d-inventory-empty">Your inventory is empty.</div>
+              <div className="nh3d-inventory-empty">
+                Your inventory is empty.
+              </div>
             ) : (
               inventory.items.map((item, index) =>
                 item.isCategory ? (
@@ -1111,8 +1154,12 @@ export default function App(): JSX.Element {
                   </div>
                 ) : (
                   <div className="nh3d-inventory-item" key={`item-${index}`}>
-                    <span className="nh3d-inventory-key">{item.accelerator || "?"})</span>
-                    <span className="nh3d-inventory-text">{item.text || "Unknown item"}</span>
+                    <span className="nh3d-inventory-key">
+                      {item.accelerator || "?"})
+                    </span>
+                    <span className="nh3d-inventory-text">
+                      {item.text || "Unknown item"}
+                    </span>
                   </div>
                 ),
               )
@@ -1134,14 +1181,18 @@ export default function App(): JSX.Element {
               <span className="nh3d-inventory-command-key">R</span>)emove{" "}
               <span className="nh3d-inventory-command-key">z</span>)ap{" "}
               <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
-              Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
-              <span className="nh3d-inventory-command-key">[</span>)armor{" "}
-              <span className="nh3d-inventory-command-key">=</span>)rings{" "}
+              Special: <span className="nh3d-inventory-command-key">"</span>
+              )weapons <span className="nh3d-inventory-command-key">[</span>
+              )armor <span className="nh3d-inventory-command-key">
+                =
+              </span>)rings{" "}
               <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
               <span className="nh3d-inventory-command-key">(</span>)tools
             </div>
           </div>
-          <div className="nh3d-inventory-close">Press ENTER, ESC, or 'i' to close</div>
+          <div className="nh3d-inventory-close">
+            Press ENTER, ESC, or 'i' to close
+          </div>
           <div className="nh3d-menu-actions">
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
@@ -1158,7 +1209,9 @@ export default function App(): JSX.Element {
         <div className="nh3d-mobile-actions-sheet">
           <div className="nh3d-mobile-actions-title-row">
             <div className="nh3d-mobile-actions-title">
-              {mobileActionSheetMode === "quick" ? "Actions" : "Extended Commands"}
+              {mobileActionSheetMode === "quick"
+                ? "Actions"
+                : "Extended Commands"}
             </div>
             {mobileActionSheetMode === "extended" ? (
               <button
@@ -1220,7 +1273,9 @@ export default function App(): JSX.Element {
                 </div>
               ) : null}
               <div className="nh3d-mobile-actions-section">
-                <div className="nh3d-mobile-actions-subheader">All commands</div>
+                <div className="nh3d-mobile-actions-subheader">
+                  All commands
+                </div>
                 <div className="nh3d-mobile-actions-grid is-extended">
                   {mobileExtendedCommandNames.map((command) => (
                     <button
@@ -1309,5 +1364,3 @@ export default function App(): JSX.Element {
     </>
   );
 }
-
-

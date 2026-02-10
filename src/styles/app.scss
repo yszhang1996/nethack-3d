@@ -1218,3 +1218,19 @@ canvas {
     max-width: calc(100vw - 50px);
   }
 }
+
+/* Prevent iOS Safari from auto-zooming when focusing inputs (requires >=16px font-size) */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
+/* Reduce accidental double-tap zoom on tappable UI elements */
+button,
+a,
+input,
+select,
+textarea {
+  touch-action: manipulation;
+}
