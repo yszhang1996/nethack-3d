@@ -2951,11 +2951,13 @@ class LocalNetHackRuntime {
 
         if (!isCategory) {
           // For non-category items, determine the accelerator key
-          if (
+          const isAsciiAccelerator =
             typeof accelerator === "number" &&
             accelerator > 32 &&
-            accelerator < 127
-          ) {
+            accelerator < 127;
+          const isQuestionMark =
+            typeof accelerator === "number" && accelerator === 63;
+          if (isAsciiAccelerator && !isQuestionMark) {
             // If accelerator is a valid ASCII character code, use it
             menuChar = String.fromCharCode(accelerator);
           } else {

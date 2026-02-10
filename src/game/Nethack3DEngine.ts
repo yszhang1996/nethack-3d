@@ -4329,10 +4329,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         typeof menuItem.accelerator === "string" ? menuItem.accelerator : "";
       const fallbackAccelerator =
         this.questionMenuPageAccelerators[selectableInPage] ?? "?";
-      const displayAccelerator =
-        gameAccelerator.trim().length > 0
-          ? gameAccelerator
-          : fallbackAccelerator;
+      const trimmedGameAccelerator = gameAccelerator.trim();
+      const hasUsableGameAccelerator =
+        trimmedGameAccelerator.length > 0 && trimmedGameAccelerator !== "?";
+      const displayAccelerator = hasUsableGameAccelerator
+        ? gameAccelerator
+        : fallbackAccelerator;
       const selectionInput = this.getQuestionMenuSelectionInput(menuItem);
 
       this.activeQuestionVisibleMenuItems.push({
