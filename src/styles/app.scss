@@ -82,6 +82,25 @@ canvas {
   display: none;
 }
 
+.nh3d-mobile-log {
+  position: fixed;
+  left: 8px;
+  right: 8px;
+  top: calc(var(--nh3d-mobile-log-top, 0px) + env(safe-area-inset-top) + 10px);
+  bottom: calc(72px + env(safe-area-inset-bottom));
+  z-index: 1800;
+  max-height: none;
+  overflow-y: auto;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid #2b5a76;
+  border-radius: 8px;
+  color: #dff6ff;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .question-ui {
   position: fixed;
   bottom: 60px;
@@ -304,6 +323,13 @@ canvas {
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
+}
+
+.nh3d-dialog-text {
+  border: 2px solid #00ff00;
+  text-align: center;
+  min-width: 320px;
+  max-width: 560px;
 }
 
 #character-setup-dialog {
@@ -648,6 +674,18 @@ canvas {
   margin-bottom: 15px;
 }
 
+.nh3d-text-input {
+  width: 100%;
+  padding: 8px;
+  background: #333;
+  color: #fff;
+  border: 1px solid #666;
+  border-radius: 3px;
+  font-family: "Courier New", monospace;
+  margin-bottom: 12px;
+  box-sizing: border-box;
+}
+
 .nh3d-name-submit {
   padding: 8px 20px;
   background: #00aa00;
@@ -926,8 +964,8 @@ canvas {
   bottom: 0;
   z-index: 1900;
   display: flex;
-  gap: 8px;
-  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  gap: 6px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
   background: linear-gradient(
     180deg,
     rgba(0, 0, 0, 0.88) 0%,
@@ -939,13 +977,13 @@ canvas {
 
 .nh3d-mobile-bottom-button {
   flex: 1 1 0;
-  min-height: 42px;
+  min-height: 38px;
   border: 1px solid #4b6a9b;
   border-radius: 6px;
   background: #16253d;
   color: #d5e7ff;
   font-family: "Courier New", monospace;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: bold;
 }
 
@@ -963,28 +1001,51 @@ canvas {
   border: 2px solid #66ccff;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.95);
-  padding: 12px;
+  padding: 10px;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.55);
+}
+
+.nh3d-mobile-actions-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  border-bottom: 2px solid #66ccff;
+  padding-bottom: 8px;
 }
 
 .nh3d-mobile-actions-title {
   color: #66ccff;
   font-size: 13px;
   font-weight: bold;
-  text-align: center;
-  margin-bottom: 10px;
-  border-bottom: 2px solid #66ccff;
-  padding-bottom: 8px;
+  text-align: left;
+}
+
+.nh3d-mobile-actions-back {
+  min-height: 30px;
+  min-width: 64px;
+  border: 1px solid #4b6a9b;
+  border-radius: 6px;
+  background: #1a2f4a;
+  color: #d5e7ff;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  font-weight: bold;
 }
 
 .nh3d-mobile-actions-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 6px;
 }
 
 .nh3d-mobile-actions-grid.is-extended {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.nh3d-mobile-actions-grid.is-fixed-layout {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .nh3d-mobile-actions-sections {
@@ -994,6 +1055,7 @@ canvas {
   max-height: min(42vh, 340px);
   overflow-y: auto;
   padding-right: 2px;
+  padding-bottom: 8px;
 }
 
 .nh3d-mobile-actions-section {
@@ -1018,27 +1080,6 @@ canvas {
   border-radius: 6px;
   background: #133040;
   color: #dff6ff;
-  font-family: "Courier New", monospace;
-  font-size: 12px;
-  font-weight: bold;
-}
-
-.nh3d-mobile-actions-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 10px;
-  border-top: 1px solid #2b5a76;
-  padding-top: 10px;
-}
-
-.nh3d-mobile-actions-secondary-button {
-  min-height: 34px;
-  min-width: 76px;
-  border: 1px solid #4b6a9b;
-  border-radius: 6px;
-  background: #1a2f4a;
-  color: #d5e7ff;
   font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: bold;
@@ -1083,7 +1124,7 @@ canvas {
   .nh3d-dialog {
     top: 52%;
     left: 50%;
-    width: calc(100vw - 20px);
+    width: calc(100vw - 50px);
     max-width: none;
     max-height: calc(100vh - 160px - env(safe-area-inset-bottom));
     padding: 14px;
@@ -1095,15 +1136,16 @@ canvas {
   .nh3d-dialog-direction,
   .nh3d-dialog-info,
   .nh3d-dialog-inventory,
-  .nh3d-dialog-name {
+  .nh3d-dialog-name,
+  .nh3d-dialog-text {
     min-width: 0;
     max-width: none;
-    width: calc(100vw - 20px);
+    width: calc(100vw - 50px);
   }
 
   #character-setup-dialog {
     top: 50%;
-    width: calc(100vw - 16px);
+    width: calc(100vw - 50px);
     max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
     padding: 12px;
   }
@@ -1156,11 +1198,15 @@ canvas {
     left: 8px;
     right: 8px;
     bottom: calc(68px + env(safe-area-inset-bottom));
-    max-height: 45vh;
-    overflow-y: auto;
+    max-height: min(44vh, 320px);
+    overflow-y: hidden;
+  }
+
+  .nh3d-mobile-log {
+    bottom: calc(68px + env(safe-area-inset-bottom));
   }
 
   #position-dialog {
-    max-width: calc(100vw - 20px);
+    max-width: calc(100vw - 50px);
   }
 }

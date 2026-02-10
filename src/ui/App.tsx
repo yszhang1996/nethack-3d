@@ -190,21 +190,30 @@ const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
 type StartupFlowStep = "choose" | "create" | "random-name";
-type MobileQuickAction = {
+type MobileActionEntry = {
   id: string;
   label: string;
+  kind: "quick" | "extended";
+  value: string;
 };
 type MobileActionSheetMode = "quick" | "extended";
 
-const mobileQuickActions: MobileQuickAction[] = [
-  { id: "wait", label: "Wait" },
-  { id: "search", label: "Search" },
-  { id: "pickup", label: "Pick Up" },
-  { id: "look", label: "Look" },
-  { id: "loot", label: "Loot" },
-  { id: "open", label: "Open" },
-  { id: "close", label: "Close" },
-  { id: "extended", label: "Extended" },
+const mobileActions: MobileActionEntry[] = [
+  { id: "wait", label: "Wait", kind: "quick", value: "wait" },
+  { id: "zap", label: "Zap", kind: "extended", value: "zap" },
+  { id: "cast", label: "Cast", kind: "extended", value: "cast" },
+  { id: "kick", label: "Kick", kind: "extended", value: "kick" },
+  { id: "read", label: "Read", kind: "extended", value: "read" },
+  { id: "quaff", label: "Quaff", kind: "extended", value: "quaff" },
+  { id: "eat", label: "Eat", kind: "extended", value: "eat" },
+  { id: "look", label: "Look", kind: "quick", value: "look" },
+  { id: "loot", label: "Loot", kind: "quick", value: "loot" },
+  { id: "open", label: "Open", kind: "quick", value: "open" },
+  { id: "wield", label: "Wield", kind: "extended", value: "wield" },
+  { id: "wear", label: "Wear", kind: "extended", value: "wear" },
+  { id: "put-on", label: "Put On", kind: "extended", value: "puton" },
+  { id: "take-off", label: "Take Off", kind: "extended", value: "takeoff" },
+  { id: "extended", label: "Extended", kind: "quick", value: "extended" },
 ];
 const fallbackExtendedCommandNames = [
   "adjust",
@@ -289,18 +298,18 @@ const fallbackExtendedCommandNames = [
   "zap",
 ];
 const commonExtendedCommandWhitelist = [
-  "wield",
-  "wear",
-  "takeoff",
-  "takeoffall",
-  "puton",
-  "remove",
   "apply",
-  "eat",
-  "quaff",
-  "read",
+  "autopickup",
+  "attributes",
+  "drop",
+  "engrave",
+  "fire",
+  "options",
+  "pray",
+  "quiver",
+  "remove",
   "throw",
-  "zap",
+  "travel",
 ];
 
 function normalizeStartupCharacterName(value: string): string {
@@ -316,6 +325,7 @@ function normalizeStartupCharacterName(value: string): string {
 
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
+  const textInputRef = useRef<HTMLInputElement | null>(null);
   const [characterCreationConfig, setCharacterCreationConfig] =
     useState<CharacterCreationConfig | null>(null);
   const [startupFlowStep, setStartupFlowStep] =
@@ -330,6 +340,9 @@ export default function App(): JSX.Element {
     useState(false);
   const [mobileActionSheetMode, setMobileActionSheetMode] =
     useState<MobileActionSheetMode>("quick");
+  const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
+  const [statsBarHeight, setStatsBarHeight] = useState(0);
+  const [textInputValue, setTextInputValue] = useState("");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
 
@@ -342,6 +355,7 @@ export default function App(): JSX.Element {
   const directionQuestion = useGameStore((state) => state.directionQuestion);
   const infoMenu = useGameStore((state) => state.infoMenu);
   const inventory = useGameStore((state) => state.inventory);
+  const textInputRequest = useGameStore((state) => state.textInput);
   const positionRequest = useGameStore((state) => state.positionRequest);
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
@@ -390,6 +404,36 @@ export default function App(): JSX.Element {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const statsBar = document.getElementById("stats-bar");
+    if (!statsBar) {
+      return;
+    }
+
+    const updateHeight = (): void => {
+      setStatsBarHeight(statsBar.getBoundingClientRect().height);
+    };
+
+    updateHeight();
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(updateHeight);
+      resizeObserver.observe(statsBar);
+    }
+
+    window.addEventListener("resize", updateHeight);
+    return () => {
+      window.removeEventListener("resize", updateHeight);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, []);
+
   const isMobileGameRunning =
     isMobileViewport &&
     characterCreationConfig !== null &&
@@ -400,8 +444,21 @@ export default function App(): JSX.Element {
     if (!isMobileGameRunning) {
       setIsMobileActionSheetVisible(false);
       setMobileActionSheetMode("quick");
+      setIsMobileLogVisible(false);
     }
   }, [isMobileGameRunning]);
+
+  useEffect(() => {
+    if (!textInputRequest) {
+      return;
+    }
+    setTextInputValue("");
+    if (typeof window !== "undefined") {
+      window.setTimeout(() => {
+        textInputRef.current?.focus();
+      }, 0);
+    }
+  }, [textInputRequest]);
 
   const hpPercentage =
     playerStats.maxHp > 0
@@ -455,6 +512,11 @@ export default function App(): JSX.Element {
       available.has(command),
     );
   }, [mobileExtendedCommandNames]);
+
+  const submitTextInput = (value: string): void => {
+    controller?.submitTextInput(value);
+    setTextInputValue("");
+  };
 
   return (
     <>
@@ -641,7 +703,23 @@ export default function App(): JSX.Element {
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div
+          className={`nh3d-mobile-log${
+            isMobileLogVisible ? "" : " nh3d-mobile-log-hidden"
+          }`}
+          id="game-log"
+          style={
+            {
+              "--nh3d-mobile-log-top": `${statsBarHeight}px`,
+            } as React.CSSProperties
+          }
+        >
+          {gameMessages.map((message, index) => (
+            <div key={`${index}-${message}`}>{message}</div>
+          ))}
+        </div>
+      )}
 
       <div id="floating-log-message-layer">
         {floatingMessages.map((entry, index) => (
@@ -712,6 +790,47 @@ export default function App(): JSX.Element {
           </div>
         </div>
       </div>
+
+      {textInputRequest ? (
+        <div className="nh3d-dialog nh3d-dialog-text is-visible" id="text-input-dialog">
+          <div className="nh3d-question-text">{textInputRequest.text}</div>
+          <input
+            className="nh3d-text-input"
+            maxLength={textInputRequest.maxLength ?? 256}
+            onChange={(event) => setTextInputValue(event.target.value)}
+            onKeyDown={(event) => {
+              event.stopPropagation();
+              if (event.key === "Enter") {
+                event.preventDefault();
+                submitTextInput(textInputValue);
+              } else if (event.key === "Escape") {
+                event.preventDefault();
+                submitTextInput("");
+              }
+            }}
+            placeholder={textInputRequest.placeholder ?? "Enter text"}
+            ref={textInputRef}
+            type="text"
+            value={textInputValue}
+          />
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={() => submitTextInput(textInputValue)}
+              type="button"
+            >
+              OK
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => submitTextInput("")}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {question ? (
         <div className="nh3d-dialog nh3d-dialog-question is-visible" id="question-dialog">
@@ -1011,14 +1130,23 @@ export default function App(): JSX.Element {
 
       {isMobileGameRunning && isMobileActionSheetVisible ? (
         <div className="nh3d-mobile-actions-sheet">
-          <div className="nh3d-mobile-actions-title">
-            {mobileActionSheetMode === "quick"
-              ? "Quick Actions"
-              : "Extended Commands"}
+          <div className="nh3d-mobile-actions-title-row">
+            <div className="nh3d-mobile-actions-title">
+              {mobileActionSheetMode === "quick" ? "Actions" : "Extended Commands"}
+            </div>
+            {mobileActionSheetMode === "extended" ? (
+              <button
+                className="nh3d-mobile-actions-back"
+                onClick={() => setMobileActionSheetMode("quick")}
+                type="button"
+              >
+                Back
+              </button>
+            ) : null}
           </div>
           {mobileActionSheetMode === "quick" ? (
-            <div className="nh3d-mobile-actions-grid">
-              {mobileQuickActions.map((action) => (
+            <div className="nh3d-mobile-actions-grid is-fixed-layout">
+              {mobileActions.map((action) => (
                 <button
                   className="nh3d-mobile-actions-button"
                   key={action.id}
@@ -1027,10 +1155,12 @@ export default function App(): JSX.Element {
                       setMobileActionSheetMode("extended");
                       return;
                     }
-                    controller?.runQuickAction(action.id);
-                    if (action.id !== "search") {
-                      setIsMobileActionSheetVisible(false);
+                    if (action.kind === "quick") {
+                      controller?.runQuickAction(action.value);
+                    } else {
+                      controller?.runExtendedCommand(action.value);
                     }
+                    setIsMobileActionSheetVisible(false);
                   }}
                   type="button"
                 >
@@ -1038,8 +1168,7 @@ export default function App(): JSX.Element {
                 </button>
               ))}
             </div>
-          ) : null}
-          {mobileActionSheetMode === "extended" ? (
+          ) : (
             <div className="nh3d-mobile-actions-sections">
               {mobileCommonExtendedCommandNames.length > 0 ? (
                 <div className="nh3d-mobile-actions-section">
@@ -1084,28 +1213,7 @@ export default function App(): JSX.Element {
                 </div>
               </div>
             </div>
-          ) : null}
-          <div className="nh3d-mobile-actions-footer">
-            {mobileActionSheetMode === "extended" ? (
-              <button
-                className="nh3d-mobile-actions-secondary-button"
-                onClick={() => setMobileActionSheetMode("quick")}
-                type="button"
-              >
-                Back
-              </button>
-            ) : null}
-            <button
-              className="nh3d-mobile-actions-secondary-button"
-              onClick={() => {
-                setIsMobileActionSheetVisible(false);
-                setMobileActionSheetMode("quick");
-              }}
-              type="button"
-            >
-              Close
-            </button>
-          </div>
+          )}
         </div>
       ) : null}
 
@@ -1119,16 +1227,47 @@ export default function App(): JSX.Element {
             Inventory
           </button>
           <button
+            className="nh3d-mobile-bottom-button"
+            onClick={() => {
+              setIsMobileLogVisible((visible) => {
+                const next = !visible;
+                if (next) {
+                  setIsMobileActionSheetVisible(false);
+                  setMobileActionSheetMode("quick");
+                }
+                return next;
+              });
+            }}
+            type="button"
+          >
+            Log
+          </button>
+          <button
+            className="nh3d-mobile-bottom-button"
+            onClick={() => controller?.runQuickAction("pickup")}
+            type="button"
+          >
+            Pick Up
+          </button>
+          <button
+            className="nh3d-mobile-bottom-button"
+            onClick={() => controller?.runQuickAction("search")}
+            type="button"
+          >
+            Search
+          </button>
+          <button
             className={`nh3d-mobile-bottom-button${
               isMobileActionSheetVisible ? " is-active" : ""
             }`}
             onClick={() => {
               setIsMobileActionSheetVisible((visible) => {
-                const nextVisible = !visible;
-                if (nextVisible) {
+                const next = !visible;
+                if (next) {
                   setMobileActionSheetMode("quick");
+                  setIsMobileLogVisible(false);
                 }
-                return nextVisible;
+                return next;
               });
             }}
             type="button"

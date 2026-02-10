@@ -210,6 +210,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private session: RuntimeBridge | null = null;
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
+  private readonly textInputPrefix = "__TEXT_INPUT__:";
+  private isTextInputActive: boolean = false;
   private characterCreationConfig: CharacterCreationConfig = { mode: "create" };
   private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
@@ -1174,6 +1176,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
           data.choices,
           data.default,
           data.menuItems,
+        );
+        break;
+
+      case "text_request":
+        this.showTextInputRequest(
+          String(data.text || ""),
+          typeof data.maxLength === "number" ? data.maxLength : 256,
         );
         break;
 
@@ -5240,6 +5249,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     nameInput.focus();
   }
 
+  private showTextInputRequest(text: string, maxLength = 256): void {
+    this.isInQuestion = true;
+    this.isTextInputActive = true;
+
+    if (this.uiAdapter) {
+      this.uiAdapter.setTextInput({
+        text: String(text || ""),
+        maxLength,
+        placeholder: "Enter text",
+      });
+    }
+  }
+
+  private hideTextInputRequest(): void {
+    if (!this.isTextInputActive) {
+      return;
+    }
+
+    this.isTextInputActive = false;
+    this.isInQuestion = false;
+
+    if (this.uiAdapter) {
+      this.uiAdapter.setTextInput(null);
+    }
+  }
+
   private hideQuestion(): void {
     this.isInQuestion = false; // Clear general question state
     this.activeQuestionText = "";
@@ -5624,7 +5659,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideQuestion();
   }
 
+  public submitTextInput(text: string): void {
+    if (!this.session) {
+      this.hideTextInputRequest();
+      return;
+    }
+    const normalized = typeof text === "string" ? text : String(text ?? "");
+    this.sendInput(`${this.textInputPrefix}${normalized}`);
+    this.hideTextInputRequest();
+  }
+
   public cancelActivePrompt(): void {
+    if (this.isTextInputActive) {
+      this.submitTextInput("");
+      return;
+    }
     if (this.isInQuestion || this.isInDirectionQuestion) {
       this.sendInput("Escape");
     }
@@ -5677,6 +5726,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return;
       case "close":
         this.sendInput("c");
+        return;
+      case "extended":
+        this.sendInput("#");
         return;
       default:
         console.log(`Unknown quick action requested: ${actionId}`);
@@ -6065,6 +6117,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.isTextInputActive) {
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+      ) {
+        return;
+      }
+    }
+
     if (this.handleMetaCommandKeyDown(event)) {
       return;
     }
@@ -6083,6 +6145,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // Handle escape key to close dialogs
     if (event.key === "Escape") {
+      if (this.isTextInputActive) {
+        this.submitTextInput("");
+        return;
+      }
       if (this.isInventoryDialogVisible) {
         this.hideInventoryDialog();
         return;
@@ -6171,6 +6237,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.sendMouseInput(this.playerPos.x, this.playerPos.y, 0);
         return;
       }
+    }
+
+    if (this.isTextInputActive) {
+      return;
     }
 
     if (this.isInfoDialogOpen()) {

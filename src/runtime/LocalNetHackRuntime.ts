@@ -46,6 +46,9 @@ class LocalNetHackRuntime {
     this.awaitingQuestionInput = false;
     this.metaInputPrefix = "__META__:";
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
+    this.textInputPrefix = "__TEXT_INPUT__:";
+    this.pendingTextRequest = null;
+    this.textInputMaxLength = 256;
     this.mouseInputTokenKey = "__MOUSE_INPUT__";
     this.mouseClickPrimaryMod = 1; // CLICK_1 (left click)
     this.mouseClickSecondaryMod = 2; // CLICK_2 (right click)
@@ -344,6 +347,12 @@ class LocalNetHackRuntime {
       activeInputRequestType: this.activeInputRequest?.type || null,
     });
 
+    if (this.isTextInputCommand(input)) {
+      const text = input.slice(this.textInputPrefix.length);
+      this.handleTextInputResponse(text, source);
+      return;
+    }
+
     if (this.isMetaInput(input)) {
       const metaKey = input.slice(this.metaInputPrefix.length).charAt(0);
       if (!metaKey) {
@@ -408,14 +417,7 @@ class LocalNetHackRuntime {
     }
 
     if (this.isLiteralTextInput(input)) {
-      const queueBefore = this.pendingTextResponses.length;
-      this.pendingTextResponses.push(input);
-      console.log(`Queued text response input: "${input}"`, {
-        source,
-        queueBefore,
-        queueAfter: this.pendingTextResponses.length,
-        isLikelyNameInput: this.isLikelyNameInputForDebug(input),
-      });
+      this.handleTextInputResponse(input, source);
       return;
     }
 
@@ -798,6 +800,75 @@ class LocalNetHackRuntime {
     ]);
 
     return !nonTextInputs.has(input);
+  }
+
+  isTextInputCommand(input) {
+    return (
+      typeof input === "string" && input.startsWith(this.textInputPrefix)
+    );
+  }
+
+  handleTextInputResponse(text, source = "user") {
+    const normalized = typeof text === "string" ? text : String(text ?? "");
+    if (this.pendingTextRequest) {
+      const pending = this.pendingTextRequest;
+      this.pendingTextRequest = null;
+      this.writeTextInputBuffer(
+        pending.bufferPtr,
+        normalized,
+        pending.maxLength,
+      );
+      if (typeof pending.resolve === "function") {
+        pending.resolve(0);
+      }
+      return;
+    }
+
+    if (normalized.length === 0) {
+      return;
+    }
+
+    const queueBefore = this.pendingTextResponses.length;
+    this.pendingTextResponses.push(normalized);
+    console.log(`Queued text response input: "${normalized}"`, {
+      source,
+      queueBefore,
+      queueAfter: this.pendingTextResponses.length,
+      isLikelyNameInput: this.isLikelyNameInputForDebug(normalized),
+    });
+  }
+
+  writeTextInputBuffer(bufferPtr, text, maxLength = 256) {
+    if (!this.nethackModule || !bufferPtr) {
+      return;
+    }
+    const safeText = typeof text === "string" ? text : String(text ?? "");
+    const limit = Math.max(1, Math.floor(maxLength));
+    const truncated = safeText.slice(0, Math.max(0, limit - 1));
+    if (!this.nethackModule.HEAPU8) {
+      return;
+    }
+
+    let bytes = null;
+    if (typeof TextEncoder !== "undefined") {
+      bytes = new TextEncoder().encode(truncated);
+    } else {
+      const encoded = unescape(encodeURIComponent(truncated));
+      const legacyBytes = new Uint8Array(encoded.length);
+      for (let i = 0; i < encoded.length; i += 1) {
+        legacyBytes[i] = encoded.charCodeAt(i);
+      }
+      bytes = legacyBytes;
+    }
+
+    const heap = this.nethackModule.HEAPU8;
+    const maxBytes = Math.max(0, limit - 1);
+    const available = Math.max(0, heap.length - bufferPtr - 1);
+    const length = Math.min(bytes.length, maxBytes, available);
+    if (length > 0) {
+      heap.set(bytes.slice(0, length), bufferPtr);
+    }
+    heap[bufferPtr + length] = 0;
   }
 
   resolveMenuSelection(selectionCount) {
@@ -2430,6 +2501,40 @@ class LocalNetHackRuntime {
 
     return this.requestInputCode("position", { xPtr, yPtr, modPtr });
   }
+
+  handleShimGetlin(args) {
+    const [question, bufferPtr] = args;
+    console.log(`Text input requested: "${question}"`);
+
+    if (this.pendingTextResponses.length > 0) {
+      const queued = String(this.pendingTextResponses.shift() || "");
+      this.writeTextInputBuffer(bufferPtr, queued, this.textInputMaxLength);
+      return 0;
+    }
+
+    if (!this.eventHandler) {
+      this.writeTextInputBuffer(bufferPtr, "", this.textInputMaxLength);
+      return 0;
+    }
+
+    if (this.pendingTextRequest) {
+      this.handleTextInputResponse("", "system");
+    }
+
+    this.emit({
+      type: "text_request",
+      text: question,
+      maxLength: this.textInputMaxLength,
+    });
+
+    return new Promise((resolve) => {
+      this.pendingTextRequest = {
+        bufferPtr,
+        resolve,
+        maxLength: this.textInputMaxLength,
+      };
+    });
+  }
   handleUICallback(name, args) {
     if (this.isClosed) {
       return 0;
@@ -2440,6 +2545,7 @@ class LocalNetHackRuntime {
       shim_get_nh_event: () => this.handleShimGetNhEvent(),
       shim_yn_function: () => this.handleShimYnFunction(args),
       shim_nh_poskey: () => this.handleShimNhPoskey(args),
+      shim_getlin: () => this.handleShimGetlin(args),
     };
     const mappedInputHandler = inputCallbackHandlers[name];
     if (mappedInputHandler) {

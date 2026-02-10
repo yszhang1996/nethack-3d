@@ -62,6 +62,12 @@ export type InventoryDialogState = {
   items: NethackMenuItem[];
 };
 
+export type TextInputRequestState = {
+  text: string;
+  maxLength?: number;
+  placeholder?: string;
+};
+
 export type CharacterCreationConfig = {
   mode: "random" | "create";
   name?: string;
@@ -82,6 +88,7 @@ export interface Nethack3DEngineUIAdapter {
   setDirectionQuestion(question: string | null): void;
   setInfoMenu(state: InfoMenuState | null): void;
   setInventory(state: InventoryDialogState): void;
+  setTextInput(state: TextInputRequestState | null): void;
   setExtendedCommands(commands: string[]): void;
   setPositionRequest(text: string | null): void;
 }
@@ -94,6 +101,7 @@ export interface Nethack3DEngineController {
   goToPreviousQuestionMenuPage(): void;
   goToNextQuestionMenuPage(): void;
   confirmPickupChoices(): void;
+  submitTextInput(text: string): void;
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
   runQuickAction(actionId: string): void;

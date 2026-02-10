@@ -6,6 +6,7 @@ import type {
   NethackConnectionState,
   PlayerStatsSnapshot,
   QuestionDialogState,
+  TextInputRequestState,
 } from "../game/ui-types";
 
 export type FloatingMessage = {
@@ -50,6 +51,7 @@ type GameStore = {
   directionQuestion: string | null;
   infoMenu: InfoMenuState | null;
   inventory: InventoryDialogState;
+  textInput: TextInputRequestState | null;
   extendedCommands: string[];
   positionRequest: string | null;
   engineController: Nethack3DEngineController | null;
@@ -68,6 +70,7 @@ type GameStore = {
   setDirectionQuestion: (text: string | null) => void;
   setInfoMenu: (menu: InfoMenuState | null) => void;
   setInventory: (inventory: InventoryDialogState) => void;
+  setTextInput: (input: TextInputRequestState | null) => void;
   setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
@@ -88,6 +91,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   directionQuestion: null,
   infoMenu: null,
   inventory: { visible: false, items: [] },
+  textInput: null,
   extendedCommands: [],
   positionRequest: null,
   engineController: null,
@@ -147,6 +151,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setInventory: (inventory) => {
     set({ inventory });
+  },
+  setTextInput: (input) => {
+    set({ textInput: input });
   },
   setExtendedCommands: (commands) => {
     set({ extendedCommands: commands });

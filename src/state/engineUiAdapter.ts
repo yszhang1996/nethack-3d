@@ -5,6 +5,7 @@ import type {
   QuestionDialogState,
   InfoMenuState,
   InventoryDialogState,
+  TextInputRequestState,
 } from "../game/ui-types";
 import { useGameStore } from "./gameStore";
 
@@ -42,6 +43,9 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     },
     setInventory(state: InventoryDialogState): void {
       useGameStore.getState().setInventory(state);
+    },
+    setTextInput(state: TextInputRequestState | null): void {
+      useGameStore.getState().setTextInput(state);
     },
     setExtendedCommands(commands: string[]): void {
       useGameStore.getState().setExtendedCommands(commands);
