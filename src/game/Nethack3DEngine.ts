@@ -247,6 +247,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   // General question handling (pauses all movement)
   private isInQuestion: boolean = false;
+  private numberPadModeEnabled: boolean = true;
 
   // Camera panning
   private cameraPanX: number = 0;
@@ -796,6 +797,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
+    if (this.uiAdapter) {
+      this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
+    }
 
     // Set initial camera position looking straight down with a slight tilt
     this.cameraDistance = 15;
@@ -1152,6 +1156,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.isInQuestion = true;
         this.showDirectionQuestion(data.text);
         break;
+      case "number_pad_mode":
+        this.setNumberPadModeEnabled(Boolean(data.enabled));
+        break;
 
       case "question":
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
@@ -1437,51 +1444,68 @@ class Nethack3DEngine implements Nethack3DEngineController {
     switch (input) {
       case "k":
       case "K":
-      case "8":
       case "ArrowUp":
       case "Numpad8":
         return { dx: 0, dy: -1 };
       case "j":
       case "J":
-      case "2":
       case "ArrowDown":
       case "Numpad2":
         return { dx: 0, dy: 1 };
       case "h":
       case "H":
-      case "4":
       case "ArrowLeft":
       case "Numpad4":
         return { dx: -1, dy: 0 };
       case "l":
       case "L":
-      case "6":
       case "ArrowRight":
       case "Numpad6":
         return { dx: 1, dy: 0 };
       case "y":
       case "Y":
-      case "7":
       case "Home":
       case "Numpad7":
         return { dx: -1, dy: -1 };
       case "u":
       case "U":
-      case "9":
       case "PageUp":
       case "Numpad9":
         return { dx: 1, dy: -1 };
       case "b":
       case "B":
-      case "1":
       case "End":
       case "Numpad1":
         return { dx: -1, dy: 1 };
       case "n":
       case "N":
-      case "3":
       case "PageDown":
       case "Numpad3":
+        return { dx: 1, dy: 1 };
+      default:
+        break;
+    }
+
+    if (!this.numberPadModeEnabled) {
+      return null;
+    }
+
+    switch (input) {
+      case "8":
+        return { dx: 0, dy: -1 };
+      case "2":
+        return { dx: 0, dy: 1 };
+      case "4":
+        return { dx: -1, dy: 0 };
+      case "6":
+        return { dx: 1, dy: 0 };
+      case "7":
+        return { dx: -1, dy: -1 };
+      case "9":
+        return { dx: 1, dy: -1 };
+      case "1":
+        return { dx: -1, dy: 1 };
+      case "3":
         return { dx: 1, dy: 1 };
       default:
         return null;
@@ -3802,6 +3826,47 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private isNumberPadModeQuestion(questionText: string): boolean {
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized.startsWith("select number_pad mode");
+  }
+
+  private setNumberPadModeEnabled(enabled: boolean): void {
+    const normalized = Boolean(enabled);
+    if (this.numberPadModeEnabled === normalized) {
+      return;
+    }
+    this.numberPadModeEnabled = normalized;
+    const modeLabel = normalized ? "numpad" : "hjklyubn";
+    console.log(`🎮 Number pad mode set to ${modeLabel}`);
+    this.addGameMessage(`Number pad mode: ${modeLabel}`);
+    if (this.uiAdapter) {
+      this.uiAdapter.setNumberPadModeEnabled(normalized);
+    }
+  }
+
+  private updateNumberPadModeFromChoice(choice: string): void {
+    if (!this.isNumberPadModeQuestion(this.activeQuestionText)) {
+      return;
+    }
+    const normalizedChoice = String(choice || "").trim();
+    if (!normalizedChoice) {
+      return;
+    }
+    if (normalizedChoice === "0") {
+      this.setNumberPadModeEnabled(false);
+      return;
+    }
+    if (normalizedChoice === "1" || normalizedChoice === "2") {
+      this.setNumberPadModeEnabled(true);
+    }
+  }
+
   private toCharacterCreationQuestionPayload(
     data: RuntimeEvent,
   ): CharacterCreationQuestionPayload {
@@ -4839,6 +4904,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return `${normalizedChoice}) ${itemText}`;
   }
 
+  private getDirectionChoiceSet(): Array<{ key: string; label: string }> {
+    if (this.numberPadModeEnabled) {
+      return [
+        { key: "7", label: "\u2196" },
+        { key: "8", label: "\u2191" },
+        { key: "9", label: "\u2197" },
+        { key: "4", label: "\u2190" },
+        { key: "5", label: "\u2022" },
+        { key: "6", label: "\u2192" },
+        { key: "1", label: "\u2199" },
+        { key: "2", label: "\u2193" },
+        { key: "3", label: "\u2198" },
+      ];
+    }
+
+    return [
+      { key: "y", label: "\u2196" },
+      { key: "k", label: "\u2191" },
+      { key: "u", label: "\u2197" },
+      { key: "h", label: "\u2190" },
+      { key: ".", label: "\u2022" },
+      { key: "l", label: "\u2192" },
+      { key: "b", label: "\u2199" },
+      { key: "j", label: "\u2193" },
+      { key: "n", label: "\u2198" },
+    ];
+  }
+
+  private getDirectionHelpText(): string {
+    return this.numberPadModeEnabled
+      ? "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel"
+      : "Use hjkl/yubn, arrow keys, or click a direction. Press ESC to cancel";
+  }
+
   private showDirectionQuestion(question: string): void {
     // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
@@ -4870,17 +4969,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const directionsContainer = document.createElement("div");
     directionsContainer.className = "nh3d-direction-grid";
 
-    const directions = [
-      { key: "7", label: "↖", name: "NW" },
-      { key: "8", label: "↑", name: "N" },
-      { key: "9", label: "↗", name: "NE" },
-      { key: "4", label: "←", name: "W" },
-      { key: "5", label: "•", name: "Wait" },
-      { key: "6", label: "→", name: "E" },
-      { key: "1", label: "↙", name: "SW" },
-      { key: "2", label: "↓", name: "S" },
-      { key: "3", label: "↘", name: "SE" },
-    ];
+    const directions = this.getDirectionChoiceSet();
 
     directions.forEach((dir) => {
       const button = document.createElement("button");
@@ -4900,8 +4989,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Add escape instruction
     const escapeText = document.createElement("div");
     escapeText.className = "nh3d-dialog-hint";
-    escapeText.textContent =
-      "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel";
+    escapeText.textContent = this.getDirectionHelpText();
     directionDialog.appendChild(escapeText);
 
     const actions = document.createElement("div");
@@ -5611,6 +5699,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     const resolvedChoice = this.resolveQuestionSelectionInput(choice);
+    this.updateNumberPadModeFromChoice(resolvedChoice);
 
     if (this.activeQuestionIsPickupDialog) {
       this.togglePickupSelection(resolvedChoice, true);
@@ -5950,6 +6039,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         case "U":
         case "B":
         case "N":
+          return true;
         case "1":
         case "2":
         case "3":
@@ -5958,7 +6048,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         case "7":
         case "8":
         case "9":
-          return true;
+          return this.numberPadModeEnabled;
         default:
           return false;
       }
@@ -6081,6 +6171,74 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
+  private mapArrowKeyToDirectionKey(key: string): string | null {
+    switch (key) {
+      case "ArrowUp":
+        return this.numberPadModeEnabled ? "8" : "k";
+      case "ArrowDown":
+        return this.numberPadModeEnabled ? "2" : "j";
+      case "ArrowLeft":
+        return this.numberPadModeEnabled ? "4" : "h";
+      case "ArrowRight":
+        return this.numberPadModeEnabled ? "6" : "l";
+      default:
+        return null;
+    }
+  }
+
+  private mapNavigationKeyToDirectionKey(key: string): string | null {
+    switch (key) {
+      case "Home":
+        return this.numberPadModeEnabled ? "7" : "y";
+      case "PageUp":
+        return this.numberPadModeEnabled ? "9" : "u";
+      case "End":
+        return this.numberPadModeEnabled ? "1" : "b";
+      case "PageDown":
+        return this.numberPadModeEnabled ? "3" : "n";
+      default:
+        return null;
+    }
+  }
+
+  private mapNumpadDigitToDirectionKey(digit: string): string | null {
+    if (!/^[1-9]$/.test(digit)) {
+      return null;
+    }
+    if (this.numberPadModeEnabled) {
+      return digit;
+    }
+    switch (digit) {
+      case "1":
+        return "b";
+      case "2":
+        return "j";
+      case "3":
+        return "n";
+      case "4":
+        return "h";
+      case "5":
+        return ".";
+      case "6":
+        return "l";
+      case "7":
+        return "y";
+      case "8":
+        return "k";
+      case "9":
+        return "u";
+      default:
+        return null;
+    }
+  }
+
+  private mapDirectionalKeyFromNavigationInput(key: string): string | null {
+    return (
+      this.mapArrowKeyToDirectionKey(key) ||
+      this.mapNavigationKeyToDirectionKey(key)
+    );
+  }
+
   private getModalNavigationDirection(
     event: KeyboardEvent,
   ): "up" | "down" | "left" | "right" | null {
@@ -6093,6 +6251,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return "left";
       case "ArrowRight":
         return "right";
+      case "h":
+      case "H":
+        return this.numberPadModeEnabled ? null : "left";
+      case "l":
+      case "L":
+        return this.numberPadModeEnabled ? null : "right";
+      case "k":
+      case "K":
+      case "y":
+      case "Y":
+      case "u":
+      case "U":
+        return this.numberPadModeEnabled ? null : "up";
+      case "j":
+      case "J":
+      case "b":
+      case "B":
+      case "n":
+      case "N":
+        return this.numberPadModeEnabled ? null : "down";
       default:
         break;
     }
@@ -6377,36 +6555,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
       /^[1-9]$/.test(event.key)
     ) {
       event.preventDefault();
-      this.sendInput(`Numpad${event.key}`);
+      if (this.numberPadModeEnabled) {
+        this.sendInput(`Numpad${event.key}`);
+      } else {
+        const mappedKey = this.mapNumpadDigitToDirectionKey(event.key);
+        if (mappedKey) {
+          this.sendInput(mappedKey);
+        }
+      }
       return;
     }
 
     // Handle diagonal movement keys during regular gameplay
-    // Map navigation keys to numpad equivalents for NetHack
+    // Map navigation keys to direction equivalents for NetHack
     if (!this.isInQuestion && !this.isInDirectionQuestion) {
-      let mappedKey = null;
-
-      switch (event.key) {
-        case "Home":
-          mappedKey = "7"; // Northwest
-          console.log("🔄 Mapping Home to numpad 7 (Northwest)");
-          break;
-        case "PageUp":
-          mappedKey = "9"; // Northeast
-          console.log("🔄 Mapping PageUp to numpad 9 (Northeast)");
-          break;
-        case "End":
-          mappedKey = "1"; // Southwest
-          console.log("🔄 Mapping End to numpad 1 (Southwest)");
-          break;
-        case "PageDown":
-          mappedKey = "3"; // Southeast
-          console.log("🔄 Mapping PageDown to numpad 3 (Southeast)");
-          break;
-      }
-
+      const mappedKey = this.mapDirectionalKeyFromNavigationInput(event.key);
       if (mappedKey) {
-        // Send the mapped key instead of the original
         this.sendInput(mappedKey);
         return;
       }
@@ -6419,70 +6583,52 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // With number_pad:1 option, we can pass numpad keys and arrow keys directly
         let keyToSend = null;
 
-        switch (event.key) {
-          // Arrow keys - map to numpad equivalents
-          case "ArrowUp":
-            keyToSend = "8";
-            break;
-          case "ArrowDown":
-            keyToSend = "2";
-            break;
-          case "ArrowLeft":
-            keyToSend = "4";
-            break;
-          case "ArrowRight":
-            keyToSend = "6";
-            break;
+        const mappedNav = this.mapDirectionalKeyFromNavigationInput(event.key);
+        if (mappedNav) {
+          keyToSend = mappedNav;
+        }
 
-          // Diagonal movement with Home/End/PageUp/PageDown
-          case "Home":
-            keyToSend = "7"; // Northwest
-            break;
-          case "PageUp":
-            keyToSend = "9"; // Northeast
-            break;
-          case "End":
-            keyToSend = "1"; // Southwest
-            break;
-          case "PageDown":
-            keyToSend = "3"; // Southeast
-            break;
+        if (
+          !keyToSend &&
+          event.code.startsWith("Numpad") &&
+          /^[1-9]$/.test(event.key)
+        ) {
+          keyToSend = this.mapNumpadDigitToDirectionKey(event.key);
+        }
 
-          // Numpad keys - pass through directly (includes diagonals)
-          case "1": // Southwest
-          case "2": // South
-          case "3": // Southeast
-          case "4": // West
-          case "5": // Wait/rest
-          case "6": // East
-          case "7": // Northwest
-          case "8": // North
-          case "9": // Northeast
+        if (!keyToSend) {
+          if (this.numberPadModeEnabled && /^[1-9]$/.test(event.key)) {
             keyToSend = event.key;
-            break;
+          } else if (!this.numberPadModeEnabled) {
+            const lowerKey = event.key.toLowerCase();
+            if ("hjklyubn".includes(lowerKey)) {
+              keyToSend = lowerKey;
+            }
+          }
+        }
 
-          // Vertical directions and self-direction for target prompts
-          case "<":
-          case ",":
-            keyToSend = "<";
-            break;
-          case ">":
-            keyToSend = ">";
-            break;
-          case "s":
-          case "S":
-            keyToSend = "s";
-            break;
-
-          // Space or period for self/wait direction
-          case " ":
-          case "Spacebar":
-          case "Space":
-          case ".":
-          case "Decimal":
-          case "NumpadDecimal":
-            keyToSend = ".";
-            break;
+        if (!keyToSend) {
+          switch (event.key) {
+            case "<":
+            case ",":
+              keyToSend = "<";
+              break;
+            case ">":
+              keyToSend = ">";
+              break;
+            case "s":
+            case "S":
+              keyToSend = "s";
+              break;
+            case " ":
+            case "Spacebar":
+            case "Space":
+            case ".":
+            case "Decimal":
+            case "NumpadDecimal":
+              keyToSend = ".";
+              break;
+          }
         }
 
         if (keyToSend) {
@@ -6518,9 +6664,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (modalDirection) {
           event.preventDefault();
           const isActionFocused = this.isQuestionActionFocused();
+          let effectiveDirection = modalDirection;
+          if (!isActionFocused) {
+            if (modalDirection === "left") {
+              effectiveDirection = "up";
+            } else if (modalDirection === "right") {
+              effectiveDirection = "down";
+            }
+          }
           const selectableItems = this.getVisiblePickupSelectableMenuItems();
           if (isActionFocused) {
-            if (modalDirection === "up") {
+            if (effectiveDirection === "up") {
               this.clearQuestionActionFocus();
               if (selectableItems.length > 0) {
                 this.activePickupFocusIndex = selectableItems.length - 1;
@@ -6528,16 +6682,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
               this.updatePickupFocusVisualState();
               return;
             }
-            if (modalDirection === "left") {
+            if (effectiveDirection === "left") {
+              if (this.activeQuestionActionFocusIndex <= 0) {
+                this.clearQuestionActionFocus();
+                if (selectableItems.length > 0) {
+                  this.activePickupFocusIndex = selectableItems.length - 1;
+                }
+                this.updatePickupFocusVisualState();
+                return;
+              }
               this.moveQuestionActionFocus(-1);
               return;
             }
-            if (modalDirection === "right" || modalDirection === "down") {
+            if (effectiveDirection === "left") {
+              this.moveQuestionActionFocus(-1);
+              return;
+            }
+            if (
+              effectiveDirection === "right" ||
+              effectiveDirection === "down"
+            ) {
               this.moveQuestionActionFocus(1);
               return;
             }
           } else {
-            if (modalDirection === "down") {
+            if (effectiveDirection === "down") {
               this.normalizeActivePickupFocusIndex();
               const atBottom =
                 selectableItems.length > 0 &&
@@ -6548,11 +6717,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
               this.movePickupFocus(1);
               return;
             }
-            if (modalDirection === "up" || modalDirection === "left") {
+            if (effectiveDirection === "up" || effectiveDirection === "left") {
               this.movePickupFocus(-1);
               return;
             }
-            if (modalDirection === "right") {
+            if (effectiveDirection === "right") {
               this.movePickupFocus(1);
               return;
             }
@@ -6615,6 +6784,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             }
           } else if (!isMenuQuestion) {
             // Send the key anyway in case it's a valid NetHack command
+            this.updateNumberPadModeFromChoice(event.key);
             this.sendInput(event.key);
           }
         }
@@ -6623,9 +6793,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
           if (modalDirection) {
             event.preventDefault();
             const isActionFocused = this.isQuestionActionFocused();
+            let effectiveDirection = modalDirection;
+            if (!isActionFocused) {
+              if (modalDirection === "left") {
+                effectiveDirection = "up";
+              } else if (modalDirection === "right") {
+                effectiveDirection = "down";
+              }
+            }
             const selectableItems = this.getVisiblePickupSelectableMenuItems();
-            if (isActionFocused) {
-              if (modalDirection === "up") {
+          if (isActionFocused) {
+            if (effectiveDirection === "up") {
+              this.clearQuestionActionFocus();
+              if (selectableItems.length > 0) {
+                this.activeQuestionMenuFocusIndex =
+                  selectableItems.length - 1;
+              }
+              this.updateQuestionMenuFocusVisualState();
+              return;
+            }
+            if (effectiveDirection === "left") {
+              if (this.activeQuestionActionFocusIndex <= 0) {
                 this.clearQuestionActionFocus();
                 if (selectableItems.length > 0) {
                   this.activeQuestionMenuFocusIndex =
@@ -6634,16 +6822,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 this.updateQuestionMenuFocusVisualState();
                 return;
               }
-              if (modalDirection === "left") {
-                this.moveQuestionActionFocus(-1);
-                return;
-              }
-              if (modalDirection === "right" || modalDirection === "down") {
+              this.moveQuestionActionFocus(-1);
+              return;
+            }
+            if (effectiveDirection === "left") {
+              this.moveQuestionActionFocus(-1);
+              return;
+            }
+            if (
+              effectiveDirection === "right" ||
+                effectiveDirection === "down"
+              ) {
                 this.moveQuestionActionFocus(1);
                 return;
               }
             } else {
-              if (modalDirection === "down") {
+              if (effectiveDirection === "down") {
                 this.normalizeActiveQuestionMenuFocusIndex();
                 const atBottom =
                   selectableItems.length > 0 &&
@@ -6655,11 +6849,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 this.moveQuestionMenuFocus(1);
                 return;
               }
-              if (modalDirection === "up" || modalDirection === "left") {
+              if (
+                effectiveDirection === "up" ||
+                effectiveDirection === "left"
+              ) {
                 this.moveQuestionMenuFocus(-1);
                 return;
               }
-              if (modalDirection === "right") {
+              if (effectiveDirection === "right") {
                 this.moveQuestionMenuFocus(1);
                 return;
               }
@@ -6696,6 +6893,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.sendInput(selectionInput);
           this.hideQuestion();
         } else if (!isMenuQuestion) {
+          this.updateNumberPadModeFromChoice(event.key);
           this.sendInput(event.key);
           this.hideQuestion();
         } else {
@@ -6867,58 +7065,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
-  private resolveSwipeDirectionInput(dx: number, dy: number): string | null {
+  private resolveDirectionKeyFromDelta(
+    dx: number,
+    dy: number,
+    deadzone: number,
+  ): string | null {
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
-    if (absX < 1 && absY < 1) {
+    if (absX < deadzone && absY < deadzone) {
       return null;
     }
 
     const axisBiasRatio = 0.55;
     if (absX <= absY * axisBiasRatio) {
-      return dy < 0 ? "8" : "2";
+      if (dy < 0) {
+        return this.numberPadModeEnabled ? "8" : "k";
+      }
+      return this.numberPadModeEnabled ? "2" : "j";
     }
     if (absY <= absX * axisBiasRatio) {
-      return dx < 0 ? "4" : "6";
+      if (dx < 0) {
+        return this.numberPadModeEnabled ? "4" : "h";
+      }
+      return this.numberPadModeEnabled ? "6" : "l";
     }
 
     if (dx < 0 && dy < 0) {
-      return "7";
+      return this.numberPadModeEnabled ? "7" : "y";
     }
     if (dx > 0 && dy < 0) {
-      return "9";
+      return this.numberPadModeEnabled ? "9" : "u";
     }
     if (dx < 0 && dy > 0) {
-      return "1";
+      return this.numberPadModeEnabled ? "1" : "b";
     }
-    return "3";
+    return this.numberPadModeEnabled ? "3" : "n";
+  }
+
+  private resolveSwipeDirectionInput(dx: number, dy: number): string | null {
+    return this.resolveDirectionKeyFromDelta(dx, dy, 1);
   }
 
   private resolveDirectionFromDelta(dx: number, dy: number): string | null {
-    const absX = Math.abs(dx);
-    const absY = Math.abs(dy);
-    if (absX < 0.25 && absY < 0.25) {
-      return null;
-    }
-
-    const axisBiasRatio = 0.55;
-    if (absX <= absY * axisBiasRatio) {
-      return dy < 0 ? "8" : "2";
-    }
-    if (absY <= absX * axisBiasRatio) {
-      return dx < 0 ? "4" : "6";
-    }
-
-    if (dx < 0 && dy < 0) {
-      return "7";
-    }
-    if (dx > 0 && dy < 0) {
-      return "9";
-    }
-    if (dx < 0 && dy > 0) {
-      return "1";
-    }
-    return "3";
+    return this.resolveDirectionKeyFromDelta(dx, dy, 0.25);
   }
 
   private getTilePositionFromClientCoordinates(
@@ -7290,4 +7479,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 }
 
 export default Nethack3DEngine;
+
+
+
 

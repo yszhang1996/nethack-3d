@@ -49,6 +49,7 @@ type GameStore = {
   playerStats: PlayerStatsSnapshot;
   question: QuestionDialogState | null;
   directionQuestion: string | null;
+  numberPadModeEnabled: boolean;
   infoMenu: InfoMenuState | null;
   inventory: InventoryDialogState;
   textInput: TextInputRequestState | null;
@@ -68,6 +69,7 @@ type GameStore = {
   setPlayerStats: (stats: PlayerStatsSnapshot) => void;
   setQuestion: (question: QuestionDialogState | null) => void;
   setDirectionQuestion: (text: string | null) => void;
+  setNumberPadModeEnabled: (enabled: boolean) => void;
   setInfoMenu: (menu: InfoMenuState | null) => void;
   setInventory: (inventory: InventoryDialogState) => void;
   setTextInput: (input: TextInputRequestState | null) => void;
@@ -89,6 +91,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   playerStats: { ...defaultPlayerStats },
   question: null,
   directionQuestion: null,
+  numberPadModeEnabled: true,
   infoMenu: null,
   inventory: { visible: false, items: [] },
   textInput: null,
@@ -145,6 +148,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setDirectionQuestion: (text) => {
     set({ directionQuestion: text });
+  },
+  setNumberPadModeEnabled: (enabled) => {
+    set({ numberPadModeEnabled: Boolean(enabled) });
   },
   setInfoMenu: (menu) => {
     set({ infoMenu: menu });

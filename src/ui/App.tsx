@@ -8,17 +8,37 @@ import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
 
-const directionChoices = [
-  { key: "7", label: "↖" },
-  { key: "8", label: "↑" },
-  { key: "9", label: "↗" },
-  { key: "4", label: "←" },
-  { key: "5", label: "•" },
-  { key: "6", label: "→" },
-  { key: "1", label: "↙" },
-  { key: "2", label: "↓" },
-  { key: "3", label: "↘" },
+const numpadDirectionChoices = [
+  { key: "7", label: "\u2196" },
+  { key: "8", label: "\u2191" },
+  { key: "9", label: "\u2197" },
+  { key: "4", label: "\u2190" },
+  { key: "5", label: "\u2022" },
+  { key: "6", label: "\u2192" },
+  { key: "1", label: "\u2199" },
+  { key: "2", label: "\u2193" },
+  { key: "3", label: "\u2198" },
 ];
+
+const viDirectionChoices = [
+  { key: "y", label: "\u2196" },
+  { key: "k", label: "\u2191" },
+  { key: "u", label: "\u2197" },
+  { key: "h", label: "\u2190" },
+  { key: ".", label: "\u2022" },
+  { key: "l", label: "\u2192" },
+  { key: "b", label: "\u2199" },
+  { key: "j", label: "\u2193" },
+  { key: "n", label: "\u2198" },
+];
+
+const getDirectionChoices = (numberPadModeEnabled: boolean) =>
+  numberPadModeEnabled ? numpadDirectionChoices : viDirectionChoices;
+
+const getDirectionHelpText = (numberPadModeEnabled: boolean) =>
+  numberPadModeEnabled
+    ? "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel"
+    : "Use hjkl/yubn, arrow keys, or click a direction. Press ESC to cancel";
 
 function expandChoiceSpec(spec: string): string[] {
   const normalized = String(spec || "")
@@ -353,6 +373,9 @@ export default function App(): JSX.Element {
   const playerStats = useGameStore((state) => state.playerStats);
   const question = useGameStore((state) => state.question);
   const directionQuestion = useGameStore((state) => state.directionQuestion);
+  const numberPadModeEnabled = useGameStore(
+    (state) => state.numberPadModeEnabled,
+  );
   const infoMenu = useGameStore((state) => state.infoMenu);
   const inventory = useGameStore((state) => state.inventory);
   const textInputRequest = useGameStore((state) => state.textInput);
@@ -1021,7 +1044,7 @@ export default function App(): JSX.Element {
         <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
           <div className="nh3d-direction-text">{directionQuestion}</div>
           <div className="nh3d-direction-grid">
-            {directionChoices.map((direction) => (
+            {getDirectionChoices(numberPadModeEnabled).map((direction) => (
               <button
                 className="nh3d-direction-button"
                 key={direction.key}
@@ -1034,7 +1057,7 @@ export default function App(): JSX.Element {
             ))}
           </div>
           <div className="nh3d-dialog-hint">
-            Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel
+            {getDirectionHelpText(numberPadModeEnabled)}
           </div>
           <div className="nh3d-menu-actions">
             <button
@@ -1286,3 +1309,5 @@ export default function App(): JSX.Element {
     </>
   );
 }
+
+

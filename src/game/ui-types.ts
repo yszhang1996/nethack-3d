@@ -86,6 +86,7 @@ export interface Nethack3DEngineUIAdapter {
   setPlayerStats(stats: PlayerStatsSnapshot): void;
   setQuestion(state: QuestionDialogState | null): void;
   setDirectionQuestion(question: string | null): void;
+  setNumberPadModeEnabled(enabled: boolean): void;
   setInfoMenu(state: InfoMenuState | null): void;
   setInventory(state: InventoryDialogState): void;
   setTextInput(state: TextInputRequestState | null): void;

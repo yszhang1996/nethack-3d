@@ -44,6 +44,7 @@ class LocalNetHackRuntime {
     this.positionCursor = null;
     this.activeInputRequest = null;
     this.awaitingQuestionInput = false;
+    this.numberPadModeEnabled = true;
     this.metaInputPrefix = "__META__:";
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.textInputPrefix = "__TEXT_INPUT__:";
@@ -975,6 +976,10 @@ class LocalNetHackRuntime {
       }
     }
 
+    if (this.awaitingQuestionInput) {
+      this.updateNumberPadModeFromInput(key);
+    }
+
     return this.processKey(key);
   }
 
@@ -1127,20 +1132,33 @@ class LocalNetHackRuntime {
       return ".".charCodeAt(0);
     }
 
-    // With number_pad:1 option, translate arrow keys to numpad equivalents
-    if (key === "ArrowLeft") return "4".charCodeAt(0);
-    if (key === "ArrowRight") return "6".charCodeAt(0);
-    if (key === "ArrowUp") return "8".charCodeAt(0);
-    if (key === "ArrowDown") return "2".charCodeAt(0);
-    if (key === "Numpad1") return "1".charCodeAt(0);
-    if (key === "Numpad2") return "2".charCodeAt(0);
-    if (key === "Numpad3") return "3".charCodeAt(0);
-    if (key === "Numpad4") return "4".charCodeAt(0);
-    if (key === "Numpad5") return "5".charCodeAt(0);
-    if (key === "Numpad6") return "6".charCodeAt(0);
-    if (key === "Numpad7") return "7".charCodeAt(0);
-    if (key === "Numpad8") return "8".charCodeAt(0);
-    if (key === "Numpad9") return "9".charCodeAt(0);
+    // Translate directional keys based on number_pad mode.
+    if (key === "ArrowLeft")
+      return (this.numberPadModeEnabled ? "4" : "h").charCodeAt(0);
+    if (key === "ArrowRight")
+      return (this.numberPadModeEnabled ? "6" : "l").charCodeAt(0);
+    if (key === "ArrowUp")
+      return (this.numberPadModeEnabled ? "8" : "k").charCodeAt(0);
+    if (key === "ArrowDown")
+      return (this.numberPadModeEnabled ? "2" : "j").charCodeAt(0);
+    if (key === "Numpad1")
+      return (this.numberPadModeEnabled ? "1" : "b").charCodeAt(0);
+    if (key === "Numpad2")
+      return (this.numberPadModeEnabled ? "2" : "j").charCodeAt(0);
+    if (key === "Numpad3")
+      return (this.numberPadModeEnabled ? "3" : "n").charCodeAt(0);
+    if (key === "Numpad4")
+      return (this.numberPadModeEnabled ? "4" : "h").charCodeAt(0);
+    if (key === "Numpad5")
+      return (this.numberPadModeEnabled ? "5" : ".").charCodeAt(0);
+    if (key === "Numpad6")
+      return (this.numberPadModeEnabled ? "6" : "l").charCodeAt(0);
+    if (key === "Numpad7")
+      return (this.numberPadModeEnabled ? "7" : "y").charCodeAt(0);
+    if (key === "Numpad8")
+      return (this.numberPadModeEnabled ? "8" : "k").charCodeAt(0);
+    if (key === "Numpad9")
+      return (this.numberPadModeEnabled ? "9" : "u").charCodeAt(0);
     if (key === "Enter") return 13;
     if (key === "Escape") return 27;
     if (key.length > 0) return key.charCodeAt(0);
@@ -1221,7 +1239,16 @@ class LocalNetHackRuntime {
         input === "Y" ||
         input === "U" ||
         input === "B" ||
-        input === "N"
+        input === "N" ||
+        (this.numberPadModeEnabled &&
+          (input === "1" ||
+            input === "2" ||
+            input === "3" ||
+            input === "4" ||
+            input === "6" ||
+            input === "7" ||
+            input === "8" ||
+            input === "9"))
       );
     }
 
@@ -1409,6 +1436,31 @@ class LocalNetHackRuntime {
       return "";
     }
     return question.trim().toLowerCase();
+  }
+
+  isNumberPadModeQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    if (!normalized) {
+      return false;
+    }
+    return normalized.startsWith("select number_pad mode");
+  }
+
+  updateNumberPadModeFromInput(input) {
+    if (!this.isNumberPadModeQuestion(this.lastQuestionText)) {
+      return;
+    }
+    const normalized =
+      typeof input === "string" && input.startsWith("Numpad")
+        ? input.slice("Numpad".length)
+        : input;
+    if (normalized === "0") {
+      this.numberPadModeEnabled = false;
+      return;
+    }
+    if (normalized === "1" || normalized === "2") {
+      this.numberPadModeEnabled = true;
+    }
   }
 
   isLookAtMenuQuestion(question) {
@@ -3481,6 +3533,21 @@ class LocalNetHackRuntime {
         console.log(
           `Queued status update ${fieldName} (${field}) => ${decoded.value} [type=${decoded.valueType}, fallback=${decoded.usedFallback}]`,
         );
+        return 0;
+
+      case "shim_number_pad":
+        const [numberPadMode] = args;
+        this.numberPadModeEnabled = Number(numberPadMode) !== 0;
+        console.log(
+          `Number pad mode callback: ${numberPadMode} (enabled=${this.numberPadModeEnabled})`,
+        );
+        if (this.eventHandler) {
+          this.emit({
+            type: "number_pad_mode",
+            enabled: this.numberPadModeEnabled,
+            mode: numberPadMode,
+          });
+        }
         return 0;
 
       default:

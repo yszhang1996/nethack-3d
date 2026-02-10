@@ -38,6 +38,9 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     setDirectionQuestion(question: string | null): void {
       useGameStore.getState().setDirectionQuestion(question);
     },
+    setNumberPadModeEnabled(enabled: boolean): void {
+      useGameStore.getState().setNumberPadModeEnabled(enabled);
+    },
     setInfoMenu(state: InfoMenuState | null): void {
       useGameStore.getState().setInfoMenu(state);
     },
