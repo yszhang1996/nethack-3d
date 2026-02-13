@@ -39,5 +39,10 @@ Start here before making changes.
   - tile refresh commands
   - question dialogs (including direction and inventory flows)
 
+## Reference NetHack for information about shims and NetHack game behavior
+
+- If not found at .tmp/nethack-upstream, the git is here: https://github.com/NetHack/NetHack
+
 ## Do not run the build
+
 - The user will run the build and validate all went well.

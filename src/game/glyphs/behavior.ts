@@ -10,7 +10,7 @@ import type {
   TileMaterialKind,
 } from "./types";
 
-const PLAYER_GLYPH_MIN = 331;
+const PLAYER_GLYPH_MIN = 330;
 const PLAYER_GLYPH_MAX = 360;
 
 const DARK_OVERLAY_GLYPHS = new Set([2377, 2397, 2398]);

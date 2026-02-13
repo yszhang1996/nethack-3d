@@ -1123,8 +1123,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
 
         // Create a fake player glyph at the new position to ensure visual update
-        // Use a typical player glyph number (around 331-360 range)
-        this.updateTile(data.newPosition.x, data.newPosition.y, 331, "@", 0);
+        // Use a typical player glyph number (runtime commonly reports 330 for @).
+        this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
         console.log(
           `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
         );
