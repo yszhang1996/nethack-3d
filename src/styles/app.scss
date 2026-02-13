@@ -958,14 +958,15 @@ canvas {
 }
 
 .nh3d-mobile-bottom-bar {
+  --nh3d-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--nh3d-safe-area-bottom);
   z-index: 1900;
   display: flex;
   gap: 6px;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  padding: 6px 8px;
   background: linear-gradient(
     180deg,
     rgba(0, 0, 0, 0.88) 0%,
@@ -975,6 +976,16 @@ canvas {
   box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.5);
 }
 
+.nh3d-mobile-bottom-bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: var(--nh3d-safe-area-bottom);
+  background: rgba(0, 0, 0, 0.97);
+  pointer-events: none;
+}
 .nh3d-mobile-bottom-button {
   flex: 1 1 0;
   min-height: 38px;
@@ -1218,3 +1229,4 @@ canvas {
     max-width: calc(100vw - 50px);
   }
 }
+
