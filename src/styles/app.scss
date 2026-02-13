@@ -959,7 +959,8 @@ canvas {
 }
 
 .nh3d-mobile-bottom-bar {
-  --nh3d-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --nh3d-safe-area-bottom-raw: env(safe-area-inset-bottom, 0px);
+  --nh3d-safe-area-bottom: min(var(--nh3d-safe-area-bottom-raw), 15px);
   position: fixed;
   left: 0;
   right: 0;
