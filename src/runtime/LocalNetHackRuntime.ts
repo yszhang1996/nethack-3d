@@ -39,6 +39,8 @@ class LocalNetHackRuntime {
 
     this.inputBroker = new RuntimeInputBroker();
     this.farLookMode = "none"; // none | armed | active
+    this.farLookOrigin = null; // null | "direct" | "look_menu"
+    this.pendingLookMenuFarLookArm = false;
     this.pendingTextResponses = [];
     this.positionInputActive = false;
     this.positionCursor = null;
@@ -227,6 +229,8 @@ class LocalNetHackRuntime {
     this.inputBroker.drain();
     this.pendingTextResponses = [];
     this.farLookMode = "none";
+    this.farLookOrigin = null;
+    this.pendingLookMenuFarLookArm = false;
     this.setPositionInputActive(false);
     this.activeInputRequest = null;
     this.menuSelections.clear();
@@ -929,8 +933,11 @@ class LocalNetHackRuntime {
       requestKind === "position" &&
       this.applyMouseTokenToPoskeyRequest(token, requestContext)
     ) {
-      if (this.farLookMode === "active") {
+      // "/" -> "/" look mode can stay active after a click while NetHack asks
+      // for additional description details. Keep UI position mode aligned.
+      if (this.farLookMode === "active" && this.farLookOrigin !== "look_menu") {
         this.farLookMode = "none";
+        this.farLookOrigin = null;
         this.setPositionInputActive(false);
       }
       return 0;
@@ -963,8 +970,16 @@ class LocalNetHackRuntime {
     if (this.farLookMode === "none" && this.isPositionModeInitiatorInput(key)) {
       // ";" can be consumed through either event or position requests.
       this.farLookMode = "armed";
+      this.farLookOrigin = this.pendingLookMenuFarLookArm
+        ? "look_menu"
+        : "direct";
+      this.pendingLookMenuFarLookArm = false;
     } else if (requestKind === "event" && this.farLookMode === "armed") {
       this.farLookMode = "none";
+      this.farLookOrigin = null;
+      this.pendingLookMenuFarLookArm = false;
+    } else if (this.pendingLookMenuFarLookArm) {
+      this.pendingLookMenuFarLookArm = false;
     }
 
     if (requestKind === "position" && this.farLookMode === "active") {
@@ -972,6 +987,7 @@ class LocalNetHackRuntime {
         this.isFarLookExitInput(key) || !this.isDirectionalMovementInput(key);
       if (shouldExitFarLook) {
         this.farLookMode = "none";
+        this.farLookOrigin = null;
         this.setPositionInputActive(false);
       }
     }
@@ -1533,6 +1549,7 @@ class LocalNetHackRuntime {
 
   getMenuSelectionWakeInput(menuItem) {
     if (this.isLookAtMapMenuSelection(menuItem)) {
+      this.pendingLookMenuFarLookArm = true;
       console.log(
         "Look menu map selection detected; using ';' wake input to arm far-look mode",
       );
