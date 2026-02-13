@@ -2597,15 +2597,26 @@ class LocalNetHackRuntime {
   handleShimGetlin(args) {
     const [question, bufferPtr] = args;
     console.log(`Text input requested: "${question}"`);
+    const resolvedBufferPtr = this.resolveTextInputBufferPointer(bufferPtr);
+    if (!resolvedBufferPtr) {
+      console.log(
+        `Unable to resolve getlin buffer pointer (raw=${bufferPtr}); returning empty response`,
+      );
+      return 0;
+    }
 
     if (this.pendingTextResponses.length > 0) {
       const queued = String(this.pendingTextResponses.shift() || "");
-      this.writeTextInputBuffer(bufferPtr, queued, this.textInputMaxLength);
+      this.writeTextInputBuffer(
+        resolvedBufferPtr,
+        queued,
+        this.textInputMaxLength,
+      );
       return 0;
     }
 
     if (!this.eventHandler) {
-      this.writeTextInputBuffer(bufferPtr, "", this.textInputMaxLength);
+      this.writeTextInputBuffer(resolvedBufferPtr, "", this.textInputMaxLength);
       return 0;
     }
 
@@ -2621,7 +2632,7 @@ class LocalNetHackRuntime {
 
     return new Promise((resolve) => {
       this.pendingTextRequest = {
-        bufferPtr,
+        bufferPtr: resolvedBufferPtr,
         resolve,
         maxLength: this.textInputMaxLength,
       };
