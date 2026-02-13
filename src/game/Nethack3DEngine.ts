@@ -98,6 +98,7 @@ type BloodMistParticle = {
 };
 
 type DamageNumberParticle = {
+  kind: "damage" | "heal";
   sprite: THREE.Sprite;
   velocity: THREE.Vector3;
   ageMs: number;
@@ -233,9 +234,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isRightMouseDown: boolean = false;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
-  private touchSwipeStart:
-    | { x: number; y: number; startedAtMs: number }
-    | null = null;
+  private touchSwipeStart: {
+    x: number;
+    y: number;
+    startedAtMs: number;
+  } | null = null;
   private readonly touchSwipeMinDistancePx: number = 26;
   private readonly touchSwipeMaxDurationMs: number = 720;
   private minDistance: number = 5;
@@ -257,7 +260,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraFollowTarget = new THREE.Vector3();
   private cameraFollowCurrent = new THREE.Vector3();
   private lastFrameTimeMs: number | null = null;
-  private hasReceivedHpStatus: boolean = false;
+  private lastKnownPlayerHp: number | null = null;
   private pendingCharacterDamageQueue: PendingCharacterDamage[] = [];
   private readonly pendingCharacterDamageMaxAgeMs: number = 420;
   private readonly glyphDamageFlashDurationMs: number = 180;
@@ -294,6 +297,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
+  private readonly playerDamageNumberFadeDelayMs: number = 250;
+  private readonly playerHealNumberLifetimeMs: number = 1200;
+  private readonly playerHealNumberFadeDelayMs: number = 250;
   private readonly playerDamageNumberWallBounce: number = 0.35;
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.24;
@@ -1389,38 +1395,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
-  private isCombatDamageMessage(message: string): boolean {
-    if (
-      /\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\b/i.test(
-        message,
-      )
-    ) {
-      return true;
-    }
-    if (
-      /\byou\s+(?:hit|bite|kick|slash|strike|punch|shoot|zap)\b/i.test(message)
-    ) {
-      return true;
-    }
-    return /\btakes?\s+-?\d+\s+damage\b/i.test(message);
-  }
-
-  private isPlayerDamageVictimMessage(message: string): boolean {
-    if (
-      /\b(?:hits?|bites?|kicks?|claws?|slashes?|strikes?|punches?|shoots?|zaps?|burns?|stings?|mauls?|wounds?)\s+you\b/i.test(
-        message,
-      )
-    ) {
-      return true;
-    }
-    if (
-      /\byou\s+(?:take|suffer|receive|lose)\s+-?\d+\s+damage\b/i.test(message)
-    ) {
-      return true;
-    }
-    return /\byou are (?:hit|burned|zapped|injured|wounded)\b/i.test(message);
-  }
-
   private isPlayerAttackMessage(message: string): boolean {
     if (/\byou miss\b/i.test(message)) {
       return false;
@@ -1694,19 +1668,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const explicitPlayerHit = this.isPlayerHitMonsterMessage(normalized);
-    if (!explicitPlayerHit && !this.isCombatDamageMessage(normalized)) {
-      return;
-    }
-
-    if (this.isPlayerDamageVictimMessage(normalized)) {
+    const playerAttack =
+      explicitPlayerHit || this.isPlayerAttackMessage(normalized);
+    if (!playerAttack) {
       return;
     }
 
     let amount = this.extractDamageAmountFromMessage(normalized);
-    if (
-      !amount &&
-      (explicitPlayerHit || this.isPlayerAttackMessage(normalized))
-    ) {
+    if (!amount) {
       // No explicit number from NetHack? still produce a lightweight hit cue.
       amount = 1;
     }
@@ -2355,7 +2324,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return texture;
   }
 
-  private createDamageNumberTexture(label: string): {
+  private createDamageNumberTexture(
+    label: string,
+    options?: { fillStyle?: string; strokeStyle?: string },
+  ): {
     texture: THREE.CanvasTexture;
     aspectRatio: number;
   } {
@@ -2373,8 +2345,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     context.textBaseline = "middle";
     context.font = `900 ${Math.floor(size * 0.52)}px "Segoe UI", "Segoe UI Variable", sans-serif`;
     context.lineWidth = Math.max(3, Math.floor(size * 0.045));
-    context.strokeStyle = "rgba(18, 0, 0, 0.95)";
-    context.fillStyle = "#ff3a3a";
+    context.strokeStyle = options?.strokeStyle ?? "rgba(18, 0, 0, 0.95)";
+    context.fillStyle = options?.fillStyle ?? "#ff3a3a";
     context.strokeText(label, size / 2, size / 2);
     context.fillText(label, size / 2, size / 2);
 
@@ -2440,6 +2412,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
 
     this.playerDamageNumberParticles.push({
+      kind: "damage",
       sprite,
       velocity: new THREE.Vector3(
         Math.cos(launchAzimuthRad) * horizontalSpeed,
@@ -2448,6 +2421,57 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ),
       ageMs: 0,
       lifetimeMs: this.playerDamageNumberLifetimeMs,
+      radius: 0.09,
+      baseScale,
+    });
+  }
+
+  private spawnPlayerHealNumberParticle(
+    tileX: number,
+    tileY: number,
+    healAmount: number,
+  ): void {
+    const label = `+${Math.max(1, Math.round(Math.abs(healAmount)))}`;
+    const { texture, aspectRatio } = this.createDamageNumberTexture(label, {
+      fillStyle: "#5dff86",
+      strokeStyle: "rgba(0, 28, 0, 0.95)",
+    });
+    const material = new THREE.SpriteMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      toneMapped: false,
+    });
+    material.opacity = 1;
+
+    const sprite = new THREE.Sprite(material);
+    const scaleMultiplier = 2.3;
+    const scaleY = 0.42 * scaleMultiplier;
+    const widthTighten = 0.72;
+    const scaleX = THREE.MathUtils.clamp(
+      scaleY * aspectRatio * widthTighten,
+      0.26 * scaleMultiplier,
+      0.92 * scaleMultiplier,
+    );
+    const baseScale = new THREE.Vector2(scaleX, scaleY);
+    sprite.scale.set(baseScale.x, baseScale.y, 1);
+    sprite.position.set(
+      tileX * TILE_SIZE,
+      -tileY * TILE_SIZE,
+      this.damageParticleFloorZ + 0.24,
+    );
+    this.alignPlayerDamageNumberToCamera(sprite);
+    sprite.renderOrder = 940;
+    this.scene.add(sprite);
+
+    const verticalSpeed = 3.2 + Math.random() * 0.8;
+    this.playerDamageNumberParticles.push({
+      kind: "heal",
+      sprite,
+      velocity: new THREE.Vector3(0, 0, verticalSpeed),
+      ageMs: 0,
+      lifetimeMs: this.playerHealNumberLifetimeMs,
       radius: 0.09,
       baseScale,
     });
@@ -2864,24 +2888,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       const particle = this.playerDamageNumberParticles[i];
       particle.ageMs += deltaMs;
-      particle.velocity.z -= this.playerDamageNumberGravity * deltaSeconds;
-      particle.velocity.x *= drag;
-      particle.velocity.y *= drag;
+      if (particle.kind === "damage") {
+        particle.velocity.z -= this.playerDamageNumberGravity * deltaSeconds;
+        particle.velocity.x *= drag;
+        particle.velocity.y *= drag;
+      }
 
       particle.sprite.position.x += particle.velocity.x * deltaSeconds;
       particle.sprite.position.y += particle.velocity.y * deltaSeconds;
       particle.sprite.position.z += particle.velocity.z * deltaSeconds;
+      if (particle.kind === "heal") {
+        particle.sprite.position.x = this.playerPos.x * TILE_SIZE;
+        particle.sprite.position.y = -this.playerPos.y * TILE_SIZE;
+      }
       this.alignPlayerDamageNumberToCamera(particle.sprite);
 
-      this.resolvePlayerDamageNumberWallCollision(particle);
+      if (particle.kind === "damage") {
+        this.resolvePlayerDamageNumberWallCollision(particle);
 
-      if (particle.sprite.position.z < this.damageParticleFloorZ) {
-        particle.sprite.position.z = this.damageParticleFloorZ;
-        if (particle.velocity.z < 0) {
-          particle.velocity.z *= -0.22;
+        if (particle.sprite.position.z < this.damageParticleFloorZ) {
+          particle.sprite.position.z = this.damageParticleFloorZ;
+          if (particle.velocity.z < 0) {
+            particle.velocity.z *= -0.22;
+          }
+          particle.velocity.x *= 0.82;
+          particle.velocity.y *= 0.82;
         }
-        particle.velocity.x *= 0.82;
-        particle.velocity.y *= 0.82;
       }
 
       const material = particle.sprite.material;
@@ -2895,7 +2927,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
         0,
         1,
       );
-      material.opacity = Math.max(0, 1 - lifeT * lifeT);
+      if (particle.kind === "heal") {
+        const fadeDelayMs = this.playerHealNumberFadeDelayMs;
+        const fadeDurationMs = Math.max(1, particle.lifetimeMs - fadeDelayMs);
+        const fadeT = THREE.MathUtils.clamp(
+          (particle.ageMs - fadeDelayMs) / fadeDurationMs,
+          0,
+          1,
+        );
+        material.opacity = Math.max(0, 1 - fadeT * 1.4);
+      } else {
+        const fadeDelayMs = this.playerDamageNumberFadeDelayMs;
+        const fadeDurationMs = Math.max(1, particle.lifetimeMs - fadeDelayMs);
+        const fadeT = THREE.MathUtils.clamp(
+          (particle.ageMs - fadeDelayMs) / fadeDurationMs,
+          0,
+          1,
+        );
+        material.opacity = Math.max(0, 1 - fadeT * fadeT);
+      }
 
       const scaleBoost = 1 + (1 - lifeT) * 0.08;
       particle.sprite.scale.set(
@@ -3063,6 +3113,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.clearTileRevealFades();
+    this.lastKnownPlayerHp = null;
     this.positionInputModeActive = false;
     this.hasRuntimePositionCursor = false;
     this.clearPositionCursor();
@@ -3602,15 +3653,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     console.log(`Updating status ${mappedField}: ${parsedValue}`);
-    const previousHp = this.playerStats.hp;
     let playerDamageTaken: number | null = null;
+    let playerHealingGained: number | null = null;
     if (mappedField === "hp" && typeof parsedValue === "number") {
-      const parsedChange = Number(data?.chg);
-      if (this.hasReceivedHpStatus) {
-        if (Number.isFinite(parsedChange) && parsedChange < 0) {
-          playerDamageTaken = Math.round(Math.abs(parsedChange));
-        } else if (parsedValue < previousHp) {
+      const previousHp = this.lastKnownPlayerHp;
+      if (typeof previousHp === "number" && Number.isFinite(previousHp)) {
+        if (parsedValue < previousHp) {
           playerDamageTaken = Math.round(previousHp - parsedValue);
+        } else if (parsedValue > previousHp) {
+          playerHealingGained = Math.round(parsedValue - previousHp);
         }
       }
     }
@@ -3626,12 +3677,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (mappedField === "hp") {
-      this.hasReceivedHpStatus = true;
+      this.lastKnownPlayerHp = parsedValue;
       if (playerDamageTaken && playerDamageTaken > 0) {
         this.triggerDamageEffectsAtTile(
           this.playerPos.x,
           this.playerPos.y,
           playerDamageTaken,
+        );
+      }
+      if (playerHealingGained && playerHealingGained > 0) {
+        this.spawnPlayerHealNumberParticle(
+          this.playerPos.x,
+          this.playerPos.y,
+          playerHealingGained,
         );
       }
     }
@@ -5778,7 +5836,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   public runQuickAction(actionId: string): void {
-    const normalizedActionId = String(actionId || "").trim().toLowerCase();
+    const normalizedActionId = String(actionId || "")
+      .trim()
+      .toLowerCase();
     if (!normalizedActionId || !this.session) {
       return;
     }
@@ -5829,7 +5889,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   public runExtendedCommand(commandText: string): void {
-    const normalizedCommandText = String(commandText || "").trim().toLowerCase();
+    const normalizedCommandText = String(commandText || "")
+      .trim()
+      .toLowerCase();
     if (!normalizedCommandText || !this.session) {
       return;
     }
@@ -6694,10 +6756,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
               this.moveQuestionActionFocus(-1);
               return;
             }
-            if (effectiveDirection === "left") {
-              this.moveQuestionActionFocus(-1);
-              return;
-            }
             if (
               effectiveDirection === "right" ||
               effectiveDirection === "down"
@@ -6802,18 +6860,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
               }
             }
             const selectableItems = this.getVisiblePickupSelectableMenuItems();
-          if (isActionFocused) {
-            if (effectiveDirection === "up") {
-              this.clearQuestionActionFocus();
-              if (selectableItems.length > 0) {
-                this.activeQuestionMenuFocusIndex =
-                  selectableItems.length - 1;
-              }
-              this.updateQuestionMenuFocusVisualState();
-              return;
-            }
-            if (effectiveDirection === "left") {
-              if (this.activeQuestionActionFocusIndex <= 0) {
+            if (isActionFocused) {
+              if (effectiveDirection === "up") {
                 this.clearQuestionActionFocus();
                 if (selectableItems.length > 0) {
                   this.activeQuestionMenuFocusIndex =
@@ -6822,15 +6870,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 this.updateQuestionMenuFocusVisualState();
                 return;
               }
-              this.moveQuestionActionFocus(-1);
-              return;
-            }
-            if (effectiveDirection === "left") {
-              this.moveQuestionActionFocus(-1);
-              return;
-            }
-            if (
-              effectiveDirection === "right" ||
+              if (effectiveDirection === "left") {
+                if (this.activeQuestionActionFocusIndex <= 0) {
+                  this.clearQuestionActionFocus();
+                  if (selectableItems.length > 0) {
+                    this.activeQuestionMenuFocusIndex =
+                      selectableItems.length - 1;
+                  }
+                  this.updateQuestionMenuFocusVisualState();
+                  return;
+                }
+                this.moveQuestionActionFocus(-1);
+                return;
+              }
+              if (effectiveDirection === "left") {
+                this.moveQuestionActionFocus(-1);
+                return;
+              }
+              if (
+                effectiveDirection === "right" ||
                 effectiveDirection === "down"
               ) {
                 this.moveQuestionActionFocus(1);
@@ -7479,7 +7537,3 @@ class Nethack3DEngine implements Nethack3DEngineController {
 }
 
 export default Nethack3DEngine;
-
-
-
-
