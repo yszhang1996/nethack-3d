@@ -4962,14 +4962,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return `${normalizedChoice}) ${itemText}`;
   }
 
-  private getDirectionChoiceSet(): Array<{ key: string; label: string }> {
+  private getDirectionChoiceSet(): Array<{
+    key?: string;
+    label?: string;
+    spacer?: boolean;
+  }> {
     if (this.numberPadModeEnabled) {
       return [
         { key: "7", label: "\u2196" },
         { key: "8", label: "\u2191" },
         { key: "9", label: "\u2197" },
         { key: "4", label: "\u2190" },
-        { key: "5", label: "\u2022" },
+        { spacer: true },
         { key: "6", label: "\u2192" },
         { key: "1", label: "\u2199" },
         { key: "2", label: "\u2193" },
@@ -4982,7 +4986,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       { key: "k", label: "\u2191" },
       { key: "u", label: "\u2197" },
       { key: "h", label: "\u2190" },
-      { key: ".", label: "\u2022" },
+      { spacer: true },
       { key: "l", label: "\u2192" },
       { key: "b", label: "\u2199" },
       { key: "j", label: "\u2193" },
@@ -4990,10 +4994,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ];
   }
 
+  private getDirectionAuxChoiceSet(): Array<{ key: string; label: string }> {
+    return [
+      { key: "<", label: "UP" },
+      { key: "s", label: "SELF" },
+      { key: ">", label: "DOWN" },
+    ];
+  }
+
   private getDirectionHelpText(): string {
     return this.numberPadModeEnabled
-      ? "Use numpad (1-9), arrow keys, or click a direction. Press ESC to cancel"
-      : "Use hjkl/yubn, arrow keys, or click a direction. Press ESC to cancel";
+      ? "Use numpad (1-4,6-9), arrow keys, <, >, or s. Press ESC to cancel"
+      : "Use hjkl/yubn, arrow keys, <, >, or s. Press ESC to cancel";
   }
 
   private showDirectionQuestion(question: string): void {
@@ -5030,9 +5042,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const directions = this.getDirectionChoiceSet();
 
     directions.forEach((dir) => {
+      if (dir.spacer || !dir.key || !dir.label) {
+        const spacer = document.createElement("div");
+        spacer.className = "nh3d-direction-spacer";
+        spacer.setAttribute("aria-hidden", "true");
+        directionsContainer.appendChild(spacer);
+        return;
+      }
+
       const button = document.createElement("button");
       button.className = "nh3d-direction-button";
-      button.innerHTML = `<div class="nh3d-direction-symbol">${dir.label}</div><div class="nh3d-direction-key">${dir.key}</div>`;
+      const symbol = document.createElement("div");
+      symbol.className = "nh3d-direction-symbol";
+      symbol.textContent = dir.label;
+      const key = document.createElement("div");
+      key.className = "nh3d-direction-key";
+      key.textContent = dir.key;
+      button.appendChild(symbol);
+      button.appendChild(key);
 
       button.onclick = () => {
         this.sendInput(dir.key);
@@ -5043,6 +5070,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
 
     directionDialog.appendChild(directionsContainer);
+
+    const auxDirectionsContainer = document.createElement("div");
+    auxDirectionsContainer.className = "nh3d-direction-extra-row";
+    const auxDirections = this.getDirectionAuxChoiceSet();
+
+    auxDirections.forEach((dir) => {
+      const button = document.createElement("button");
+      button.className = "nh3d-direction-button nh3d-direction-button-extra";
+      const symbol = document.createElement("div");
+      symbol.className = "nh3d-direction-symbol";
+      symbol.textContent = dir.label;
+      const key = document.createElement("div");
+      key.className = "nh3d-direction-key";
+      key.textContent = dir.key;
+      button.appendChild(symbol);
+      button.appendChild(key);
+
+      button.onclick = () => {
+        this.sendInput(dir.key);
+        this.hideDirectionQuestion();
+      };
+
+      auxDirectionsContainer.appendChild(button);
+    });
+
+    directionDialog.appendChild(auxDirectionsContainer);
 
     // Add escape instruction
     const escapeText = document.createElement("div");

@@ -503,6 +503,14 @@ canvas {
   margin: 20px 0;
 }
 
+.nh3d-direction-extra-row {
+  display: grid;
+  grid-template-columns: repeat(3, 80px);
+  gap: 5px;
+  justify-content: center;
+  margin: -8px 0 12px;
+}
+
 .nh3d-direction-button {
   width: 80px;
   height: 80px;
@@ -525,6 +533,11 @@ canvas {
   background: #666;
 }
 
+.nh3d-direction-spacer {
+  width: 80px;
+  height: 80px;
+}
+
 .nh3d-direction-symbol {
   font-size: 24px;
   margin-bottom: 2px;
@@ -532,6 +545,21 @@ canvas {
 
 .nh3d-direction-key {
   font-size: 14px;
+}
+
+.nh3d-direction-button-extra {
+  height: 58px;
+}
+
+.nh3d-direction-button-extra .nh3d-direction-symbol {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  margin-bottom: 1px;
+}
+
+.nh3d-direction-button-extra .nh3d-direction-key {
+  font-size: 18px;
+  line-height: 1;
 }
 
 .nh3d-info-title {
@@ -1207,9 +1235,24 @@ canvas {
     gap: 6px;
   }
 
+  .nh3d-direction-extra-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+    margin: -4px 0 12px;
+  }
+
   .nh3d-direction-button {
     width: 100%;
     height: 68px;
+  }
+
+  .nh3d-direction-spacer {
+    width: 100%;
+    height: 68px;
+  }
+
+  .nh3d-direction-button-extra {
+    height: 56px;
   }
 
   .nh3d-menu-actions,
