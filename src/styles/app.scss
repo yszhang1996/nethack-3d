@@ -1274,6 +1274,15 @@ canvas {
     min-width: 120px;
   }
 
+  /* Hide keyboard-centric helper copy on mobile modal/window UI. */
+  .nh3d-dialog-hint,
+  .nh3d-info-hint,
+  .nh3d-inventory-keybinds-title,
+  .nh3d-inventory-keybinds,
+  .nh3d-inventory-close {
+    display: none;
+  }
+
   .nh3d-mobile-actions-sheet {
     left: 8px;
     right: 8px;
