@@ -1,6 +1,7 @@
 /* Camera follow tuning consumed by the Three.js engine */
 :root {
   --camera-follow-half-life-ms: 85;
+  --nh3d-safe-area-top: env(safe-area-inset-top, 0px);
 }
 
 /* Basic page styling to make the canvas fill the screen */
@@ -39,7 +40,7 @@ canvas {
 
 .top-left-ui {
   position: fixed;
-  top: 20px;
+  top: calc(20px + var(--nh3d-safe-area-top));
   left: 10px;
   background: rgba(0, 0, 0, 0.8);
   color: #00ff00;
@@ -203,7 +204,7 @@ canvas {
 }
 
 .top-left-ui.with-stats {
-  top: 65px;
+  top: calc(65px + var(--nh3d-safe-area-top));
 }
 
 #floating-log-message-layer {
@@ -852,7 +853,7 @@ canvas {
 
 #stats-bar {
   position: fixed;
-  top: 0;
+  top: var(--nh3d-safe-area-top);
   left: 0;
   right: 0;
   background: linear-gradient(
@@ -1229,4 +1230,3 @@ canvas {
     max-width: calc(100vw - 50px);
   }
 }
-

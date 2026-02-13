@@ -38,3 +38,6 @@ Start here before making changes.
   - player position updates
   - tile refresh commands
   - question dialogs (including direction and inventory flows)
+
+## Do not run the build
+- The user will run the build and validate all went well.
