@@ -737,7 +737,7 @@ export default function App(): JSX.Element {
 
       {!isMobileGameRunning ? (
         <div className="top-left-ui with-stats">
-          <div id="game-status">{statusText}</div>
+          {!isMobileViewport ? <div id="game-status">{statusText}</div> : null}
           <div id="game-log">
             {gameMessages.map((message, index) => (
               <div key={`${index}-${message}`}>{message}</div>
@@ -821,6 +821,9 @@ export default function App(): JSX.Element {
           <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
             T:{playerStats.time}
           </div>
+          <div className="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">
+            $:{playerStats.gold}
+          </div>
         </div>
         <div className="nh3d-stats-group nh3d-stats-group-secondary">
           <div className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">
@@ -829,7 +832,9 @@ export default function App(): JSX.Element {
           <div className="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">
             Exp:{playerStats.experience}
           </div>
-          <div className="nh3d-stats-secondary-gold">$:{playerStats.gold}</div>
+          <div className="nh3d-stats-secondary-gold nh3d-stats-desktop-secondary">
+            $:{playerStats.gold}
+          </div>
           <div className="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">
             T:{playerStats.time}
           </div>

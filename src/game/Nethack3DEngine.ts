@@ -3772,12 +3772,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         <div class="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">AC:${this.playerStats.armor}</div>
         <div class="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">Exp:${this.playerStats.experience}</div>
         <div class="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">T:${this.playerStats.time}</div>
+        <div class="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">$:${this.playerStats.gold}</div>
       </div>
 
       <div class="nh3d-stats-group nh3d-stats-group-secondary">
         <div class="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">AC:${this.playerStats.armor}</div>
         <div class="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">Exp:${this.playerStats.experience}</div>
-        <div class="nh3d-stats-secondary-gold">$:${this.playerStats.gold}</div>
+        <div class="nh3d-stats-secondary-gold nh3d-stats-desktop-secondary">$:${this.playerStats.gold}</div>
         <div class="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">T:${this.playerStats.time}</div>
         <div class="nh3d-stats-hunger nh3d-stats-desktop-secondary">${this.playerStats.hunger}${
           this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""

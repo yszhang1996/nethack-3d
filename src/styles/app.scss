@@ -1186,7 +1186,7 @@ canvas {
   }
 
   #stats-bar .nh3d-stats-group-secondary {
-    flex: 0 0 auto;
+    display: none;
   }
 
   #stats-bar .nh3d-stats-mobile-inline-secondary {
@@ -1198,7 +1198,7 @@ canvas {
   }
 
   #stats-bar .nh3d-stats-location {
-    flex: 1 1 auto;
+    flex: 1 1 100%;
     text-align: left;
   }
 
@@ -1226,6 +1226,10 @@ canvas {
     min-width: 0;
     max-width: none;
     width: calc(100vw - 50px);
+  }
+
+  .nh3d-info-body {
+    font-size: 10px;
   }
 
   #character-setup-dialog {
