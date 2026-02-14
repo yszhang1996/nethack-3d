@@ -6,11 +6,6 @@
 import * as THREE from "three";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
-import CameraMotionWorkerBridge from "./camera/CameraMotionWorkerBridge";
-import type {
-  CameraMotionPose,
-  CameraMotionStateSnapshot,
-} from "./camera/types";
 import {
   isLoggingEnabled,
   logWithOriginal,
@@ -278,9 +273,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraFollowInitialized: boolean = false;
   private cameraFollowTarget = new THREE.Vector3();
   private cameraFollowCurrent = new THREE.Vector3();
-  private cameraMotionWorker: CameraMotionWorkerBridge | null = null;
-  private latestCameraMotionPose: CameraMotionPose | null = null;
-  private cameraMotionSyncScheduled: boolean = false;
   private lastFrameTimeMs: number | null = null;
   private lastKnownPlayerHp: number | null = null;
   private pendingCharacterDamageQueue: PendingCharacterDamage[] = [];
@@ -445,10 +437,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lightingWallOverlayTexture: THREE.CanvasTexture | null = null;
   private lightingWallOverlayCanvas: HTMLCanvasElement | null = null;
   private lightingWallOverlayContext: CanvasRenderingContext2D | null = null;
-  private lightingMaskCanvas: HTMLCanvasElement | null = null;
-  private lightingMaskContext: CanvasRenderingContext2D | null = null;
-  private lightingWallMaskCanvas: HTMLCanvasElement | null = null;
-  private lightingWallMaskContext: CanvasRenderingContext2D | null = null;
   private lightingOverlayGridMeta: {
     minX: number;
     maxX: number;
@@ -459,10 +447,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tilePixels: number;
   } | null = null;
   private lightingDirty: boolean = true;
-  private lightingMaskRevision: number = 1;
-  private lightingGridRevision: number = 0;
-  private lightingGridCache: LightingGrid | null = null;
-  private lightingCoverageRevision: number = 0;
   private readonly lightingRadiusTiles: number = 14;
   private readonly lightingTilePixels: number = 30;
   private readonly lightingFloorFalloffPower: number = 1.08;
@@ -491,11 +475,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lightingDirty = true;
   }
 
-  private markLightingMaskDirty(): void {
-    this.lightingMaskRevision += 1;
-    this.markLightingDirty();
-  }
-
   private isUndiscoveredKind(kind: string): boolean {
     return kind === "unexplored" || kind === "nothing";
   }
@@ -515,12 +494,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const wallMask = new Uint8Array(width * height);
 
     for (const mesh of this.tileMap.values()) {
-      const tileX = Number.isFinite(Number(mesh.userData?.tileX))
-        ? Math.trunc(Number(mesh.userData?.tileX))
-        : Math.round(mesh.position.x / TILE_SIZE);
-      const tileY = Number.isFinite(Number(mesh.userData?.tileY))
-        ? Math.trunc(Number(mesh.userData?.tileY))
-        : Math.round(-mesh.position.y / TILE_SIZE);
+      const tileX = Number(mesh.userData?.tileX);
+      const tileY = Number(mesh.userData?.tileY);
+      if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+        continue;
+      }
 
       const cellX = tileX - minX;
       const cellY = tileY - minY;
@@ -544,17 +522,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       knownMask,
       wallMask,
     };
-  }
-
-  private getLightingGrid(): LightingGrid | null {
-    if (this.lightingGridRevision === this.lightingMaskRevision) {
-      return this.lightingGridCache;
-    }
-
-    const rebuiltGrid = this.buildLightingGrid();
-    this.lightingGridCache = rebuiltGrid;
-    this.lightingGridRevision = this.lightingMaskRevision;
-    return rebuiltGrid;
   }
 
   private worldToLightingPixel(
@@ -632,12 +599,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lightingOverlayContext = null;
     this.lightingWallOverlayCanvas = null;
     this.lightingWallOverlayContext = null;
-    this.lightingMaskCanvas = null;
-    this.lightingMaskContext = null;
-    this.lightingWallMaskCanvas = null;
-    this.lightingWallMaskContext = null;
     this.lightingOverlayGridMeta = null;
-    this.lightingCoverageRevision = 0;
   }
 
   private ensureLightingOverlayResources(grid: LightingGrid): boolean {
@@ -654,10 +616,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !this.lightingWallOverlayTexture ||
       !this.lightingWallOverlayCanvas ||
       !this.lightingWallOverlayContext ||
-      !this.lightingMaskCanvas ||
-      !this.lightingMaskContext ||
-      !this.lightingWallMaskCanvas ||
-      !this.lightingWallMaskContext ||
       !this.lightingOverlayGridMeta ||
       this.lightingOverlayGridMeta.minX !== grid.minX ||
       this.lightingOverlayGridMeta.maxX !== grid.maxX ||
@@ -682,20 +640,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       wallCanvas.height = heightPixels;
       const wallContext = wallCanvas.getContext("2d");
       if (!wallContext) {
-        return false;
-      }
-      const maskCanvas = document.createElement("canvas");
-      maskCanvas.width = widthPixels;
-      maskCanvas.height = heightPixels;
-      const maskContext = maskCanvas.getContext("2d");
-      if (!maskContext) {
-        return false;
-      }
-      const wallMaskCanvas = document.createElement("canvas");
-      wallMaskCanvas.width = widthPixels;
-      wallMaskCanvas.height = heightPixels;
-      const wallMaskContext = wallMaskCanvas.getContext("2d");
-      if (!wallMaskContext) {
         return false;
       }
 
@@ -757,11 +701,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lightingWallOverlayTexture = wallTexture;
       this.lightingWallOverlayCanvas = wallCanvas;
       this.lightingWallOverlayContext = wallContext;
-      this.lightingMaskCanvas = maskCanvas;
-      this.lightingMaskContext = maskContext;
-      this.lightingWallMaskCanvas = wallMaskCanvas;
-      this.lightingWallMaskContext = wallMaskContext;
-      this.lightingCoverageRevision = 0;
       this.lightingOverlayGridMeta = {
         minX: grid.minX,
         maxX: grid.maxX,
@@ -779,63 +718,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lightingOverlayContext &&
       this.lightingWallOverlayTexture &&
       this.lightingWallOverlayCanvas &&
-      this.lightingWallOverlayContext &&
-      this.lightingMaskCanvas &&
-      this.lightingMaskContext &&
-      this.lightingWallMaskCanvas &&
-      this.lightingWallMaskContext,
+      this.lightingWallOverlayContext,
     );
-  }
-
-  private drawLightingCoverageMask(
-    context: CanvasRenderingContext2D,
-    canvas: HTMLCanvasElement,
-    coverageMask: Uint8Array,
-    grid: LightingGrid,
-  ): void {
-    const tilePixels = this.lightingTilePixels;
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = "#ffffff";
-
-    for (let cellY = 0; cellY < grid.height; cellY++) {
-      const pixelY = cellY * tilePixels;
-      for (let cellX = 0; cellX < grid.width; cellX++) {
-        const cellIndex = cellY * grid.width + cellX;
-        if (!coverageMask[cellIndex]) {
-          continue;
-        }
-        context.fillRect(cellX * tilePixels, pixelY, tilePixels, tilePixels);
-      }
-    }
-  }
-
-  private rebuildLightingCoverageMasks(grid: LightingGrid): void {
-    if (this.lightingCoverageRevision === this.lightingMaskRevision) {
-      return;
-    }
-    if (
-      !this.lightingMaskCanvas ||
-      !this.lightingMaskContext ||
-      !this.lightingWallMaskCanvas ||
-      !this.lightingWallMaskContext
-    ) {
-      return;
-    }
-
-    this.drawLightingCoverageMask(
-      this.lightingMaskContext,
-      this.lightingMaskCanvas,
-      grid.knownMask,
-      grid,
-    );
-    this.drawLightingCoverageMask(
-      this.lightingWallMaskContext,
-      this.lightingWallMaskCanvas,
-      grid.wallMask,
-      grid,
-    );
-
-    this.lightingCoverageRevision = this.lightingMaskRevision;
   }
 
   private renderLightingOverlay(grid: LightingGrid): void {
@@ -845,13 +729,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !this.lightingOverlayContext ||
       !this.lightingWallOverlayTexture ||
       !this.lightingWallOverlayCanvas ||
-      !this.lightingWallOverlayContext ||
-      !this.lightingMaskCanvas ||
-      !this.lightingWallMaskCanvas
+      !this.lightingWallOverlayContext
     ) {
       return;
     }
-    this.rebuildLightingCoverageMasks(grid);
 
     const playerPixel = this.worldToLightingPixel(
       grid,
@@ -859,10 +740,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lightingCenterCurrent.y,
     );
     const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
+    const tilePixels = this.lightingTilePixels;
     const renderLayer = (
       context: CanvasRenderingContext2D,
       canvas: HTMLCanvasElement,
-      coverageCanvas: HTMLCanvasElement,
+      coverageMask: Uint8Array,
     ): void => {
       const widthPixels = canvas.width;
       const heightPixels = canvas.height;
@@ -895,8 +777,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
       context.fill();
 
-      context.globalCompositeOperation = "destination-in";
-      context.drawImage(coverageCanvas, 0, 0);
+      context.globalCompositeOperation = "source-over";
+      for (let cellY = 0; cellY < grid.height; cellY++) {
+        const pixelY = cellY * tilePixels;
+        for (let cellX = 0; cellX < grid.width; cellX++) {
+          const cellIndex = cellY * grid.width + cellX;
+          if (coverageMask[cellIndex]) {
+            continue;
+          }
+          context.clearRect(cellX * tilePixels, pixelY, tilePixels, tilePixels);
+        }
+      }
       context.globalCompositeOperation = "source-over";
     };
 
@@ -904,13 +795,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     renderLayer(
       this.lightingOverlayContext,
       this.lightingOverlayCanvas,
-      this.lightingMaskCanvas,
+      grid.knownMask,
     );
     // Wall-top layer: cover wall cells only.
     renderLayer(
       this.lightingWallOverlayContext,
       this.lightingWallOverlayCanvas,
-      this.lightingWallMaskCanvas,
+      grid.wallMask,
     );
 
     this.lightingOverlayTexture.needsUpdate = true;
@@ -923,7 +814,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.lightingDirty = false;
 
-    const grid = this.getLightingGrid();
+    const grid = this.buildLightingGrid();
     if (!grid) {
       this.disposeLightingOverlay();
       return;
@@ -963,7 +854,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     // Yaw is in radians; start at 180 degrees to face the board correctly.
     this.cameraYaw = Math.PI;
-    this.initCameraMotionWorker();
   }
 
   private initThreeJS(): void {
@@ -1050,77 +940,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (Number.isFinite(parsed) && parsed > 0) {
       this.cameraFollowHalfLifeMs = parsed;
     }
-  }
-
-  private getCameraMotionStateSnapshot(): CameraMotionStateSnapshot {
-    return {
-      tileSize: TILE_SIZE,
-      playerX: this.playerPos.x,
-      playerY: this.playerPos.y,
-      cameraDistance: this.cameraDistance,
-      cameraPitch: this.cameraPitch,
-      cameraYaw: this.cameraYaw,
-      cameraPanX: this.cameraPanX,
-      cameraPanY: this.cameraPanY,
-      cameraPanTargetX: this.cameraPanTargetX,
-      cameraPanTargetY: this.cameraPanTargetY,
-      isCameraCenteredOnPlayer: this.isCameraCenteredOnPlayer,
-      cameraRecenteringInProgress: this.cameraRecenteringInProgress,
-      cameraPanHalfLifeMs: this.cameraPanHalfLifeMs,
-      cameraFollowHalfLifeMs: this.cameraFollowHalfLifeMs,
-      cameraRecenterFollowHalfLifeMs: this.cameraRecenterFollowHalfLifeMs,
-      cameraFollowInitialized: this.cameraFollowInitialized,
-      cameraFollowCurrentX: this.cameraFollowCurrent.x,
-      cameraFollowCurrentY: this.cameraFollowCurrent.y,
-    };
-  }
-
-  private syncCameraMotionWorkerState(): void {
-    if (!this.cameraMotionWorker) {
-      return;
-    }
-    this.cameraMotionWorker.syncState(this.getCameraMotionStateSnapshot());
-  }
-
-  private scheduleCameraMotionWorkerSync(): void {
-    if (!this.cameraMotionWorker || this.cameraMotionSyncScheduled) {
-      return;
-    }
-
-    this.cameraMotionSyncScheduled = true;
-    requestAnimationFrame(() => {
-      this.cameraMotionSyncScheduled = false;
-      this.syncCameraMotionWorkerState();
-    });
-  }
-
-  private initCameraMotionWorker(): void {
-    if (this.cameraMotionWorker) {
-      return;
-    }
-
-    this.cameraMotionWorker = new CameraMotionWorkerBridge(
-      (pose: CameraMotionPose) => {
-        this.latestCameraMotionPose = pose;
-      },
-    );
-    this.syncCameraMotionWorkerState();
-  }
-
-  private applyCameraMotionPose(pose: CameraMotionPose): void {
-    this.cameraPanX = pose.cameraPanX;
-    this.cameraPanY = pose.cameraPanY;
-    this.cameraRecenteringInProgress = pose.cameraRecenteringInProgress;
-    this.cameraFollowInitialized = pose.cameraFollowInitialized;
-    this.cameraFollowCurrent.set(
-      pose.cameraFollowCurrentX,
-      pose.cameraFollowCurrentY,
-      0,
-    );
-    this.cameraFollowTarget.set(pose.lookAtX, pose.lookAtY, 0);
-
-    this.camera.position.set(pose.cameraX, pose.cameraY, pose.cameraZ);
-    this.camera.lookAt(pose.lookAtX, pose.lookAtY, 0);
   }
 
   private ensureMinimapOverlay(): void {
@@ -1486,7 +1305,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanTargetY = targetWorldY + this.playerPos.y * TILE_SIZE;
     this.isCameraCenteredOnPlayer = false;
     this.cameraRecenteringInProgress = false;
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private recenterCameraOnPlayerIfNeeded(): void {
@@ -1497,7 +1315,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanTargetY = 0;
     this.isCameraCenteredOnPlayer = true;
     this.cameraRecenteringInProgress = true;
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private handleMinimapPointerDown(event: PointerEvent): void {
@@ -1752,7 +1569,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
         this.markLightingDirty();
-        this.scheduleCameraMotionWorkerSync();
         console.log(
           `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`,
         );
@@ -1780,7 +1596,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
         this.markLightingDirty();
-        this.scheduleCameraMotionWorkerSync();
 
         // Clear the old player visual position by redrawing it as floor
         const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
@@ -3840,7 +3655,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
     this.resetMinimap();
-    this.markLightingMaskDirty();
+    this.markLightingDirty();
 
     console.log("🧹 Scene cleared - ready for new level");
   }
@@ -3965,7 +3780,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.glyphOverlayMap.delete(key);
       }
       this.queueMinimapTileUpdate(x, y, behavior, true);
-      this.markLightingMaskDirty();
+      this.markLightingDirty();
       return;
     }
 
@@ -3981,7 +3796,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const oldPos = { ...this.playerPos };
       this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
       this.playerPos = { x, y };
-      this.scheduleCameraMotionWorkerSync();
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
@@ -4037,7 +3851,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
     this.queueMinimapTileUpdate(x, y, behavior, false);
-    this.markLightingMaskDirty();
+    this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
@@ -7894,7 +7708,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.minDistance,
       Math.min(this.maxDistance, this.cameraDistance + delta),
     );
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private canUseMapMouseInput(event: MouseEvent): boolean {
@@ -8131,7 +7944,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraRecenteringInProgress = false;
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     }
   }
 
@@ -8250,7 +8062,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     } else if (this.isRightMouseDown) {
       // Right mouse - pan camera
       event.preventDefault();
@@ -8267,7 +8078,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     }
   }
 
@@ -8360,12 +8170,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastFrameTimeMs = timeMs;
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
-    if (this.cameraMotionWorker && this.latestCameraMotionPose) {
-      this.applyCameraMotionPose(this.latestCameraMotionPose);
-    } else {
-      this.updateCameraPanInertia(deltaSeconds);
-      this.updateCamera(deltaSeconds);
-    }
+    this.updateCameraPanInertia(deltaSeconds);
+    this.updateCamera(deltaSeconds);
     this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();
