@@ -120,6 +120,16 @@ type CharacterCreationQuestionPayload = {
   menuItems: any[];
 };
 
+const MINIMAP_WIDTH_TILES = 79;
+const MINIMAP_HEIGHT_TILES = 21;
+
+type MinimapViewportRect = {
+  minX: number;
+  minY: number;
+  width: number;
+  height: number;
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -255,6 +265,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // Camera panning
   private cameraPanX: number = 0;
   private cameraPanY: number = 0;
+  private cameraPanTargetX: number = 0;
+  private cameraPanTargetY: number = 0;
+  private readonly cameraPanHalfLifeMs: number = 135;
   private cameraFollowHalfLifeMs: number = 85;
   private cameraFollowInitialized: boolean = false;
   private cameraFollowTarget = new THREE.Vector3();
@@ -305,6 +318,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly damageParticleWallBounce: number = 0.24;
   private readonly tileRevealFadeDurationMs: number = 240;
   private tileRevealFades: Map<string, TileRevealFadeState> = new Map();
+  private minimapContainer: HTMLDivElement | null = null;
+  private minimapCanvasContext: CanvasRenderingContext2D | null = null;
+  private minimapViewportContext: CanvasRenderingContext2D | null = null;
+  private minimapCells: Uint8Array = new Uint8Array(
+    MINIMAP_WIDTH_TILES * MINIMAP_HEIGHT_TILES,
+  );
+  private pendingMinimapCellUpdates: Map<number, number> = new Map();
+  private minimapFlushScheduled: boolean = false;
+  private minimapViewportRect: MinimapViewportRect | null = null;
+  private minimapDragPointerId: number | null = null;
+  private readonly minimapPalette: string[] = [
+    "rgba(10, 16, 28, 0.82)",
+    "rgba(20, 29, 46, 0.9)",
+    "#3f4b5d",
+    "#687384",
+    "#7d614a",
+    "#2b78ab",
+    "#8f76c7",
+    "#886137",
+    "#b59037",
+    "#954647",
+    "#4f9a6f",
+    "#5d89ba",
+    "#4df79e",
+  ];
 
   // Pre-create geometries and materials
   private floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
@@ -904,6 +942,423 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private ensureMinimapOverlay(): void {
+    if (this.minimapContainer && this.minimapCanvasContext) {
+      return;
+    }
+
+    const container = document.createElement("div");
+    container.className = "nh3d-minimap";
+    container.setAttribute("aria-label", "Dungeon minimap");
+
+    const mapCanvas = document.createElement("canvas");
+    mapCanvas.className = "nh3d-minimap-canvas";
+    mapCanvas.width = MINIMAP_WIDTH_TILES;
+    mapCanvas.height = MINIMAP_HEIGHT_TILES;
+    const mapContext = mapCanvas.getContext("2d");
+    if (!mapContext) {
+      return;
+    }
+    mapContext.imageSmoothingEnabled = false;
+    container.appendChild(mapCanvas);
+
+    const viewportCanvas = document.createElement("canvas");
+    viewportCanvas.className = "nh3d-minimap-viewport";
+    viewportCanvas.width = MINIMAP_WIDTH_TILES;
+    viewportCanvas.height = MINIMAP_HEIGHT_TILES;
+    const viewportContext = viewportCanvas.getContext("2d");
+    if (!viewportContext) {
+      return;
+    }
+    viewportContext.imageSmoothingEnabled = false;
+    container.appendChild(viewportCanvas);
+
+    container.addEventListener(
+      "pointerdown",
+      this.handleMinimapPointerDown.bind(this),
+      false,
+    );
+    container.addEventListener(
+      "pointermove",
+      this.handleMinimapPointerMove.bind(this),
+      false,
+    );
+    container.addEventListener(
+      "pointerup",
+      this.handleMinimapPointerUp.bind(this),
+      false,
+    );
+    container.addEventListener(
+      "pointercancel",
+      this.handleMinimapPointerUp.bind(this),
+      false,
+    );
+    container.addEventListener(
+      "lostpointercapture",
+      this.handleMinimapPointerUp.bind(this),
+      false,
+    );
+    document.body.appendChild(container);
+
+    this.minimapContainer = container;
+    this.minimapCanvasContext = mapContext;
+    this.minimapViewportContext = viewportContext;
+    this.resetMinimap();
+    this.renderMinimapViewportOverlay();
+  }
+
+  private resetMinimap(): void {
+    this.pendingMinimapCellUpdates.clear();
+    this.minimapFlushScheduled = false;
+    this.minimapViewportRect = null;
+    this.minimapCells.fill(0);
+    this.stopMinimapDrag();
+
+    if (this.minimapCanvasContext) {
+      this.minimapCanvasContext.clearRect(
+        0,
+        0,
+        MINIMAP_WIDTH_TILES,
+        MINIMAP_HEIGHT_TILES,
+      );
+      this.minimapCanvasContext.fillStyle = this.minimapPalette[0];
+      this.minimapCanvasContext.fillRect(
+        0,
+        0,
+        MINIMAP_WIDTH_TILES,
+        MINIMAP_HEIGHT_TILES,
+      );
+    }
+    if (this.minimapViewportContext) {
+      this.minimapViewportContext.clearRect(
+        0,
+        0,
+        MINIMAP_WIDTH_TILES,
+        MINIMAP_HEIGHT_TILES,
+      );
+    }
+  }
+
+  private isValidMinimapCoordinate(x: number, y: number): boolean {
+    return (
+      Number.isFinite(x) &&
+      Number.isFinite(y) &&
+      x >= 0 &&
+      x < MINIMAP_WIDTH_TILES &&
+      y >= 0 &&
+      y < MINIMAP_HEIGHT_TILES
+    );
+  }
+
+  private getMinimapCellIndex(x: number, y: number): number {
+    return y * MINIMAP_WIDTH_TILES + x;
+  }
+
+  private resolveMinimapPaletteIndex(
+    behavior: TileBehaviorResult,
+    isUndiscovered: boolean,
+  ): number {
+    if (behavior.isPlayerGlyph || behavior.materialKind === "player") {
+      return 12;
+    }
+    if (isUndiscovered) {
+      return 1;
+    }
+
+    switch (behavior.materialKind) {
+      case "wall":
+      case "dark_wall":
+        return 3;
+      case "door":
+        return 4;
+      case "water":
+      case "fountain":
+        return 5;
+      case "stairs_up":
+      case "stairs_down":
+        return 6;
+      case "trap":
+      case "feature":
+      case "effect_warning":
+      case "effect_zap":
+      case "effect_explode":
+      case "effect_swallow":
+        return 7;
+      case "item":
+        return 8;
+      case "monster_hostile":
+        return 9;
+      case "monster_friendly":
+        return 10;
+      case "monster_neutral":
+        return 11;
+      case "floor":
+      case "dark":
+      case "default":
+      default:
+        return 2;
+    }
+  }
+
+  private queueMinimapTileUpdate(
+    x: number,
+    y: number,
+    behavior: TileBehaviorResult,
+    isUndiscovered: boolean,
+  ): void {
+    const tileX = Math.trunc(x);
+    const tileY = Math.trunc(y);
+    if (!this.isValidMinimapCoordinate(tileX, tileY)) {
+      return;
+    }
+
+    const index = this.getMinimapCellIndex(tileX, tileY);
+    const paletteIndex = this.resolveMinimapPaletteIndex(behavior, isUndiscovered);
+    const pending = this.pendingMinimapCellUpdates.get(index);
+    if (pending === paletteIndex) {
+      return;
+    }
+    if (
+      !this.pendingMinimapCellUpdates.has(index) &&
+      this.minimapCells[index] === paletteIndex
+    ) {
+      return;
+    }
+
+    this.pendingMinimapCellUpdates.set(index, paletteIndex);
+    this.scheduleMinimapTileFlush();
+  }
+
+  private scheduleMinimapTileFlush(): void {
+    if (this.minimapFlushScheduled) {
+      return;
+    }
+    this.minimapFlushScheduled = true;
+    requestAnimationFrame(() => {
+      this.minimapFlushScheduled = false;
+      this.flushPendingMinimapTileUpdates();
+    });
+  }
+
+  private flushPendingMinimapTileUpdates(): void {
+    if (!this.minimapCanvasContext || !this.pendingMinimapCellUpdates.size) {
+      return;
+    }
+
+    for (const [index, paletteIndex] of this.pendingMinimapCellUpdates.entries()) {
+      this.minimapCells[index] = paletteIndex;
+      const x = index % MINIMAP_WIDTH_TILES;
+      const y = Math.floor(index / MINIMAP_WIDTH_TILES);
+      this.minimapCanvasContext.fillStyle =
+        this.minimapPalette[paletteIndex] ?? this.minimapPalette[0];
+      this.minimapCanvasContext.fillRect(x, y, 1, 1);
+    }
+    this.pendingMinimapCellUpdates.clear();
+  }
+
+  private computeMinimapViewportRect(): MinimapViewportRect {
+    const centerWorldX = this.cameraFollowInitialized
+      ? this.cameraFollowCurrent.x
+      : this.playerPos.x * TILE_SIZE + this.cameraPanX;
+    const centerWorldY = this.cameraFollowInitialized
+      ? this.cameraFollowCurrent.y
+      : -this.playerPos.y * TILE_SIZE + this.cameraPanY;
+    const centerTileX = centerWorldX / TILE_SIZE;
+    const centerTileY = -centerWorldY / TILE_SIZE;
+
+    const fovRadians = THREE.MathUtils.degToRad(this.camera.fov);
+    const baseViewHeightWorld =
+      2 * Math.tan(fovRadians / 2) * Math.max(1, this.cameraDistance);
+    const baseViewWidthWorld = baseViewHeightWorld * Math.max(1, this.camera.aspect);
+    const pitchScale = 1 / Math.max(0.45, Math.sin(this.cameraPitch));
+
+    const viewWidthTiles = THREE.MathUtils.clamp(
+      (baseViewWidthWorld * pitchScale) / TILE_SIZE,
+      4,
+      MINIMAP_WIDTH_TILES,
+    );
+    const viewHeightTiles = THREE.MathUtils.clamp(
+      (baseViewHeightWorld * pitchScale) / TILE_SIZE,
+      3,
+      MINIMAP_HEIGHT_TILES,
+    );
+
+    return {
+      minX: centerTileX - viewWidthTiles / 2,
+      minY: centerTileY - viewHeightTiles / 2,
+      width: viewWidthTiles,
+      height: viewHeightTiles,
+    };
+  }
+
+  private renderMinimapViewportOverlay(): void {
+    if (!this.minimapViewportContext) {
+      return;
+    }
+
+    const viewport = this.computeMinimapViewportRect();
+    this.minimapViewportRect = viewport;
+
+    const context = this.minimapViewportContext;
+    context.clearRect(0, 0, MINIMAP_WIDTH_TILES, MINIMAP_HEIGHT_TILES);
+
+    const drawMinX = THREE.MathUtils.clamp(viewport.minX, 0, MINIMAP_WIDTH_TILES);
+    const drawMinY = THREE.MathUtils.clamp(viewport.minY, 0, MINIMAP_HEIGHT_TILES);
+    const drawMaxX = THREE.MathUtils.clamp(
+      viewport.minX + viewport.width,
+      0,
+      MINIMAP_WIDTH_TILES,
+    );
+    const drawMaxY = THREE.MathUtils.clamp(
+      viewport.minY + viewport.height,
+      0,
+      MINIMAP_HEIGHT_TILES,
+    );
+    const drawWidth = Math.max(0, drawMaxX - drawMinX);
+    const drawHeight = Math.max(0, drawMaxY - drawMinY);
+
+    if (drawWidth > 0 && drawHeight > 0) {
+      context.fillStyle = "rgba(214, 233, 255, 0.08)";
+      context.fillRect(drawMinX, drawMinY, drawWidth, drawHeight);
+
+      context.strokeStyle = "rgba(214, 233, 255, 0.62)";
+      context.lineWidth = 0.65;
+      context.strokeRect(drawMinX + 0.325, drawMinY + 0.325, drawWidth, drawHeight);
+    }
+
+    if (this.isValidMinimapCoordinate(this.playerPos.x, this.playerPos.y)) {
+      context.fillStyle = this.minimapPalette[12];
+      context.fillRect(this.playerPos.x - 0.4, this.playerPos.y - 0.4, 0.8, 0.8);
+    }
+  }
+
+  private getMinimapPointerTile(event: PointerEvent): { x: number; y: number } | null {
+    if (!this.minimapContainer) {
+      return null;
+    }
+    const rect = this.minimapContainer.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    const relativeX = (event.clientX - rect.left) / rect.width;
+    const relativeY = (event.clientY - rect.top) / rect.height;
+    if (
+      !Number.isFinite(relativeX) ||
+      !Number.isFinite(relativeY) ||
+      relativeX < 0 ||
+      relativeX > 1 ||
+      relativeY < 0 ||
+      relativeY > 1
+    ) {
+      return null;
+    }
+
+    return {
+      x: relativeX * MINIMAP_WIDTH_TILES,
+      y: relativeY * MINIMAP_HEIGHT_TILES,
+    };
+  }
+
+  private centerCameraOnMinimapTile(tileX: number, tileY: number): void {
+    const clampedTileX = THREE.MathUtils.clamp(
+      tileX,
+      0,
+      MINIMAP_WIDTH_TILES - 1,
+    );
+    const clampedTileY = THREE.MathUtils.clamp(
+      tileY,
+      0,
+      MINIMAP_HEIGHT_TILES - 1,
+    );
+
+    const targetWorldX = clampedTileX * TILE_SIZE;
+    const targetWorldY = -clampedTileY * TILE_SIZE;
+    this.cameraPanTargetX = targetWorldX - this.playerPos.x * TILE_SIZE;
+    this.cameraPanTargetY = targetWorldY + this.playerPos.y * TILE_SIZE;
+  }
+
+  private handleMinimapPointerDown(event: PointerEvent): void {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
+      return;
+    }
+
+    const pointerTile = this.getMinimapPointerTile(event);
+    if (!pointerTile) {
+      return;
+    }
+    this.minimapDragPointerId = event.pointerId;
+    this.centerCameraOnMinimapTile(pointerTile.x, pointerTile.y);
+    if (this.minimapContainer) {
+      this.minimapContainer.setPointerCapture(event.pointerId);
+    }
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+  }
+
+  private handleMinimapPointerMove(event: PointerEvent): void {
+    if (this.minimapDragPointerId !== event.pointerId) {
+      return;
+    }
+
+    const pointerTile = this.getMinimapPointerTile(event);
+    if (!pointerTile) {
+      return;
+    }
+    this.centerCameraOnMinimapTile(pointerTile.x, pointerTile.y);
+
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+  }
+
+  private handleMinimapPointerUp(event: PointerEvent): void {
+    if (
+      this.minimapDragPointerId !== null &&
+      this.minimapDragPointerId !== event.pointerId
+    ) {
+      return;
+    }
+    this.stopMinimapDrag();
+    if (event.cancelable) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+  }
+
+  private stopMinimapDrag(): void {
+    if (
+      this.minimapContainer &&
+      this.minimapDragPointerId !== null &&
+      this.minimapContainer.hasPointerCapture(this.minimapDragPointerId)
+    ) {
+      this.minimapContainer.releasePointerCapture(this.minimapDragPointerId);
+    }
+    this.minimapDragPointerId = null;
+  }
+
+  private updateCameraPanInertia(deltaSeconds: number): void {
+    const alpha =
+      1 -
+      Math.exp((-Math.LN2 * deltaSeconds * 1000) / this.cameraPanHalfLifeMs);
+    this.cameraPanX = THREE.MathUtils.lerp(
+      this.cameraPanX,
+      this.cameraPanTargetX,
+      alpha,
+    );
+    this.cameraPanY = THREE.MathUtils.lerp(
+      this.cameraPanY,
+      this.cameraPanTargetY,
+      alpha,
+    );
+  }
+
   private ensureMetaCommandModal(): HTMLDivElement {
     if (this.metaCommandModal) {
       return this.metaCommandModal;
@@ -983,6 +1438,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private initUI(): void {
     this.ensureMetaCommandModal();
+    this.ensureMinimapOverlay();
 
     if (this.uiAdapter) {
       this.uiAdapter.setStatus("Starting local NetHack runtime...");
@@ -1808,6 +2264,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tileStateCache.set(key, signature);
       this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
     }
+    // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
+    this.flushPendingMinimapTileUpdates();
   }
 
   /**
@@ -3127,6 +3585,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastKnownTerrain.clear();
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
+    this.resetMinimap();
     this.markLightingDirty();
 
     console.log("🧹 Scene cleared - ready for new level");
@@ -3314,6 +3773,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (triggerMonsterDefeatBurst) {
       this.triggerDamageEffectsAtTile(x, y, 1, "defeat");
     }
+    this.queueMinimapTileUpdate(x, y, behavior, isUndiscovered);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
@@ -6269,6 +6729,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
     this.exitMetaCommandMode();
+    this.stopMinimapDrag();
   }
 
   private normalizeWaitKey(event: KeyboardEvent): string | null {
@@ -7505,6 +7966,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const panSpeed = 0.05;
       this.cameraPanX += deltaX * panSpeed;
       this.cameraPanY -= deltaY * panSpeed; // Invert Y for intuitive panning
+      this.cameraPanTargetX = this.cameraPanX;
+      this.cameraPanTargetY = this.cameraPanY;
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
@@ -7583,7 +8046,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastFrameTimeMs = timeMs;
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
+    this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();
     this.updateLightingOverlay();
     this.updateTileRevealFades(deltaSeconds);

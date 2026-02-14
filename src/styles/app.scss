@@ -10,10 +10,23 @@
   --nh3d-ui-text-muted: #9ec5df;
   --nh3d-ui-accent: #66ccff;
   --nh3d-ui-accent-soft: #8dd7ff;
-  --nh3d-ui-button-bg: #133040;
-  --nh3d-ui-button-bg-hover: #1a3f55;
-  --nh3d-ui-button-border: #496d84;
+  --nh3d-ui-button-bg: #16253d;
+  --nh3d-ui-button-bg-hover: #1a2f4a;
+  --nh3d-ui-button-border: #4b6a9b;
   --nh3d-ui-button-alt-bg: #16253d;
+  --nh3d-ui-confirm-bg: #1f6f3b;
+  --nh3d-ui-confirm-bg-hover: #2a8a4a;
+  --nh3d-ui-confirm-border: #72db98;
+  --nh3d-ui-confirm-text: #ebfff2;
+  --nh3d-ui-cancel-bg: #7a2731;
+  --nh3d-ui-cancel-bg-hover: #973541;
+  --nh3d-ui-cancel-border: #f18a95;
+  --nh3d-ui-cancel-text: #ffebee;
+  --nh3d-ui-button-warm-bg: #16253d;
+  --nh3d-ui-button-warm-bg-hover: #1a2f4a;
+  --nh3d-ui-button-warm-border: #4b6a9b;
+  --nh3d-ui-button-warm-text: #d5e7ff;
+  --nh3d-ui-button-warm-ring: rgba(102, 204, 255, 0.3);
   --nh3d-ui-shadow: 0 10px 22px rgba(0, 0, 0, 0.55);
 }
 
@@ -64,6 +77,39 @@ canvas {
   font-size: 12px;
   pointer-events: auto;
   box-shadow: var(--nh3d-ui-shadow);
+}
+
+.nh3d-minimap {
+  position: fixed;
+  top: calc(var(--nh3d-safe-area-top) + 62px);
+  right: 12px;
+  width: min(28vw, 270px);
+  aspect-ratio: 79 / 21;
+  border: 1px solid rgba(116, 151, 186, 0.5);
+  border-radius: 8px;
+  background: rgba(5, 13, 24, 0.42);
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 194, 230, 0.08),
+    0 8px 18px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+  z-index: 1450;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.nh3d-minimap-canvas,
+.nh3d-minimap-viewport {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+}
+
+.nh3d-minimap-viewport {
+  pointer-events: none;
 }
 
 #game-status {
@@ -148,19 +194,25 @@ canvas {
 }
 
 .option-button {
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-text);
-  border: 1px solid var(--nh3d-ui-button-border);
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
+  border: 1px solid var(--nh3d-ui-button-warm-border);
   padding: 8px 12px;
   border-radius: 4px;
   cursor: pointer;
   font-family: inherit;
   font-size: 12px;
+  font-weight: bold;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
 }
 
 .option-button:hover {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-border-strong);
+  background: var(--nh3d-ui-button-warm-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .loading {
@@ -491,15 +543,26 @@ canvas {
 
 .nh3d-choice-button {
   padding: 8px 16px;
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-text);
-  border: 1px solid var(--nh3d-ui-button-border);
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
+  border: 1px solid var(--nh3d-ui-button-warm-border);
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-weight: bold;
   width: fit-content;
   max-width: 100%;
   text-align: left;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-choice-button:hover {
+  background: var(--nh3d-ui-button-warm-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .nh3d-choice-list.is-compact .nh3d-choice-button {
@@ -508,75 +571,95 @@ canvas {
 }
 
 .nh3d-choice-button.nh3d-choice-button-default {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-border-strong);
+  background: var(--nh3d-ui-confirm-bg);
+  border-color: var(--nh3d-ui-confirm-border);
+  color: var(--nh3d-ui-confirm-text);
+}
+
+.nh3d-choice-button.nh3d-choice-button-default:hover {
+  background: var(--nh3d-ui-confirm-bg-hover);
+  border-color: var(--nh3d-ui-confirm-border);
 }
 
 .nh3d-direction-grid {
   display: grid;
-  grid-template-columns: repeat(3, 80px);
-  gap: 5px;
+  grid-template-columns: repeat(3, 72px);
+  gap: 2px;
   justify-content: center;
-  margin: 20px 0;
+  margin: 16px 0;
 }
 
 .nh3d-direction-extra-row {
   display: grid;
-  grid-template-columns: repeat(3, 80px);
-  gap: 5px;
+  grid-template-columns: repeat(3, 72px);
+  gap: 2px;
   justify-content: center;
-  margin: -8px 0 12px;
+  margin: -4px 0 10px;
 }
 
 .nh3d-direction-button {
-  width: 80px;
-  height: 80px;
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-accent-soft);
-  border: 2px solid var(--nh3d-ui-button-border);
+  width: 72px;
+  height: 72px;
+  max-width: 72px;
+  max-height: 72px;
+  aspect-ratio: 1 / 1;
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
+  border: 2px solid var(--nh3d-ui-button-warm-border);
   border-radius: 5px;
   cursor: pointer;
   font-family: "Courier New", monospace;
   font-size: 16px;
+  font-weight: bold;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   transition: background-color 0.2s;
   line-height: 1.2;
+  box-shadow: inset 0 1px 0 rgba(233, 226, 207, 0.14);
 }
 
 .nh3d-direction-button:hover {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-border-strong);
+  background: var(--nh3d-ui-button-warm-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow:
+    inset 0 1px 0 rgba(233, 226, 207, 0.16),
+    0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .nh3d-direction-spacer {
-  width: 80px;
-  height: 80px;
+  width: 72px;
+  height: 72px;
+  max-width: 72px;
+  max-height: 72px;
+  aspect-ratio: 1 / 1;
 }
 
 .nh3d-direction-symbol {
-  font-size: 24px;
+  font-size: 20px;
   margin-bottom: 2px;
 }
 
 .nh3d-direction-key {
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .nh3d-direction-button-extra {
-  height: 58px;
+  height: auto;
+  max-width: 72px;
+  max-height: 72px;
+  aspect-ratio: 1 / 1;
 }
 
 .nh3d-direction-button-extra .nh3d-direction-symbol {
-  font-size: 12px;
+  font-size: 10px;
   letter-spacing: 0.06em;
   margin-bottom: 1px;
 }
 
 .nh3d-direction-button-extra .nh3d-direction-key {
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
 }
 
@@ -735,13 +818,22 @@ canvas {
 
 .nh3d-name-submit {
   padding: 8px 20px;
-  background: var(--nh3d-ui-button-bg-hover);
-  color: var(--nh3d-ui-text);
-  border: 1px solid var(--nh3d-ui-border-strong);
+  background: var(--nh3d-ui-confirm-bg);
+  color: var(--nh3d-ui-confirm-text);
+  border: 1px solid var(--nh3d-ui-confirm-border);
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
   margin-left: 10px;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-name-submit:hover {
+  background: var(--nh3d-ui-confirm-bg-hover);
+  box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.4);
 }
 
 .nh3d-menu-category {
@@ -805,37 +897,58 @@ canvas {
 .nh3d-pickup-action-button {
   min-width: 110px;
   padding: 8px 14px;
-  border: 1px solid var(--nh3d-ui-button-border);
+  border: 1px solid var(--nh3d-ui-button-warm-border);
   border-radius: 3px;
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-text);
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
   font-weight: bold;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    filter 120ms ease;
 }
 
 .nh3d-menu-action-button:hover,
 .nh3d-pickup-action-button:hover {
-  border-color: var(--nh3d-ui-border-strong);
-  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  background: var(--nh3d-ui-button-warm-bg-hover);
 }
 
 .nh3d-menu-action-button.nh3d-action-button-active,
 .nh3d-pickup-action-button.nh3d-action-button-active {
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.45);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
   filter: brightness(1.08);
 }
 
 .nh3d-menu-action-button.nh3d-menu-action-confirm,
 .nh3d-pickup-action-button.nh3d-pickup-action-confirm {
-  border-color: var(--nh3d-ui-border-strong);
-  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-confirm-border);
+  background: var(--nh3d-ui-confirm-bg);
+  color: var(--nh3d-ui-confirm-text);
 }
 
 .nh3d-menu-action-button.nh3d-menu-action-cancel,
 .nh3d-pickup-action-button.nh3d-pickup-action-cancel {
-  border-color: var(--nh3d-ui-button-border);
-  background: var(--nh3d-ui-button-alt-bg);
+  border-color: var(--nh3d-ui-cancel-border);
+  background: var(--nh3d-ui-cancel-bg);
+  color: var(--nh3d-ui-cancel-text);
+}
+
+.nh3d-menu-action-button.nh3d-menu-action-confirm:hover,
+.nh3d-pickup-action-button.nh3d-pickup-action-confirm:hover {
+  background: var(--nh3d-ui-confirm-bg-hover);
+  border-color: var(--nh3d-ui-confirm-border);
+  box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.38);
+}
+
+.nh3d-menu-action-button.nh3d-menu-action-cancel:hover,
+.nh3d-pickup-action-button.nh3d-pickup-action-cancel:hover {
+  background: var(--nh3d-ui-cancel-bg-hover);
+  border-color: var(--nh3d-ui-cancel-border);
+  box-shadow: 0 0 0 1px rgba(241, 138, 149, 0.35);
 }
 
 .nh3d-question-pagination {
@@ -851,13 +964,23 @@ canvas {
 .nh3d-question-page-button {
   min-width: 36px;
   height: 30px;
-  border: 1px solid var(--nh3d-ui-button-border);
+  border: 1px solid var(--nh3d-ui-button-warm-border);
   border-radius: 3px;
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-text);
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
   font-weight: bold;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-question-page-button:hover:not(:disabled) {
+  background: var(--nh3d-ui-button-warm-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .nh3d-question-page-button:disabled {
@@ -877,23 +1000,34 @@ canvas {
   width: 100%;
   margin: 3px 0;
   padding: 8px;
-  background: var(--nh3d-ui-button-bg);
-  color: var(--nh3d-ui-text);
-  border: 1px solid var(--nh3d-ui-button-border);
+  background: var(--nh3d-ui-button-warm-bg);
+  color: var(--nh3d-ui-button-warm-text);
+  border: 1px solid var(--nh3d-ui-button-warm-border);
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-weight: bold;
   text-align: left;
   line-height: 1.3;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-menu-button:hover {
+  background: var(--nh3d-ui-button-warm-bg-hover);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .nh3d-menu-button.nh3d-menu-button-active {
-  border-color: var(--nh3d-ui-border-strong);
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.45);
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
 }
 
 .nh3d-menu-button-key {
-  color: var(--nh3d-ui-accent-soft);
+  color: var(--nh3d-ui-button-warm-text);
   font-weight: bold;
 }
 
@@ -1046,10 +1180,10 @@ canvas {
 .nh3d-mobile-bottom-button {
   flex: 1 1 0;
   min-height: 38px;
-  border: 1px solid var(--nh3d-ui-button-border);
+  border: 1px solid #4b6a9b;
   border-radius: 6px;
-  background: var(--nh3d-ui-button-alt-bg);
-  color: var(--nh3d-ui-text);
+  background: #16253d;
+  color: #d5e7ff;
   font-family: "Courier New", monospace;
   font-size: 11px;
   font-weight: bold;
@@ -1100,6 +1234,16 @@ canvas {
   font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: bold;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-mobile-actions-back:hover {
+  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-border-strong);
+  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
 }
 
 .nh3d-mobile-actions-grid {
@@ -1151,6 +1295,16 @@ canvas {
   font-family: "Courier New", monospace;
   font-size: 12px;
   font-weight: bold;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.nh3d-mobile-actions-button:hover {
+  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-border-strong);
+  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
 }
 
 @media (max-width: 900px) and (pointer: coarse) {
@@ -1281,28 +1435,40 @@ canvas {
   }
 
   .nh3d-direction-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(3, 72px);
+    gap: 2px;
+    justify-content: center;
   }
 
   .nh3d-direction-extra-row {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 6px;
-    margin: -4px 0 12px;
+    grid-template-columns: repeat(3, 72px);
+    gap: 2px;
+    justify-content: center;
+    margin: -2px 0 10px;
   }
 
   .nh3d-direction-button {
-    width: 100%;
-    height: 68px;
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
   }
 
   .nh3d-direction-spacer {
-    width: 100%;
-    height: 68px;
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
   }
 
   .nh3d-direction-button-extra {
-    height: 56px;
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
   }
 
   .nh3d-menu-actions,
@@ -1343,6 +1509,13 @@ canvas {
 
   .nh3d-mobile-log {
     bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+
+  .nh3d-minimap {
+    top: calc(var(--nh3d-safe-area-top) + 88px);
+    right: 8px;
+    width: min(44vw, 220px);
+    opacity: 0.85;
   }
 
   #position-dialog {
