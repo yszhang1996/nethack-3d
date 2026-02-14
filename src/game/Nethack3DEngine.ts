@@ -256,6 +256,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraPanY: number = 0;
   private cameraPanTargetX: number = 0;
   private cameraPanTargetY: number = 0;
+  private isCameraCenteredOnPlayer: boolean = true;
   private readonly cameraPanHalfLifeMs: number = 135;
   private cameraFollowHalfLifeMs: number = 85;
   private cameraFollowInitialized: boolean = false;
@@ -1295,6 +1296,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const targetWorldY = -clampedTileY * TILE_SIZE;
     this.cameraPanTargetX = targetWorldX - this.playerPos.x * TILE_SIZE;
     this.cameraPanTargetY = targetWorldY + this.playerPos.y * TILE_SIZE;
+    this.isCameraCenteredOnPlayer = false;
+  }
+
+  private recenterCameraOnPlayerIfNeeded(): void {
+    if (this.isCameraCenteredOnPlayer) {
+      return;
+    }
+    this.cameraPanTargetX = 0;
+    this.cameraPanTargetY = 0;
+    this.isCameraCenteredOnPlayer = true;
   }
 
   private handleMinimapPointerDown(event: PointerEvent): void {
@@ -3837,6 +3848,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.hasSeenPlayerPosition) {
       this.hasSeenPlayerPosition = true;
       return;
+    }
+
+    if (moved) {
+      this.recenterCameraOnPlayerIfNeeded();
     }
 
     const hasRecentMovementInput =
@@ -7853,6 +7868,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Right mouse button - panning
       event.preventDefault();
       this.isRightMouseDown = true;
+      this.isCameraCenteredOnPlayer = false;
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     }
@@ -7966,7 +7982,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.cameraYaw - deltaX * this.rotationSpeed,
       );
       this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch - deltaY * this.rotationSpeed,
+        this.cameraPitch + deltaY * this.rotationSpeed,
         this.minCameraPitch,
         this.maxCameraPitch,
       );
@@ -7980,10 +7996,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaY = event.clientY - this.lastMouseY;
 
       const panSpeed = 0.05;
-      this.cameraPanX += deltaX * panSpeed;
-      this.cameraPanY -= deltaY * panSpeed; // Invert Y for intuitive panning
+      this.cameraPanX -= deltaX * panSpeed;
+      this.cameraPanY += deltaY * panSpeed;
       this.cameraPanTargetX = this.cameraPanX;
       this.cameraPanTargetY = this.cameraPanY;
+      this.isCameraCenteredOnPlayer = false;
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
