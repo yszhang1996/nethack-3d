@@ -444,10 +444,12 @@ canvas {
 .nh3d-dialog-info {
   border: 2px solid var(--nh3d-ui-border-strong);
   background: var(--nh3d-ui-panel-bg-strong);
-  min-width: 450px;
-  max-width: 680px;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(92vw, 680px);
   max-height: 90vh;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .nh3d-dialog-inventory {
@@ -696,8 +698,11 @@ canvas {
 
 .nh3d-info-body {
   font-size: 13px;
+  font-weight: bold;
   line-height: 1.4;
   white-space: pre-wrap;
+  width: fit-content;
+  max-width: 100%;
   padding: 6px 2px;
 }
 
@@ -1402,7 +1407,6 @@ canvas {
   .nh3d-dialog {
     top: 52%;
     left: 50%;
-    width: calc(100vw - 50px);
     max-width: none;
     max-height: calc(100vh - 160px - env(safe-area-inset-bottom));
     padding: 14px;
@@ -1412,22 +1416,27 @@ canvas {
 
   .nh3d-dialog-question,
   .nh3d-dialog-direction,
-  .nh3d-dialog-info,
   .nh3d-dialog-inventory,
   .nh3d-dialog-name,
   .nh3d-dialog-text {
     min-width: 0;
     max-width: none;
-    width: calc(100vw - 50px);
   }
 
   .nh3d-info-body {
     font-size: 10px;
+    width: max-content;
+    max-width: calc(100vw - 44px);
+    overflow-wrap: break-word;
+  }
+
+  .nh3d-dialog-info {
+    width: fit-content;
+    max-width: calc(100vw - 16px);
   }
 
   #character-setup-dialog {
     top: 50%;
-    width: calc(100vw - 50px);
     max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
     padding: 12px;
     box-sizing: border-box;

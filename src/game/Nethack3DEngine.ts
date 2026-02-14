@@ -1684,7 +1684,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "info_menu":
         this.lastInfoMenu = {
           title: String(data.title || "NetHack Information"),
-          lines: Array.isArray(data.lines) ? data.lines : [],
+          lines: this.normalizeInfoMenuLines(data.lines),
         };
         this.showInfoMenuDialog(
           this.lastInfoMenu.title,
@@ -1782,6 +1782,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       uniqueCommands.push(normalized);
     }
     return uniqueCommands;
+  }
+
+  private normalizeInfoMenuLines(rawLines: unknown): string[] {
+    if (!Array.isArray(rawLines)) {
+      return [];
+    }
+    return rawLines.map((line) =>
+      String(line ?? "")
+        .replace(/\r/g, "")
+        .trimEnd(),
+    );
   }
 
   private isDamageFlashableBehavior(behavior: TileBehaviorResult): boolean {
@@ -5597,10 +5608,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private showInfoMenuDialog(title: string, lines: string[]): void {
     this.isInfoDialogVisible = true;
+    const normalizedLines = this.normalizeInfoMenuLines(lines);
     if (this.uiAdapter) {
       this.uiAdapter.setInfoMenu({
         title: title || "NetHack Information",
-        lines: lines && lines.length > 0 ? [...lines] : [],
+        lines: normalizedLines,
       });
       return;
     }
@@ -5623,7 +5635,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const body = document.createElement("div");
     body.className = "nh3d-info-body";
     body.textContent =
-      lines && lines.length > 0 ? lines.join("\n") : "(No details)";
+      normalizedLines.length > 0 ? normalizedLines.join("\n") : "(No details)";
     infoDialog.appendChild(body);
 
     const hint = document.createElement("div");
