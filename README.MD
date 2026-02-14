@@ -30,11 +30,9 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 
 ## Extras
 
-- Reconnect-safe session restore: map state, player position, stats, inventory, and recent log messages return automatically.
-- Built-in refresh shortcuts for visual resync when needed: `Ctrl+T`, `Ctrl+R`, and `Ctrl+Shift+R`.
 - Quick reopen for the latest info panel with `Ctrl+M`.
 - Command overlay for `#` actions so extended commands are easy to enter.
-- Power-user debug tools in browser devtools for tile refresh, status inspection, and glyph visual overrides.
+- Power-user debug tools in browser devtools for tile refresh, status inspection, and game updates.
 
 ## Run Locally
 
