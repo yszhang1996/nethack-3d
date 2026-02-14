@@ -31,7 +31,6 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 ## Extras
 
 - Quick reopen for the latest info panel with `Ctrl+M`.
-- Command overlay for `#` actions so extended commands are easy to enter.
 - Power-user debug tools in browser devtools for tile refresh, status inspection, and game updates.
 
 ## Run Locally
