@@ -6,11 +6,6 @@
 import * as THREE from "three";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
-import CameraMotionWorkerBridge from "./camera/CameraMotionWorkerBridge";
-import type {
-  CameraMotionPose,
-  CameraMotionStateSnapshot,
-} from "./camera/types";
 import {
   isLoggingEnabled,
   logWithOriginal,
@@ -278,9 +273,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraFollowInitialized: boolean = false;
   private cameraFollowTarget = new THREE.Vector3();
   private cameraFollowCurrent = new THREE.Vector3();
-  private cameraMotionWorker: CameraMotionWorkerBridge | null = null;
-  private latestCameraMotionPose: CameraMotionPose | null = null;
-  private cameraMotionSyncScheduled: boolean = false;
   private lastFrameTimeMs: number | null = null;
   private lastKnownPlayerHp: number | null = null;
   private pendingCharacterDamageQueue: PendingCharacterDamage[] = [];
@@ -862,7 +854,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     // Yaw is in radians; start at 180 degrees to face the board correctly.
     this.cameraYaw = Math.PI;
-    this.initCameraMotionWorker();
   }
 
   private initThreeJS(): void {
@@ -949,75 +940,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (Number.isFinite(parsed) && parsed > 0) {
       this.cameraFollowHalfLifeMs = parsed;
     }
-  }
-
-  private getCameraMotionStateSnapshot(): CameraMotionStateSnapshot {
-    return {
-      tileSize: TILE_SIZE,
-      playerX: this.playerPos.x,
-      playerY: this.playerPos.y,
-      cameraDistance: this.cameraDistance,
-      cameraPitch: this.cameraPitch,
-      cameraYaw: this.cameraYaw,
-      cameraPanX: this.cameraPanX,
-      cameraPanY: this.cameraPanY,
-      cameraPanTargetX: this.cameraPanTargetX,
-      cameraPanTargetY: this.cameraPanTargetY,
-      isCameraCenteredOnPlayer: this.isCameraCenteredOnPlayer,
-      cameraRecenteringInProgress: this.cameraRecenteringInProgress,
-      cameraPanHalfLifeMs: this.cameraPanHalfLifeMs,
-      cameraFollowHalfLifeMs: this.cameraFollowHalfLifeMs,
-      cameraRecenterFollowHalfLifeMs: this.cameraRecenterFollowHalfLifeMs,
-      cameraFollowInitialized: this.cameraFollowInitialized,
-      cameraFollowCurrentX: this.cameraFollowCurrent.x,
-      cameraFollowCurrentY: this.cameraFollowCurrent.y,
-    };
-  }
-
-  private syncCameraMotionWorkerState(): void {
-    if (!this.cameraMotionWorker) {
-      return;
-    }
-    this.cameraMotionWorker.syncState(this.getCameraMotionStateSnapshot());
-  }
-
-  private scheduleCameraMotionWorkerSync(): void {
-    if (!this.cameraMotionWorker || this.cameraMotionSyncScheduled) {
-      return;
-    }
-    this.cameraMotionSyncScheduled = true;
-    requestAnimationFrame(() => {
-      this.cameraMotionSyncScheduled = false;
-      this.syncCameraMotionWorkerState();
-    });
-  }
-
-  private initCameraMotionWorker(): void {
-    if (this.cameraMotionWorker) {
-      return;
-    }
-    this.cameraMotionWorker = new CameraMotionWorkerBridge(
-      (pose: CameraMotionPose) => {
-        this.latestCameraMotionPose = pose;
-      },
-    );
-    this.syncCameraMotionWorkerState();
-  }
-
-  private applyCameraMotionPose(pose: CameraMotionPose): void {
-    this.cameraPanX = pose.cameraPanX;
-    this.cameraPanY = pose.cameraPanY;
-    this.cameraRecenteringInProgress = pose.cameraRecenteringInProgress;
-    this.cameraFollowInitialized = pose.cameraFollowInitialized;
-    this.cameraFollowCurrent.set(
-      pose.cameraFollowCurrentX,
-      pose.cameraFollowCurrentY,
-      0,
-    );
-    this.cameraFollowTarget.set(pose.lookAtX, pose.lookAtY, 0);
-
-    this.camera.position.set(pose.cameraX, pose.cameraY, pose.cameraZ);
-    this.camera.lookAt(pose.lookAtX, pose.lookAtY, 0);
   }
 
   private ensureMinimapOverlay(): void {
@@ -1385,7 +1307,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanY = this.cameraPanTargetY;
     this.isCameraCenteredOnPlayer = false;
     this.cameraRecenteringInProgress = false;
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private recenterCameraOnPlayerIfNeeded(): void {
@@ -1398,7 +1319,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanTargetY = 0;
     this.isCameraCenteredOnPlayer = true;
     this.cameraRecenteringInProgress = true;
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private handleMinimapPointerDown(event: PointerEvent): void {
@@ -1661,7 +1581,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
         this.markLightingDirty();
-        this.scheduleCameraMotionWorkerSync();
         console.log(
           `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`,
         );
@@ -1689,7 +1608,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
         this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
         this.markLightingDirty();
-        this.scheduleCameraMotionWorkerSync();
 
         // Clear the old player visual position by redrawing it as floor
         const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
@@ -3890,7 +3808,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const oldPos = { ...this.playerPos };
       this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
       this.playerPos = { x, y };
-      this.scheduleCameraMotionWorkerSync();
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
@@ -7799,7 +7716,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.minDistance,
       Math.min(this.maxDistance, this.cameraDistance + delta),
     );
-    this.scheduleCameraMotionWorkerSync();
   }
 
   private canUseMapMouseInput(event: MouseEvent): boolean {
@@ -8036,7 +7952,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraRecenteringInProgress = false;
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     }
   }
 
@@ -8155,7 +8070,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     } else if (this.isRightMouseDown) {
       // Right mouse - pan camera
       event.preventDefault();
@@ -8172,7 +8086,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
-      this.scheduleCameraMotionWorkerSync();
     }
   }
 
@@ -8265,12 +8178,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastFrameTimeMs = timeMs;
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
-    if (this.cameraMotionWorker && this.latestCameraMotionPose) {
-      this.applyCameraMotionPose(this.latestCameraMotionPose);
-    } else {
-      this.updateCameraPanInertia(deltaSeconds);
-      this.updateCamera(deltaSeconds);
-    }
+    this.updateCameraPanInertia(deltaSeconds);
+    this.updateCamera(deltaSeconds);
     this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();
