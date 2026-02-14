@@ -1431,8 +1431,7 @@ canvas {
   .nh3d-dialog-name,
   .nh3d-dialog-text,
   .nh3d-dialog-info {
-    width: max-content;
-    min-width: unset;
+    min-width: 0;
     max-width: calc(100vw - 50px);
   }
 

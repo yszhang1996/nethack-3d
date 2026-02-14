@@ -8,8 +8,10 @@ import type {
 let state: CameraMotionStateSnapshot | null = null;
 let loopTimerId: number | null = null;
 let lastTickAtMs: number = 0;
+let nextTickAtMs: number = 0;
 let lastPose: CameraMotionPose | null = null;
-const tickIntervalMs = 1000 / 60;
+const targetTickRateHz = 120;
+const tickIntervalMs = 1000 / targetTickRateHz;
 
 function postEnvelope(envelope: CameraMotionWorkerEnvelope): void {
   (self as unknown as Worker).postMessage(envelope);
@@ -65,7 +67,7 @@ function hasPoseChanged(
   if (!prev) {
     return true;
   }
-  const epsilon = 0.0005;
+  const epsilon = 0.0001;
   if (Math.abs(prev.cameraX - next.cameraX) > epsilon) return true;
   if (Math.abs(prev.cameraY - next.cameraY) > epsilon) return true;
   if (Math.abs(prev.cameraZ - next.cameraZ) > epsilon) return true;
@@ -167,26 +169,59 @@ function startLoop(): void {
     return;
   }
   lastTickAtMs = performance.now();
-  loopTimerId = setInterval(tick, tickIntervalMs) as unknown as number;
+  nextTickAtMs = lastTickAtMs + tickIntervalMs;
+  loopTimerId = setTimeout(runLoop, tickIntervalMs) as unknown as number;
 }
 
 function stopLoop(): void {
   if (loopTimerId !== null) {
-    clearInterval(loopTimerId);
+    clearTimeout(loopTimerId);
     loopTimerId = null;
   }
+  lastTickAtMs = 0;
+  nextTickAtMs = 0;
+}
+
+function runLoop(): void {
+  loopTimerId = null;
+  tick();
+  if (!state) {
+    return;
+  }
+
+  const now = performance.now();
+  if (nextTickAtMs <= 0 || now - nextTickAtMs > tickIntervalMs) {
+    nextTickAtMs = now;
+  }
+  nextTickAtMs += tickIntervalMs;
+  const delayMs = Math.max(0, nextTickAtMs - now);
+  loopTimerId = setTimeout(runLoop, delayMs) as unknown as number;
 }
 
 self.onmessage = (message: MessageEvent<CameraMotionWorkerCommand>) => {
   const command = message.data;
   switch (command.type) {
     case "sync_state":
-      state = {
-        ...command.state,
-      };
-      lastPose = null;
+      if (state) {
+        const nextState = {
+          ...command.state,
+        };
+        if (state.cameraFollowInitialized && nextState.cameraFollowInitialized) {
+          // Preserve in-flight follow integration to avoid jitter from stale main-thread snapshots.
+          nextState.cameraFollowCurrentX = state.cameraFollowCurrentX;
+          nextState.cameraFollowCurrentY = state.cameraFollowCurrentY;
+        }
+        state = nextState;
+      } else {
+        state = {
+          ...command.state,
+        };
+        lastPose = null;
+      }
       startLoop();
-      stepMotion(state, 0);
+      if (state && !state.cameraFollowInitialized) {
+        stepMotion(state, 0);
+      }
       flushPose();
       return;
     case "shutdown":
