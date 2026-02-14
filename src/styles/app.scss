@@ -1435,6 +1435,12 @@ canvas {
     max-width: calc(100vw - 16px);
   }
 
+  .nh3d-dialog-inventory {
+    width: max-content;
+    max-width: calc(100vw - 50px);
+    overflow-x: auto;
+  }
+
   #character-setup-dialog {
     top: 50%;
     max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
