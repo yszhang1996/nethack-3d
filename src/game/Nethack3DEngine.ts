@@ -2343,7 +2343,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     context.clearRect(0, 0, size, size);
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.font = `900 ${Math.floor(size * 0.52)}px "Segoe UI", "Segoe UI Variable", sans-serif`;
+    context.font = `600 ${Math.floor(size * 0.52)}px "Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif`;
     context.lineWidth = Math.max(3, Math.floor(size * 0.045));
     context.strokeStyle = options?.strokeStyle ?? "rgba(18, 0, 0, 0.95)";
     context.fillStyle = options?.fillStyle ?? "#ff3a3a";
@@ -2388,12 +2388,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const sprite = new THREE.Sprite(material);
     const scaleMultiplier = 2.5;
     const scaleY = 0.42 * scaleMultiplier;
-    const widthTighten = 0.72;
-    const scaleX = THREE.MathUtils.clamp(
-      scaleY * aspectRatio * widthTighten,
-      0.26 * scaleMultiplier,
-      0.92 * scaleMultiplier,
-    );
+    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
     const baseScale = new THREE.Vector2(scaleX, scaleY);
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
@@ -2448,12 +2443,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const sprite = new THREE.Sprite(material);
     const scaleMultiplier = 2.3;
     const scaleY = 0.42 * scaleMultiplier;
-    const widthTighten = 0.72;
-    const scaleX = THREE.MathUtils.clamp(
-      scaleY * aspectRatio * widthTighten,
-      0.26 * scaleMultiplier,
-      0.92 * scaleMultiplier,
-    );
+    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
     const baseScale = new THREE.Vector2(scaleX, scaleY);
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
@@ -3730,7 +3720,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : 0;
     const hpColor =
       hpPercentage > 60 ? "#00ff00" : hpPercentage > 30 ? "#ffaa00" : "#ff0000";
-    const locationStatusText = [this.playerStats.hunger, this.playerStats.encumbrance]
+    const locationStatusText = [
+      this.playerStats.hunger,
+      this.playerStats.encumbrance,
+    ]
       .filter((value) => Boolean(value))
       .join(" ");
 
