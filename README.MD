@@ -15,17 +15,18 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 ## Current Features
 
 - Play NetHack in a 3D dungeon view while keeping core game rules and depth.
-- Smooth map updates as you move, explore, and change floors.
-- Subtle top-right minimap for full-level awareness, with viewport box and drag-to-center camera navigation.
-- Clear 3D visuals for dungeon features like walls, doors, stairs, water, traps, fountains, and dark areas.
-- Dynamic darkness and lighting around your hero to make exploration feel tense.
-- Combat feedback effects (blood splatter and tile effects) so hits feel more readable and satisfying.
-- Full HUD with health, power, stats, armor, gold, hunger, time, and dungeon depth.
-- Live message log plus floating on-screen message popups during active play.
-- Handles common NetHack prompts cleanly: yes/no, directional actions, text entry, and tile targeting/look mode.
-- Better menu flow: readable category menus, inventory dialogs, multi-pickup selection, and menu paging.
+- Minimap for full-level awareness, with viewport box and drag-to-center camera navigation.
+- Camera panning and rotation.
+- Crisp ASCII monsters and items.
+- Tiles coming, maybe more ;) FPS mode anyone?
+- Dynamic darkness and lighting around your hero.
+- Combat feedback effects (screen-space and tile effects)
+- Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon depth.
+- Live message log plus on-screen message popups
+- Full mobile touch support for NetHack prompts: yes/no, directional actions, text entry, and tile targeting/look mode.
+- Beautiful menus: item category headers, keyboard tips, multi-pickup selection, and menu paging.
 - Fast character start: random hero or manual setup (name, role, race, gender, alignment).
-- Extended command support with `#` so advanced playstyles are available.
+- Extended command support with `#` so advanced playstyles are available, with all commands available via buttons on mobile.
 - Desktop-friendly controls: keyboard-first with mouse support for map interaction and camera control.
 - Mobile-friendly controls: tap/swipe movement, quick actions, extended command sheet, and mobile log view.
 
