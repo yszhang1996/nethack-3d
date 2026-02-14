@@ -1165,10 +1165,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private computeMinimapViewportRect(): MinimapViewportRect {
     const centerWorldX = this.cameraFollowInitialized
       ? this.cameraFollowCurrent.x
-      : this.playerPos.x * TILE_SIZE + this.cameraPanX;
+      : this.playerPos.x * TILE_SIZE + this.cameraPanTargetX;
     const centerWorldY = this.cameraFollowInitialized
       ? this.cameraFollowCurrent.y
-      : -this.playerPos.y * TILE_SIZE + this.cameraPanY;
+      : -this.playerPos.y * TILE_SIZE + this.cameraPanTargetY;
     const centerTileX = centerWorldX / TILE_SIZE;
     const centerTileY = -centerWorldY / TILE_SIZE;
 
@@ -1303,6 +1303,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const targetWorldY = -clampedTileY * TILE_SIZE;
     this.cameraPanTargetX = targetWorldX - this.playerPos.x * TILE_SIZE;
     this.cameraPanTargetY = targetWorldY + this.playerPos.y * TILE_SIZE;
+    this.cameraPanX = this.cameraPanTargetX;
+    this.cameraPanY = this.cameraPanTargetY;
     this.isCameraCenteredOnPlayer = false;
     this.cameraRecenteringInProgress = false;
   }
@@ -1311,6 +1313,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isCameraCenteredOnPlayer) {
       return;
     }
+    this.cameraPanX = 0;
+    this.cameraPanY = 0;
     this.cameraPanTargetX = 0;
     this.cameraPanTargetY = 0;
     this.isCameraCenteredOnPlayer = true;
@@ -1387,6 +1391,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateCameraPanInertia(deltaSeconds: number): void {
+    if (this.isCameraCenteredOnPlayer) {
+      return;
+    }
+    const panDeltaX = this.cameraPanTargetX - this.cameraPanX;
+    const panDeltaY = this.cameraPanTargetY - this.cameraPanY;
+    if (Math.abs(panDeltaX) < 0.0001 && Math.abs(panDeltaY) < 0.0001) {
+      return;
+    }
     const alpha =
       1 -
       Math.exp((-Math.LN2 * deltaSeconds * 1000) / this.cameraPanHalfLifeMs);
@@ -7589,14 +7601,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateCamera(deltaSeconds: number): void {
     const { x, y } = this.playerPos;
-    // When recentering, follow the pan target directly so camera follow and pan
-    // inertia do not both smooth the same return path in different directions.
-    const panX = this.isCameraCenteredOnPlayer
-      ? this.cameraPanTargetX
-      : this.cameraPanX;
-    const panY = this.isCameraCenteredOnPlayer
-      ? this.cameraPanTargetY
-      : this.cameraPanY;
+    // Use pan target as the single translation input and let follow smoothing
+    // handle motion, avoiding stacked smoothing paths that can fight each other.
+    const panX = this.cameraPanTargetX;
+    const panY = this.cameraPanTargetY;
     const targetX = x * TILE_SIZE + panX;
     const targetY = -y * TILE_SIZE + panY;
     this.cameraFollowTarget.set(targetX, targetY, 0);
