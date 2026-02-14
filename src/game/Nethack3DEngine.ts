@@ -61,11 +61,6 @@ type DirectionalAttackContext = {
   capturedAtMs: number;
 };
 
-type PendingMonsterDefeatSignal = {
-  createdAtMs: number;
-  expectedDirection: DirectionalAttackContext | null;
-};
-
 type GlyphDamageFlashState = {
   key: string;
   canvas: HTMLCanvasElement;
@@ -291,8 +286,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastParsedDefeatMessage: string = "";
   private lastParsedDefeatAtMs: number = 0;
   private lastDirectionalAttackContext: DirectionalAttackContext | null = null;
-  private pendingMonsterDefeatSignals: PendingMonsterDefeatSignal[] = [];
-  private readonly pendingMonsterDefeatMaxAgeMs: number = 820;
   private readonly directionalAttackContextMaxAgeMs: number = 900;
   private readonly glyphDamageShakeDurationMs: number = 155;
   private readonly glyphDefeatShakeDurationMs: number = 240;
@@ -1967,6 +1960,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
+  private updateDirectionalAttackContextFromTarget(
+    targetX: number,
+    targetY: number,
+  ): void {
+    const dx = targetX - this.playerPos.x;
+    const dy = targetY - this.playerPos.y;
+    const direction = this.resolveDirectionFromDelta(dx, dy);
+    if (!direction) {
+      return;
+    }
+    this.updateDirectionalAttackContext(direction);
+  }
+
   private getRecentDirectionalAttackContext(
     nowMs: number,
   ): DirectionalAttackContext | null {
@@ -1998,40 +2004,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return Math.sign(deltaX) === context.dx && Math.sign(deltaY) === context.dy;
   }
 
-  private queuePendingMonsterDefeatSignal(): void {
-    const now = Date.now();
-    this.pendingMonsterDefeatSignals.push({
-      createdAtMs: now,
-      expectedDirection: this.getRecentDirectionalAttackContext(now),
-    });
-    if (this.pendingMonsterDefeatSignals.length > 8) {
-      this.pendingMonsterDefeatSignals.splice(
-        0,
-        this.pendingMonsterDefeatSignals.length - 8,
+  private getLatestDirectionalAttackContext(): DirectionalAttackContext | null {
+    const context = this.lastDirectionalAttackContext;
+    return context ? { ...context } : null;
+  }
+
+  private findDirectionalMonsterTarget(
+    context: DirectionalAttackContext,
+  ): { x: number; y: number } | null {
+    let targetX: number | null = null;
+    let targetY: number | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const [key, mesh] of this.tileMap.entries()) {
+      if (!mesh.userData?.isMonsterLikeCharacter) {
+        continue;
+      }
+      const [rawX, rawY] = key.split(",");
+      const x = Number.parseInt(rawX, 10);
+      const y = Number.parseInt(rawY, 10);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      if (!this.isTileInDirectionalAttackPath(x, y, context)) {
+        continue;
+      }
+      const distance = Math.max(
+        Math.abs(x - context.originX),
+        Math.abs(y - context.originY),
       );
+      if (distance < 1 || distance >= bestDistance) {
+        continue;
+      }
+      bestDistance = distance;
+      targetX = x;
+      targetY = y;
     }
-  }
 
-  private prunePendingMonsterDefeatSignals(nowMs: number): void {
-    this.pendingMonsterDefeatSignals = this.pendingMonsterDefeatSignals.filter(
-      (entry) => nowMs - entry.createdAtMs <= this.pendingMonsterDefeatMaxAgeMs,
-    );
-  }
-
-  private consumePendingMonsterDefeatSignal(
-    tileX: number,
-    tileY: number,
-  ): boolean {
-    const now = Date.now();
-    this.prunePendingMonsterDefeatSignals(now);
-    const index = this.pendingMonsterDefeatSignals.findIndex((entry) =>
-      this.isTileInDirectionalAttackPath(tileX, tileY, entry.expectedDirection),
-    );
-    if (index < 0) {
-      return false;
+    if (targetX === null || targetY === null) {
+      return null;
     }
-    this.pendingMonsterDefeatSignals.splice(index, 1);
-    return true;
+    return { x: targetX, y: targetY };
   }
 
   private captureMonsterDefeatFromMessage(messageLike: unknown): void {
@@ -2054,7 +2066,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.lastParsedDefeatMessage = normalized;
     this.lastParsedDefeatAtMs = now;
-    this.queuePendingMonsterDefeatSignal();
+    this.tryTriggerDirectionalMonsterDefeatSpray();
   }
 
   private queuePendingCharacterDamage(amount: number): void {
@@ -2088,39 +2100,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    let targetX: number | null = null;
-    let targetY: number | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
-    for (const [key, mesh] of this.tileMap.entries()) {
-      if (!mesh.userData?.isMonsterLikeCharacter) {
-        continue;
-      }
-      const [rawX, rawY] = key.split(",");
-      const x = Number.parseInt(rawX, 10);
-      const y = Number.parseInt(rawY, 10);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        continue;
-      }
-      if (!this.isTileInDirectionalAttackPath(x, y, context)) {
-        continue;
-      }
-      const distance = Math.max(
-        Math.abs(x - context.originX),
-        Math.abs(y - context.originY),
-      );
-      if (distance < 1 || distance >= bestDistance) {
-        continue;
-      }
-      bestDistance = distance;
-      targetX = x;
-      targetY = y;
-    }
-
-    if (targetX === null || targetY === null) {
+    const target = this.findDirectionalMonsterTarget(context);
+    if (!target) {
       return false;
     }
 
-    this.triggerDamageEffectsAtTile(targetX, targetY, amount, "hit");
+    this.triggerDamageEffectsAtTile(target.x, target.y, amount, "hit");
+    return true;
+  }
+
+  private tryTriggerDirectionalMonsterDefeatSpray(): boolean {
+    const context = this.getLatestDirectionalAttackContext();
+    if (!context) {
+      return false;
+    }
+
+    const target = this.findDirectionalMonsterTarget(context);
+    if (target) {
+      this.triggerDamageEffectsAtTile(target.x, target.y, 1, "defeat");
+      return true;
+    }
+
+    const fallbackX = context.originX + context.dx;
+    const fallbackY = context.originY + context.dy;
+    this.triggerDamageEffectsAtTile(fallbackX, fallbackY, 1, "defeat");
     return true;
   }
 
@@ -2160,10 +2163,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastParsedDamageMessage = normalized;
     this.lastParsedDamageAtMs = now;
 
-    if (
-      explicitPlayerHit &&
-      this.tryTriggerDirectionalMonsterHitSpray(amount)
-    ) {
+    if (this.tryTriggerDirectionalMonsterHitSpray(amount)) {
       return;
     }
 
@@ -3426,7 +3426,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updatePlayerDamageNumberParticles(deltaSeconds);
     const now = Date.now();
     this.prunePendingCharacterDamage(now);
-    this.prunePendingMonsterDefeatSignals(now);
   }
 
   private clearDamageEffects(): void {
@@ -3448,7 +3447,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.pendingCharacterDamageQueue = [];
-    this.pendingMonsterDefeatSignals = [];
     this.lastDirectionalAttackContext = null;
     this.lastParsedDamageMessage = "";
     this.lastParsedDamageAtMs = 0;
@@ -3702,9 +3700,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
     const hadMesh = Boolean(mesh);
-    const wasMonsterLikeCharacter = mesh
-      ? Boolean(mesh.userData?.isMonsterLikeCharacter)
-      : false;
     const wasUndiscovered = mesh
       ? Boolean(mesh.userData?.isUndiscovered)
       : true;
@@ -3715,10 +3710,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
-    const triggerMonsterDefeatBurst =
-      wasMonsterLikeCharacter &&
-      !isMonsterLikeCharacter &&
-      this.consumePendingMonsterDefeatSignal(x, y);
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
     const shouldRevealFade = !isUndiscovered && (!hadMesh || wasUndiscovered);
 
@@ -3780,9 +3771,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.stopTileRevealFade(key);
     } else if (shouldRevealFade) {
       this.startTileRevealFade(key);
-    }
-    if (triggerMonsterDefeatBurst) {
-      this.triggerDamageEffectsAtTile(x, y, 1, "defeat");
     }
     this.queueMinimapTileUpdate(x, y, behavior, isUndiscovered);
     this.markLightingDirty();
@@ -6527,6 +6515,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.session.sendInputSequence(inputs);
   }
 
+  private sendForcedDirectionalInput(direction: string): void {
+    if (!direction) {
+      return;
+    }
+    this.updateDirectionalAttackContext(direction);
+    this.sendInputSequence(["5", direction]);
+  }
+
   private sendMouseInput(x: number, y: number, button: number): void {
     if (!this.session) {
       return;
@@ -7792,7 +7788,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const dy = gridTarget.y - this.playerPos.y;
         const direction = this.resolveDirectionFromDelta(dx, dy);
         if (direction) {
-          this.sendInputSequence(["5", direction]);
+          this.sendForcedDirectionalInput(direction);
           return true;
         }
       }
@@ -7813,12 +7809,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const dy = target.y - this.playerPos.y;
         const direction = this.resolveDirectionFromDelta(dx, dy);
         if (direction) {
-          this.sendInputSequence(["5", direction]);
+          this.sendForcedDirectionalInput(direction);
           return true;
         }
       }
     }
 
+    if (event.button === 0) {
+      this.updateDirectionalAttackContextFromTarget(target.x, target.y);
+    }
     this.sendMouseInput(target.x, target.y, event.button);
     return true;
   }
@@ -7912,7 +7911,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           if (event.cancelable) {
             event.preventDefault();
           }
-          this.sendInputSequence(["5", direction]);
+          this.sendForcedDirectionalInput(direction);
         }
         return;
       }
@@ -7928,11 +7927,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const dy = target.y - this.playerPos.y;
         const direction = this.resolveDirectionFromDelta(dx, dy);
         if (direction) {
-          this.sendInputSequence(["5", direction]);
+          this.sendForcedDirectionalInput(direction);
           return;
         }
       }
 
+      this.updateDirectionalAttackContextFromTarget(target.x, target.y);
       this.sendMouseInput(target.x, target.y, 0);
       return;
     }
