@@ -1,4 +1,5 @@
 import LocalNetHackRuntime from "./LocalNetHackRuntime";
+import { setLoggingEnabled } from "../logging";
 import type {
   RuntimeCommand,
   RuntimeEvent,
@@ -30,7 +31,7 @@ function ensureRuntime(startupOptions?: RuntimeStartupOptions): LocalNetHackRunt
       (event: RuntimeEvent) => {
         postEnvelope({ type: "runtime_event", event });
       },
-      startupOptions,
+      (startupOptions ?? null) as any,
     );
   }
   return runtime;
@@ -42,6 +43,7 @@ self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
 
     switch (command.type) {
       case "start":
+        setLoggingEnabled(Boolean(command.startupOptions?.loggingEnabled));
         const startInstance = ensureRuntime(command.startupOptions);
         if (!started) {
           await startInstance.start();
@@ -72,6 +74,9 @@ self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
           command.centerY,
           command.radius,
         );
+        return;
+      case "set_logging":
+        setLoggingEnabled(Boolean(command.enabled));
         return;
       default:
         return;

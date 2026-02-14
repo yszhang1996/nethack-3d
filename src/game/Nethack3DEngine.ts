@@ -6,6 +6,12 @@
 import * as THREE from "three";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
+import {
+  isLoggingEnabled,
+  logWithOriginal,
+  setLoggingEnabled,
+  toggleLoggingEnabled,
+} from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
 import { classifyTileBehavior } from "./glyphs/behavior";
 import type {
@@ -221,6 +227,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private metaCommandBuffer: string = "";
   private metaCommandModal: HTMLDivElement | null = null;
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+  private readonly pointerRaycaster = new THREE.Raycaster();
+  private readonly pointerNdc = new THREE.Vector2();
+  private readonly pointerIntersection = new THREE.Vector3();
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -415,6 +424,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     explode: new THREE.Color(0xffb46b),
     swallow: new THREE.Color(0xd8a8ff),
   };
+  private readonly effectPulseColor = new THREE.Color(0xffffff);
+  private readonly activeEffectTileKeys: Set<string> = new Set();
+  private readonly animateFrameCallback = (timeMs: number): void => {
+    this.animate(timeMs);
+  };
   private lightingOverlayMesh: THREE.Mesh | null = null;
   private lightingOverlayTexture: THREE.CanvasTexture | null = null;
   private lightingOverlayCanvas: HTMLCanvasElement | null = null;
@@ -465,19 +479,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return kind === "unexplored" || kind === "nothing";
   }
 
-  private parseTileKey(key: string): { x: number; y: number } | null {
-    const commaIndex = key.indexOf(",");
-    if (commaIndex < 0) {
-      return null;
-    }
-    const x = Number(key.slice(0, commaIndex));
-    const y = Number(key.slice(commaIndex + 1));
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return null;
-    }
-    return { x, y };
-  }
-
   private buildLightingGrid(): LightingGrid | null {
     if (this.tileMap.size === 0) {
       return null;
@@ -492,23 +493,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const knownMask = new Uint8Array(width * height);
     const wallMask = new Uint8Array(width * height);
 
-    this.tileMap.forEach((mesh, key) => {
-      const parsed = this.parseTileKey(key);
-      if (!parsed) {
-        return;
+    for (const mesh of this.tileMap.values()) {
+      const tileX = Number(mesh.userData?.tileX);
+      const tileY = Number(mesh.userData?.tileY);
+      if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+        continue;
       }
 
-      const cellX = parsed.x - minX;
-      const cellY = parsed.y - minY;
+      const cellX = tileX - minX;
+      const cellY = tileY - minY;
       if (cellX < 0 || cellX >= width || cellY < 0 || cellY >= height) {
-        return;
+        continue;
       }
       const cellIndex = cellY * width + cellX;
       knownMask[cellIndex] = 1;
       if (mesh.userData?.isWall) {
         wallMask[cellIndex] = 1;
       }
-    });
+    }
 
     return {
       minX,
@@ -832,6 +834,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
     };
+    if (typeof options.loggingEnabled === "boolean") {
+      setLoggingEnabled(options.loggingEnabled);
+    }
     this.characterCreationMode = this.characterCreationConfig.mode;
     this.initThreeJS();
     this.initUI();
@@ -1514,11 +1519,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
           gender: this.characterCreationConfig.gender,
           align: this.characterCreationConfig.align,
         },
+        loggingEnabled: isLoggingEnabled(),
       },
     );
 
     try {
       await this.session.start();
+      this.session.setLoggingEnabled(isLoggingEnabled());
       this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
       // this.addGameMessage("Local NetHack runtime started");
@@ -2353,6 +2360,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
   public requestPlayerAreaUpdate(radius: number = 5): void {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
+  }
+
+  public isLoggingEnabled(): boolean {
+    return isLoggingEnabled();
+  }
+
+  public setLoggingEnabled(enabled: boolean): boolean {
+    const next = setLoggingEnabled(enabled);
+    if (this.session) {
+      this.session.setLoggingEnabled(next);
+    }
+    logWithOriginal(`[NetHack 3D] Logging ${next ? "enabled" : "disabled"}`);
+    return next;
   }
 
   private acquireGlyphTexture(
@@ -3631,6 +3651,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.disposeLightingOverlay();
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
+    this.activeEffectTileKeys.clear();
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
     this.resetMinimap();
@@ -3752,6 +3773,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
+      this.activeEffectTileKeys.delete(key);
       const overlay = this.glyphOverlayMap.get(key);
       if (overlay) {
         this.disposeGlyphOverlay(overlay);
@@ -3794,6 +3816,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
     }
 
+    mesh.userData.tileX = x;
+    mesh.userData.tileY = y;
     mesh.userData.isWall = behavior.isWall;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
@@ -3815,6 +3839,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       behavior.isWall,
       behavior.darkenFactor,
     );
+    if (behavior.effectKind) {
+      this.activeEffectTileKeys.add(key);
+    } else {
+      const hadAnimatedEffect = this.activeEffectTileKeys.delete(key);
+      if (hadAnimatedEffect) {
+        const overlayMaterial = this.getMeshOverlayMaterial(mesh);
+        if (overlayMaterial) {
+          overlayMaterial.color.set("#ffffff");
+        }
+      }
+    }
     this.queueMinimapTileUpdate(x, y, behavior, false);
     this.markLightingDirty();
   }
@@ -7113,6 +7148,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
           event.preventDefault();
           this.toggleInfoMenuDialog();
           return;
+
+        case "l":
+          if (event.shiftKey) {
+            event.preventDefault();
+            const next = toggleLoggingEnabled();
+            if (this.session) {
+              this.session.setLoggingEnabled(next);
+            }
+            logWithOriginal(
+              `[NetHack 3D] Logging ${next ? "enabled" : "disabled"}`,
+            );
+            return;
+          }
+          break;
       }
     }
 
@@ -7770,19 +7819,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    const mouse = new THREE.Vector2(
+    this.pointerNdc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, this.camera);
+    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
 
     const tiles = Array.from(this.tileMap.values());
     if (tiles.length === 0) {
       return null;
     }
 
-    const intersections = raycaster.intersectObjects(tiles, false);
+    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
     if (intersections.length === 0) {
       return null;
     }
@@ -7810,22 +7858,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    const mouse = new THREE.Vector2(
+    this.pointerNdc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    const raycaster = new THREE.Raycaster();
-    raycaster.setFromCamera(mouse, this.camera);
+    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
 
-    const intersection = new THREE.Vector3();
-    const hit = raycaster.ray.intersectPlane(this.groundPlane, intersection);
+    const hit = this.pointerRaycaster.ray.intersectPlane(
+      this.groundPlane,
+      this.pointerIntersection,
+    );
     if (!hit) {
       return null;
     }
 
     return {
-      x: intersection.x / TILE_SIZE,
-      y: -intersection.y / TILE_SIZE,
+      x: this.pointerIntersection.x / TILE_SIZE,
+      y: -this.pointerIntersection.y / TILE_SIZE,
     };
   }
 
@@ -8070,35 +8119,52 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateEffectAnimations(timeMs: number): void {
+    if (this.activeEffectTileKeys.size === 0) {
+      return;
+    }
+
     const phaseBase = timeMs / 240;
-    this.tileMap.forEach((mesh) => {
+    const staleKeys: string[] = [];
+    for (const key of this.activeEffectTileKeys) {
+      const mesh = this.tileMap.get(key);
+      if (!mesh) {
+        staleKeys.push(key);
+        continue;
+      }
+
       const effectKind = mesh.userData.effectKind as
         | TileEffectKind
         | null
         | undefined;
       const overlayMaterial = this.getMeshOverlayMaterial(mesh);
       if (!overlayMaterial) {
-        return;
+        staleKeys.push(key);
+        continue;
       }
 
       if (!effectKind) {
         overlayMaterial.color.set("#ffffff");
-        return;
+        staleKeys.push(key);
+        continue;
       }
 
       const wave =
         0.72 +
         0.28 *
           Math.sin(phaseBase + mesh.position.x * 0.2 + mesh.position.y * 0.2);
-      const pulse = this.effectColors[effectKind]
-        .clone()
+      this.effectPulseColor
+        .copy(this.effectColors[effectKind])
         .multiplyScalar(THREE.MathUtils.clamp(wave, 0.4, 1.2));
-      overlayMaterial.color.copy(pulse);
-    });
+      overlayMaterial.color.copy(this.effectPulseColor);
+    }
+
+    for (const key of staleKeys) {
+      this.activeEffectTileKeys.delete(key);
+    }
   }
 
   private animate(timeMs: number = performance.now()): void {
-    requestAnimationFrame(this.animate.bind(this));
+    requestAnimationFrame(this.animateFrameCallback);
     const rawDeltaMs =
       this.lastFrameTimeMs === null ? 1000 / 60 : timeMs - this.lastFrameTimeMs;
     this.lastFrameTimeMs = timeMs;

@@ -12,6 +12,7 @@ export interface RuntimeBridge {
   sendMouseInput(x: number, y: number, button: number): void;
   requestTileUpdate(x: number, y: number): void;
   requestAreaUpdate(centerX: number, centerY: number, radius: number): void;
+  setLoggingEnabled(enabled: boolean): void;
 }
 
 export type RuntimeCharacterCreationConfig = {
@@ -25,6 +26,7 @@ export type RuntimeCharacterCreationConfig = {
 
 export type RuntimeStartupOptions = {
   characterCreation?: RuntimeCharacterCreationConfig;
+  loggingEnabled?: boolean;
 };
 
 export type RuntimeCommand =
@@ -38,7 +40,8 @@ export type RuntimeCommand =
       centerX: number;
       centerY: number;
       radius: number;
-    };
+    }
+  | { type: "set_logging"; enabled: boolean };
 
 export type RuntimeWorkerEnvelope =
   | { type: "runtime_event"; event: RuntimeEvent }

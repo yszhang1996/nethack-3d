@@ -84,6 +84,10 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     });
   }
 
+  setLoggingEnabled(enabled: boolean): void {
+    this.postCommand({ type: "set_logging", enabled: Boolean(enabled) });
+  }
+
   private postCommand(command: RuntimeCommand): void {
     this.worker.postMessage(command);
   }

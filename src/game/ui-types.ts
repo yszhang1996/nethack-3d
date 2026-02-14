@@ -115,4 +115,5 @@ export interface Nethack3DEngineOptions {
   mountElement?: HTMLElement | null;
   uiAdapter?: Nethack3DEngineUIAdapter | null;
   characterCreationConfig?: CharacterCreationConfig;
+  loggingEnabled?: boolean;
 }

@@ -1,3 +1,4 @@
+import "./logging";
 import { createRoot } from "react-dom/client";
 import App from "./ui/App";
 import "./styles/app.scss";
