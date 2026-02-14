@@ -470,6 +470,71 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      typeof document === "undefined" ||
+      !window.matchMedia
+    ) {
+      return;
+    }
+
+    const root = document.documentElement;
+    if (!isMobileViewport) {
+      root.classList.remove("nh3d-mobile-browser-mode");
+      return;
+    }
+
+    const standaloneQuery = window.matchMedia("(display-mode: standalone)");
+    const fullscreenQuery = window.matchMedia("(display-mode: fullscreen)");
+    const minimalUiQuery = window.matchMedia("(display-mode: minimal-ui)");
+
+    const updateMobileBrowserModeClass = (): void => {
+      const iOSStandalone =
+        typeof (window.navigator as { standalone?: boolean }).standalone ===
+          "boolean" &&
+        Boolean((window.navigator as { standalone?: boolean }).standalone);
+      const isStandaloneDisplayMode =
+        iOSStandalone ||
+        standaloneQuery.matches ||
+        fullscreenQuery.matches ||
+        minimalUiQuery.matches;
+      root.classList.toggle(
+        "nh3d-mobile-browser-mode",
+        !isStandaloneDisplayMode,
+      );
+    };
+
+    updateMobileBrowserModeClass();
+
+    const queries = [standaloneQuery, fullscreenQuery, minimalUiQuery];
+    const addChangeListener = (query: MediaQueryList): void => {
+      if (typeof query.addEventListener === "function") {
+        query.addEventListener("change", updateMobileBrowserModeClass);
+      } else {
+        query.addListener(updateMobileBrowserModeClass);
+      }
+    };
+    const removeChangeListener = (query: MediaQueryList): void => {
+      if (typeof query.removeEventListener === "function") {
+        query.removeEventListener("change", updateMobileBrowserModeClass);
+      } else {
+        query.removeListener(updateMobileBrowserModeClass);
+      }
+    };
+
+    for (const query of queries) {
+      addChangeListener(query);
+    }
+
+    return () => {
+      for (const query of queries) {
+        removeChangeListener(query);
+      }
+      root.classList.remove("nh3d-mobile-browser-mode");
+    };
+  }, [isMobileViewport]);
+
+  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }

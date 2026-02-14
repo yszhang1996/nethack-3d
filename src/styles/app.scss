@@ -1203,6 +1203,15 @@ canvas {
   background: rgba(4, 12, 24, 0.98);
   pointer-events: none;
 }
+
+.nh3d-mobile-browser-mode .nh3d-mobile-bottom-bar {
+  --nh3d-safe-area-bottom: 0px;
+  bottom: 0;
+}
+
+.nh3d-mobile-browser-mode .nh3d-mobile-bottom-bar::after {
+  height: 0;
+}
 .nh3d-mobile-bottom-button {
   flex: 1 1 0;
   min-height: 38px;
