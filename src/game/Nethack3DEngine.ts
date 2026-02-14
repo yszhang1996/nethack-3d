@@ -36,8 +36,8 @@ type LightingGrid = {
   maxY: number;
   width: number;
   height: number;
-  blocked: Uint8Array;
-  undiscoveredMask: Uint8Array;
+  knownMask: Uint8Array;
+  wallMask: Uint8Array;
 };
 
 type FloatingMessageEntry = {
@@ -100,12 +100,6 @@ type DamageNumberParticle = {
   lifetimeMs: number;
   radius: number;
   baseScale: THREE.Vector2;
-};
-
-type TileRevealFadeState = {
-  elapsedMs: number;
-  durationMs: number;
-  opacity: number;
 };
 
 type CharacterCreationQuestionPayload = {
@@ -309,8 +303,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerDamageNumberWallBounce: number = 0.35;
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.24;
-  private readonly tileRevealFadeDurationMs: number = 240;
-  private tileRevealFades: Map<string, TileRevealFadeState> = new Map();
   private minimapContainer: HTMLDivElement | null = null;
   private minimapCanvasContext: CanvasRenderingContext2D | null = null;
   private minimapViewportContext: CanvasRenderingContext2D | null = null;
@@ -424,6 +416,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lightingOverlayTexture: THREE.CanvasTexture | null = null;
   private lightingOverlayCanvas: HTMLCanvasElement | null = null;
   private lightingOverlayContext: CanvasRenderingContext2D | null = null;
+  private lightingWallOverlayMesh: THREE.Mesh | null = null;
+  private lightingWallOverlayTexture: THREE.CanvasTexture | null = null;
+  private lightingWallOverlayCanvas: HTMLCanvasElement | null = null;
+  private lightingWallOverlayContext: CanvasRenderingContext2D | null = null;
   private lightingOverlayGridMeta: {
     minX: number;
     maxX: number;
@@ -438,11 +434,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly lightingTilePixels: number = 30;
   private readonly lightingFloorFalloffPower: number = 1.08;
   private readonly lightingMaxDarkAlpha: number = 0.82;
-  private readonly lightingUndiscoveredDarkScale: number = 0.25;
-  private readonly lightingDitherStrength: number = 0.05;
-  private readonly lightingBayer4: number[] = [
-    0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5,
-  ].map((value) => (value + 0.5) / 16);
+  private readonly lightingFloorOverlayZ: number = 0.03;
+  private readonly lightingWallOverlayZ: number = WALL_HEIGHT + 0;
+  private readonly lightingCenterHalfLifeMs: number = 95;
+  private readonly lightingCenterEpsilonTiles: number = 0.001;
+  private lightingCenterCurrent = new THREE.Vector2();
+  private lightingCenterTarget = new THREE.Vector2();
+  private lightingCenterInitialized: boolean = false;
 
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
@@ -450,8 +448,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "obj":
       case "body":
       case "statue":
-      case "unexplored":
-      case "nothing":
         return true;
       default:
         return false;
@@ -464,76 +460,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private isUndiscoveredKind(kind: string): boolean {
     return kind === "unexplored" || kind === "nothing";
-  }
-
-  private stopTileRevealFade(key: string): void {
-    this.tileRevealFades.delete(key);
-    const overlay = this.glyphOverlayMap.get(key);
-    if (overlay) {
-      overlay.material.opacity = 1;
-      overlay.material.needsUpdate = true;
-    }
-  }
-
-  private startTileRevealFade(key: string): void {
-    const overlay = this.glyphOverlayMap.get(key);
-    if (!overlay) {
-      return;
-    }
-
-    const state: TileRevealFadeState = {
-      elapsedMs: 0,
-      durationMs: this.tileRevealFadeDurationMs,
-      opacity: 0,
-    };
-    this.tileRevealFades.set(key, state);
-    overlay.material.opacity = state.opacity;
-    overlay.material.needsUpdate = true;
-  }
-
-  private updateTileRevealFades(deltaSeconds: number): void {
-    if (!this.tileRevealFades.size) {
-      return;
-    }
-
-    const deltaMs = deltaSeconds * 1000;
-    const entries = Array.from(this.tileRevealFades.entries());
-
-    for (const [key, state] of entries) {
-      const overlay = this.glyphOverlayMap.get(key);
-      if (!overlay || !this.tileMap.has(key)) {
-        this.tileRevealFades.delete(key);
-        continue;
-      }
-
-      state.elapsedMs += deltaMs;
-      const progress = THREE.MathUtils.clamp(
-        state.elapsedMs / state.durationMs,
-        0,
-        1,
-      );
-      const eased = 1 - Math.pow(1 - progress, 2);
-      state.opacity = eased;
-      overlay.material.opacity = state.opacity;
-      overlay.material.needsUpdate = true;
-
-      if (progress >= 1) {
-        this.tileRevealFades.delete(key);
-        overlay.material.opacity = 1;
-      }
-    }
-  }
-
-  private clearTileRevealFades(): void {
-    const keys = Array.from(this.tileRevealFades.keys());
-    this.tileRevealFades.clear();
-
-    for (const key of keys) {
-      const overlay = this.glyphOverlayMap.get(key);
-      if (overlay) {
-        overlay.material.opacity = 1;
-      }
-    }
   }
 
   private parseTileKey(key: string): { x: number; y: number } | null {
@@ -554,16 +480,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    const cells: Array<{
-      x: number;
-      y: number;
-      isWall: boolean;
-      isUndiscovered: boolean;
-    }> = [];
-    let minX = Number.POSITIVE_INFINITY;
-    let minY = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxY = Number.NEGATIVE_INFINITY;
+    const minX = 0;
+    const minY = 0;
+    const width = MINIMAP_WIDTH_TILES;
+    const height = MINIMAP_HEIGHT_TILES;
+    const maxX = minX + width - 1;
+    const maxY = minY + height - 1;
+    const knownMask = new Uint8Array(width * height);
+    const wallMask = new Uint8Array(width * height);
 
     this.tileMap.forEach((mesh, key) => {
       const parsed = this.parseTileKey(key);
@@ -571,35 +495,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return;
       }
 
-      const { x, y } = parsed;
-      cells.push({
-        x,
-        y,
-        isWall: Boolean(mesh.userData?.isWall),
-        isUndiscovered: Boolean(mesh.userData?.isUndiscovered),
-      });
-
-      if (x < minX) minX = x;
-      if (x > maxX) maxX = x;
-      if (y < minY) minY = y;
-      if (y > maxY) maxY = y;
+      const cellX = parsed.x - minX;
+      const cellY = parsed.y - minY;
+      if (cellX < 0 || cellX >= width || cellY < 0 || cellY >= height) {
+        return;
+      }
+      const cellIndex = cellY * width + cellX;
+      knownMask[cellIndex] = 1;
+      if (mesh.userData?.isWall) {
+        wallMask[cellIndex] = 1;
+      }
     });
-
-    if (!cells.length) {
-      return null;
-    }
-
-    const width = maxX - minX + 1;
-    const height = maxY - minY + 1;
-    const blocked = new Uint8Array(width * height);
-    const undiscoveredMask = new Uint8Array(width * height);
-    undiscoveredMask.fill(1);
-
-    for (const cell of cells) {
-      const index = (cell.y - minY) * width + (cell.x - minX);
-      blocked[index] = cell.isWall ? 1 : 0;
-      undiscoveredMask[index] = cell.isUndiscovered ? 1 : 0;
-    }
 
     return {
       minX,
@@ -608,8 +514,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       maxY,
       width,
       height,
-      blocked,
-      undiscoveredMask,
+      knownMask,
+      wallMask,
     };
   }
 
@@ -625,6 +531,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
+  private updateLightingCenter(deltaSeconds: number): void {
+    this.lightingCenterTarget.set(this.playerPos.x, this.playerPos.y);
+    if (!this.lightingCenterInitialized) {
+      this.lightingCenterCurrent.copy(this.lightingCenterTarget);
+      this.lightingCenterInitialized = true;
+      return;
+    }
+
+    const deltaMs = Math.max(0, deltaSeconds * 1000);
+    if (deltaMs <= 0) {
+      return;
+    }
+    const lerpAlpha =
+      1 - Math.exp((-Math.LN2 * deltaMs) / this.lightingCenterHalfLifeMs);
+    this.lightingCenterCurrent.lerp(this.lightingCenterTarget, lerpAlpha);
+
+    if (
+      this.lightingCenterCurrent.distanceToSquared(this.lightingCenterTarget) >
+      this.lightingCenterEpsilonTiles * this.lightingCenterEpsilonTiles
+    ) {
+      this.markLightingDirty();
+    } else {
+      this.lightingCenterCurrent.copy(this.lightingCenterTarget);
+    }
+  }
+
   private disposeLightingOverlay(): void {
     if (this.lightingOverlayMesh) {
       this.scene.remove(this.lightingOverlayMesh);
@@ -637,14 +569,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.lightingOverlayMesh = null;
     }
+    if (this.lightingWallOverlayMesh) {
+      this.scene.remove(this.lightingWallOverlayMesh);
+      this.lightingWallOverlayMesh.geometry.dispose();
+      const material = this.lightingWallOverlayMesh.material;
+      if (Array.isArray(material)) {
+        material.forEach((entry) => entry.dispose());
+      } else {
+        material.dispose();
+      }
+      this.lightingWallOverlayMesh = null;
+    }
 
     if (this.lightingOverlayTexture) {
       this.lightingOverlayTexture.dispose();
       this.lightingOverlayTexture = null;
     }
+    if (this.lightingWallOverlayTexture) {
+      this.lightingWallOverlayTexture.dispose();
+      this.lightingWallOverlayTexture = null;
+    }
 
     this.lightingOverlayCanvas = null;
     this.lightingOverlayContext = null;
+    this.lightingWallOverlayCanvas = null;
+    this.lightingWallOverlayContext = null;
     this.lightingOverlayGridMeta = null;
   }
 
@@ -658,6 +607,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !this.lightingOverlayTexture ||
       !this.lightingOverlayCanvas ||
       !this.lightingOverlayContext ||
+      !this.lightingWallOverlayMesh ||
+      !this.lightingWallOverlayTexture ||
+      !this.lightingWallOverlayCanvas ||
+      !this.lightingWallOverlayContext ||
       !this.lightingOverlayGridMeta ||
       this.lightingOverlayGridMeta.minX !== grid.minX ||
       this.lightingOverlayGridMeta.maxX !== grid.maxX ||
@@ -677,14 +630,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!context) {
         return false;
       }
+      const wallCanvas = document.createElement("canvas");
+      wallCanvas.width = widthPixels;
+      wallCanvas.height = heightPixels;
+      const wallContext = wallCanvas.getContext("2d");
+      if (!wallContext) {
+        return false;
+      }
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.generateMipmaps = false;
-      texture.magFilter = THREE.LinearFilter;
-      texture.minFilter = THREE.LinearFilter;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
       texture.wrapS = THREE.ClampToEdgeWrapping;
       texture.wrapT = THREE.ClampToEdgeWrapping;
       texture.needsUpdate = true;
+      const wallTexture = new THREE.CanvasTexture(wallCanvas);
+      wallTexture.generateMipmaps = false;
+      wallTexture.magFilter = THREE.NearestFilter;
+      wallTexture.minFilter = THREE.NearestFilter;
+      wallTexture.wrapS = THREE.ClampToEdgeWrapping;
+      wallTexture.wrapT = THREE.ClampToEdgeWrapping;
+      wallTexture.needsUpdate = true;
 
       const geometry = new THREE.PlaneGeometry(
         grid.width * TILE_SIZE,
@@ -693,7 +660,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const material = new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
-        depthTest: false,
+        depthTest: true,
         depthWrite: false,
         toneMapped: false,
       });
@@ -701,15 +668,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
       mesh.position.set(
         ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
         ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
-        WALL_HEIGHT,
+        this.lightingFloorOverlayZ,
       );
-      mesh.renderOrder = 900;
+      mesh.renderOrder = 850;
+      const wallMaterial = new THREE.MeshBasicMaterial({
+        map: wallTexture,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const wallMesh = new THREE.Mesh(geometry.clone(), wallMaterial);
+      wallMesh.position.set(
+        ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
+        ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
+        this.lightingWallOverlayZ,
+      );
+      wallMesh.renderOrder = 900;
       this.scene.add(mesh);
+      this.scene.add(wallMesh);
 
       this.lightingOverlayMesh = mesh;
       this.lightingOverlayTexture = texture;
       this.lightingOverlayCanvas = canvas;
       this.lightingOverlayContext = context;
+      this.lightingWallOverlayMesh = wallMesh;
+      this.lightingWallOverlayTexture = wallTexture;
+      this.lightingWallOverlayCanvas = wallCanvas;
+      this.lightingWallOverlayContext = wallContext;
       this.lightingOverlayGridMeta = {
         minX: grid.minX,
         maxX: grid.maxX,
@@ -724,7 +710,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return Boolean(
       this.lightingOverlayTexture &&
       this.lightingOverlayCanvas &&
-      this.lightingOverlayContext,
+      this.lightingOverlayContext &&
+      this.lightingWallOverlayTexture &&
+      this.lightingWallOverlayCanvas &&
+      this.lightingWallOverlayContext,
     );
   }
 
@@ -732,76 +721,86 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (
       !this.lightingOverlayTexture ||
       !this.lightingOverlayCanvas ||
-      !this.lightingOverlayContext
+      !this.lightingOverlayContext ||
+      !this.lightingWallOverlayTexture ||
+      !this.lightingWallOverlayCanvas ||
+      !this.lightingWallOverlayContext
     ) {
       return;
     }
 
-    const canvas = this.lightingOverlayCanvas;
-    const context = this.lightingOverlayContext;
-    const widthPixels = canvas.width;
-    const heightPixels = canvas.height;
-
-    context.clearRect(0, 0, widthPixels, heightPixels);
-
-    context.globalCompositeOperation = "source-over";
-    context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
-    context.fillRect(0, 0, widthPixels, heightPixels);
-
     const playerPixel = this.worldToLightingPixel(
       grid,
-      this.playerPos.x,
-      this.playerPos.y,
+      this.lightingCenterCurrent.x,
+      this.lightingCenterCurrent.y,
     );
     const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
-
-    context.globalCompositeOperation = "destination-out";
-    const radial = context.createRadialGradient(
-      playerPixel.x,
-      playerPixel.y,
-      0,
-      playerPixel.x,
-      playerPixel.y,
-      radiusPixels,
-    );
-    const stops = 16;
-    for (let i = 0; i <= stops; i++) {
-      const t = i / stops;
-      const alpha = Math.pow(
-        Math.max(0, 1 - t),
-        this.lightingFloorFalloffPower,
-      );
-      radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
-    }
-    context.fillStyle = radial;
-    context.beginPath();
-    context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
-    context.fill();
-
-    const imageData = context.getImageData(0, 0, widthPixels, heightPixels);
-    const data = imageData.data;
     const tilePixels = this.lightingTilePixels;
-    for (let y = 0; y < heightPixels; y++) {
-      const cellY = Math.min(grid.height - 1, Math.floor(y / tilePixels));
-      for (let x = 0; x < widthPixels; x++) {
-        const index = (y * widthPixels + x) * 4;
-        const cellX = Math.min(grid.width - 1, Math.floor(x / tilePixels));
-        const cellIndex = cellY * grid.width + cellX;
-        let alpha = data[index + 3] / 255;
-        if (grid.undiscoveredMask[cellIndex]) {
-          alpha *= this.lightingUndiscoveredDarkScale;
-        }
-        const dither =
-          (this.lightingBayer4[(x & 3) + ((y & 3) << 2)] - 0.5) *
-          this.lightingDitherStrength;
-        const adjusted = THREE.MathUtils.clamp(alpha + dither, 0, 1);
-        data[index + 3] = Math.round(adjusted * 255);
-      }
-    }
-    context.putImageData(imageData, 0, 0);
+    const renderLayer = (
+      context: CanvasRenderingContext2D,
+      canvas: HTMLCanvasElement,
+      coverageMask: Uint8Array,
+    ): void => {
+      const widthPixels = canvas.width;
+      const heightPixels = canvas.height;
+      context.clearRect(0, 0, widthPixels, heightPixels);
 
-    context.globalCompositeOperation = "source-over";
+      context.globalCompositeOperation = "source-over";
+      context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
+      context.fillRect(0, 0, widthPixels, heightPixels);
+
+      const radial = context.createRadialGradient(
+        playerPixel.x,
+        playerPixel.y,
+        0,
+        playerPixel.x,
+        playerPixel.y,
+        radiusPixels,
+      );
+      const stops = 16;
+      for (let i = 0; i <= stops; i++) {
+        const t = i / stops;
+        const alpha = Math.pow(
+          Math.max(0, 1 - t),
+          this.lightingFloorFalloffPower,
+        );
+        radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
+      }
+      context.globalCompositeOperation = "destination-out";
+      context.fillStyle = radial;
+      context.beginPath();
+      context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
+      context.fill();
+
+      context.globalCompositeOperation = "source-over";
+      for (let cellY = 0; cellY < grid.height; cellY++) {
+        const pixelY = cellY * tilePixels;
+        for (let cellX = 0; cellX < grid.width; cellX++) {
+          const cellIndex = cellY * grid.width + cellX;
+          if (coverageMask[cellIndex]) {
+            continue;
+          }
+          context.clearRect(cellX * tilePixels, pixelY, tilePixels, tilePixels);
+        }
+      }
+      context.globalCompositeOperation = "source-over";
+    };
+
+    // Floor layer: cover known cells only (anti-mask is non-level floor cells).
+    renderLayer(
+      this.lightingOverlayContext,
+      this.lightingOverlayCanvas,
+      grid.knownMask,
+    );
+    // Wall-top layer: cover wall cells only.
+    renderLayer(
+      this.lightingWallOverlayContext,
+      this.lightingWallOverlayCanvas,
+      grid.wallMask,
+    );
+
     this.lightingOverlayTexture.needsUpdate = true;
+    this.lightingWallOverlayTexture.needsUpdate = true;
   }
 
   private updateLightingOverlay(): void {
@@ -1106,7 +1105,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const index = this.getMinimapCellIndex(tileX, tileY);
-    const paletteIndex = this.resolveMinimapPaletteIndex(behavior, isUndiscovered);
+    const paletteIndex = this.resolveMinimapPaletteIndex(
+      behavior,
+      isUndiscovered,
+    );
     const pending = this.pendingMinimapCellUpdates.get(index);
     if (pending === paletteIndex) {
       return;
@@ -1138,7 +1140,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    for (const [index, paletteIndex] of this.pendingMinimapCellUpdates.entries()) {
+    for (const [
+      index,
+      paletteIndex,
+    ] of this.pendingMinimapCellUpdates.entries()) {
       this.minimapCells[index] = paletteIndex;
       const x = index % MINIMAP_WIDTH_TILES;
       const y = Math.floor(index / MINIMAP_WIDTH_TILES);
@@ -1162,7 +1167,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const fovRadians = THREE.MathUtils.degToRad(this.camera.fov);
     const baseViewHeightWorld =
       2 * Math.tan(fovRadians / 2) * Math.max(1, this.cameraDistance);
-    const baseViewWidthWorld = baseViewHeightWorld * Math.max(1, this.camera.aspect);
+    const baseViewWidthWorld =
+      baseViewHeightWorld * Math.max(1, this.camera.aspect);
     const pitchScale = 1 / Math.max(0.45, Math.sin(this.cameraPitch));
 
     const viewWidthTiles = THREE.MathUtils.clamp(
@@ -1195,8 +1201,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const context = this.minimapViewportContext;
     context.clearRect(0, 0, MINIMAP_WIDTH_TILES, MINIMAP_HEIGHT_TILES);
 
-    const drawMinX = THREE.MathUtils.clamp(viewport.minX, 0, MINIMAP_WIDTH_TILES);
-    const drawMinY = THREE.MathUtils.clamp(viewport.minY, 0, MINIMAP_HEIGHT_TILES);
+    const drawMinX = THREE.MathUtils.clamp(
+      viewport.minX,
+      0,
+      MINIMAP_WIDTH_TILES,
+    );
+    const drawMinY = THREE.MathUtils.clamp(
+      viewport.minY,
+      0,
+      MINIMAP_HEIGHT_TILES,
+    );
     const drawMaxX = THREE.MathUtils.clamp(
       viewport.minX + viewport.width,
       0,
@@ -1216,16 +1230,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       context.strokeStyle = "rgba(214, 233, 255, 0.62)";
       context.lineWidth = 0.65;
-      context.strokeRect(drawMinX + 0.325, drawMinY + 0.325, drawWidth, drawHeight);
+      context.strokeRect(
+        drawMinX + 0.325,
+        drawMinY + 0.325,
+        drawWidth,
+        drawHeight,
+      );
     }
 
     if (this.isValidMinimapCoordinate(this.playerPos.x, this.playerPos.y)) {
       context.fillStyle = this.minimapPalette[12];
-      context.fillRect(this.playerPos.x - 0.4, this.playerPos.y - 0.4, 0.8, 0.8);
+      context.fillRect(
+        this.playerPos.x - 0.4,
+        this.playerPos.y - 0.4,
+        0.8,
+        0.8,
+      );
     }
   }
 
-  private getMinimapPointerTile(event: PointerEvent): { x: number; y: number } | null {
+  private getMinimapPointerTile(
+    event: PointerEvent,
+  ): { x: number; y: number } | null {
     if (!this.minimapContainer) {
       return null;
     }
@@ -1275,7 +1301,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (event.pointerType === "mouse" && event.button !== 0) {
       return;
     }
-    if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
+    if (
+      this.isAnyModalVisible() ||
+      this.isInQuestion ||
+      this.isInDirectionQuestion
+    ) {
       return;
     }
 
@@ -3498,13 +3528,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.material.needsUpdate = true;
     }
 
-    const revealState = this.tileRevealFades.get(key);
-    if (revealState) {
-      overlay.material.opacity = revealState.opacity;
-      overlay.material.needsUpdate = true;
-    } else {
-      overlay.material.opacity = 1;
-    }
+    overlay.material.opacity = 1;
 
     if (isWall) {
       mesh.material = [
@@ -3569,8 +3593,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private clearScene(): void {
     this.clearDamageEffects();
-    this.clearTileRevealFades();
     this.lastKnownPlayerHp = null;
+    this.lightingCenterInitialized = false;
     this.positionInputModeActive = false;
     this.hasRuntimePositionCursor = false;
     this.clearPositionCursor();
@@ -3699,10 +3723,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     const key = `${x},${y}`;
     let mesh = this.tileMap.get(key);
-    const hadMesh = Boolean(mesh);
-    const wasUndiscovered = mesh
-      ? Boolean(mesh.userData?.isUndiscovered)
-      : true;
     const behavior = classifyTileBehavior({
       glyph,
       runtimeChar: char ?? null,
@@ -3711,7 +3731,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
-    const shouldRevealFade = !isUndiscovered && (!hadMesh || wasUndiscovered);
+
+    if (isUndiscovered) {
+      if (mesh) {
+        this.scene.remove(mesh);
+        this.tileMap.delete(key);
+      }
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        this.disposeGlyphOverlay(overlay);
+        this.glyphOverlayMap.delete(key);
+      }
+      this.queueMinimapTileUpdate(x, y, behavior, true);
+      this.markLightingDirty();
+      return;
+    }
 
     if (!behavior.isPlayerGlyph) {
       if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
@@ -3756,7 +3790,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
-    mesh.userData.isUndiscovered = isUndiscovered;
 
     this.applyGlyphMaterial(
       key,
@@ -3767,12 +3800,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       behavior.isWall,
       behavior.darkenFactor,
     );
-    if (isUndiscovered) {
-      this.stopTileRevealFade(key);
-    } else if (shouldRevealFade) {
-      this.startTileRevealFade(key);
-    }
-    this.queueMinimapTileUpdate(x, y, behavior, isUndiscovered);
+    this.queueMinimapTileUpdate(x, y, behavior, false);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
@@ -7803,19 +7831,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (event.button === 0) {
-      const targetMesh = this.tileMap.get(`${target.x},${target.y}`);
-      if (targetMesh?.userData?.isUndiscovered) {
-        const dx = target.x - this.playerPos.x;
-        const dy = target.y - this.playerPos.y;
-        const direction = this.resolveDirectionFromDelta(dx, dy);
-        if (direction) {
-          this.sendForcedDirectionalInput(direction);
-          return true;
-        }
-      }
-    }
-
-    if (event.button === 0) {
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
     }
     this.sendMouseInput(target.x, target.y, event.button);
@@ -7921,17 +7936,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (event.cancelable) {
         event.preventDefault();
       }
-      const targetMesh = this.tileMap.get(`${target.x},${target.y}`);
-      if (targetMesh?.userData?.isUndiscovered) {
-        const dx = target.x - this.playerPos.x;
-        const dy = target.y - this.playerPos.y;
-        const direction = this.resolveDirectionFromDelta(dx, dy);
-        if (direction) {
-          this.sendForcedDirectionalInput(direction);
-          return;
-        }
-      }
-
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
       this.sendMouseInput(target.x, target.y, 0);
       return;
@@ -8060,10 +8064,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();
     this.updateLightingOverlay();
-    this.updateTileRevealFades(deltaSeconds);
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
     this.renderer.render(this.scene, this.camera);
