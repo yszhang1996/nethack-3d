@@ -986,9 +986,18 @@ canvas {
   color: #ffaaff;
 }
 
+.nh3d-stats-mobile-inline-secondary,
+.nh3d-stats-mobile-location-status {
+  display: none;
+}
+
+.nh3d-stats-mobile-location-status {
+  margin-left: 8px;
+  color: #ffaaff;
+}
+
 .nh3d-mobile-bottom-bar {
-  --nh3d-safe-area-bottom-raw: env(safe-area-inset-bottom, 0px);
-  --nh3d-safe-area-bottom: min(var(--nh3d-safe-area-bottom-raw), 15px);
+  --nh3d-safe-area-bottom: 15px;
   position: fixed;
   left: 0;
   right: 0;
@@ -1168,14 +1177,33 @@ canvas {
   }
 
   #stats-bar .nh3d-stats-group {
-    flex: 1 1 100%;
     flex-wrap: wrap;
     gap: 8px;
   }
 
-  #stats-bar .nh3d-stats-location {
+  #stats-bar .nh3d-stats-group-core {
     flex: 1 1 100%;
+  }
+
+  #stats-bar .nh3d-stats-group-secondary {
+    flex: 0 0 auto;
+  }
+
+  #stats-bar .nh3d-stats-mobile-inline-secondary {
+    display: block;
+  }
+
+  #stats-bar .nh3d-stats-desktop-secondary {
+    display: none;
+  }
+
+  #stats-bar .nh3d-stats-location {
+    flex: 1 1 auto;
     text-align: left;
+  }
+
+  #stats-bar .nh3d-stats-mobile-location-status {
+    display: inline;
   }
 
   .nh3d-dialog {

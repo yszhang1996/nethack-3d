@@ -6,11 +6,11 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 
 ## Screenshots
 
-| Combat (Gnomish Mines)                                                                                                 | Enhanced Combat Visuals (Tile shake, damage numbers, blood)                                                            |
-| ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [![Combat in the Gnomish Mines](docs/screenshots/combat-gnomish-mines.png)](docs/screenshots/combat-gnomish-mines.png) | [![Blood effects during combat](docs/screenshots/blood-effects-combat.png)](docs/screenshots/blood-effects-combat.png) |
-| Attributes                                                                                                             | Inventory                                                                                                              |
-| [![Attributes panel](docs/screenshots/attributes-panel.png)](docs/screenshots/attributes-panel.png)                    | [![Inventory panel](docs/screenshots/inventory-panel.png)](docs/screenshots/inventory-panel.png)                       |
+| Combat (Gnomish Mines)                                                                                                                                                                                                   | Enhanced Combat Visuals (Tile shake, damage numbers, blood)                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| [![Combat in the Gnomish Mines](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/combat-gnomish-mines.png)](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/combat-gnomish-mines.png) | [![Blood effects during combat](docs/screenshots/blood-effects-combat.png)](docs/screenshots/blood-effects-combat.png) |
+| Attributes                                                                                                                                                                                                               | Inventory                                                                                                              |
+| [![Attributes panel](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/attributes-panel.png)](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/attributes-panel.png)                    | [![Inventory panel](docs/screenshots/inventory-panel.png)](docs/screenshots/inventory-panel.png)                       |
 
 ## Current Features
 
@@ -19,7 +19,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 - Clear 3D visuals for dungeon features like walls, doors, stairs, water, traps, fountains, and dark areas.
 - Dynamic darkness and lighting around your hero to make exploration feel tense.
 - Combat feedback effects (screen-space and tile effects) so hits feel more readable and satisfying.
-- Full HUD with health, power, stats, armor, gold, hunger, time, and dungeon depth.
+- Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon depth.
 - Live message log plus floating on-screen message popups during active play.
 - Handles common NetHack prompts cleanly: yes/no, directional actions, text entry, and tile targeting/look mode.
 - Better menu flow: readable category menus, inventory dialogs, multi-pickup selection, and menu paging.

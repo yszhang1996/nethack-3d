@@ -508,6 +508,9 @@ export default function App(): JSX.Element {
           Math.min(100, (playerStats.power / playerStats.maxPower) * 100),
         )
       : 0;
+  const locationStatusText = [playerStats.hunger, playerStats.encumbrance]
+    .filter((value) => Boolean(value))
+    .join(" ");
   const parsedQuestionChoices = question
     ? parseQuestionChoices(question.text, question.choices)
     : [];
@@ -802,22 +805,35 @@ export default function App(): JSX.Element {
             </div>
           </div>
         ) : null}
-        <div className="nh3d-stats-group">
+        <div className="nh3d-stats-group nh3d-stats-group-core">
           <div className="nh3d-stats-core">St:{playerStats.strength}</div>
           <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
           <div className="nh3d-stats-core">Co:{playerStats.constitution}</div>
           <div className="nh3d-stats-core">In:{playerStats.intelligence}</div>
           <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
           <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
+          <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
+            AC:{playerStats.armor}
+          </div>
+          <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
+            Exp:{playerStats.experience}
+          </div>
+          <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
+            T:{playerStats.time}
+          </div>
         </div>
-        <div className="nh3d-stats-group">
-          <div className="nh3d-stats-secondary-ac">AC:{playerStats.armor}</div>
-          <div className="nh3d-stats-secondary-exp">
+        <div className="nh3d-stats-group nh3d-stats-group-secondary">
+          <div className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">
+            AC:{playerStats.armor}
+          </div>
+          <div className="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">
             Exp:{playerStats.experience}
           </div>
           <div className="nh3d-stats-secondary-gold">$:{playerStats.gold}</div>
-          <div className="nh3d-stats-secondary-time">T:{playerStats.time}</div>
-          <div className="nh3d-stats-hunger">
+          <div className="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">
+            T:{playerStats.time}
+          </div>
+          <div className="nh3d-stats-hunger nh3d-stats-desktop-secondary">
             {playerStats.hunger}
             {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
           </div>
@@ -825,6 +841,11 @@ export default function App(): JSX.Element {
         <div className="nh3d-stats-location">
           <div className="nh3d-stats-dungeon">
             {playerStats.dungeon} {playerStats.dlevel}
+            {locationStatusText ? (
+              <span className="nh3d-stats-mobile-location-status">
+                {locationStatusText}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

@@ -3730,6 +3730,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : 0;
     const hpColor =
       hpPercentage > 60 ? "#00ff00" : hpPercentage > 30 ? "#ffaa00" : "#ff0000";
+    const locationStatusText = [this.playerStats.hunger, this.playerStats.encumbrance]
+      .filter((value) => Boolean(value))
+      .join(" ");
 
     // Build the complete stats display
     statsBar.innerHTML = `
@@ -3759,21 +3762,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : ""
       }
 
-      <div class="nh3d-stats-group">
+      <div class="nh3d-stats-group nh3d-stats-group-core">
         <div class="nh3d-stats-core">St:${this.playerStats.strength}</div>
         <div class="nh3d-stats-core">Dx:${this.playerStats.dexterity}</div>
         <div class="nh3d-stats-core">Co:${this.playerStats.constitution}</div>
         <div class="nh3d-stats-core">In:${this.playerStats.intelligence}</div>
         <div class="nh3d-stats-core">Wi:${this.playerStats.wisdom}</div>
         <div class="nh3d-stats-core">Ch:${this.playerStats.charisma}</div>
+        <div class="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">AC:${this.playerStats.armor}</div>
+        <div class="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">Exp:${this.playerStats.experience}</div>
+        <div class="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">T:${this.playerStats.time}</div>
       </div>
 
-      <div class="nh3d-stats-group">
-        <div class="nh3d-stats-secondary-ac">AC:${this.playerStats.armor}</div>
-        <div class="nh3d-stats-secondary-exp">Exp:${this.playerStats.experience}</div>
+      <div class="nh3d-stats-group nh3d-stats-group-secondary">
+        <div class="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">AC:${this.playerStats.armor}</div>
+        <div class="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">Exp:${this.playerStats.experience}</div>
         <div class="nh3d-stats-secondary-gold">$:${this.playerStats.gold}</div>
-        <div class="nh3d-stats-secondary-time">T:${this.playerStats.time}</div>
-        <div class="nh3d-stats-hunger">${this.playerStats.hunger}${
+        <div class="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">T:${this.playerStats.time}</div>
+        <div class="nh3d-stats-hunger nh3d-stats-desktop-secondary">${this.playerStats.hunger}${
           this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
         }</div>
       </div>
@@ -3781,6 +3787,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       <div class="nh3d-stats-location">
         <div class="nh3d-stats-dungeon">${this.playerStats.dungeon} ${
           this.playerStats.dlevel
+        }${
+          locationStatusText
+            ? `<span class="nh3d-stats-mobile-location-status">${locationStatusText}</span>`
+            : ""
         }</div>
       </div>
     `;
