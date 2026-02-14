@@ -469,6 +469,17 @@ export default function App(): JSX.Element {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.style.setProperty("--nh3d-stats-bar-height", `${statsBarHeight}px`);
+    return () => {
+      root.style.removeProperty("--nh3d-stats-bar-height");
+    };
+  }, [statsBarHeight]);
+
   const isMobileGameRunning =
     isMobileViewport &&
     characterCreationConfig !== null &&

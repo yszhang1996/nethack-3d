@@ -403,6 +403,8 @@ canvas {
 
 #character-setup-dialog {
   width: min(92vw, 680px);
+  box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 #character-setup-dialog .nh3d-question-text {
@@ -411,6 +413,14 @@ canvas {
 
 #character-setup-dialog .nh3d-choice-list {
   width: min(560px, 100%);
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#character-setup-dialog .nh3d-menu-actions {
+  margin-top: 12px;
+  padding-top: 2px;
 }
 
 .nh3d-dialog-direction {
@@ -1409,6 +1419,8 @@ canvas {
     width: calc(100vw - 50px);
     max-height: calc(100vh - 32px - env(safe-area-inset-bottom));
     padding: 12px;
+    box-sizing: border-box;
+    overflow-x: hidden;
   }
 
   #character-setup-dialog .nh3d-question-text {
@@ -1418,6 +1430,11 @@ canvas {
   #character-setup-dialog .nh3d-choice-list {
     margin-top: 10px;
     width: 100%;
+  }
+
+  #character-setup-dialog .nh3d-menu-actions {
+    margin-top: 14px;
+    padding-top: 4px;
   }
 
   #character-setup-dialog .nh3d-choice-button {
@@ -1512,7 +1529,9 @@ canvas {
   }
 
   .nh3d-minimap {
-    top: calc(var(--nh3d-safe-area-top) + 88px);
+    top: calc(
+      var(--nh3d-safe-area-top) + var(--nh3d-stats-bar-height, 64px) + 8px
+    );
     right: 8px;
     width: min(44vw, 220px);
     opacity: 0.85;
