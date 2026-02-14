@@ -259,6 +259,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isCameraCenteredOnPlayer: boolean = true;
   private readonly cameraPanHalfLifeMs: number = 135;
   private cameraFollowHalfLifeMs: number = 85;
+  private readonly cameraRecenterFollowHalfLifeMs: number = 180;
+  private cameraRecenteringInProgress: boolean = false;
   private cameraFollowInitialized: boolean = false;
   private cameraFollowTarget = new THREE.Vector3();
   private cameraFollowCurrent = new THREE.Vector3();
@@ -1297,6 +1299,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanTargetX = targetWorldX - this.playerPos.x * TILE_SIZE;
     this.cameraPanTargetY = targetWorldY + this.playerPos.y * TILE_SIZE;
     this.isCameraCenteredOnPlayer = false;
+    this.cameraRecenteringInProgress = false;
   }
 
   private recenterCameraOnPlayerIfNeeded(): void {
@@ -1306,6 +1309,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraPanTargetX = 0;
     this.cameraPanTargetY = 0;
     this.isCameraCenteredOnPlayer = true;
+    this.cameraRecenteringInProgress = true;
   }
 
   private handleMinimapPointerDown(event: PointerEvent): void {
@@ -7536,21 +7540,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateCamera(deltaSeconds: number): void {
     const { x, y } = this.playerPos;
-    const targetX = x * TILE_SIZE + this.cameraPanX;
-    const targetY = -y * TILE_SIZE + this.cameraPanY;
+    // When recentering, follow the pan target directly so camera follow and pan
+    // inertia do not both smooth the same return path in different directions.
+    const panX = this.isCameraCenteredOnPlayer
+      ? this.cameraPanTargetX
+      : this.cameraPanX;
+    const panY = this.isCameraCenteredOnPlayer
+      ? this.cameraPanTargetY
+      : this.cameraPanY;
+    const targetX = x * TILE_SIZE + panX;
+    const targetY = -y * TILE_SIZE + panY;
     this.cameraFollowTarget.set(targetX, targetY, 0);
 
     if (!this.cameraFollowInitialized) {
       this.cameraFollowCurrent.copy(this.cameraFollowTarget);
       this.cameraFollowInitialized = true;
+      this.cameraRecenteringInProgress = false;
     } else {
+      const followHalfLifeMs = this.cameraRecenteringInProgress
+        ? this.cameraRecenterFollowHalfLifeMs
+        : this.cameraFollowHalfLifeMs;
       // Exponential smoothing for camera follow: immediate movement with natural fade-out.
       const alpha =
         1 -
         Math.exp(
-          (-Math.LN2 * deltaSeconds * 1000) / this.cameraFollowHalfLifeMs,
+          (-Math.LN2 * deltaSeconds * 1000) / followHalfLifeMs,
         );
       this.cameraFollowCurrent.lerp(this.cameraFollowTarget, alpha);
+      if (
+        this.cameraRecenteringInProgress &&
+        Math.abs(this.cameraFollowTarget.x - this.cameraFollowCurrent.x) < 0.02 &&
+        Math.abs(this.cameraFollowTarget.y - this.cameraFollowCurrent.y) < 0.02
+      ) {
+        this.cameraRecenteringInProgress = false;
+      }
     }
 
     const followX = this.cameraFollowCurrent.x;
@@ -7869,6 +7892,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       event.preventDefault();
       this.isRightMouseDown = true;
       this.isCameraCenteredOnPlayer = false;
+      this.cameraRecenteringInProgress = false;
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     }
@@ -8001,6 +8025,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraPanTargetX = this.cameraPanX;
       this.cameraPanTargetY = this.cameraPanY;
       this.isCameraCenteredOnPlayer = false;
+      this.cameraRecenteringInProgress = false;
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
