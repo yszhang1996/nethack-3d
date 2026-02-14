@@ -16,6 +16,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 
 - Play NetHack in a 3D dungeon view while keeping core game rules and depth.
 - Smooth map updates as you move, explore, and change floors.
+- Subtle top-right minimap for full-level awareness, with viewport box and drag-to-center camera navigation.
 - Clear 3D visuals for dungeon features like walls, doors, stairs, water, traps, fountains, and dark areas.
 - Dynamic darkness and lighting around your hero to make exploration feel tense.
 - Combat feedback effects (blood splatter and tile effects) so hits feel more readable and satisfying.
