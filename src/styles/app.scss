@@ -40,11 +40,22 @@ body {
   overflow: hidden;
   background: #000011; /* Dark blue void background */
   font-family: "Courier New", Courier, monospace;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 #root {
   width: 100%;
   height: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+input,
+textarea,
+select {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .nh3d-canvas-root {
