@@ -253,11 +253,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsAimLine: THREE.Line | null = null;
   private fpsAimLineMaterial: THREE.LineBasicMaterial | null = null;
   private fpsAimLinePulseUntilMs: number = 0;
+  private readonly elevatedMonsterZ = WALL_HEIGHT * 0.58;
+  private readonly elevatedLootZ = WALL_HEIGHT * 0.42;
+  private entityBlobShadows: Map<string, THREE.Mesh> = new Map();
+  private entityBlobShadowTexture: THREE.CanvasTexture | null = null;
   private monsterBillboards: Map<string, THREE.Sprite> = new Map();
   private monsterBillboardTextures: Map<
     string,
     { texture: THREE.CanvasTexture; refCount: number }
   > = new Map();
+  private fpsStepCameraActive: boolean = false;
+  private fpsStepCameraStartMs: number = 0;
+  private readonly fpsStepCameraDurationMs: number = 92;
+  private fpsStepCameraFrom = new THREE.Vector3();
+  private fpsStepCameraTo = new THREE.Vector3();
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -928,7 +937,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
     window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
     window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
-    window.addEventListener(
+    document.addEventListener(
       "pointerlockchange",
       this.handlePointerLockChange.bind(this),
       false,
@@ -1938,6 +1947,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isLootLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.isPlayerGlyph) {
+      return false;
+    }
+
+    switch (behavior.effective.kind) {
+      case "obj":
+      case "body":
+        return true;
+      default:
+        return false;
+    }
+  }
+
   private classifyTilePayload(tile: any): TileBehaviorResult | null {
     if (
       !tile ||
@@ -2392,6 +2415,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     for (const tile of updates) {
       const key = `${tile.x},${tile.y}`;
+      const behavior = this.classifyTilePayload(tile);
+      if (
+        this.isFpsMode() &&
+        this.fpsStepCameraActive &&
+        behavior &&
+        !behavior.isPlayerGlyph &&
+        (this.isMonsterLikeBehavior(behavior) || this.isLootLikeBehavior(behavior))
+      ) {
+        this.pendingTileUpdates.set(key, tile);
+        continue;
+      }
+
       const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}`;
       if (this.tileStateCache.get(key) === signature) {
         continue;
@@ -2402,6 +2437,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
+
+    if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+      this.tileFlushScheduled = true;
+      requestAnimationFrame(() => this.flushPendingTileUpdates());
+    }
   }
 
   /**
@@ -2838,10 +2878,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const sprite = this.monsterBillboards.get(key);
     if (sprite) {
+      const spriteZ =
+        typeof sprite.userData?.elevatedZ === "number"
+          ? sprite.userData.elevatedZ
+          : this.elevatedMonsterZ;
       sprite.position.set(
         state.tileX * TILE_SIZE,
         -state.tileY * TILE_SIZE,
-        WALL_HEIGHT * 0.58,
+        spriteZ,
+      );
+    }
+    const shadow = this.entityBlobShadows.get(key);
+    if (shadow) {
+      const shadowZ = mesh?.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
+      shadow.position.set(
+        state.tileX * TILE_SIZE,
+        -state.tileY * TILE_SIZE,
+        shadowZ,
       );
     }
 
@@ -2887,10 +2940,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
       const sprite = this.monsterBillboards.get(key);
       if (sprite) {
+        const spriteZ =
+          typeof sprite.userData?.elevatedZ === "number"
+            ? sprite.userData.elevatedZ
+            : this.elevatedMonsterZ;
         sprite.position.set(
           state.tileX * TILE_SIZE + offsetX,
           -state.tileY * TILE_SIZE + offsetY,
-          WALL_HEIGHT * 0.58,
+          spriteZ,
+        );
+      }
+      const shadow = this.entityBlobShadows.get(key);
+      if (shadow) {
+        const shadowZ = mesh.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
+        shadow.position.set(
+          state.tileX * TILE_SIZE + offsetX * 0.4,
+          -state.tileY * TILE_SIZE + offsetY * 0.4,
+          shadowZ,
         );
       }
 
@@ -3737,6 +3803,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       entry.texture.dispose();
     }
     this.monsterBillboardTextures.clear();
+    if (this.entityBlobShadowTexture) {
+      this.entityBlobShadowTexture.dispose();
+      this.entityBlobShadowTexture = null;
+    }
+    this.entityBlobShadows.clear();
 
     if (this.fpsForwardHighlight) {
       this.scene.remove(this.fpsForwardHighlight);
@@ -3754,6 +3825,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.fpsCurrentAimDirection = null;
     this.fpsAimLinePulseUntilMs = 0;
+    this.fpsStepCameraActive = false;
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -3901,6 +3973,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return texture;
   }
 
+  private ensureEntityBlobShadowTexture(): THREE.CanvasTexture {
+    if (this.entityBlobShadowTexture) {
+      return this.entityBlobShadowTexture;
+    }
+
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create entity blob shadow texture context");
+    }
+
+    const gradient = context.createRadialGradient(
+      size / 2,
+      size / 2,
+      size * 0.08,
+      size / 2,
+      size / 2,
+      size * 0.48,
+    );
+    gradient.addColorStop(0, "rgba(0, 0, 0, 0.55)");
+    gradient.addColorStop(0.72, "rgba(0, 0, 0, 0.16)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.entityBlobShadowTexture = texture;
+    return texture;
+  }
+
   private acquireMonsterBillboardTexture(
     key: string,
     factory: () => THREE.CanvasTexture,
@@ -3930,7 +4042,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private removeEntityBlobShadow(key: string): void {
+    const shadow = this.entityBlobShadows.get(key);
+    if (!shadow) {
+      return;
+    }
+    this.scene.remove(shadow);
+    const material = shadow.material;
+    if (material instanceof THREE.MeshBasicMaterial) {
+      material.dispose();
+    }
+    shadow.geometry.dispose();
+    this.entityBlobShadows.delete(key);
+  }
+
   private removeMonsterBillboard(key: string): void {
+    this.removeEntityBlobShadow(key);
     const sprite = this.monsterBillboards.get(key);
     if (!sprite) {
       return;
@@ -3952,12 +4079,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.monsterBillboards.delete(key);
   }
 
+  private ensureEntityBlobShadow(
+    key: string,
+    x: number,
+    y: number,
+    scaleBase: number,
+    isWall: boolean,
+  ): void {
+    let shadow = this.entityBlobShadows.get(key);
+    if (!shadow) {
+      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+      const material = new THREE.MeshBasicMaterial({
+        map: this.ensureEntityBlobShadowTexture(),
+        transparent: true,
+        opacity: 0.58,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      shadow = new THREE.Mesh(geometry, material);
+      shadow.renderOrder = 905;
+      this.entityBlobShadows.set(key, shadow);
+      this.scene.add(shadow);
+    }
+
+    shadow.position.set(
+      x * TILE_SIZE,
+      -y * TILE_SIZE,
+      isWall ? WALL_HEIGHT + 0.03 : 0.028,
+    );
+    shadow.scale.set(scaleBase, scaleBase * 0.82, 1);
+  }
+
   private ensureMonsterBillboard(
     key: string,
     x: number,
     y: number,
     glyphChar: string,
     textColor: string,
+    entityType: "monster" | "loot" = "monster",
+    isWall: boolean = false,
   ): void {
     const textureKey = `${glyphChar}|${textColor}`;
     const spriteKey = key;
@@ -4000,9 +4161,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, WALL_HEIGHT * 0.58);
-    const scaleBase = this.isFpsMode() ? 1.08 : 0.9;
+    const elevatedZ =
+      entityType === "loot" ? this.elevatedLootZ : this.elevatedMonsterZ;
+    sprite.userData.elevatedZ = elevatedZ;
+    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, elevatedZ);
+    const scaleBase = this.isFpsMode()
+      ? entityType === "loot"
+        ? 0.82
+        : 1.08
+      : 0.9;
     sprite.scale.set(scaleBase, scaleBase, 1);
+    const shadowScale = entityType === "loot" ? 0.58 : 0.76;
+    this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
   }
 
   private updateTile(
@@ -4021,6 +4191,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
+    const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
+    const shouldElevateEntityInFps =
+      this.isFpsMode() && (isMonsterLikeCharacter || isLootLikeCharacter);
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
     if (isUndiscovered) {
@@ -4094,7 +4267,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
-    if (this.isFpsMode() && isMonsterLikeCharacter) {
+    if (shouldElevateEntityInFps) {
       const floorSnapshot = this.lastKnownTerrain.get(key);
       if (floorSnapshot) {
         renderBehavior = classifyTileBehavior({
@@ -4140,6 +4313,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.disposition = behavior.disposition;
     mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
     mesh.userData.isMonsterLikeCharacter = isMonsterLikeCharacter;
+    mesh.userData.isLootLikeCharacter = isLootLikeCharacter;
     mesh.userData.isDamageFlashableCharacter =
       this.isDamageFlashableBehavior(behavior);
     mesh.userData.glyphChar = behavior.glyphChar;
@@ -4165,6 +4339,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
         y,
         behavior.glyphChar,
         behavior.textColor,
+        "monster",
+        renderBehavior.isWall,
+      );
+    } else if (this.isFpsMode() && isLootLikeCharacter) {
+      this.ensureMonsterBillboard(
+        key,
+        x,
+        y,
+        behavior.glyphChar,
+        behavior.textColor,
+        "loot",
+        renderBehavior.isWall,
       );
     } else {
       this.removeMonsterBillboard(key);
@@ -4220,7 +4406,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (moved) {
-      this.recenterCameraOnPlayerIfNeeded();
+      if (this.isFpsMode()) {
+        this.beginFpsStepCameraTransition(fromX, fromY, toX, toY);
+      } else {
+        this.recenterCameraOnPlayerIfNeeded();
+      }
     }
 
     const hasRecentMovementInput =
@@ -4229,6 +4419,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.hasPlayerMovedOnce && moved && hasRecentMovementInput) {
       this.hasPlayerMovedOnce = true;
     }
+  }
+
+  private beginFpsStepCameraTransition(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    const fromEyeX = fromX * TILE_SIZE;
+    const fromEyeY = -fromY * TILE_SIZE;
+    const toEyeX = toX * TILE_SIZE;
+    const toEyeY = -toY * TILE_SIZE;
+
+    if (!this.fpsStepCameraActive) {
+      this.fpsStepCameraFrom.set(fromEyeX, fromEyeY, this.firstPersonEyeHeight);
+    } else {
+      const now = performance.now();
+      const progress = THREE.MathUtils.clamp(
+        (now - this.fpsStepCameraStartMs) / this.fpsStepCameraDurationMs,
+        0,
+        1,
+      );
+      const eased = 1 - Math.pow(1 - progress, 3);
+      this.fpsStepCameraFrom.lerp(this.fpsStepCameraTo, eased);
+    }
+
+    this.fpsStepCameraTo.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
+    this.fpsStepCameraStartMs = performance.now();
+    this.fpsStepCameraActive = true;
   }
 
   private showFloatingGameMessage(message: string): void {
@@ -8092,9 +8315,41 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateCamera(deltaSeconds: number): void {
     if (this.isFpsMode()) {
-      const eyeX = this.playerPos.x * TILE_SIZE;
-      const eyeY = -this.playerPos.y * TILE_SIZE;
+      const targetEyeX = this.playerPos.x * TILE_SIZE;
+      const targetEyeY = -this.playerPos.y * TILE_SIZE;
+      let eyeX = targetEyeX;
+      let eyeY = targetEyeY;
       const eyeZ = this.firstPersonEyeHeight;
+
+      if (this.fpsStepCameraActive) {
+        const progress = THREE.MathUtils.clamp(
+          (performance.now() - this.fpsStepCameraStartMs) /
+            this.fpsStepCameraDurationMs,
+          0,
+          1,
+        );
+        const eased = 1 - Math.pow(1 - progress, 3);
+        eyeX = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.x,
+          this.fpsStepCameraTo.x,
+          eased,
+        );
+        eyeY = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.y,
+          this.fpsStepCameraTo.y,
+          eased,
+        );
+        if (progress >= 1) {
+          this.fpsStepCameraActive = false;
+          this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
+          this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
+          if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+            this.tileFlushScheduled = true;
+            requestAnimationFrame(() => this.flushPendingTileUpdates());
+          }
+        }
+      }
+
       const forwardX = -Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch);
       const forwardY = -Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch);
       const forwardZ = Math.sin(this.cameraPitch);
@@ -8573,6 +8828,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       event.preventDefault();
       if (document.pointerLockElement !== this.renderer.domElement) {
         this.renderer.domElement.requestPointerLock?.();
+        return;
       }
       this.fireInCurrentAimDirection();
       return;
@@ -8712,10 +8968,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaX = event.movementX || 0;
       const deltaY = event.movementY || 0;
       this.cameraYaw = this.wrapAngle(
-        this.cameraYaw - deltaX * this.firstPersonMouseSensitivity,
+        this.cameraYaw + deltaX * this.firstPersonMouseSensitivity,
       );
       this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch + deltaY * this.firstPersonMouseSensitivity,
+        this.cameraPitch - deltaY * this.firstPersonMouseSensitivity,
         this.firstPersonPitchMin,
         this.firstPersonPitchMax,
       );
@@ -8729,11 +8985,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaY = event.clientY - this.lastMouseY;
 
       this.cameraYaw = this.wrapAngle(
-        this.cameraYaw - deltaX * this.rotationSpeed,
+        this.cameraYaw + deltaX * this.rotationSpeed,
       );
       this.cameraPitch = this.isFpsMode()
         ? THREE.MathUtils.clamp(
-            this.cameraPitch + deltaY * this.rotationSpeed,
+            this.cameraPitch - deltaY * this.rotationSpeed,
             this.firstPersonPitchMin,
             this.firstPersonPitchMax,
           )
@@ -8750,10 +9006,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaX = event.clientX - this.lastMouseX;
       const deltaY = event.clientY - this.lastMouseY;
       this.cameraYaw = this.wrapAngle(
-        this.cameraYaw - deltaX * this.rotationSpeed,
+        this.cameraYaw + deltaX * this.rotationSpeed,
       );
       this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch + deltaY * this.rotationSpeed,
+        this.cameraPitch - deltaY * this.rotationSpeed,
         this.firstPersonPitchMin,
         this.firstPersonPitchMax,
       );
