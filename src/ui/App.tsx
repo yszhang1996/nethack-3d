@@ -148,7 +148,7 @@ function parseQuestionChoices(question: string, choices: string): string[] {
   return merged;
 }
 
-function isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
+function isYesNoChoicePrompt(parsedChoices: string[]): boolean {
   if (!Array.isArray(parsedChoices) || parsedChoices.length === 0) {
     return false;
   }
@@ -160,7 +160,8 @@ function isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
     return false;
   }
 
-  const allowedChoices = new Set(["y", "n", "a", "q"]);
+  // Include common yes/no prompt auxiliaries so we never map these to inventory labels.
+  const allowedChoices = new Set(["y", "n", "a", "q", "#", "?"]);
   const hasYes = normalized.includes("y");
   const hasNo = normalized.includes("n");
   const onlySimpleChoices = normalized.every(
@@ -900,9 +901,8 @@ export default function App(): JSX.Element {
   const parsedQuestionChoices = question
     ? parseQuestionChoices(question.text, question.choices)
     : [];
-  const useInventoryChoiceLabels = !isSimpleYesNoChoicePrompt(
-    parsedQuestionChoices,
-  );
+  const isYesNoQuestionChoices = isYesNoChoicePrompt(parsedQuestionChoices);
+  const useInventoryChoiceLabels = !isYesNoQuestionChoices;
   const questionMenuPageIndex = question?.menuPageIndex ?? 0;
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
   const questionSelectableMenuItemCount = question
@@ -1518,7 +1518,10 @@ export default function App(): JSX.Element {
       </div>
 
       {isClientOptionsVisible ? (
-        <div className="nh3d-dialog nh3d-dialog-options is-visible" id="nh3d-client-options-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-has-mobile-close is-visible"
+          id="nh3d-client-options-dialog"
+        >
           {renderMobileDialogCloseButton(
             closeClientOptionsDialog,
             "Close NetHack 3D options",
@@ -1653,7 +1656,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {textInputRequest ? (
-        <div className="nh3d-dialog nh3d-dialog-text is-visible" id="text-input-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-text nh3d-dialog-has-mobile-close is-visible"
+          id="text-input-dialog"
+        >
           {renderMobileDialogCloseButton(
             () => submitTextInput(""),
             "Cancel text input",
@@ -1698,7 +1704,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {question ? (
-        <div className="nh3d-dialog nh3d-dialog-question is-visible" id="question-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-has-mobile-close is-visible"
+          id="question-dialog"
+        >
           {renderMobileDialogCloseButton(
             () => controller?.cancelActivePrompt(),
             "Cancel prompt",
@@ -1830,7 +1839,7 @@ export default function App(): JSX.Element {
                 parsedQuestionChoices.every((choice) => choice.trim().length === 1)
                   ? " is-compact"
                   : ""
-              }`}
+              }${isYesNoQuestionChoices ? " is-yes-no" : ""}`}
             >
               {parsedQuestionChoices.map((choice) => (
                 <button
@@ -1886,7 +1895,7 @@ export default function App(): JSX.Element {
       {directionQuestion ? (
         isFpsPlayMode ? (
           <div
-            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps is-visible"
+            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close is-visible"
             id="direction-dialog"
           >
             {renderMobileDialogCloseButton(
@@ -1900,7 +1909,10 @@ export default function App(): JSX.Element {
             </div>
           </div>
         ) : (
-          <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
+          <div
+            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-has-mobile-close is-visible"
+            id="direction-dialog"
+          >
             {renderMobileDialogCloseButton(
               () => controller?.cancelActivePrompt(),
               "Cancel direction prompt",
@@ -1961,7 +1973,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {infoMenu ? (
-        <div className="nh3d-dialog nh3d-dialog-info is-visible" id="info-menu-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-has-mobile-close is-visible"
+          id="info-menu-dialog"
+        >
           {renderMobileDialogCloseButton(
             () => controller?.closeInfoMenuDialog(),
             "Close information window",
@@ -1986,7 +2001,10 @@ export default function App(): JSX.Element {
       ) : null}
 
       {inventory.visible ? (
-        <div className="nh3d-dialog nh3d-dialog-inventory is-visible" id="inventory-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-inventory nh3d-dialog-has-mobile-close is-visible"
+          id="inventory-dialog"
+        >
           {renderMobileDialogCloseButton(
             () => controller?.closeInventoryDialog(),
             "Close inventory",

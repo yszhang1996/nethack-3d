@@ -206,8 +206,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private floatingMessageLayer: HTMLDivElement | null = null;
   private floatingMessageEntries: FloatingMessageEntry[] = [];
   private hasSeenPlayerPosition: boolean = false;
+  private pendingPlayerTileRefreshOnNextPosition: boolean = true;
   private hasPlayerMovedOnce: boolean = false;
   private lastMovementInputAtMs: number = 0;
+  private readonly tileRefreshRetryDelayMs: number = 120;
   private readonly maxFloatingMessages: number = 12;
   private readonly movementUnlockWindowMs: number = 5000;
   private readonly floatingMessageStackSpacingPx: number = 30;
@@ -441,6 +443,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerDamageNumberForwardOffset: number = TILE_SIZE * 0.42;
   private readonly playerDamageNumberFpsLateralSpread: number = TILE_SIZE * 0.14;
   private readonly playerDamageNumberFpsRiseDistance: number = 0.34;
+  private readonly playerDamageNumberNormalScaleFactor: number = 3;
   private readonly playerDamageNumberFpsScaleFactor: number = 0.33;
   private readonly playerDamageNumberForwardLift: number = 0.07;
   private readonly playerDamageNumberForwardDirection = new THREE.Vector3();
@@ -2011,6 +2014,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
     this.updateConnectionStatus("Starting", "starting");
+    this.pendingPlayerTileRefreshOnNextPosition = true;
 
     this.session = new WorkerRuntimeBridge(
       (payload: RuntimeEvent) => {
@@ -2085,6 +2089,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`,
         );
         this.updateStatus(`Player at (${data.x}, ${data.y}) - NetHack 3D`);
+        if (this.pendingPlayerTileRefreshOnNextPosition) {
+          this.pendingPlayerTileRefreshOnNextPosition = false;
+          this.requestPlayerTileRefresh("player-position-sync");
+        }
         break;
 
       case "force_player_redraw":
@@ -2309,6 +2317,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "clear_scene":
         console.log("🧹 Clearing 3D scene for level transition");
         this.clearScene();
+        this.pendingPlayerTileRefreshOnNextPosition = true;
         if (data.message) {
           this.addGameMessage(data.message);
         }
@@ -2931,6 +2940,60 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
   }
 
+  private requestTileUpdateWithRetry(x: number, y: number): void {
+    this.requestTileUpdate(x, y);
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.setTimeout(() => {
+      this.requestTileUpdate(x, y);
+    }, this.tileRefreshRetryDelayMs);
+    window.setTimeout(() => {
+      this.requestTileUpdate(x, y);
+    }, this.tileRefreshRetryDelayMs * 2);
+  }
+
+  private requestPlayerTileRefresh(reason: string): void {
+    if (!this.session) {
+      return;
+    }
+    console.log(
+      `Requesting player tile refresh (${reason}) at (${this.playerPos.x}, ${this.playerPos.y})`,
+    );
+    this.requestTileUpdateWithRetry(this.playerPos.x, this.playerPos.y);
+  }
+
+  private requestDirectionalAnswerTileRefresh(directionInput: string): void {
+    if (!this.session) {
+      return;
+    }
+    const originX = this.playerPos.x;
+    const originY = this.playerPos.y;
+    this.requestTileUpdateWithRetry(originX, originY);
+
+    const direction = this.getDirectionVectorFromInput(directionInput);
+    if (!direction) {
+      return;
+    }
+    this.requestTileUpdateWithRetry(originX + direction.dx, originY + direction.dy);
+  }
+
+  private submitDirectionAnswer(directionKey: string): void {
+    if (!this.isInDirectionQuestion || !directionKey) {
+      return;
+    }
+    const normalized = String(directionKey).trim();
+    if (!normalized) {
+      return;
+    }
+
+    this.sendInput(normalized);
+    if (this.isFpsMode()) {
+      this.requestDirectionalAnswerTileRefresh(normalized);
+    }
+    this.hideDirectionQuestion();
+  }
+
   public isLoggingEnabled(): boolean {
     return isLoggingEnabled();
   }
@@ -3551,12 +3614,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const sprite = new THREE.Sprite(material);
     const scaleMultiplier = 1.1;
     const useFpsFloating = this.isFpsMode();
-    const fpsScaleFactor = useFpsFloating
+    const modeScaleFactor = useFpsFloating
       ? this.playerDamageNumberFpsScaleFactor
-      : 1;
-    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+      : this.playerDamageNumberNormalScaleFactor;
+    const scaleY = 0.42 * scaleMultiplier * modeScaleFactor;
     const scaleX = Math.max(
-      0.26 * scaleMultiplier * fpsScaleFactor,
+      0.26 * scaleMultiplier * modeScaleFactor,
       scaleY * aspectRatio,
     );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
@@ -3629,12 +3692,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const sprite = new THREE.Sprite(material);
     const scaleMultiplier = 1.0;
     const useFpsFloating = this.isFpsMode();
-    const fpsScaleFactor = useFpsFloating
+    const modeScaleFactor = useFpsFloating
       ? this.playerDamageNumberFpsScaleFactor
-      : 1;
-    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+      : this.playerDamageNumberNormalScaleFactor;
+    const scaleY = 0.42 * scaleMultiplier * modeScaleFactor;
     const scaleX = Math.max(
-      0.26 * scaleMultiplier * fpsScaleFactor,
+      0.26 * scaleMultiplier * modeScaleFactor,
       scaleY * aspectRatio,
     );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
@@ -4843,6 +4906,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.lastKnownPlayerHp = null;
+    this.pendingPlayerTileRefreshOnNextPosition = true;
     this.lightingCenterInitialized = false;
     this.positionInputModeActive = false;
     this.hasRuntimePositionCursor = false;
@@ -5016,11 +5080,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private getMonsterBillboardQualityKey(): string {
+    return "1024-v1";
+  }
+
   private createMonsterBillboardTexture(
     glyphChar: string,
     textColor: string,
   ): THREE.CanvasTexture {
-    const size = 256;
+    const size = 1024;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
@@ -5050,6 +5118,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
     return texture;
   }
 
@@ -5200,7 +5269,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     entityType: "monster" | "loot" = "monster",
     isWall: boolean = false,
   ): void {
-    const textureKey = `${glyphChar}|${textColor}`;
+    const textureKey = `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
     if (!sprite) {
@@ -5903,6 +5972,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     console.log(`Updating status ${mappedField}: ${parsedValue}`);
+    const previousDlevel = this.playerStats.dlevel;
+    const previousDungeon = this.playerStats.dungeon;
     let playerDamageTaken: number | null = null;
     let playerHealingGained: number | null = null;
     if (mappedField === "hp" && typeof parsedValue === "number") {
@@ -5922,8 +5993,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.playerStats.maxPower = parsedValue;
     } else if (mappedField === "dlevel") {
       this.playerStats.dlevel = parsedValue;
+      if (previousDlevel !== parsedValue) {
+        this.pendingPlayerTileRefreshOnNextPosition = true;
+        this.requestPlayerTileRefresh("dlevel-change");
+      }
     } else {
       (this.playerStats as any)[mappedField] = parsedValue;
+      if (
+        mappedField === "dungeon" &&
+        String(previousDungeon) !== String(this.playerStats.dungeon)
+      ) {
+        this.pendingPlayerTileRefreshOnNextPosition = true;
+        this.requestPlayerTileRefresh("dungeon-change");
+      }
     }
 
     if (mappedField === "hp") {
@@ -6925,13 +7007,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.activeQuestionText,
         this.activeQuestionChoices,
       );
-      const useInventoryChoiceLabels =
-        !this.isSimpleYesNoChoicePrompt(parsedChoices);
+      const isYesNoPrompt = this.isSimpleYesNoChoicePrompt(parsedChoices);
+      const useInventoryChoiceLabels = !isYesNoPrompt;
       const useCompactChoiceLayout =
         parsedChoices.length > 0 &&
         parsedChoices.every((choice) => choice.trim().length === 1);
       if (useCompactChoiceLayout) {
         choiceContainer.classList.add("is-compact");
+      }
+      if (isYesNoPrompt) {
+        choiceContainer.classList.add("is-yes-no");
       }
       if (parsedChoices.length > 0) {
         for (const choice of parsedChoices) {
@@ -7112,7 +7197,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    const allowedChoices = new Set(["y", "n", "a", "q"]);
+    const allowedChoices = new Set(["y", "n", "a", "q", "#", "?"]);
     const hasYes = normalized.includes("y");
     const hasNo = normalized.includes("n");
     const onlySimpleChoices = normalized.every(
@@ -7343,9 +7428,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       button.onclick = () => {
         if (typeof dir.key === "string" && dir.key.length > 0) {
-          this.sendInput(dir.key);
+          this.submitDirectionAnswer(dir.key);
         }
-        this.hideDirectionQuestion();
       };
 
       directionsContainer.appendChild(button);
@@ -7370,8 +7454,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       button.appendChild(key);
 
       button.onclick = () => {
-        this.sendInput(dir.key);
-        this.hideDirectionQuestion();
+        this.submitDirectionAnswer(dir.key);
       };
 
       auxDirectionsContainer.appendChild(button);
@@ -8101,8 +8184,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isInDirectionQuestion || !directionKey) {
       return;
     }
-    this.sendInput(directionKey);
-    this.hideDirectionQuestion();
+    this.submitDirectionAnswer(directionKey);
   }
 
   public chooseQuestionChoice(choice: string): void {
@@ -8159,6 +8241,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.sendInput("Enter");
+    this.requestPlayerTileRefresh("pickup-confirm");
     this.hideQuestion();
   }
 
@@ -8409,6 +8492,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.updateDirectionalAttackContext(input);
+
+    if (
+      input === "," &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive
+    ) {
+      this.requestPlayerTileRefresh("pickup-input");
+    }
 
     if (this.session) {
       this.session.sendInput(input);
@@ -9419,8 +9511,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           const keyToSend = this.tryResolveFpsDirectionQuestionInput(event);
           if (keyToSend) {
             event.preventDefault();
-            this.sendInput(keyToSend);
-            this.hideDirectionQuestion();
+            if (keyToSend === "Escape") {
+              this.sendInput("Escape");
+              this.hideDirectionQuestion();
+            } else {
+              this.submitDirectionAnswer(keyToSend);
+            }
           }
           return;
         }
@@ -9477,8 +9573,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
 
         if (keyToSend) {
-          this.sendInput(keyToSend);
-          this.hideDirectionQuestion();
+          this.submitDirectionAnswer(keyToSend);
         }
         return; // Don't send other keys when in direction question mode
       }
@@ -10944,8 +11039,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!lookDirectionInput) {
       return false;
     }
-    this.sendInput(lookDirectionInput);
-    this.hideDirectionQuestion();
+    this.submitDirectionAnswer(lookDirectionInput);
     return true;
   }
 
@@ -10961,8 +11055,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (action === "self") {
-      this.sendInput("s");
-      this.hideDirectionQuestion();
+      this.submitDirectionAnswer("s");
       return true;
     }
 
@@ -11024,8 +11117,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!lookDirectionInput) {
         return;
       }
-      this.sendInput(lookDirectionInput);
-      this.hideDirectionQuestion();
+      this.submitDirectionAnswer(lookDirectionInput);
       return;
     }
 

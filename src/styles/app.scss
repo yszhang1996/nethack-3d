@@ -414,8 +414,9 @@ canvas {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
   border-radius: 999px;
   border: 1px solid var(--nh3d-ui-border-strong);
   background: rgba(5, 16, 30, 0.9);
@@ -715,6 +716,15 @@ canvas {
   flex-direction: row;
   justify-content: center;
   flex-wrap: wrap;
+}
+
+.nh3d-choice-list.is-yes-no {
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+  max-width: 100%;
 }
 
 .nh3d-startup-config-grid {
@@ -1756,6 +1766,10 @@ canvas {
     overflow-y: auto;
   }
 
+  .nh3d-dialog.nh3d-dialog-has-mobile-close {
+    padding-right: 48px;
+  }
+
   .nh3d-mobile-dialog-close {
     display: inline-flex;
     align-items: center;
@@ -1877,6 +1891,10 @@ canvas {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
     padding: 7px 10px;
+  }
+
+  .nh3d-dialog-direction-fps.nh3d-dialog-has-mobile-close {
+    padding-right: 42px;
   }
 
   .nh3d-dialog-direction-fps .nh3d-direction-text {
