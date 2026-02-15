@@ -1965,6 +1965,10 @@ canvas {
     display: none;
   }
 
+  .nh3d-mobile-log {
+    z-index: 1950;
+  }
+
   .nh3d-dialog:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
     top: calc(var(--nh3d-safe-area-top) + 8px);
     transform: translateX(-50%);

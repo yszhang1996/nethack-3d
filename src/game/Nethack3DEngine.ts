@@ -10903,8 +10903,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.metaCommandModeActive ||
       this.fpsCrosshairContextMenuOpen ||
       this.isInventoryDialogOpen() ||
-      this.isInfoDialogOpen() ||
-      this.isInQuestion
+      this.isInfoDialogOpen()
     ) {
       return false;
     }
