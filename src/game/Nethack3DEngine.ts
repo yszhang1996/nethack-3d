@@ -326,7 +326,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   > = new Map();
   private fpsStepCameraActive: boolean = false;
   private fpsStepCameraStartMs: number = 0;
-  private readonly fpsStepCameraDurationMs: number = 92;
+  private readonly fpsStepCameraBaseDurationMs: number = 92;
+  private fpsStepCameraDurationMs: number = this.fpsStepCameraBaseDurationMs;
+  private readonly fpsAutoMoveDetectionWindowMs: number = 120;
+  private lastManualDirectionalInputAtMs: number = 0;
+  private fpsAutoMoveDirection: { dx: number; dy: number } | null = null;
+  private fpsAutoTurnTargetYaw: number | null = null;
+  private readonly fpsAutoTurnSpeedRadPerSec: number = 8.8;
   private fpsStepCameraFrom = new THREE.Vector3();
   private fpsStepCameraTo = new THREE.Vector3();
 
@@ -4535,6 +4541,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsAimLinePulseUntilMs = 0;
     this.fpsFireSuppressionUntilMs = 0;
     this.fpsStepCameraActive = false;
+    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
+    this.lastManualDirectionalInputAtMs = 0;
+    this.fpsAutoMoveDirection = null;
+    this.fpsAutoTurnTargetYaw = null;
     this.fpsPointerLockRestorePending = false;
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairContextSignature = "";
@@ -5149,7 +5159,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (moved) {
       if (this.isFpsMode()) {
-        this.beginFpsStepCameraTransition(fromX, fromY, toX, toY);
+        const nowMs = Date.now();
+        const autoMoveLikely =
+          nowMs - this.lastManualDirectionalInputAtMs >
+          this.fpsAutoMoveDetectionWindowMs;
+        const moveDx = Math.sign(toX - fromX);
+        const moveDy = Math.sign(toY - fromY);
+        this.updateFpsCameraAutoTurnFromMovement(
+          moveDx,
+          moveDy,
+          autoMoveLikely,
+        );
+        this.beginFpsStepCameraTransition(
+          fromX,
+          fromY,
+          toX,
+          toY,
+        );
       } else {
         this.recenterCameraOnPlayerIfNeeded();
       }
@@ -5161,6 +5187,55 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.hasPlayerMovedOnce && moved && hasRecentMovementInput) {
       this.hasPlayerMovedOnce = true;
     }
+  }
+
+  private updateFpsCameraAutoTurnFromMovement(
+    moveDx: number,
+    moveDy: number,
+    autoMoveLikely: boolean,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    if (!autoMoveLikely) {
+      this.fpsAutoMoveDirection = null;
+      this.fpsAutoTurnTargetYaw = null;
+      return;
+    }
+    if (moveDx === 0 && moveDy === 0) {
+      return;
+    }
+
+    if (
+      this.fpsAutoMoveDirection &&
+      this.fpsAutoMoveDirection.dx === moveDx &&
+      this.fpsAutoMoveDirection.dy === moveDy
+    ) {
+      return;
+    }
+
+    // Map movement deltas to the yaw convention used by FPS controls.
+    const targetYaw = this.wrapAngle(Math.atan2(-moveDx, moveDy));
+    this.fpsAutoTurnTargetYaw = targetYaw;
+    this.fpsAutoMoveDirection = { dx: moveDx, dy: moveDy };
+  }
+
+  private updateFpsAutoTurnYaw(deltaSeconds: number): void {
+    if (!this.isFpsMode() || this.fpsAutoTurnTargetYaw === null) {
+      return;
+    }
+
+    const delta = this.wrapAngle(this.fpsAutoTurnTargetYaw - this.cameraYaw);
+    const maxStep = this.fpsAutoTurnSpeedRadPerSec * Math.max(0, deltaSeconds);
+    if (Math.abs(delta) <= maxStep) {
+      this.cameraYaw = this.fpsAutoTurnTargetYaw;
+      this.fpsAutoTurnTargetYaw = null;
+      return;
+    }
+
+    this.cameraYaw = this.wrapAngle(
+      this.cameraYaw + Math.sign(delta) * maxStep,
+    );
   }
 
   private beginFpsStepCameraTransition(
@@ -5190,6 +5265,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const eased = 1 - Math.pow(1 - progress, 3);
       this.fpsStepCameraFrom.lerp(this.fpsStepCameraTo, eased);
     }
+
+    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
 
     this.fpsStepCameraTo.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
     this.fpsStepCameraStartMs = performance.now();
@@ -7963,6 +8040,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private sendInput(input: string): void {
     this.logNameInputTrace(input);
 
+    if (this.isMovementInput(input)) {
+      this.lastManualDirectionalInputAtMs = Date.now();
+      this.fpsAutoMoveDirection = null;
+      this.fpsAutoTurnTargetYaw = null;
+    }
+
     if (
       !this.hasPlayerMovedOnce &&
       !this.isInQuestion &&
@@ -7983,6 +8066,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.session || inputs.length === 0) {
       return;
     }
+
+    const nowMs = Date.now();
+    for (const input of inputs) {
+      if (this.isMovementInput(input)) {
+        this.lastManualDirectionalInputAtMs = nowMs;
+        this.fpsAutoMoveDirection = null;
+        this.fpsAutoTurnTargetYaw = null;
+        break;
+      }
+    }
+
     this.session.sendInputSequence(inputs);
   }
 
@@ -9248,6 +9342,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       let eyeX = targetEyeX;
       let eyeY = targetEyeY;
       const eyeZ = this.firstPersonEyeHeight;
+
+      this.updateFpsAutoTurnYaw(deltaSeconds);
 
       if (this.fpsStepCameraActive) {
         const progress = THREE.MathUtils.clamp(
