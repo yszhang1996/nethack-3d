@@ -604,6 +604,13 @@ canvas {
   border-color: var(--nh3d-ui-confirm-border);
 }
 
+.nh3d-dialog-question .nh3d-choice-button,
+.nh3d-dialog-question .nh3d-menu-button,
+.nh3d-dialog-question .nh3d-menu-action-button,
+.nh3d-dialog-question .nh3d-pickup-action-button {
+  text-align: center;
+}
+
 .nh3d-direction-grid {
   display: grid;
   grid-template-columns: repeat(3, 72px);
