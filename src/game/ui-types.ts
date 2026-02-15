@@ -68,6 +68,20 @@ export type TextInputRequestState = {
   placeholder?: string;
 };
 
+export type FpsContextAction = {
+  id: string;
+  label: string;
+  kind: "quick" | "extended";
+  value: string;
+};
+
+export type FpsCrosshairContextState = {
+  title: string;
+  tileX: number;
+  tileY: number;
+  actions: FpsContextAction[];
+};
+
 export type PlayMode = "normal" | "fps";
 
 export type CharacterCreationConfig = {
@@ -95,6 +109,7 @@ export interface Nethack3DEngineUIAdapter {
   setTextInput(state: TextInputRequestState | null): void;
   setExtendedCommands(commands: string[]): void;
   setPositionRequest(text: string | null): void;
+  setFpsCrosshairContext(state: FpsCrosshairContextState | null): void;
 }
 
 export interface Nethack3DEngineController {
@@ -109,6 +124,7 @@ export interface Nethack3DEngineController {
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
   runInventoryItemAction(actionId: string, itemAccelerator: string): void;
+  dismissFpsCrosshairContextMenu(): void;
   runQuickAction(actionId: string): void;
   runExtendedCommand(commandText: string): void;
   closeInventoryDialog(): void;

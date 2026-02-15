@@ -4,6 +4,7 @@ import type {
   InventoryDialogState,
   Nethack3DEngineController,
   NethackConnectionState,
+  FpsCrosshairContextState,
   PlayerStatsSnapshot,
   QuestionDialogState,
   TextInputRequestState,
@@ -53,6 +54,7 @@ type GameStore = {
   infoMenu: InfoMenuState | null;
   inventory: InventoryDialogState;
   textInput: TextInputRequestState | null;
+  fpsCrosshairContext: FpsCrosshairContextState | null;
   extendedCommands: string[];
   positionRequest: string | null;
   engineController: Nethack3DEngineController | null;
@@ -73,6 +75,7 @@ type GameStore = {
   setInfoMenu: (menu: InfoMenuState | null) => void;
   setInventory: (inventory: InventoryDialogState) => void;
   setTextInput: (input: TextInputRequestState | null) => void;
+  setFpsCrosshairContext: (context: FpsCrosshairContextState | null) => void;
   setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
@@ -95,6 +98,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   infoMenu: null,
   inventory: { visible: false, items: [] },
   textInput: null,
+  fpsCrosshairContext: null,
   extendedCommands: [],
   positionRequest: null,
   engineController: null,
@@ -160,6 +164,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setTextInput: (input) => {
     set({ textInput: input });
+  },
+  setFpsCrosshairContext: (context) => {
+    set({ fpsCrosshairContext: context });
   },
   setExtendedCommands: (commands) => {
     set({ extendedCommands: commands });

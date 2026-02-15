@@ -27,6 +27,8 @@ import type {
 } from "./types";
 import type {
   CharacterCreationConfig,
+  FpsContextAction,
+  FpsCrosshairContextState,
   Nethack3DEngineController,
   Nethack3DEngineOptions,
   Nethack3DEngineUIAdapter,
@@ -132,6 +134,35 @@ type AimDirection = {
   input: string;
 };
 
+type FpsCrosshairTargetHint =
+  | "monster"
+  | "loot"
+  | "door"
+  | "stairs_up"
+  | "stairs_down"
+  | "wall"
+  | "water"
+  | "trap"
+  | "feature"
+  | "floor"
+  | "unknown";
+
+type FpsCrosshairGlanceCacheEntry = {
+  hint: FpsCrosshairTargetHint;
+  sourceText: string;
+  updatedAtMs: number;
+};
+
+type FpsCrosshairGlancePending = {
+  requestId: number;
+  tileKey: string;
+  tileX: number;
+  tileY: number;
+  startedAtMs: number;
+  sawPositionInput: boolean;
+  positionResolvedAtMs: number | null;
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -224,6 +255,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
+  private readonly inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
   private isTextInputActive: boolean = false;
   private characterCreationConfig: CharacterCreationConfig = {
     mode: "create",
@@ -252,9 +284,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsCurrentAimDirection: AimDirection | null = null;
   private fpsForwardHighlight: THREE.Mesh | null = null;
   private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
-  private fpsAimLine: THREE.Line | null = null;
-  private fpsAimLineMaterial: THREE.LineBasicMaterial | null = null;
   private fpsAimLinePulseUntilMs: number = 0;
+  private fpsFireSuppressionUntilMs: number = 0;
+  private readonly fpsFireSuppressionDurationMs: number = 1500;
+  private fpsCrosshairContextMenuOpen: boolean = false;
+  private fpsCrosshairContextSignature: string = "";
+  private fpsCrosshairGlanceCache: Map<string, FpsCrosshairGlanceCacheEntry> =
+    new Map();
+  private fpsCrosshairGlancePending: FpsCrosshairGlancePending | null = null;
+  private fpsCrosshairGlanceRequestSequence: number = 0;
+  private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
+  private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
+  private readonly fpsCrosshairGlancePostResolveGraceMs: number = 420;
+  private fpsWallChamferGeometryCache: Map<number, THREE.ExtrudeGeometry> =
+    new Map();
+  private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
+    new Map();
+  private fpsWallChamferFloorMeshes: Map<string, THREE.Mesh> = new Map();
+  private fpsWallChamferFaceMaterialCache: Map<
+    TileMaterialKind,
+    THREE.MeshBasicMaterial
+  > = new Map();
+  private fpsWallChamferFloorMaterialCache: Map<
+    TileMaterialKind,
+    { material: THREE.MeshBasicMaterial; texture: THREE.CanvasTexture }
+  > = new Map();
+  private readonly fpsWallChamferInset = TILE_SIZE * 0.25;
+  private readonly fpsWallChamferFloorZ = 0.001;
   private readonly elevatedMonsterZ = WALL_HEIGHT * 0.58;
   private readonly elevatedLootZ = WALL_HEIGHT * 0.42;
   private entityBlobShadows: Map<string, THREE.Mesh> = new Map();
@@ -495,6 +551,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lightingCenterCurrent = new THREE.Vector2();
   private lightingCenterTarget = new THREE.Vector2();
   private lightingCenterInitialized: boolean = false;
+  private ambientLight: THREE.AmbientLight | null = null;
+  private directionalLight: THREE.DirectionalLight | null = null;
+  private fpsPlayerLight: THREE.PointLight | null = null;
 
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
@@ -574,6 +633,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateLightingCenter(deltaSeconds: number): void {
+    if (this.isFpsMode()) {
+      return;
+    }
+
     this.lightingCenterTarget.set(this.playerPos.x, this.playerPos.y);
     if (!this.lightingCenterInitialized) {
       this.lightingCenterCurrent.copy(this.lightingCenterTarget);
@@ -846,6 +909,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateLightingOverlay(): void {
+    if (this.isFpsMode()) {
+      this.disposeLightingOverlay();
+      return;
+    }
+
     if (!this.lightingDirty) {
       return;
     }
@@ -863,6 +931,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.renderLightingOverlay(grid);
+  }
+
+  private configureBaseLightingForPlayMode(): void {
+    if (!this.ambientLight || !this.directionalLight) {
+      return;
+    }
+
+    if (this.isFpsMode()) {
+      this.ambientLight.intensity = 0.72;
+      this.directionalLight.intensity = 1.25;
+      if (!this.fpsPlayerLight) {
+        this.fpsPlayerLight = new THREE.PointLight(0xfff4d8, 2.8, 14, 1.35);
+        this.fpsPlayerLight.castShadow = false;
+        this.scene.add(this.fpsPlayerLight);
+      }
+      this.fpsPlayerLight.intensity = 2.8;
+      this.fpsPlayerLight.distance = 14;
+      this.fpsPlayerLight.decay = 1.35;
+      this.fpsPlayerLight.visible = true;
+      this.updateFpsPlayerLightPosition();
+      return;
+    }
+
+    this.ambientLight.intensity = 0.4;
+    this.directionalLight.intensity = 0.8;
+    if (this.fpsPlayerLight) {
+      this.fpsPlayerLight.visible = false;
+    }
+  }
+
+  private updateFpsPlayerLightPosition(): void {
+    if (!this.fpsPlayerLight || !this.isFpsMode()) {
+      return;
+    }
+    this.fpsPlayerLight.position.copy(this.camera.position);
+    this.fpsPlayerLight.position.z = this.camera.position.z + 0.04;
   }
 
   constructor(options: Nethack3DEngineOptions = {}) {
@@ -926,15 +1030,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.loadCameraSmoothingFromCSS();
 
     // --- Lighting ---
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
-    this.scene.add(ambientLight);
+    this.ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+    this.scene.add(this.ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 5);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    this.scene.add(directionalLight);
+    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    this.directionalLight.position.set(10, 10, 5);
+    this.directionalLight.castShadow = true;
+    this.directionalLight.shadow.mapSize.width = 2048;
+    this.directionalLight.shadow.mapSize.height = 2048;
+    this.scene.add(this.directionalLight);
+    this.configureBaseLightingForPlayMode();
 
     // --- Event Listeners ---
     window.addEventListener("resize", this.onWindowResize.bind(this), false);
@@ -1728,12 +1833,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "text":
+        this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
 
       case "raw_print":
+        this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
@@ -3738,7 +3845,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     overlay.material.opacity = 1;
 
-    if (isWall) {
+    const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
+    if (isWall && fpsWallChamferMask > 0) {
+      // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
+      // Tint cut corners with nearby floor-like material to expose a readable diagonal passage.
+      const chamferKind =
+        typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+          ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+          : null;
+      const chamferMaterial = chamferKind
+        ? this.getMaterialByKind(chamferKind)
+        : baseMaterial;
+      mesh.material = [overlay.material, baseMaterial, chamferMaterial];
+    } else if (isWall) {
       mesh.material = [
         baseMaterial,
         baseMaterial,
@@ -3799,6 +3918,434 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isPassableTileForFpsDiagonal(tileX: number, tileY: number): boolean {
+    const mesh = this.tileMap.get(`${tileX},${tileY}`);
+    if (!mesh) {
+      return false;
+    }
+    return !Boolean(mesh.userData?.isWall);
+  }
+
+  private shouldChamferFpsWallCorner(
+    tileX: number,
+    tileY: number,
+    cornerDx: -1 | 1,
+    cornerDy: -1 | 1,
+  ): boolean {
+    return (
+      this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY) &&
+      this.isPassableTileForFpsDiagonal(tileX, tileY + cornerDy) &&
+      this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY + cornerDy)
+    );
+  }
+
+  private computeFpsWallChamferMask(tileX: number, tileY: number): number {
+    let mask = 0;
+    // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, -1, -1)) {
+      mask |= 1;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, 1, -1)) {
+      mask |= 2;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, 1, 1)) {
+      mask |= 4;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, -1, 1)) {
+      mask |= 8;
+    }
+    return mask;
+  }
+
+  private getFpsChamferMaterialKindForWall(
+    wallMaterialKind: TileMaterialKind,
+  ): TileMaterialKind {
+    return wallMaterialKind === "dark_wall" ? "dark" : "floor";
+  }
+
+  private getFpsWallChamferDisplayBaseHex(materialKind: TileMaterialKind): string {
+    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+    const tonedBackground = this.toneColor(baseColorHex, 0.8);
+    return this.ensureTextContrast(tonedBackground, "#F4F4F4");
+  }
+
+  private getFpsWallChamferFaceMaterial(
+    materialKind: TileMaterialKind,
+  ): THREE.MeshBasicMaterial {
+    const cached = this.fpsWallChamferFaceMaterialCache.get(materialKind);
+    if (cached) {
+      return cached;
+    }
+
+    const displayHex = this.getFpsWallChamferDisplayBaseHex(materialKind);
+    const material = new THREE.MeshBasicMaterial({
+      color: Number.parseInt(displayHex, 16),
+    });
+    this.fpsWallChamferFaceMaterialCache.set(materialKind, material);
+    return material;
+  }
+
+  private getFpsWallChamferFloorMaterial(
+    materialKind: TileMaterialKind,
+  ): THREE.MeshBasicMaterial {
+    const cached = this.fpsWallChamferFloorMaterialCache.get(materialKind);
+    if (cached) {
+      return cached.material;
+    }
+
+    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+    const texture = this.createGlyphTexture(
+      baseColorHex,
+      " ",
+      "#F4F4F4",
+      1,
+      256,
+      true,
+    );
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: false,
+    });
+    this.fpsWallChamferFloorMaterialCache.set(materialKind, { material, texture });
+    return material;
+  }
+
+  private clearFpsWallChamferMaterialCaches(): void {
+    this.fpsWallChamferFaceMaterialCache.forEach((material) => material.dispose());
+    this.fpsWallChamferFaceMaterialCache.clear();
+    this.fpsWallChamferFloorMaterialCache.forEach(({ material, texture }) => {
+      material.dispose();
+      texture.dispose();
+    });
+    this.fpsWallChamferFloorMaterialCache.clear();
+  }
+
+  private splitFpsChamferGeometryGroups(
+    geometry: THREE.ExtrudeGeometry,
+  ): THREE.ExtrudeGeometry {
+    const index = geometry.getIndex();
+    const position = geometry.getAttribute("position");
+    if (!index || !(position instanceof THREE.BufferAttribute)) {
+      return geometry;
+    }
+
+    const capIndices: number[] = [];
+    const wallIndices: number[] = [];
+    const chamferIndices: number[] = [];
+
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+
+    for (let i = 0; i < index.count; i += 3) {
+      const ia = index.getX(i);
+      const ib = index.getX(i + 1);
+      const ic = index.getX(i + 2);
+      a.fromBufferAttribute(position, ia);
+      b.fromBufferAttribute(position, ib);
+      c.fromBufferAttribute(position, ic);
+      ab.subVectors(b, a);
+      ac.subVectors(c, a);
+      normal.crossVectors(ab, ac).normalize();
+
+      const absX = Math.abs(normal.x);
+      const absY = Math.abs(normal.y);
+      const absZ = Math.abs(normal.z);
+      const target =
+        absZ >= 0.9
+          ? capIndices
+          : absX > 0.2 && absY > 0.2
+            ? chamferIndices
+            : wallIndices;
+      target.push(ia, ib, ic);
+    }
+
+    const ordered = [...capIndices, ...wallIndices, ...chamferIndices];
+    geometry.setIndex(ordered);
+    geometry.clearGroups();
+    let start = 0;
+    if (capIndices.length > 0) {
+      geometry.addGroup(start, capIndices.length, 0);
+      start += capIndices.length;
+    }
+    if (wallIndices.length > 0) {
+      geometry.addGroup(start, wallIndices.length, 1);
+      start += wallIndices.length;
+    }
+    if (chamferIndices.length > 0) {
+      geometry.addGroup(start, chamferIndices.length, 2);
+    }
+
+    return geometry;
+  }
+
+  private createFpsChamferedWallGeometry(mask: number): THREE.ExtrudeGeometry {
+    const half = TILE_SIZE / 2;
+    const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
+    const cutNorthWest = (mask & 1) !== 0;
+    const cutNorthEast = (mask & 2) !== 0;
+    const cutSouthEast = (mask & 4) !== 0;
+    const cutSouthWest = (mask & 8) !== 0;
+    const points: THREE.Vector2[] = [];
+
+    if (cutSouthWest) {
+      points.push(new THREE.Vector2(-half, -half + inset));
+      points.push(new THREE.Vector2(-half + inset, -half));
+    } else {
+      points.push(new THREE.Vector2(-half, -half));
+    }
+
+    if (cutSouthEast) {
+      points.push(new THREE.Vector2(half - inset, -half));
+      points.push(new THREE.Vector2(half, -half + inset));
+    } else {
+      points.push(new THREE.Vector2(half, -half));
+    }
+
+    if (cutNorthEast) {
+      points.push(new THREE.Vector2(half, half - inset));
+      points.push(new THREE.Vector2(half - inset, half));
+    } else {
+      points.push(new THREE.Vector2(half, half));
+    }
+
+    if (cutNorthWest) {
+      points.push(new THREE.Vector2(-half + inset, half));
+      points.push(new THREE.Vector2(-half, half - inset));
+    } else {
+      points.push(new THREE.Vector2(-half, half));
+    }
+
+    const shape = new THREE.Shape(points);
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth: WALL_HEIGHT,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: 1,
+    });
+    this.splitFpsChamferGeometryGroups(geometry);
+    // Align with box geometry, which is centered around z=0.
+    geometry.translate(0, 0, -WALL_HEIGHT / 2);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+
+  private getFpsWallGeometry(mask: number): THREE.BufferGeometry {
+    if (mask === 0) {
+      return this.wallGeometry;
+    }
+    const cached = this.fpsWallChamferGeometryCache.get(mask);
+    if (cached) {
+      return cached;
+    }
+    const geometry = this.createFpsChamferedWallGeometry(mask);
+    this.fpsWallChamferGeometryCache.set(mask, geometry);
+    return geometry;
+  }
+
+  private getFpsWallChamferFloorGeometry(mask: number): THREE.ShapeGeometry | null {
+    if (mask === 0) {
+      return null;
+    }
+    const cached = this.fpsWallChamferFloorGeometryCache.get(mask);
+    if (cached) {
+      return cached;
+    }
+
+    const half = TILE_SIZE / 2;
+    const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
+    const shapes: THREE.Shape[] = [];
+    const addTriangle = (
+      p1: THREE.Vector2,
+      p2: THREE.Vector2,
+      p3: THREE.Vector2,
+    ): void => {
+      const shape = new THREE.Shape([p1, p2, p3]);
+      shape.autoClose = true;
+      shapes.push(shape);
+    };
+
+    // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
+    if (mask & 1) {
+      addTriangle(
+        new THREE.Vector2(-half, half),
+        new THREE.Vector2(-half + inset, half),
+        new THREE.Vector2(-half, half - inset),
+      );
+    }
+    if (mask & 2) {
+      addTriangle(
+        new THREE.Vector2(half, half),
+        new THREE.Vector2(half - inset, half),
+        new THREE.Vector2(half, half - inset),
+      );
+    }
+    if (mask & 4) {
+      addTriangle(
+        new THREE.Vector2(half, -half),
+        new THREE.Vector2(half - inset, -half),
+        new THREE.Vector2(half, -half + inset),
+      );
+    }
+    if (mask & 8) {
+      addTriangle(
+        new THREE.Vector2(-half, -half),
+        new THREE.Vector2(-half + inset, -half),
+        new THREE.Vector2(-half, -half + inset),
+      );
+    }
+
+    const geometry = new THREE.ShapeGeometry(shapes);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    this.fpsWallChamferFloorGeometryCache.set(mask, geometry);
+    return geometry;
+  }
+
+  private removeFpsWallChamferFloorMesh(key: string): void {
+    const mesh = this.fpsWallChamferFloorMeshes.get(key);
+    if (!mesh) {
+      return;
+    }
+    this.scene.remove(mesh);
+    this.fpsWallChamferFloorMeshes.delete(key);
+  }
+
+  private upsertFpsWallChamferFloorMesh(
+    tileX: number,
+    tileY: number,
+    mask: number,
+    materialKind: TileMaterialKind | null,
+  ): void {
+    const key = `${tileX},${tileY}`;
+    if (mask === 0 || !materialKind) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    const geometry = this.getFpsWallChamferFloorGeometry(mask);
+    if (!geometry) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    let mesh = this.fpsWallChamferFloorMeshes.get(key);
+    const material = this.getFpsWallChamferFloorMaterial(materialKind);
+    if (!mesh) {
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(
+        tileX * TILE_SIZE,
+        -tileY * TILE_SIZE,
+        this.fpsWallChamferFloorZ,
+      );
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 108;
+      this.scene.add(mesh);
+      this.fpsWallChamferFloorMeshes.set(key, mesh);
+      return;
+    }
+
+    if (mesh.geometry !== geometry) {
+      mesh.geometry = geometry;
+    }
+    if (mesh.material !== material) {
+      mesh.material = material;
+    }
+    mesh.position.set(
+      tileX * TILE_SIZE,
+      -tileY * TILE_SIZE,
+      this.fpsWallChamferFloorZ,
+    );
+  }
+
+  private refreshFpsWallChamferGeometryAt(tileX: number, tileY: number): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh || !mesh.userData?.isWall) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    if (!materialKind || materialKind === "door") {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    const nextMask = this.computeFpsWallChamferMask(tileX, tileY);
+    const nextChamferKind =
+      nextMask > 0
+        ? this.getFpsChamferMaterialKindForWall(materialKind)
+        : null;
+    const previousMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
+    const previousChamferKind =
+      typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+        ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+        : null;
+    const nextGeometry = this.getFpsWallGeometry(nextMask);
+    const geometryChanged = mesh.geometry !== nextGeometry;
+    if (geometryChanged) {
+      mesh.geometry = nextGeometry;
+    }
+    mesh.userData.fpsWallChamferMask = nextMask;
+    mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
+    this.upsertFpsWallChamferFloorMesh(
+      tileX,
+      tileY,
+      nextMask,
+      nextChamferKind,
+    );
+    const chamferKindChanged = previousChamferKind !== nextChamferKind;
+    if (!geometryChanged && previousMask === nextMask && !chamferKindChanged) {
+      return;
+    }
+
+    const baseMaterial = this.getMaterialByKind(materialKind);
+    const glyphChar =
+      typeof mesh.userData?.glyphChar === "string" ? mesh.userData.glyphChar : " ";
+    const textColor =
+      typeof mesh.userData?.glyphTextColor === "string"
+        ? mesh.userData.glyphTextColor
+        : "#F4F4F4";
+    const darkenFactor =
+      typeof mesh.userData?.glyphDarkenFactor === "number"
+        ? mesh.userData.glyphDarkenFactor
+        : 1;
+    this.applyGlyphMaterial(
+      key,
+      mesh,
+      baseMaterial,
+      glyphChar,
+      textColor,
+      true,
+      darkenFactor,
+      true,
+    );
+  }
+
+  private refreshFpsWallChamferGeometryNear(tileX: number, tileY: number): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        this.refreshFpsWallChamferGeometryAt(tileX + dx, tileY + dy);
+      }
+    }
+  }
+
   private clearScene(): void {
     this.clearDamageEffects();
     this.lastKnownPlayerHp = null;
@@ -3813,6 +4360,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
+    this.fpsWallChamferFloorMeshes.forEach((mesh) => {
+      this.scene.remove(mesh);
+    });
+    this.fpsWallChamferFloorMeshes.clear();
+    this.clearFpsWallChamferMaterialCaches();
 
     for (const key of Array.from(this.monsterBillboards.keys())) {
       this.removeMonsterBillboard(key);
@@ -3834,17 +4386,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsForwardHighlight = null;
       this.fpsForwardHighlightMaterial = null;
     }
-    if (this.fpsAimLine) {
-      this.scene.remove(this.fpsAimLine);
-      this.fpsAimLine.geometry.dispose();
-      this.fpsAimLineMaterial?.dispose();
-      this.fpsAimLine = null;
-      this.fpsAimLineMaterial = null;
-    }
     this.fpsCurrentAimDirection = null;
     this.fpsAimLinePulseUntilMs = 0;
+    this.fpsFireSuppressionUntilMs = 0;
     this.fpsStepCameraActive = false;
     this.fpsPointerLockRestorePending = false;
+    this.fpsCrosshairContextMenuOpen = false;
+    this.fpsCrosshairContextSignature = "";
+    this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlancePending = null;
+    this.uiAdapter?.setFpsCrosshairContext(null);
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -3898,6 +4449,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private setPositionInputMode(active: boolean): void {
     if (!active) {
+      if (this.fpsCrosshairGlancePending?.sawPositionInput) {
+        this.fpsCrosshairGlancePending.positionResolvedAtMs = Date.now();
+      }
       this.positionInputModeActive = false;
       this.hasRuntimePositionCursor = false;
       this.clearPositionCursor();
@@ -3910,6 +4464,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.positionInputModeActive = true;
+    if (this.fpsCrosshairGlancePending) {
+      this.fpsCrosshairGlancePending.sawPositionInput = true;
+    }
     this.syncFpsPointerLockForUiState(false);
 
     // Preserve any cursor published before the active-state event arrives.
@@ -4230,6 +4787,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.glyphOverlayMap.delete(key);
       }
       this.queueMinimapTileUpdate(x, y, behavior, true);
+      this.refreshFpsWallChamferGeometryNear(x, y);
       this.markLightingDirty();
       return;
     }
@@ -4311,8 +4869,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const material = this.getMaterialByKind(renderBehavior.materialKind);
+    const wallChamferMask =
+      this.isFpsMode() &&
+      renderBehavior.geometryKind === "wall" &&
+      renderBehavior.materialKind !== "door"
+        ? this.computeFpsWallChamferMask(x, y)
+        : 0;
+    const wallChamferMaterialKind =
+      wallChamferMask > 0
+        ? this.getFpsChamferMaterialKindForWall(renderBehavior.materialKind)
+        : null;
     const geometry =
-      renderBehavior.geometryKind === "wall" ? this.wallGeometry : this.floorGeometry;
+      renderBehavior.geometryKind === "wall"
+        ? this.getFpsWallGeometry(wallChamferMask)
+        : this.floorGeometry;
     const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
 
     if (!mesh) {
@@ -4330,6 +4900,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.tileX = x;
     mesh.userData.tileY = y;
     mesh.userData.isWall = renderBehavior.isWall;
+    mesh.userData.materialKind = renderBehavior.materialKind;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
     mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
@@ -4341,12 +4912,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
+    mesh.userData.fpsWallChamferMask = wallChamferMask;
+    mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
     mesh.scale.set(visualScale, visualScale, visualScale);
-    const drawFpsFloorGrid =
-      this.isFpsMode() &&
-      renderBehavior.materialKind === "floor" &&
-      renderBehavior.geometryKind === "floor";
+    const drawFpsFloorGrid = this.isFpsMode();
 
     this.applyGlyphMaterial(
       key,
@@ -4393,6 +4963,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
     this.queueMinimapTileUpdate(x, y, behavior, false);
+    this.refreshFpsWallChamferGeometryNear(x, y);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
@@ -6136,7 +6707,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showDirectionQuestion(question: string): void {
     // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
-    this.syncFpsPointerLockForUiState(false);
+    this.syncFpsPointerLockForUiState(this.isFpsMode());
 
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(question);
@@ -6154,12 +6725,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // Clear previous content
     directionDialog.innerHTML = "";
+    directionDialog.classList.remove("nh3d-dialog-direction-fps");
 
     // Add question text
     const questionText = document.createElement("div");
     questionText.className = "nh3d-direction-text";
     questionText.textContent = question;
     directionDialog.appendChild(questionText);
+
+    if (this.isFpsMode()) {
+      const hintText = document.createElement("div");
+      hintText.className = "nh3d-direction-fps-hint";
+      hintText.textContent =
+        "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels.";
+      directionDialog.appendChild(hintText);
+      directionDialog.classList.add("nh3d-dialog-direction-fps");
+      directionDialog.classList.add("is-visible");
+      return;
+    }
 
     // Add direction buttons
     const directionsContainer = document.createElement("div");
@@ -6248,6 +6831,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private hideDirectionQuestion(): void {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false; // Clear general question state
+    this.clearFpsFireSuppression();
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(null);
       this.syncFpsPointerLockForUiState(true);
@@ -7068,7 +7652,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.hideInfoMenuDialog();
     this.hideInventoryDialog();
-    this.sendInputSequence([commandKey, accelerator]);
+    this.sendInputSequence([
+      `${this.inventoryContextSelectionPrefix}${accelerator}`,
+      commandKey,
+    ]);
+  }
+
+  public dismissFpsCrosshairContextMenu(): void {
+    this.closeFpsCrosshairContextMenu(true);
   }
 
   public runQuickAction(actionId: string): void {
@@ -7078,6 +7669,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!normalizedActionId || !this.session) {
       return;
     }
+
+    this.closeFpsCrosshairContextMenu(true);
 
     if (
       this.metaCommandModeActive ||
@@ -7110,10 +7703,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.sendInput("l");
         return;
       case "open":
+        this.armFpsFireSuppression();
         this.sendInput("o");
         return;
       case "close":
+        this.armFpsFireSuppression();
         this.sendInput("c");
+        return;
+      case "ascend":
+        this.sendInput("<");
+        return;
+      case "descend":
+        this.sendInput(">");
         return;
       case "extended":
         this.sendInput("#");
@@ -7132,6 +7733,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.closeFpsCrosshairContextMenu(true);
+
     if (
       this.metaCommandModeActive ||
       this.isInQuestion ||
@@ -7144,6 +7747,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
     if (this.isInventoryDialogOpen()) {
       this.hideInventoryDialog();
+    }
+
+    if (normalizedCommandText === "kick") {
+      this.armFpsFireSuppression();
     }
 
     const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
@@ -7456,6 +8063,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
     this.exitMetaCommandMode();
+    this.closeFpsCrosshairContextMenu(false);
     this.stopMinimapDrag();
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock?.();
@@ -7650,12 +8258,60 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private fireInCurrentAimDirection(): void {
-    const aim = this.getFpsAimDirectionFromCamera();
-    if (!aim) {
+    this.armFpsFireSuppression();
+    this.fpsAimLinePulseUntilMs = Date.now() + 220;
+    // In FPS mode, fire should first ask for direction; the direction prompt
+    // confirmation path (left-click/W/etc.) supplies the actual direction input.
+    this.sendInput("f");
+  }
+
+  private armFpsFireSuppression(): void {
+    if (!this.isFpsMode()) {
       return;
     }
-    this.fpsAimLinePulseUntilMs = Date.now() + 220;
-    this.sendInputSequence(["f", aim.input]);
+    this.fpsFireSuppressionUntilMs =
+      Date.now() + this.fpsFireSuppressionDurationMs;
+  }
+
+  private clearFpsFireSuppression(): void {
+    this.fpsFireSuppressionUntilMs = 0;
+  }
+
+  private isFpsFireSuppressed(): boolean {
+    return this.isFpsMode() && Date.now() < this.fpsFireSuppressionUntilMs;
+  }
+
+  private getFpsDirectionQuestionInputFromAim(): string | null {
+    const aim = this.getFpsAimDirectionFromCamera();
+    return aim?.input ?? null;
+  }
+
+  private tryResolveFpsDirectionQuestionInput(event: KeyboardEvent): string | null {
+    const lowerKey = event.key.toLowerCase();
+    if (lowerKey === "a" || lowerKey === "d") {
+      return "Escape";
+    }
+    if (lowerKey === "s") {
+      return "s";
+    }
+    if (lowerKey === "w") {
+      return this.getFpsDirectionQuestionInputFromAim();
+    }
+    if (event.key === "<" || event.key === ",") {
+      return "<";
+    }
+    if (event.key === ">") {
+      return ">";
+    }
+    if (
+      event.key === "Enter" ||
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "Space"
+    ) {
+      return this.getFpsDirectionQuestionInputFromAim();
+    }
+    return null;
   }
 
   private handlePointerLockChange(): void {
@@ -7668,15 +8324,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isFpsPointerLockBlockedByUi(): boolean {
+    const allowDirectionLook = this.isFpsMode() && this.isInDirectionQuestion;
+    const modalBlocksPointerLock =
+      this.isAnyModalVisible() &&
+      !(allowDirectionLook && this.isOnlyDirectionDialogVisible());
     return (
-      this.isInQuestion ||
-      this.isInDirectionQuestion ||
+      (this.isInQuestion && !allowDirectionLook) ||
+      (this.isInDirectionQuestion && !allowDirectionLook) ||
       this.isTextInputActive ||
       this.positionInputModeActive ||
       this.metaCommandModeActive ||
+      this.fpsCrosshairContextMenuOpen ||
       this.isInventoryDialogOpen() ||
       this.isInfoDialogOpen() ||
-      this.isAnyModalVisible()
+      modalBlocksPointerLock
+    );
+  }
+
+  private isOnlyDirectionDialogVisible(): boolean {
+    const visibleDialogs = Array.from(
+      document.querySelectorAll(".nh3d-dialog.is-visible"),
+    );
+    if (visibleDialogs.length === 0) {
+      return false;
+    }
+    return visibleDialogs.every(
+      (dialog) => (dialog as HTMLElement).id === "direction-dialog",
     );
   }
 
@@ -8087,6 +8760,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isInQuestion || this.isInDirectionQuestion) {
       // If it's a direction question, handle direction input
       if (this.isInDirectionQuestion) {
+        if (this.isFpsMode()) {
+          const keyToSend = this.tryResolveFpsDirectionQuestionInput(event);
+          if (keyToSend) {
+            event.preventDefault();
+            this.sendInput(keyToSend);
+            this.hideDirectionQuestion();
+          }
+          return;
+        }
+
         // With number_pad:1 option, we can pass numpad keys and arrow keys directly
         let keyToSend = null;
 
@@ -8497,7 +9180,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private ensureFpsAimVisuals(): void {
-    if (this.fpsForwardHighlight && this.fpsAimLine) {
+    if (this.fpsForwardHighlight) {
       return;
     }
 
@@ -8515,33 +9198,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsForwardHighlight = mesh;
       this.fpsForwardHighlightMaterial = material;
     }
-
-    if (!this.fpsAimLine) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(),
-        new THREE.Vector3(),
-      ]);
-      const material = new THREE.LineBasicMaterial({
-        color: 0xe8f7ff,
-        transparent: true,
-        opacity: 0.72,
-        depthTest: false,
-      });
-      const line = new THREE.Line(geometry, material);
-      line.renderOrder = 981;
-      this.scene.add(line);
-      this.fpsAimLine = line;
-      this.fpsAimLineMaterial = material;
-    }
   }
 
   private updateFpsAimVisuals(timeMs: number): void {
     if (!this.isFpsMode()) {
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
-      }
-      if (this.fpsAimLine) {
-        this.fpsAimLine.visible = false;
       }
       this.fpsCurrentAimDirection = null;
       return;
@@ -8550,9 +9212,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
-      }
-      if (this.fpsAimLine) {
-        this.fpsAimLine.visible = false;
       }
       return;
     }
@@ -8583,21 +9242,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    if (this.fpsAimLine && this.fpsAimLineMaterial) {
-      const points = [
-        new THREE.Vector3(
-          this.playerPos.x * TILE_SIZE,
-          -this.playerPos.y * TILE_SIZE,
-          this.firstPersonEyeHeight * 0.92,
-        ),
-        new THREE.Vector3(targetX * TILE_SIZE, -targetY * TILE_SIZE, targetZ + 0.12),
-      ];
-      this.fpsAimLine.geometry.setFromPoints(points);
-      this.fpsAimLine.visible = true;
-      const pulsing = timeMs <= this.fpsAimLinePulseUntilMs;
-      this.fpsAimLineMaterial.color.set(pulsing ? "#fdf16c" : "#d8f2ff");
-      this.fpsAimLineMaterial.opacity = pulsing ? 1 : 0.72;
-    }
   }
 
   private wrapAngle(angle: number): number {
@@ -8626,6 +9270,577 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return true;
     }
     return false;
+  }
+
+  private clearFpsCrosshairContextMenu(): void {
+    if (!this.uiAdapter) {
+      this.fpsCrosshairContextSignature = "";
+      return;
+    }
+    if (!this.fpsCrosshairContextSignature) {
+      return;
+    }
+    this.fpsCrosshairContextSignature = "";
+    this.uiAdapter.setFpsCrosshairContext(null);
+  }
+
+  private openFpsCrosshairContextMenu(): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextMenuOpen = true;
+    this.syncFpsPointerLockForUiState(false);
+    this.updateFpsCrosshairContextMenu();
+  }
+
+  private closeFpsCrosshairContextMenu(restorePointerLock: boolean): void {
+    if (!this.fpsCrosshairContextMenuOpen && !this.fpsCrosshairContextSignature) {
+      return;
+    }
+    this.fpsCrosshairContextMenuOpen = false;
+    this.fpsCrosshairGlancePending = null;
+    this.clearFpsCrosshairContextMenu();
+    if (restorePointerLock) {
+      this.syncFpsPointerLockForUiState(true);
+    }
+  }
+
+  private getTileUnderFpsCrosshair(): {
+    key: string;
+    x: number;
+    y: number;
+    mesh: THREE.Mesh;
+  } | null {
+    const tiles = Array.from(this.tileMap.values());
+    if (tiles.length === 0) {
+      return null;
+    }
+
+    this.pointerNdc.set(0, 0);
+    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
+    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
+    if (intersections.length === 0) {
+      return null;
+    }
+
+    const hit = intersections[0]?.object;
+    if (!(hit instanceof THREE.Mesh)) {
+      return null;
+    }
+
+    const x = Math.round(hit.position.x / TILE_SIZE);
+    const y = Math.round(-hit.position.y / TILE_SIZE);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+
+    return {
+      key: `${x},${y}`,
+      x,
+      y,
+      mesh: hit,
+    };
+  }
+
+  private sanitizeFpsCrosshairGlanceText(rawText: string): string {
+    return String(rawText || "")
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private shouldIgnoreFpsCrosshairGlanceText(text: string): boolean {
+    const normalized = text.toLowerCase();
+    if (!normalized) {
+      return true;
+    }
+    if (
+      normalized.startsWith("pick ") &&
+      normalized.includes("monster, object or location")
+    ) {
+      return true;
+    }
+    if (normalized.startsWith("please move the cursor")) {
+      return true;
+    }
+    if (normalized.includes("what do you want to look at")) {
+      return true;
+    }
+    return false;
+  }
+
+  private inferFpsCrosshairTargetHintFromGlanceText(
+    text: string,
+  ): FpsCrosshairTargetHint {
+    const normalized = text.toLowerCase();
+
+    if (
+      /(?:staircase|stairs|stairway|ladder).*\bup\b/.test(normalized) ||
+      /\bup\b.*(?:staircase|stairs|stairway|ladder)/.test(normalized)
+    ) {
+      return "stairs_up";
+    }
+    if (
+      /(?:staircase|stairs|stairway|ladder).*\bdown\b/.test(normalized) ||
+      /\bdown\b.*(?:staircase|stairs|stairway|ladder)/.test(normalized)
+    ) {
+      return "stairs_down";
+    }
+    if (/\bdoor\b/.test(normalized)) {
+      return "door";
+    }
+    if (/\btrap\b/.test(normalized)) {
+      return "trap";
+    }
+    if (/\b(fountain|sink|pool|water|moat|lava)\b/.test(normalized)) {
+      return "water";
+    }
+    if (/\b(altar|throne|grave|headstone|tree|bars|boulder|statue)\b/.test(normalized)) {
+      return "feature";
+    }
+    if (/\b(wall|rock)\b/.test(normalized)) {
+      return "wall";
+    }
+    if (
+      /\b(you see here|there is|lying here|on the floor)\b/.test(normalized) ||
+      /\b(gold|coin|corpse|potion|scroll|ring|wand|spellbook|weapon|armor|amulet|gem|food)\b/.test(
+        normalized,
+      )
+    ) {
+      return "loot";
+    }
+    if (
+      /\b(peaceful|hostile|tame|asleep|sleeping|fleeing)\b/.test(normalized) ||
+      /\bis here\b/.test(normalized)
+    ) {
+      return "monster";
+    }
+    if (/\b(floor|room|corridor|passage)\b/.test(normalized)) {
+      return "floor";
+    }
+    if (normalized.includes("never heard")) {
+      return "unknown";
+    }
+    return "unknown";
+  }
+
+  private captureFpsCrosshairGlanceMessage(messageLike: unknown): void {
+    if (!this.fpsCrosshairGlancePending || typeof messageLike !== "string") {
+      return;
+    }
+
+    const text = this.sanitizeFpsCrosshairGlanceText(messageLike);
+    if (!text || this.shouldIgnoreFpsCrosshairGlanceText(text)) {
+      return;
+    }
+
+    const pending = this.fpsCrosshairGlancePending;
+    const hint = this.inferFpsCrosshairTargetHintFromGlanceText(text);
+    this.fpsCrosshairGlanceCache.set(pending.tileKey, {
+      hint,
+      sourceText: text,
+      updatedAtMs: Date.now(),
+    });
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextSignature = "";
+  }
+
+  private expireFpsCrosshairGlanceState(nowMs: number): void {
+    const staleCacheKeys: string[] = [];
+    for (const [key, entry] of this.fpsCrosshairGlanceCache.entries()) {
+      if (nowMs - entry.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs * 2) {
+        staleCacheKeys.push(key);
+      }
+    }
+    for (const key of staleCacheKeys) {
+      this.fpsCrosshairGlanceCache.delete(key);
+    }
+
+    const pending = this.fpsCrosshairGlancePending;
+    if (!pending) {
+      return;
+    }
+
+    const ageMs = nowMs - pending.startedAtMs;
+    const postResolveAgeMs =
+      pending.positionResolvedAtMs === null
+        ? 0
+        : nowMs - pending.positionResolvedAtMs;
+    const shouldExpireByTimeout = ageMs > this.fpsCrosshairGlanceTimeoutMs;
+    const shouldExpireAfterResolve =
+      pending.positionResolvedAtMs !== null &&
+      postResolveAgeMs > this.fpsCrosshairGlancePostResolveGraceMs;
+    if (!shouldExpireByTimeout && !shouldExpireAfterResolve) {
+      return;
+    }
+
+    if (!this.fpsCrosshairGlanceCache.has(pending.tileKey)) {
+      this.fpsCrosshairGlanceCache.set(pending.tileKey, {
+        hint: "unknown",
+        sourceText: "",
+        updatedAtMs: nowMs,
+      });
+    }
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextSignature = "";
+  }
+
+  private getCachedFpsCrosshairTargetHint(
+    tileKey: string,
+    nowMs: number,
+  ): FpsCrosshairTargetHint | null {
+    const cached = this.fpsCrosshairGlanceCache.get(tileKey);
+    if (!cached) {
+      return null;
+    }
+    if (nowMs - cached.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs) {
+      this.fpsCrosshairGlanceCache.delete(tileKey);
+      return null;
+    }
+    return cached.hint;
+  }
+
+  private startFpsCrosshairGlanceProbe(
+    target: { key: string; x: number; y: number },
+    nowMs: number,
+  ): void {
+    if (!this.session || !this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
+      return;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return;
+    }
+
+    const cached = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    if (cached !== null) {
+      return;
+    }
+
+    if (this.fpsCrosshairGlancePending) {
+      const pendingAgeMs = nowMs - this.fpsCrosshairGlancePending.startedAtMs;
+      if (this.fpsCrosshairGlancePending.tileKey === target.key) {
+        return;
+      }
+      if (pendingAgeMs <= this.fpsCrosshairGlanceTimeoutMs) {
+        return;
+      }
+      this.fpsCrosshairGlancePending = null;
+    }
+
+    this.fpsCrosshairGlancePending = {
+      requestId: ++this.fpsCrosshairGlanceRequestSequence,
+      tileKey: target.key,
+      tileX: target.x,
+      tileY: target.y,
+      startedAtMs: nowMs,
+      sawPositionInput: false,
+      positionResolvedAtMs: null,
+    };
+
+    this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"]);
+    this.sendMouseInput(target.x, target.y, 0);
+  }
+
+  private getFpsCrosshairHintFromTile(
+    key: string,
+    mesh: THREE.Mesh,
+  ): FpsCrosshairTargetHint {
+    if (
+      Boolean(mesh.userData?.isMonsterLikeCharacter) ||
+      this.monsterBillboards.has(key)
+    ) {
+      return "monster";
+    }
+    if (Boolean(mesh.userData?.isLootLikeCharacter)) {
+      return "loot";
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? mesh.userData.materialKind
+        : "";
+    if (materialKind === "door") {
+      return "door";
+    }
+    if (materialKind === "stairs_up") {
+      return "stairs_up";
+    }
+    if (materialKind === "stairs_down") {
+      return "stairs_down";
+    }
+    if (materialKind === "water" || materialKind === "fountain") {
+      return "water";
+    }
+    if (materialKind === "trap") {
+      return "trap";
+    }
+    if (materialKind === "feature") {
+      return "feature";
+    }
+    if (Boolean(mesh.userData?.isWall)) {
+      return "wall";
+    }
+    return "floor";
+  }
+
+  private getFpsCrosshairActionsForTile(
+    key: string,
+    mesh: THREE.Mesh,
+    glanceHint: FpsCrosshairTargetHint | null = null,
+  ): FpsContextAction[] {
+    const actions: FpsContextAction[] = [];
+    const addQuickAction = (id: string, label: string, value: string = id) => {
+      if (actions.some((action) => action.id === id && action.kind === "quick")) {
+        return;
+      }
+      actions.push({
+        id,
+        label,
+        kind: "quick",
+        value,
+      });
+    };
+    const addExtendedAction = (
+      id: string,
+      label: string,
+      value: string = id,
+    ) => {
+      if (
+        actions.some((action) => action.id === id && action.kind === "extended")
+      ) {
+        return;
+      }
+      actions.push({
+        id,
+        label,
+        kind: "extended",
+        value,
+      });
+    };
+
+    let isMonster =
+      Boolean(mesh.userData?.isMonsterLikeCharacter) ||
+      this.monsterBillboards.has(key);
+    let isLoot = Boolean(mesh.userData?.isLootLikeCharacter);
+    let isWall = Boolean(mesh.userData?.isWall);
+    let materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? mesh.userData.materialKind
+        : "";
+    if (glanceHint) {
+      switch (glanceHint) {
+        case "monster":
+          isMonster = true;
+          isLoot = false;
+          break;
+        case "loot":
+          isLoot = true;
+          break;
+        case "door":
+          materialKind = "door";
+          isWall = false;
+          break;
+        case "stairs_up":
+          materialKind = "stairs_up";
+          isWall = false;
+          break;
+        case "stairs_down":
+          materialKind = "stairs_down";
+          isWall = false;
+          break;
+        case "water":
+          materialKind = "water";
+          isWall = false;
+          break;
+        case "trap":
+          materialKind = "trap";
+          isWall = false;
+          break;
+        case "feature":
+          materialKind = "feature";
+          isWall = false;
+          break;
+        case "wall":
+          isWall = true;
+          break;
+        case "floor":
+          isWall = false;
+          break;
+        default:
+          break;
+      }
+    }
+    const isStairsUp = materialKind === "stairs_up";
+    const isStairsDown = materialKind === "stairs_down";
+
+    if (isStairsUp) {
+      addQuickAction("ascend", "Ascend (<)");
+    }
+    if (isStairsDown) {
+      addQuickAction("descend", "Descend (>)");
+    }
+
+    if (isMonster) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      return actions;
+    }
+
+    if (isLoot) {
+      addQuickAction("pickup", "Pick Up");
+      addQuickAction("loot", "Loot");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    if (materialKind === "door") {
+      addQuickAction("open", "Open");
+      addQuickAction("close", "Close");
+      addExtendedAction("kick", "Kick");
+      addQuickAction("search", "Search");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    if (isStairsUp || isStairsDown) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      addQuickAction("pickup", "Pick Up");
+      return actions;
+    }
+
+    if (
+      materialKind === "water" ||
+      materialKind === "fountain" ||
+      materialKind === "trap" ||
+      materialKind === "feature"
+    ) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      return actions;
+    }
+
+    if (isWall) {
+      addQuickAction("search", "Search");
+      addQuickAction("open", "Open");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    addQuickAction("search", "Search");
+    addQuickAction("pickup", "Pick Up");
+    addQuickAction("loot", "Loot");
+    addQuickAction("look", "Look");
+    return actions;
+  }
+
+  private getFpsCrosshairTitle(
+    key: string,
+    mesh: THREE.Mesh,
+    glanceHint: FpsCrosshairTargetHint | null = null,
+  ): string {
+    const hint = glanceHint ?? this.getFpsCrosshairHintFromTile(key, mesh);
+    switch (hint) {
+      case "monster":
+        return "Target: monster";
+      case "loot":
+        return "Target: loot";
+      case "door":
+        return "Target: door";
+      case "stairs_up":
+        return "Target: stairs up";
+      case "stairs_down":
+        return "Target: stairs down";
+      case "wall":
+        return "Target: wall";
+      case "water":
+        return "Target: water";
+      case "trap":
+        return "Target: trap";
+      case "feature":
+        return "Target: feature";
+      default:
+        return "Target: tile";
+    }
+  }
+
+  private updateFpsCrosshairContextMenu(): void {
+    if (!this.uiAdapter) {
+      return;
+    }
+    if (!this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    const nowMs = Date.now();
+    this.expireFpsCrosshairGlanceState(nowMs);
+    const glanceProbePositionInputActive =
+      this.positionInputModeActive && this.fpsCrosshairGlancePending !== null;
+
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      (this.positionInputModeActive && !glanceProbePositionInputActive) ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.isAnyModalVisible()
+    ) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    const target = this.getTileUnderFpsCrosshair();
+    if (!target) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    this.startFpsCrosshairGlanceProbe(target, nowMs);
+    const glanceHint = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    const actions = this.getFpsCrosshairActionsForTile(
+      target.key,
+      target.mesh,
+      glanceHint,
+    );
+    if (actions.length === 0) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    let title = this.getFpsCrosshairTitle(target.key, target.mesh, glanceHint);
+    if (
+      glanceHint === null &&
+      this.fpsCrosshairGlancePending &&
+      this.fpsCrosshairGlancePending.tileKey === target.key
+    ) {
+      title = `${title} (scanning...)`;
+    }
+    const signature = `${target.x},${target.y}|${title}|${actions
+      .map((action) => `${action.kind}:${action.id}:${action.value}`)
+      .join(",")}`;
+    if (signature === this.fpsCrosshairContextSignature) {
+      return;
+    }
+
+    this.fpsCrosshairContextSignature = signature;
+    const state: FpsCrosshairContextState = {
+      title,
+      tileX: target.x,
+      tileY: target.y,
+      actions,
+    };
+    this.uiAdapter.setFpsCrosshairContext(state);
   }
 
   private handleMouseWheel(event: WheelEvent): void {
@@ -8875,6 +10090,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
+  private canUseFpsDirectionPromptMouseInput(event: MouseEvent): boolean {
+    if (!this.session || !this.isFpsMode() || !this.isInDirectionQuestion) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.fpsCrosshairContextMenuOpen ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   private handleMapMouseInput(event: MouseEvent): boolean {
     if (!this.canUseMapMouseInput(event)) {
       return false;
@@ -8915,10 +10153,52 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleMouseDown(event: MouseEvent): void {
     if (
       this.isFpsMode() &&
+      this.isInDirectionQuestion &&
+      event.button === 0 &&
+      this.canUseFpsDirectionPromptMouseInput(event)
+    ) {
+      event.preventDefault();
+      if (document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+        return;
+      }
+      const lookDirectionInput = this.getFpsDirectionQuestionInputFromAim();
+      if (!lookDirectionInput) {
+        return;
+      }
+      this.sendInput(lookDirectionInput);
+      this.hideDirectionQuestion();
+      return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      this.isInDirectionQuestion &&
+      event.button === 2 &&
+      this.canUseFpsDirectionPromptMouseInput(event)
+    ) {
+      event.preventDefault();
+      this.sendInput("Escape");
+      this.hideDirectionQuestion();
+      return;
+    }
+
+    if (
+      this.isFpsMode() &&
       event.button === 0 &&
       this.canUseFpsGameplayMouseInput(event)
     ) {
       event.preventDefault();
+      if (this.isFpsFireSuppressed()) {
+        if (document.pointerLockElement !== this.renderer.domElement) {
+          this.renderer.domElement.requestPointerLock?.();
+        }
+        return;
+      }
+      if (this.fpsCrosshairContextMenuOpen) {
+        this.closeFpsCrosshairContextMenu(true);
+        return;
+      }
       if (document.pointerLockElement !== this.renderer.domElement) {
         this.renderer.domElement.requestPointerLock?.();
         return;
@@ -8927,14 +10207,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (this.isFpsMode() && event.button === 2 && event.target === this.renderer.domElement) {
+    if (
+      this.isFpsMode() &&
+      event.button === 2 &&
+      this.canUseFpsGameplayMouseInput(event)
+    ) {
       event.preventDefault();
-      if (document.pointerLockElement !== this.renderer.domElement) {
-        this.renderer.domElement.requestPointerLock?.();
+      if (this.fpsCrosshairContextMenuOpen) {
+        this.closeFpsCrosshairContextMenu(true);
+      } else {
+        this.openFpsCrosshairContextMenu();
       }
-      this.isRightMouseDown = true;
-      this.lastMouseX = event.clientX;
-      this.lastMouseY = event.clientY;
+      this.isRightMouseDown = false;
       return;
     }
 
@@ -9218,6 +10502,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.syncFpsPointerLockForUiState(false);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.updateFpsPlayerLightPosition();
+    this.updateFpsCrosshairContextMenu();
     this.updateFpsAimVisuals(timeMs);
     this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
