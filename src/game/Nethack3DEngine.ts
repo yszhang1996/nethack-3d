@@ -241,12 +241,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly pointerRaycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private readonly pointerIntersection = new THREE.Vector3();
-  private readonly tileVisualScaleFps = 1.25;
+  private readonly tileVisualScaleFps = 1;
+  private readonly fpsCameraFov = 62;
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
   private readonly firstPersonPitchMin = -1.18;
   private readonly firstPersonPitchMax = 1.18;
   private readonly firstPersonMouseSensitivity = 0.0026;
   private fpsPointerLockActive: boolean = false;
+  private fpsPointerLockRestorePending: boolean = false;
   private fpsCurrentAimDirection: AimDirection | null = null;
   private fpsForwardHighlight: THREE.Mesh | null = null;
   private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
@@ -884,6 +886,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.playMode === "fps") {
+      this.camera.fov = this.fpsCameraFov;
+      this.camera.updateProjectionMatrix();
       this.cameraDistance = 0;
       this.cameraPitch = 0;
       this.cameraYaw = Math.PI;
@@ -2613,6 +2617,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     textColor: string,
     darkenFactor: number = 1,
     size: number = 256,
+    drawFloorGrid: boolean = false,
   ): THREE.CanvasTexture {
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -2628,6 +2633,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyphChar,
       textColor,
       darkenFactor,
+      drawFloorGrid,
     );
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -2649,6 +2655,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     glyphChar: string,
     textColor: string,
     darkenFactor: number = 1,
+    drawFloorGrid: boolean = false,
   ): void {
     context.clearRect(0, 0, size, size);
 
@@ -2662,6 +2669,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
+
+    if (drawFloorGrid) {
+      const gridLineWidth = Math.max(2, Math.floor(size * 0.02));
+      const inset = gridLineWidth * 0.5;
+      context.lineWidth = gridLineWidth;
+      context.strokeStyle = "rgba(8, 12, 16, 0.26)";
+      context.strokeRect(inset, inset, size - gridLineWidth, size - gridLineWidth);
+    }
 
     const trimmed = glyphChar.trim();
     if (trimmed.length === 0) {
@@ -3682,11 +3697,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     textColor: string,
     isWall: boolean,
     darkenFactor: number = 1,
+    drawFloorGrid: boolean = false,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
-    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}`;
+    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
 
     if (overlay.textureKey !== textureKey) {
       if (overlay.textureKey) {
@@ -3701,6 +3717,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
           glyphChar,
           textColor,
           clampedDarken,
+          256,
+          drawFloorGrid,
         ),
       );
       overlay.material.map = overlay.texture;
@@ -3826,6 +3844,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCurrentAimDirection = null;
     this.fpsAimLinePulseUntilMs = 0;
     this.fpsStepCameraActive = false;
+    this.fpsPointerLockRestorePending = false;
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -3882,6 +3901,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.positionInputModeActive = false;
       this.hasRuntimePositionCursor = false;
       this.clearPositionCursor();
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -3890,6 +3910,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.positionInputModeActive = true;
+    this.syncFpsPointerLockForUiState(false);
 
     // Preserve any cursor published before the active-state event arrives.
     if (!this.hasRuntimePositionCursor) {
@@ -4322,6 +4343,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
     mesh.scale.set(visualScale, visualScale, visualScale);
+    const drawFpsFloorGrid =
+      this.isFpsMode() &&
+      renderBehavior.materialKind === "floor" &&
+      renderBehavior.geometryKind === "floor";
 
     this.applyGlyphMaterial(
       key,
@@ -4331,6 +4356,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileTextColor,
       renderBehavior.isWall,
       renderBehavior.darkenFactor,
+      drawFpsFloorGrid,
     );
     if (this.isFpsMode() && isMonsterLikeCharacter) {
       this.ensureMonsterBillboard(
@@ -5831,6 +5857,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionActionFocusIndex = -1;
     this.activeQuestionMenuPageIndex = 0;
     this.rebuildActiveQuestionMenuPagination();
+    this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
       this.syncQuestionDialogState();
@@ -6109,6 +6136,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showDirectionQuestion(question: string): void {
     // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
+    this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(question);
@@ -6222,6 +6250,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInQuestion = false; // Clear general question state
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -6229,10 +6258,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (directionDialog) {
       directionDialog.classList.remove("is-visible");
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private showInfoMenuDialog(title: string, lines: string[]): void {
     this.isInfoDialogVisible = true;
+    this.syncFpsPointerLockForUiState(false);
     const normalizedLines = this.normalizeInfoMenuLines(lines);
     if (this.uiAdapter) {
       this.uiAdapter.setInfoMenu({
@@ -6286,6 +6317,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInfoDialogVisible = false;
     if (this.uiAdapter) {
       this.uiAdapter.setInfoMenu(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -6293,6 +6325,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (infoDialog) {
       infoDialog.classList.remove("is-visible");
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private toggleInfoMenuDialog(): void {
@@ -6310,6 +6343,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private showInventoryDialog(): void {
     this.isInventoryDialogVisible = true;
+    this.syncFpsPointerLockForUiState(false);
     if (this.uiAdapter) {
       this.uiAdapter.setInventory({
         visible: true,
@@ -6424,6 +6458,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         items: [...this.currentInventory],
       });
       this.pendingInventoryDialog = false;
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -6433,6 +6468,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Clear any pending inventory dialog flag
     this.pendingInventoryDialog = false;
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private toggleInventoryDialogState(): void {
@@ -6474,9 +6510,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.uiAdapter) {
+      this.syncFpsPointerLockForUiState(false);
       this.uiAdapter.setPositionRequest(text);
       this.positionHideTimerId = window.setTimeout(() => {
         this.uiAdapter?.setPositionRequest(null);
+        this.syncFpsPointerLockForUiState(true);
       }, 3000);
       return;
     }
@@ -6491,12 +6529,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     posDialog.textContent = text;
     posDialog.classList.add("is-visible");
+    this.syncFpsPointerLockForUiState(false);
 
     // Auto-hide after 3 seconds
     this.positionHideTimerId = window.setTimeout(() => {
       if (posDialog) {
         posDialog.classList.remove("is-visible");
       }
+      this.syncFpsPointerLockForUiState(true);
     }, 3000);
   }
 
@@ -6555,6 +6595,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showTextInputRequest(text: string, maxLength = 256): void {
     this.isInQuestion = true;
     this.isTextInputActive = true;
+    this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
       this.uiAdapter.setTextInput({
@@ -6576,6 +6617,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.uiAdapter) {
       this.uiAdapter.setTextInput(null);
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private hideQuestion(): void {
@@ -6596,6 +6638,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (this.uiAdapter) {
       this.uiAdapter.setQuestion(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -6607,6 +6650,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       (questionDialog as any).isPickupDialog = false;
       (questionDialog as any).menuItems = null;
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private createPickupDialog(
@@ -7413,7 +7457,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.altOrMetaHeld = false;
     this.exitMetaCommandMode();
     this.stopMinimapDrag();
+    if (document.pointerLockElement === this.renderer.domElement) {
+      document.exitPointerLock?.();
+    }
     this.fpsPointerLockActive = false;
+    this.fpsPointerLockRestorePending = false;
   }
 
   private normalizeWaitKey(event: KeyboardEvent): string | null {
@@ -7613,6 +7661,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handlePointerLockChange(): void {
     this.fpsPointerLockActive =
       document.pointerLockElement === this.renderer.domElement;
+    if (this.fpsPointerLockActive) {
+      this.fpsPointerLockRestorePending = false;
+    }
+    this.syncFpsPointerLockForUiState(false);
+  }
+
+  private isFpsPointerLockBlockedByUi(): boolean {
+    return (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.isAnyModalVisible()
+    );
+  }
+
+  private syncFpsPointerLockForUiState(tryAcquire: boolean): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    const isRendererLocked =
+      document.pointerLockElement === this.renderer.domElement;
+    if (this.isFpsPointerLockBlockedByUi()) {
+      if (isRendererLocked || this.fpsPointerLockActive) {
+        this.fpsPointerLockRestorePending = true;
+      }
+      if (isRendererLocked) {
+        document.exitPointerLock?.();
+      }
+      this.fpsPointerLockActive = false;
+      return;
+    }
+
+    if (
+      (tryAcquire || this.fpsPointerLockRestorePending) &&
+      !isRendererLocked &&
+      !this.fpsPointerLockActive
+    ) {
+      this.fpsPointerLockRestorePending = false;
+      this.renderer.domElement.requestPointerLock?.();
+    }
   }
 
   private getModalNavigationDirection(
@@ -9122,6 +9215,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastFrameTimeMs = timeMs;
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
+    this.syncFpsPointerLockForUiState(false);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
     this.updateFpsAimVisuals(timeMs);
