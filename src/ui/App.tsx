@@ -3,6 +3,7 @@ import { Nethack3DEngine } from "../game";
 import type {
   CharacterCreationConfig,
   NethackMenuItem,
+  PlayMode,
 } from "../game/ui-types";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
@@ -221,6 +222,10 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
+const startupPlayModeOptions: Array<{ value: PlayMode; label: string }> = [
+  { value: "normal", label: "Normal" },
+  { value: "fps", label: "FPS" },
+];
 type StartupFlowStep = "choose" | "create" | "random-name";
 type MobileActionEntry = {
   id: string;
@@ -367,6 +372,7 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
+  const [createPlayMode, setCreatePlayMode] = useState<PlayMode>("normal");
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -395,6 +401,27 @@ export default function App(): JSX.Element {
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
+  const isFpsPlayMode = characterCreationConfig?.playMode === "fps";
+  const inventoryItemActions = useMemo(
+    () => [
+      { id: "apply", label: "Apply" },
+      { id: "drop", label: "Drop" },
+      { id: "eat", label: "Eat" },
+      { id: "quaff", label: "Quaff" },
+      { id: "read", label: "Read" },
+      { id: "throw", label: "Throw" },
+      { id: "wield", label: "Wield" },
+      { id: "wear", label: "Wear" },
+      { id: "take-off", label: "Take Off" },
+      { id: "put-on", label: "Put On" },
+      { id: "remove", label: "Remove" },
+      { id: "zap", label: "Zap" },
+      { id: "cast", label: "Cast" },
+    ],
+    [],
+  );
+  const [activeInventoryItemAccelerator, setActiveInventoryItemAccelerator] =
+    useState<string | null>(null);
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -635,6 +662,12 @@ export default function App(): JSX.Element {
     setTextInputValue("");
   };
 
+  useEffect(() => {
+    if (!inventory.visible) {
+      setActiveInventoryItemAccelerator(null);
+    }
+  }, [inventory.visible]);
+
   return (
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
@@ -676,6 +709,22 @@ export default function App(): JSX.Element {
                     value={createName}
                   />
                 </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Play Mode</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setCreatePlayMode(event.target.value as PlayMode)
+                    }
+                    value={createPlayMode}
+                  >
+                    {startupPlayModeOptions.map((playMode) => (
+                      <option key={playMode.value} value={playMode.value}>
+                        {playMode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -683,6 +732,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "random",
+                      playMode: createPlayMode,
                       name: normalizeStartupCharacterName(createName),
                     })
                   }
@@ -770,6 +820,22 @@ export default function App(): JSX.Element {
                     ))}
                   </select>
                 </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Play Mode</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setCreatePlayMode(event.target.value as PlayMode)
+                    }
+                    value={createPlayMode}
+                  >
+                    {startupPlayModeOptions.map((playMode) => (
+                      <option key={playMode.value} value={playMode.value}>
+                        {playMode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -777,6 +843,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "create",
+                      playMode: createPlayMode,
                       name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,
@@ -1249,9 +1316,69 @@ export default function App(): JSX.Element {
                     {item.text}
                   </div>
                 ) : (
-                  <div className="nh3d-inventory-item" key={`item-${index}`}>
+                  <div
+                    className={`nh3d-inventory-item${
+                      isFpsPlayMode &&
+                      activeInventoryItemAccelerator === item.accelerator
+                        ? " nh3d-inventory-item-active"
+                        : ""
+                    }`}
+                    key={`item-${index}`}
+                    onClick={() => {
+                      if (!isFpsPlayMode) {
+                        return;
+                      }
+                      setActiveInventoryItemAccelerator((previous) =>
+                        previous === item.accelerator
+                          ? null
+                          : typeof item.accelerator === "string"
+                            ? item.accelerator
+                            : null,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (!isFpsPlayMode) {
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        setActiveInventoryItemAccelerator((previous) =>
+                          previous === item.accelerator
+                            ? null
+                            : typeof item.accelerator === "string"
+                              ? item.accelerator
+                              : null,
+                        );
+                      }
+                    }}
+                    role={isFpsPlayMode ? "button" : undefined}
+                    tabIndex={isFpsPlayMode ? 0 : undefined}
+                  >
                     <span className="nh3d-inventory-key">{item.accelerator || "?"})</span>
                     <span className="nh3d-inventory-text">{item.text || "Unknown item"}</span>
+                    {isFpsPlayMode &&
+                    activeInventoryItemAccelerator === item.accelerator &&
+                    typeof item.accelerator === "string" ? (
+                      <div className="nh3d-inventory-context-actions">
+                        {inventoryItemActions.map((action) => (
+                          <button
+                            className="nh3d-inventory-context-button"
+                            key={`${item.accelerator}-${action.id}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              controller?.runInventoryItemAction(
+                                action.id,
+                                item.accelerator as string,
+                              );
+                              setActiveInventoryItemAccelerator(null);
+                            }}
+                            type="button"
+                          >
+                            {action.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                 ),
               )
@@ -1259,26 +1386,32 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-inventory-keybinds-title">🎮 ITEM COMMANDS</div>
           <div className="nh3d-inventory-keybinds">
-            <div className="nh3d-inventory-keybinds-text">
-              <span className="nh3d-inventory-command-key">a</span>)pply{" "}
-              <span className="nh3d-inventory-command-key">d</span>)rop{" "}
-              <span className="nh3d-inventory-command-key">e</span>)at{" "}
-              <span className="nh3d-inventory-command-key">q</span>)uaff{" "}
-              <span className="nh3d-inventory-command-key">r</span>)ead{" "}
-              <span className="nh3d-inventory-command-key">t</span>)hrow{" "}
-              <span className="nh3d-inventory-command-key">w</span>)ield{" "}
-              <span className="nh3d-inventory-command-key">W</span>)ear{" "}
-              <span className="nh3d-inventory-command-key">T</span>)ake-off{" "}
-              <span className="nh3d-inventory-command-key">P</span>)ut-on{" "}
-              <span className="nh3d-inventory-command-key">R</span>)emove{" "}
-              <span className="nh3d-inventory-command-key">z</span>)ap{" "}
-              <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
-              Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
-              <span className="nh3d-inventory-command-key">[</span>)armor{" "}
-              <span className="nh3d-inventory-command-key">=</span>)rings{" "}
-              <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
-              <span className="nh3d-inventory-command-key">(</span>)tools
-            </div>
+            {isFpsPlayMode ? (
+              <div className="nh3d-inventory-keybinds-text">
+                Click an item to open contextual commands.
+              </div>
+            ) : (
+              <div className="nh3d-inventory-keybinds-text">
+                <span className="nh3d-inventory-command-key">a</span>)pply{" "}
+                <span className="nh3d-inventory-command-key">d</span>)rop{" "}
+                <span className="nh3d-inventory-command-key">e</span>)at{" "}
+                <span className="nh3d-inventory-command-key">q</span>)uaff{" "}
+                <span className="nh3d-inventory-command-key">r</span>)ead{" "}
+                <span className="nh3d-inventory-command-key">t</span>)hrow{" "}
+                <span className="nh3d-inventory-command-key">w</span>)ield{" "}
+                <span className="nh3d-inventory-command-key">W</span>)ear{" "}
+                <span className="nh3d-inventory-command-key">T</span>)ake-off{" "}
+                <span className="nh3d-inventory-command-key">P</span>)ut-on{" "}
+                <span className="nh3d-inventory-command-key">R</span>)emove{" "}
+                <span className="nh3d-inventory-command-key">z</span>)ap{" "}
+                <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
+                Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
+                <span className="nh3d-inventory-command-key">[</span>)armor{" "}
+                <span className="nh3d-inventory-command-key">=</span>)rings{" "}
+                <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
+                <span className="nh3d-inventory-command-key">(</span>)tools
+              </div>
+            )}
           </div>
           <div className="nh3d-inventory-close">Press ENTER, ESC, or 'i' to close</div>
           <div className="nh3d-menu-actions">

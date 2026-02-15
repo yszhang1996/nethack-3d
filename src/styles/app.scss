@@ -768,6 +768,12 @@ canvas {
   line-height: 1.3;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.nh3d-inventory-item-active {
+  border-left-color: #f7e86c;
+  box-shadow: 0 0 0 1px rgba(247, 232, 108, 0.32);
 }
 
 .nh3d-inventory-key {
@@ -782,6 +788,32 @@ canvas {
   color: var(--nh3d-ui-text);
   flex: 1;
   font-size: 13px;
+}
+
+.nh3d-inventory-context-actions {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(102, 204, 255, 0.24);
+}
+
+.nh3d-inventory-context-button {
+  border: 1px solid var(--nh3d-ui-button-border);
+  background: var(--nh3d-ui-button-bg);
+  color: var(--nh3d-ui-text);
+  border-radius: 3px;
+  padding: 4px 8px;
+  font-family: "Courier New", monospace;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.nh3d-inventory-context-button:hover {
+  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-accent);
 }
 
 .nh3d-inventory-keybinds-title {

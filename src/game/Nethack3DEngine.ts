@@ -31,6 +31,7 @@ import type {
   Nethack3DEngineOptions,
   Nethack3DEngineUIAdapter,
   NethackConnectionState,
+  PlayMode,
   PlayerStatsSnapshot,
   QuestionDialogState,
 } from "./ui-types";
@@ -123,6 +124,12 @@ type MinimapViewportRect = {
   minY: number;
   width: number;
   height: number;
+};
+
+type AimDirection = {
+  dx: number;
+  dy: number;
+  input: string;
 };
 
 /**
@@ -218,7 +225,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
   private isTextInputActive: boolean = false;
-  private characterCreationConfig: CharacterCreationConfig = { mode: "create" };
+  private characterCreationConfig: CharacterCreationConfig = {
+    mode: "create",
+    playMode: "normal",
+  };
+  private playMode: PlayMode = "normal";
   private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -230,6 +241,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly pointerRaycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private readonly pointerIntersection = new THREE.Vector3();
+  private readonly tileVisualScaleFps = 1.25;
+  private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
+  private readonly firstPersonPitchMin = -1.18;
+  private readonly firstPersonPitchMax = 1.18;
+  private readonly firstPersonMouseSensitivity = 0.0026;
+  private fpsPointerLockActive: boolean = false;
+  private fpsCurrentAimDirection: AimDirection | null = null;
+  private fpsForwardHighlight: THREE.Mesh | null = null;
+  private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private fpsAimLine: THREE.Line | null = null;
+  private fpsAimLineMaterial: THREE.LineBasicMaterial | null = null;
+  private fpsAimLinePulseUntilMs: number = 0;
+  private monsterBillboards: Map<string, THREE.Sprite> = new Map();
+  private monsterBillboardTextures: Map<
+    string,
+    { texture: THREE.CanvasTexture; refCount: number }
+  > = new Map();
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -831,7 +859,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter = options.uiAdapter ?? null;
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
+      playMode: "normal",
     };
+    this.playMode =
+      this.characterCreationConfig.playMode === "fps" ? "fps" : "normal";
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
@@ -843,15 +874,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
     }
 
-    // Set initial camera position looking straight down with a slight tilt
-    this.cameraDistance = 15;
-    this.cameraPitch = THREE.MathUtils.clamp(
-      Math.PI / 2 - 0.2,
-      this.minCameraPitch,
-      this.maxCameraPitch,
-    );
-    // Yaw is in radians; start at 180 degrees to face the board correctly.
-    this.cameraYaw = Math.PI;
+    if (this.playMode === "fps") {
+      this.cameraDistance = 0;
+      this.cameraPitch = 0;
+      this.cameraYaw = Math.PI;
+      this.cameraFollowInitialized = true;
+    } else {
+      // Set initial camera position looking straight down with a slight tilt
+      this.cameraDistance = 15;
+      this.cameraPitch = THREE.MathUtils.clamp(
+        Math.PI / 2 - 0.2,
+        this.minCameraPitch,
+        this.maxCameraPitch,
+      );
+      // Yaw is in radians; start at 180 degrees to face the board correctly.
+      this.cameraYaw = Math.PI;
+    }
   }
 
   private initThreeJS(): void {
@@ -890,6 +928,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
     window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
     window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
+    window.addEventListener(
+      "pointerlockchange",
+      this.handlePointerLockChange.bind(this),
+      false,
+    );
 
     // Mouse controls for camera
     window.addEventListener("wheel", this.handleMouseWheel.bind(this), false);
@@ -1537,6 +1580,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
       // this.addGameMessage("Local NetHack runtime started");
+      if (this.isFpsMode()) {
+        this.addGameMessage(
+          "FPS mode active: WASD move, F search, left-click fire, right-click mouselook.",
+        );
+      }
       this.setLoadingVisible(false);
     } catch (error) {
       console.error("Failed to start local NetHack runtime:", error);
@@ -1547,7 +1595,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private handleRuntimeEvent(data: RuntimeEvent): void {
+  private handleRuntimeEvent(event: RuntimeEvent): void {
+    const data = event as RuntimeEvent & Record<string, any>;
     switch (data.type) {
       case "map_glyph":
         this.tryResolvePendingCharacterDamage(data);
@@ -1631,9 +1680,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
         }
 
-        // Create a fake player glyph at the new position to ensure visual update
-        // Use a typical player glyph number (runtime commonly reports 330 for @).
-        this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
+        if (this.isFpsMode()) {
+          const newKey = `${data.newPosition.x},${data.newPosition.y}`;
+          const newTerrain = this.lastKnownTerrain.get(newKey);
+          if (newTerrain) {
+            this.updateTile(
+              data.newPosition.x,
+              data.newPosition.y,
+              newTerrain.glyph,
+              newTerrain.char,
+              newTerrain.color,
+            );
+          } else {
+            this.requestTileUpdate(data.newPosition.x, data.newPosition.y);
+          }
+        } else {
+          // Create a fake player glyph at the new position to ensure visual update
+          // Use a typical player glyph number (runtime commonly reports 330 for @).
+          this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
+        }
         console.log(
           `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
         );
@@ -2771,6 +2836,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         baseZ,
       );
     }
+    const sprite = this.monsterBillboards.get(key);
+    if (sprite) {
+      sprite.position.set(
+        state.tileX * TILE_SIZE,
+        -state.tileY * TILE_SIZE,
+        WALL_HEIGHT * 0.58,
+      );
+    }
 
     this.glyphDamageShakes.delete(key);
   }
@@ -2812,6 +2885,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         -state.tileY * TILE_SIZE + offsetY,
         baseZ,
       );
+      const sprite = this.monsterBillboards.get(key);
+      if (sprite) {
+        sprite.position.set(
+          state.tileX * TILE_SIZE + offsetX,
+          -state.tileY * TILE_SIZE + offsetY,
+          WALL_HEIGHT * 0.58,
+        );
+      }
 
       if (progress >= 1) {
         this.stopGlyphDamageShake(key);
@@ -3649,6 +3730,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
     this.tileMap.clear();
 
+    for (const key of Array.from(this.monsterBillboards.keys())) {
+      this.removeMonsterBillboard(key);
+    }
+    for (const entry of this.monsterBillboardTextures.values()) {
+      entry.texture.dispose();
+    }
+    this.monsterBillboardTextures.clear();
+
+    if (this.fpsForwardHighlight) {
+      this.scene.remove(this.fpsForwardHighlight);
+      this.fpsForwardHighlight.geometry.dispose();
+      this.fpsForwardHighlightMaterial?.dispose();
+      this.fpsForwardHighlight = null;
+      this.fpsForwardHighlightMaterial = null;
+    }
+    if (this.fpsAimLine) {
+      this.scene.remove(this.fpsAimLine);
+      this.fpsAimLine.geometry.dispose();
+      this.fpsAimLineMaterial?.dispose();
+      this.fpsAimLine = null;
+      this.fpsAimLineMaterial = null;
+    }
+    this.fpsCurrentAimDirection = null;
+    this.fpsAimLinePulseUntilMs = 0;
+
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
       this.disposeGlyphOverlay(overlay);
@@ -3758,6 +3864,147 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private createMonsterBillboardTexture(
+    glyphChar: string,
+    textColor: string,
+  ): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create monster billboard texture context");
+    }
+
+    context.clearRect(0, 0, size, size);
+    const symbol = String(glyphChar || "?").trim() || "?";
+    context.font = `700 ${Math.floor(size * 0.62)}px "Roboto Condensed", "Segoe UI", sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.lineJoin = "round";
+    context.lineCap = "round";
+    context.lineWidth = Math.max(10, Math.floor(size * 0.11));
+    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    context.fillStyle = textColor || "#ffffff";
+    context.strokeText(symbol, size / 2, size / 2);
+    context.fillText(symbol, size / 2, size / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    return texture;
+  }
+
+  private acquireMonsterBillboardTexture(
+    key: string,
+    factory: () => THREE.CanvasTexture,
+  ): THREE.CanvasTexture {
+    const cached = this.monsterBillboardTextures.get(key);
+    if (cached) {
+      cached.refCount += 1;
+      return cached.texture;
+    }
+    const texture = factory();
+    this.monsterBillboardTextures.set(key, { texture, refCount: 1 });
+    return texture;
+  }
+
+  private releaseMonsterBillboardTexture(key: string): void {
+    if (!key) {
+      return;
+    }
+    const cached = this.monsterBillboardTextures.get(key);
+    if (!cached) {
+      return;
+    }
+    cached.refCount -= 1;
+    if (cached.refCount <= 0) {
+      cached.texture.dispose();
+      this.monsterBillboardTextures.delete(key);
+    }
+  }
+
+  private removeMonsterBillboard(key: string): void {
+    const sprite = this.monsterBillboards.get(key);
+    if (!sprite) {
+      return;
+    }
+    const material = sprite.material;
+    if (material instanceof THREE.SpriteMaterial) {
+      const textureKey =
+        typeof sprite.userData?.textureKey === "string"
+          ? sprite.userData.textureKey
+          : "";
+      if (textureKey) {
+        this.releaseMonsterBillboardTexture(textureKey);
+      } else if (material.map) {
+        material.map.dispose();
+      }
+      material.dispose();
+    }
+    this.scene.remove(sprite);
+    this.monsterBillboards.delete(key);
+  }
+
+  private ensureMonsterBillboard(
+    key: string,
+    x: number,
+    y: number,
+    glyphChar: string,
+    textColor: string,
+  ): void {
+    const textureKey = `${glyphChar}|${textColor}`;
+    const spriteKey = key;
+    let sprite = this.monsterBillboards.get(spriteKey);
+    if (!sprite) {
+      const texture = this.acquireMonsterBillboardTexture(textureKey, () =>
+        this.createMonsterBillboardTexture(glyphChar, textColor),
+      );
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      sprite = new THREE.Sprite(material);
+      sprite.renderOrder = 910;
+      sprite.userData.textureKey = textureKey;
+      this.monsterBillboards.set(spriteKey, sprite);
+      this.scene.add(sprite);
+    } else {
+      const existingTextureKey =
+        typeof sprite.userData?.textureKey === "string"
+          ? sprite.userData.textureKey
+          : "";
+      if (existingTextureKey !== textureKey) {
+        const material = sprite.material;
+        if (material instanceof THREE.SpriteMaterial) {
+          if (existingTextureKey) {
+            this.releaseMonsterBillboardTexture(existingTextureKey);
+          } else if (material.map) {
+            material.map.dispose();
+          }
+          material.map = this.acquireMonsterBillboardTexture(textureKey, () =>
+            this.createMonsterBillboardTexture(glyphChar, textColor),
+          );
+          material.needsUpdate = true;
+          sprite.userData.textureKey = textureKey;
+        }
+      }
+    }
+
+    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, WALL_HEIGHT * 0.58);
+    const scaleBase = this.isFpsMode() ? 1.08 : 0.9;
+    sprite.scale.set(scaleBase, scaleBase, 1);
+  }
+
   private updateTile(
     x: number,
     y: number,
@@ -3781,6 +4028,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
+      this.removeMonsterBillboard(key);
       this.activeEffectTileKeys.delete(key);
       const overlay = this.glyphOverlayMap.get(key);
       if (overlay) {
@@ -3788,6 +4036,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.glyphOverlayMap.delete(key);
       }
       this.queueMinimapTileUpdate(x, y, behavior, true);
+      this.markLightingDirty();
+      return;
+    }
+
+    if (behavior.isPlayerGlyph && this.isFpsMode()) {
+      const oldPos = { ...this.playerPos };
+      this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
+      this.playerPos = { x, y };
+      this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
+      for (const [tileKey, tileMesh] of this.tileMap.entries()) {
+        if (!tileMesh.userData?.isPlayerGlyph) {
+          continue;
+        }
+        this.scene.remove(tileMesh);
+        this.tileMap.delete(tileKey);
+        this.tileStateCache.delete(tileKey);
+        const staleOverlay = this.glyphOverlayMap.get(tileKey);
+        if (staleOverlay) {
+          this.disposeGlyphOverlay(staleOverlay);
+          this.glyphOverlayMap.delete(tileKey);
+        }
+      }
+      this.removeMonsterBillboard(key);
+      if (mesh && mesh.userData?.isPlayerGlyph) {
+        this.scene.remove(mesh);
+        this.tileMap.delete(key);
+        this.tileStateCache.delete(key);
+      }
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        this.disposeGlyphOverlay(overlay);
+        this.glyphOverlayMap.delete(key);
+      }
+      if (!this.lastKnownTerrain.has(key)) {
+        this.requestTileUpdate(x, y);
+      }
       this.markLightingDirty();
       return;
     }
@@ -3807,10 +4091,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
-    const material = this.getMaterialByKind(behavior.materialKind);
+    let renderBehavior = behavior;
+    let tileGlyphChar = behavior.glyphChar;
+    let tileTextColor = behavior.textColor;
+    if (this.isFpsMode() && isMonsterLikeCharacter) {
+      const floorSnapshot = this.lastKnownTerrain.get(key);
+      if (floorSnapshot) {
+        renderBehavior = classifyTileBehavior({
+          glyph: floorSnapshot.glyph,
+          runtimeChar: floorSnapshot.char ?? null,
+          runtimeColor:
+            typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+          priorTerrain: floorSnapshot,
+        });
+      } else {
+        renderBehavior = classifyTileBehavior({
+          glyph: 2396,
+          runtimeChar: ".",
+          runtimeColor: null,
+          priorTerrain: null,
+        });
+      }
+      tileGlyphChar = " ";
+      tileTextColor = renderBehavior.textColor;
+    }
+
+    const material = this.getMaterialByKind(renderBehavior.materialKind);
     const geometry =
-      behavior.geometryKind === "wall" ? this.wallGeometry : this.floorGeometry;
-    const targetZ = behavior.isWall ? WALL_HEIGHT / 2 : 0;
+      renderBehavior.geometryKind === "wall" ? this.wallGeometry : this.floorGeometry;
+    const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
 
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
@@ -3826,7 +4135,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     mesh.userData.tileX = x;
     mesh.userData.tileY = y;
-    mesh.userData.isWall = behavior.isWall;
+    mesh.userData.isWall = renderBehavior.isWall;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
     mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
@@ -3837,16 +4146,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
+    const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
+    mesh.scale.set(visualScale, visualScale, visualScale);
 
     this.applyGlyphMaterial(
       key,
       mesh,
       material,
-      behavior.glyphChar,
-      behavior.textColor,
-      behavior.isWall,
-      behavior.darkenFactor,
+      tileGlyphChar,
+      tileTextColor,
+      renderBehavior.isWall,
+      renderBehavior.darkenFactor,
     );
+    if (this.isFpsMode() && isMonsterLikeCharacter) {
+      this.ensureMonsterBillboard(
+        key,
+        x,
+        y,
+        behavior.glyphChar,
+        behavior.textColor,
+      );
+    } else {
+      this.removeMonsterBillboard(key);
+    }
     if (behavior.effectKind) {
       this.activeEffectTileKeys.add(key);
     } else {
@@ -5615,7 +5937,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       button.appendChild(key);
 
       button.onclick = () => {
-        this.sendInput(dir.key);
+        if (typeof dir.key === "string" && dir.key.length > 0) {
+          this.sendInput(dir.key);
+        }
         this.hideDirectionQuestion();
       };
 
@@ -6442,6 +6766,44 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.toggleInventoryDialogState();
   }
 
+  public runInventoryItemAction(
+    actionId: string,
+    itemAccelerator: string,
+  ): void {
+    const normalizedActionId = String(actionId || "")
+      .trim()
+      .toLowerCase();
+    const accelerator = String(itemAccelerator || "").trim();
+    if (!this.session || !normalizedActionId || accelerator.length !== 1) {
+      return;
+    }
+
+    const commandMap: Record<string, string> = {
+      apply: "a",
+      drop: "d",
+      eat: "e",
+      quaff: "q",
+      read: "r",
+      throw: "t",
+      wield: "w",
+      wear: "W",
+      "take-off": "T",
+      "put-on": "P",
+      remove: "R",
+      zap: "z",
+      cast: "Z",
+    };
+
+    const commandKey = commandMap[normalizedActionId];
+    if (!commandKey) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    this.hideInventoryDialog();
+    this.sendInputSequence([commandKey, accelerator]);
+  }
+
   public runQuickAction(actionId: string): void {
     const normalizedActionId = String(actionId || "")
       .trim()
@@ -6828,6 +7190,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.altOrMetaHeld = false;
     this.exitMetaCommandMode();
     this.stopMinimapDrag();
+    this.fpsPointerLockActive = false;
   }
 
   private normalizeWaitKey(event: KeyboardEvent): string | null {
@@ -6915,6 +7278,118 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.mapArrowKeyToDirectionKey(key) ||
       this.mapNavigationKeyToDirectionKey(key)
     );
+  }
+
+  private isFpsMode(): boolean {
+    return this.playMode === "fps";
+  }
+
+  private getDirectionInputFromMapDelta(dx: number, dy: number): string | null {
+    if (dx === 0 && dy === 0) {
+      return null;
+    }
+    if (this.numberPadModeEnabled) {
+      if (dx === 0 && dy < 0) return "8";
+      if (dx === 0 && dy > 0) return "2";
+      if (dx < 0 && dy === 0) return "4";
+      if (dx > 0 && dy === 0) return "6";
+      if (dx < 0 && dy < 0) return "7";
+      if (dx > 0 && dy < 0) return "9";
+      if (dx < 0 && dy > 0) return "1";
+      if (dx > 0 && dy > 0) return "3";
+      return null;
+    }
+
+    if (dx === 0 && dy < 0) return "k";
+    if (dx === 0 && dy > 0) return "j";
+    if (dx < 0 && dy === 0) return "h";
+    if (dx > 0 && dy === 0) return "l";
+    if (dx < 0 && dy < 0) return "y";
+    if (dx > 0 && dy < 0) return "u";
+    if (dx < 0 && dy > 0) return "b";
+    if (dx > 0 && dy > 0) return "n";
+    return null;
+  }
+
+  private getFpsAimDirectionFromCamera(): AimDirection | null {
+    // FPS movement/fire should follow yaw, even when pitch is looking up/down.
+    const worldX = -Math.sin(this.cameraYaw);
+    const worldY = -Math.cos(this.cameraYaw);
+    let mapDx = Math.round(worldX);
+    let mapDy = Math.round(-worldY);
+    if (mapDx === 0 && mapDy === 0) {
+      if (Math.abs(worldX) >= Math.abs(worldY)) {
+        mapDx = worldX >= 0 ? 1 : -1;
+      } else {
+        mapDy = -worldY >= 0 ? 1 : -1;
+      }
+    }
+    const input = this.getDirectionInputFromMapDelta(mapDx, mapDy);
+    if (!input) {
+      return null;
+    }
+    return {
+      dx: mapDx,
+      dy: mapDy,
+      input,
+    };
+  }
+
+  private rotateAimDirectionLeft(aim: AimDirection): AimDirection {
+    const dx = aim.dy;
+    const dy = -aim.dx;
+    return {
+      dx,
+      dy,
+      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
+    };
+  }
+
+  private rotateAimDirectionRight(aim: AimDirection): AimDirection {
+    const dx = -aim.dy;
+    const dy = aim.dx;
+    return {
+      dx,
+      dy,
+      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
+    };
+  }
+
+  private tryResolveFpsMovementInput(key: string): string | null {
+    const lower = key.toLowerCase();
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return null;
+    }
+
+    switch (lower) {
+      case "w":
+        return aim.input;
+      case "s": {
+        const backward = this.getDirectionInputFromMapDelta(-aim.dx, -aim.dy);
+        return backward;
+      }
+      case "a":
+        return this.rotateAimDirectionLeft(aim).input;
+      case "d":
+        return this.rotateAimDirectionRight(aim).input;
+      default:
+        return null;
+    }
+  }
+
+  private fireInCurrentAimDirection(): void {
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return;
+    }
+    this.fpsAimLinePulseUntilMs = Date.now() + 220;
+    this.sendInputSequence(["f", aim.input]);
+  }
+
+  private handlePointerLockChange(): void {
+    this.fpsPointerLockActive =
+      document.pointerLockElement === this.renderer.domElement;
   }
 
   private getModalNavigationDirection(
@@ -7082,6 +7557,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       if (
+        !this.isFpsMode() &&
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
@@ -7193,6 +7669,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       event.preventDefault();
       return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      const fpsMoveInput = this.tryResolveFpsMovementInput(event.key);
+      if (fpsMoveInput) {
+        event.preventDefault();
+        this.sendInput(fpsMoveInput);
+        return;
+      }
+
+      if (event.key === "f" || event.key === "F") {
+        event.preventDefault();
+        this.sendInput("s");
+        return;
+      }
     }
 
     // Filter out modifier keys that shouldn't be sent to NetHack
@@ -7513,10 +8012,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 this.moveQuestionActionFocus(-1);
                 return;
               }
-              if (effectiveDirection === "left") {
-                this.moveQuestionActionFocus(-1);
-                return;
-              }
               if (
                 effectiveDirection === "right" ||
                 effectiveDirection === "down"
@@ -7596,6 +8091,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateCamera(deltaSeconds: number): void {
+    if (this.isFpsMode()) {
+      const eyeX = this.playerPos.x * TILE_SIZE;
+      const eyeY = -this.playerPos.y * TILE_SIZE;
+      const eyeZ = this.firstPersonEyeHeight;
+      const forwardX = -Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch);
+      const forwardY = -Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch);
+      const forwardZ = Math.sin(this.cameraPitch);
+
+      this.camera.position.set(eyeX, eyeY, eyeZ);
+      this.camera.lookAt(
+        eyeX + forwardX,
+        eyeY + forwardY,
+        eyeZ + forwardZ,
+      );
+      return;
+    }
+
     const { x, y } = this.playerPos;
     const targetX = x * TILE_SIZE + this.cameraPanX;
     const targetY = -y * TILE_SIZE + this.cameraPanY;
@@ -7636,6 +8148,110 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.camera.lookAt(followX, followY, 0);
   }
 
+  private ensureFpsAimVisuals(): void {
+    if (this.fpsForwardHighlight && this.fpsAimLine) {
+      return;
+    }
+
+    if (!this.fpsForwardHighlight) {
+      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.82, TILE_SIZE * 0.82);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xf9fb66,
+        transparent: true,
+        opacity: 0.34,
+        depthTest: false,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = 980;
+      this.scene.add(mesh);
+      this.fpsForwardHighlight = mesh;
+      this.fpsForwardHighlightMaterial = material;
+    }
+
+    if (!this.fpsAimLine) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+      ]);
+      const material = new THREE.LineBasicMaterial({
+        color: 0xe8f7ff,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false,
+      });
+      const line = new THREE.Line(geometry, material);
+      line.renderOrder = 981;
+      this.scene.add(line);
+      this.fpsAimLine = line;
+      this.fpsAimLineMaterial = material;
+    }
+  }
+
+  private updateFpsAimVisuals(timeMs: number): void {
+    if (!this.isFpsMode()) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      if (this.fpsAimLine) {
+        this.fpsAimLine.visible = false;
+      }
+      this.fpsCurrentAimDirection = null;
+      return;
+    }
+
+    if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      if (this.fpsAimLine) {
+        this.fpsAimLine.visible = false;
+      }
+      return;
+    }
+
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return;
+    }
+    this.fpsCurrentAimDirection = aim;
+    this.ensureFpsAimVisuals();
+
+    const targetX = this.playerPos.x + aim.dx;
+    const targetY = this.playerPos.y + aim.dy;
+    const targetKey = `${targetX},${targetY}`;
+    const targetTile = this.tileMap.get(targetKey);
+    const targetZ = targetTile?.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+
+    if (this.fpsForwardHighlight) {
+      this.fpsForwardHighlight.position.set(
+        targetX * TILE_SIZE,
+        -targetY * TILE_SIZE,
+        targetZ,
+      );
+      this.fpsForwardHighlight.visible = true;
+      if (this.fpsForwardHighlightMaterial) {
+        const pulse = timeMs <= this.fpsAimLinePulseUntilMs ? 1 : 0.45;
+        this.fpsForwardHighlightMaterial.opacity = 0.18 + pulse * 0.28;
+      }
+    }
+
+    if (this.fpsAimLine && this.fpsAimLineMaterial) {
+      const points = [
+        new THREE.Vector3(
+          this.playerPos.x * TILE_SIZE,
+          -this.playerPos.y * TILE_SIZE,
+          this.firstPersonEyeHeight * 0.92,
+        ),
+        new THREE.Vector3(targetX * TILE_SIZE, -targetY * TILE_SIZE, targetZ + 0.12),
+      ];
+      this.fpsAimLine.geometry.setFromPoints(points);
+      this.fpsAimLine.visible = true;
+      const pulsing = timeMs <= this.fpsAimLinePulseUntilMs;
+      this.fpsAimLineMaterial.color.set(pulsing ? "#fdf16c" : "#d8f2ff");
+      this.fpsAimLineMaterial.opacity = pulsing ? 1 : 0.72;
+    }
+  }
+
   private wrapAngle(angle: number): number {
     const twoPi = Math.PI * 2;
     angle = ((angle % twoPi) + twoPi) % twoPi;
@@ -7665,6 +8281,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseWheel(event: WheelEvent): void {
+    if (this.isFpsMode()) {
+      event.preventDefault();
+      return;
+    }
+
     // Disable camera zoom while any modal/dialog is visible.
     if (this.isAnyModalVisible()) {
       return;
@@ -7721,6 +8342,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.metaCommandModeActive) {
       return false;
     }
+    if (this.isFpsMode() && !this.positionInputModeActive) {
+      return false;
+    }
     return true;
   }
 
@@ -7748,6 +8372,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
     if (this.metaCommandModeActive || this.positionInputModeActive) {
+      return false;
+    }
+    if (this.isFpsMode()) {
       return false;
     }
     return true;
@@ -7876,6 +8503,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private canUseFpsGameplayMouseInput(event: MouseEvent): boolean {
+    if (!this.session || !this.isFpsMode()) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.metaCommandModeActive ||
+      this.positionInputModeActive
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   private handleMapMouseInput(event: MouseEvent): boolean {
     if (!this.canUseMapMouseInput(event)) {
       return false;
@@ -7914,6 +8565,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    if (
+      this.isFpsMode() &&
+      event.button === 0 &&
+      this.canUseFpsGameplayMouseInput(event)
+    ) {
+      event.preventDefault();
+      if (document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+      }
+      this.fireInCurrentAimDirection();
+      return;
+    }
+
+    if (this.isFpsMode() && event.button === 2 && event.target === this.renderer.domElement) {
+      event.preventDefault();
+      if (document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+      }
+      this.isRightMouseDown = true;
+      this.lastMouseX = event.clientX;
+      this.lastMouseY = event.clientY;
+      return;
+    }
+
     if (this.handleMapMouseInput(event)) {
       event.preventDefault();
       return;
@@ -8033,6 +8708,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseMove(event: MouseEvent): void {
+    if (this.isFpsMode() && this.fpsPointerLockActive) {
+      const deltaX = event.movementX || 0;
+      const deltaY = event.movementY || 0;
+      this.cameraYaw = this.wrapAngle(
+        this.cameraYaw - deltaX * this.firstPersonMouseSensitivity,
+      );
+      this.cameraPitch = THREE.MathUtils.clamp(
+        this.cameraPitch + deltaY * this.firstPersonMouseSensitivity,
+        this.firstPersonPitchMin,
+        this.firstPersonPitchMax,
+      );
+      return;
+    }
+
     if (this.isMiddleMouseDown) {
       // Middle mouse - rotate camera
       event.preventDefault();
@@ -8042,12 +8731,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraYaw = this.wrapAngle(
         this.cameraYaw - deltaX * this.rotationSpeed,
       );
+      this.cameraPitch = this.isFpsMode()
+        ? THREE.MathUtils.clamp(
+            this.cameraPitch + deltaY * this.rotationSpeed,
+            this.firstPersonPitchMin,
+            this.firstPersonPitchMax,
+          )
+        : THREE.MathUtils.clamp(
+            this.cameraPitch + deltaY * this.rotationSpeed,
+            this.minCameraPitch,
+            this.maxCameraPitch,
+          );
+
+      this.lastMouseX = event.clientX;
+      this.lastMouseY = event.clientY;
+    } else if (this.isFpsMode() && this.isRightMouseDown) {
+      event.preventDefault();
+      const deltaX = event.clientX - this.lastMouseX;
+      const deltaY = event.clientY - this.lastMouseY;
+      this.cameraYaw = this.wrapAngle(
+        this.cameraYaw - deltaX * this.rotationSpeed,
+      );
       this.cameraPitch = THREE.MathUtils.clamp(
         this.cameraPitch + deltaY * this.rotationSpeed,
-        this.minCameraPitch,
-        this.maxCameraPitch,
+        this.firstPersonPitchMin,
+        this.firstPersonPitchMax,
       );
-
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     } else if (this.isRightMouseDown) {
@@ -8159,6 +8868,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.updateFpsAimVisuals(timeMs);
     this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();

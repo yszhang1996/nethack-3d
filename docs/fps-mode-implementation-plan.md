@@ -9,6 +9,7 @@
 - Movement on `W/A/S/D`.
 - `s` (search) remapped to `f`.
 - `f` (fire) remapped to left click, firing in the direction the player is looking.
+- First-person camera with mouselook; player glyph is not rendered in FPS mode.
 - Missing inventory command hotkeys (consumed by `W/A/S/D`) exposed via an item contextual menu on inventory item click.
 - While mouselooking, highlight the next forward tile with a brightening effect.
 - Larger-appearing play space via larger tile scale in FPS mode.

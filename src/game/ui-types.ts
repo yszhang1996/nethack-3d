@@ -68,8 +68,11 @@ export type TextInputRequestState = {
   placeholder?: string;
 };
 
+export type PlayMode = "normal" | "fps";
+
 export type CharacterCreationConfig = {
   mode: "random" | "create";
+  playMode?: PlayMode;
   name?: string;
   role?: string;
   race?: string;
@@ -105,6 +108,7 @@ export interface Nethack3DEngineController {
   submitTextInput(text: string): void;
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
+  runInventoryItemAction(actionId: string, itemAccelerator: string): void;
   runQuickAction(actionId: string): void;
   runExtendedCommand(commandText: string): void;
   closeInventoryDialog(): void;
