@@ -87,6 +87,8 @@ export type PlayMode = "normal" | "fps";
 export type Nh3dClientOptions = {
   fpsMode: boolean;
   fpsFov: number;
+  fpsLookSensitivityX: number;
+  fpsLookSensitivityY: number;
   minimap: boolean;
   damageNumbers: boolean;
   tileShakeOnHit: boolean;
@@ -94,9 +96,14 @@ export type Nh3dClientOptions = {
   liveMessageLog: boolean;
 };
 
+export const nh3dFpsLookSensitivityMin = 0.4;
+export const nh3dFpsLookSensitivityMax = 2.6;
+
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
   fpsFov: 62,
+  fpsLookSensitivityX: 1,
+  fpsLookSensitivityY: 1,
   minimap: true,
   damageNumbers: true,
   tileShakeOnHit: true,
@@ -112,12 +119,36 @@ export function normalizeNh3dClientOptions(
       ? overrides.fpsFov
       : defaultNh3dClientOptions.fpsFov;
   const fpsFov = Math.round(Math.max(45, Math.min(110, rawFpsFov)));
+  const rawFpsLookSensitivityX =
+    typeof overrides?.fpsLookSensitivityX === "number" &&
+    Number.isFinite(overrides.fpsLookSensitivityX)
+      ? overrides.fpsLookSensitivityX
+      : defaultNh3dClientOptions.fpsLookSensitivityX;
+  const rawFpsLookSensitivityY =
+    typeof overrides?.fpsLookSensitivityY === "number" &&
+    Number.isFinite(overrides.fpsLookSensitivityY)
+      ? overrides.fpsLookSensitivityY
+      : defaultNh3dClientOptions.fpsLookSensitivityY;
+  const fpsLookSensitivityX = Number(
+    Math.max(
+      nh3dFpsLookSensitivityMin,
+      Math.min(nh3dFpsLookSensitivityMax, rawFpsLookSensitivityX),
+    ).toFixed(2),
+  );
+  const fpsLookSensitivityY = Number(
+    Math.max(
+      nh3dFpsLookSensitivityMin,
+      Math.min(nh3dFpsLookSensitivityMax, rawFpsLookSensitivityY),
+    ).toFixed(2),
+  );
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
         ? overrides.fpsMode
         : defaultNh3dClientOptions.fpsMode,
     fpsFov,
+    fpsLookSensitivityX,
+    fpsLookSensitivityY,
     minimap:
       typeof overrides?.minimap === "boolean"
         ? overrides.minimap

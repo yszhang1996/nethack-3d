@@ -110,6 +110,14 @@ canvas {
   user-select: none;
 }
 
+.nh3d-minimap.nh3d-minimap-fps {
+  width: min(36vw, 360px);
+  border-color: rgba(136, 186, 236, 0.66);
+  box-shadow:
+    inset 0 0 0 1px rgba(160, 208, 255, 0.15),
+    0 10px 22px rgba(0, 0, 0, 0.52);
+}
+
 .nh3d-minimap-canvas,
 .nh3d-minimap-viewport {
   position: absolute;
@@ -447,6 +455,15 @@ canvas {
   overflow-x: hidden;
 }
 
+#character-setup-dialog .nh3d-character-setup-choice-button {
+  width: min(320px, 100%);
+  min-height: 40px;
+  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 #character-setup-dialog .nh3d-menu-actions {
   margin-top: 12px;
   padding-top: 2px;
@@ -472,6 +489,10 @@ canvas {
   background: rgba(5, 16, 30, 0.84);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   pointer-events: none;
+}
+
+.nh3d-dialog-direction-fps .nh3d-mobile-dialog-close {
+  pointer-events: auto;
 }
 
 .nh3d-dialog-direction-fps .nh3d-direction-text {
@@ -1028,11 +1049,13 @@ canvas {
 }
 
 .nh3d-fps-crosshair-context {
-  left: 50%;
+  left: calc(50% + 19.2px);
   top: 50%;
-  transform: translate(19.2px, -50%);
+  transform: translateY(-50%);
   z-index: 1701;
-  max-width: min(280px, 42vw);
+  min-width: 0;
+  width: min(280px, max(140px, calc(50vw - 28px)));
+  max-width: min(280px, calc(50vw - 28px));
 }
 
 .nh3d-inventory-keybinds-title {
@@ -1633,7 +1656,7 @@ canvas {
   box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
 }
 
-@media (max-width: 900px) and (pointer: coarse) {
+@media (pointer: coarse) {
   input[type="text"],
   input[type="search"],
   input[type="email"],
@@ -1772,7 +1795,7 @@ canvas {
     padding-top: 4px;
   }
 
-  #character-setup-dialog .nh3d-choice-button {
+  #character-setup-dialog .nh3d-character-setup-choice-button {
     width: 100%;
     text-align: center;
   }
@@ -1909,6 +1932,10 @@ canvas {
     opacity: 0.85;
   }
 
+  .nh3d-minimap.nh3d-minimap-fps {
+    width: min(58vw, 300px);
+  }
+
   #position-dialog {
     max-width: calc(100vw - 50px);
     padding-right: 42px;
@@ -1936,5 +1963,136 @@ canvas {
 @media (orientation: landscape) and (pointer: coarse) {
   .top-left-ui #game-log {
     display: none;
+  }
+
+  .nh3d-dialog:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
+    top: calc(var(--nh3d-safe-area-top) + 8px);
+    transform: translateX(-50%);
+    max-height: calc(
+      100vh - var(--nh3d-safe-area-top) - env(safe-area-inset-bottom) - 16px
+    );
+  }
+
+  #character-setup-dialog {
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-height: calc(
+      100vh - var(--nh3d-safe-area-top) - env(safe-area-inset-bottom) - 16px
+    );
+  }
+
+  :root {
+    --nh3d-mobile-actions-content-height: min(52vh, 316px);
+  }
+
+  .nh3d-mobile-bottom-bar {
+    left: auto;
+    right: calc(8px + env(safe-area-inset-right));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: 94px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 6px;
+    border: 2px solid var(--nh3d-ui-border-strong);
+    border-top: 2px solid var(--nh3d-ui-border-strong);
+    border-radius: 8px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+  }
+
+  .nh3d-mobile-bottom-bar::after {
+    display: none;
+  }
+
+  .nh3d-mobile-bottom-button {
+    flex: 0 0 auto;
+    width: 78px;
+    min-width: 78px;
+  }
+
+  .nh3d-mobile-actions-sheet {
+    left: calc(8px + env(safe-area-inset-left));
+    right: auto;
+    width: min(
+      306px,
+      calc(
+        100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
+      )
+    );
+    max-width: calc(
+      100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
+    );
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    max-height: min(66vh, 408px);
+  }
+
+  .nh3d-mobile-actions-grid,
+  .nh3d-mobile-actions-grid.is-extended,
+  .nh3d-mobile-actions-grid.is-fixed-layout {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: start;
+  }
+
+  .nh3d-mobile-actions-grid.is-fixed-layout,
+  .nh3d-mobile-actions-sections {
+    height: var(--nh3d-mobile-actions-content-height);
+    max-height: var(--nh3d-mobile-actions-content-height);
+    overflow-y: auto;
+    align-content: start;
+  }
+
+  .nh3d-mobile-actions-back,
+  .nh3d-mobile-actions-close,
+  .nh3d-mobile-actions-button {
+    width: auto;
+    min-width: 0;
+  }
+
+  #stats-bar {
+    flex-wrap: nowrap;
+    align-items: center;
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 10px;
+  }
+
+  #stats-bar .nh3d-stats-name {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+
+  #stats-bar .nh3d-stats-meter {
+    flex: 0 0 66px;
+    min-width: 60px;
+  }
+
+  #stats-bar .nh3d-stats-group {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+
+  #stats-bar .nh3d-stats-group-core {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  #stats-bar .nh3d-stats-location {
+    flex: 0 0 auto;
+    margin-left: auto;
+    text-align: right;
+    align-self: center;
+  }
+
+  #stats-bar .nh3d-stats-dungeon {
+    white-space: nowrap;
+  }
+
+  #stats-bar .nh3d-stats-mobile-location-status {
+    display: block;
+    margin-left: 0;
+    margin-top: 2px;
   }
 }

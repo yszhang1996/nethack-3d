@@ -6,7 +6,12 @@ import type {
   Nh3dClientOptions,
   NethackMenuItem,
 } from "../game/ui-types";
-import { defaultNh3dClientOptions } from "../game/ui-types";
+import {
+  defaultNh3dClientOptions,
+  nh3dFpsLookSensitivityMax,
+  nh3dFpsLookSensitivityMin,
+  normalizeNh3dClientOptions,
+} from "../game/ui-types";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
@@ -238,12 +243,21 @@ type InventoryContextMenuState = {
   x: number;
   y: number;
 };
-type ClientOptionToggleKey = keyof Omit<Nh3dClientOptions, "fpsFov">;
+type ClientOptionToggleKey = keyof Omit<
+  Nh3dClientOptions,
+  "fpsFov" | "fpsLookSensitivityX" | "fpsLookSensitivityY"
+>;
 type ClientOptionToggle = {
   key: ClientOptionToggleKey;
   label: string;
   description: string;
 };
+type ClientOptionLookSensitivityKey =
+  | "fpsLookSensitivityX"
+  | "fpsLookSensitivityY";
+
+const mobileDefaultFpsLookSensitivity = 1.35;
+const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
 
 const clientOptionToggles: ClientOptionToggle[] = [
   {
@@ -420,6 +434,66 @@ function normalizeStartupCharacterName(value: string): string {
   return normalized.slice(0, 30);
 }
 
+function resolveDeviceDefaultClientOptions(): Nh3dClientOptions {
+  if (
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches
+  ) {
+    return normalizeNh3dClientOptions({
+      ...defaultNh3dClientOptions,
+      fpsLookSensitivityX: mobileDefaultFpsLookSensitivity,
+      fpsLookSensitivityY: mobileDefaultFpsLookSensitivity,
+    });
+  }
+  return normalizeNh3dClientOptions(defaultNh3dClientOptions);
+}
+
+function readPersistedClientOptions(): Partial<Nh3dClientOptions> | null {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return null;
+  }
+  try {
+    const raw = window.localStorage.getItem(nh3dClientOptionsStorageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed as Partial<Nh3dClientOptions>;
+  } catch {
+    return null;
+  }
+}
+
+function persistClientOptions(options: Nh3dClientOptions): void {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      nh3dClientOptionsStorageKey,
+      JSON.stringify(options),
+    );
+  } catch {
+    // Ignore write failures (private mode/quota/security policy).
+  }
+}
+
+function resolveInitialClientOptions(): Nh3dClientOptions {
+  const deviceDefaults = resolveDeviceDefaultClientOptions();
+  const persisted = readPersistedClientOptions();
+  if (!persisted) {
+    return deviceDefaults;
+  }
+  return normalizeNh3dClientOptions({
+    ...deviceDefaults,
+    ...persisted,
+  });
+}
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
@@ -432,14 +506,11 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
-  const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>({
-    ...defaultNh3dClientOptions,
-  });
-  const [clientOptionsDraft, setClientOptionsDraft] = useState<Nh3dClientOptions>(
-    {
-      ...defaultNh3dClientOptions,
-    },
+  const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(() =>
+    resolveInitialClientOptions(),
   );
+  const [clientOptionsDraft, setClientOptionsDraft] =
+    useState<Nh3dClientOptions>(() => resolveInitialClientOptions());
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
@@ -521,13 +592,15 @@ export default function App(): JSX.Element {
   }, [controller, clientOptions]);
 
   useEffect(() => {
+    persistClientOptions(clientOptions);
+  }, [clientOptions]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) {
       return;
     }
 
-    const mediaQuery = window.matchMedia(
-      "(max-width: 900px) and (pointer: coarse)",
-    );
+    const mediaQuery = window.matchMedia("(pointer: coarse)");
     const handleMediaQueryChange = (): void => {
       setIsMobileViewport(mediaQuery.matches);
     };
@@ -799,6 +872,22 @@ export default function App(): JSX.Element {
     }));
   };
 
+  const updateClientLookSensitivityDraft = (
+    key: ClientOptionLookSensitivityKey,
+    rawValue: number,
+  ): void => {
+    const clamped = Number(
+      Math.max(
+        nh3dFpsLookSensitivityMin,
+        Math.min(nh3dFpsLookSensitivityMax, rawValue),
+      ).toFixed(2),
+    );
+    setClientOptionsDraft((previous) => ({
+      ...previous,
+      [key]: clamped,
+    }));
+  };
+
   const renderMobileDialogCloseButton = (
     onClick: () => void,
     label = "Close",
@@ -810,7 +899,7 @@ export default function App(): JSX.Element {
         onClick={onClick}
         type="button"
       >
-        ×
+        {"\u00D7"}
       </button>
     ) : null;
 
@@ -1000,32 +1089,26 @@ export default function App(): JSX.Element {
 
       {characterCreationConfig === null ? (
         <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
-          {renderMobileDialogCloseButton(
-            () => setStartupFlowStep("choose"),
-            "Reset character setup",
-          )}
           {startupFlowStep === "choose" ? (
             <>
               <div className="nh3d-question-text">Choose your character setup:</div>
               <div className="nh3d-choice-list">
                 <button
-                  className="nh3d-choice-button"
+                  className="nh3d-choice-button nh3d-character-setup-choice-button"
                   onClick={() => setStartupFlowStep("random-name")}
                   type="button"
                 >
                   Random character
                 </button>
                 <button
-                  className="nh3d-choice-button"
+                  className="nh3d-choice-button nh3d-character-setup-choice-button"
                   onClick={() => setStartupFlowStep("create")}
                   type="button"
                 >
                   Create character
                 </button>
-              </div>
-              <div className="nh3d-menu-actions">
                 <button
-                  className="nh3d-menu-action-button"
+                  className="nh3d-choice-button nh3d-character-setup-choice-button"
                   onClick={openClientOptionsDialog}
                   type="button"
                 >
@@ -1199,9 +1282,9 @@ export default function App(): JSX.Element {
         <div className="loading-subtitle">Starting local runtime...</div>
       </div>
 
-      {!isMobileGameRunning ? (
+      {!isMobileViewport ? (
         <div className="top-left-ui with-stats">
-          {!isMobileViewport ? <div id="game-status">{statusText}</div> : null}
+          <div id="game-status">{statusText}</div>
           {clientOptions.liveMessageLog ? (
             <div id="game-log">
               {gameMessages.map((message, index) => (
@@ -1210,7 +1293,7 @@ export default function App(): JSX.Element {
             </div>
           ) : null}
         </div>
-      ) : clientOptions.liveMessageLog ? (
+      ) : isMobileGameRunning && clientOptions.liveMessageLog ? (
         <div
           className={`nh3d-mobile-log${
             isMobileLogVisible ? "" : " nh3d-mobile-log-hidden"
@@ -1354,31 +1437,91 @@ export default function App(): JSX.Element {
               );
             })}
             {clientOptionsDraft.fpsMode ? (
-              <div className="nh3d-option-row nh3d-option-row-slider">
-                <div className="nh3d-option-copy">
-                  <div className="nh3d-option-label">FPS Field of View</div>
-                  <div className="nh3d-option-description">
-                    Adjust first-person camera FOV.
+              <>
+                <div className="nh3d-option-row nh3d-option-row-slider">
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">FPS Field of View</div>
+                    <div className="nh3d-option-description">
+                      Adjust first-person camera FOV.
+                    </div>
+                  </div>
+                  <div className="nh3d-option-slider-control">
+                    <input
+                      aria-label="FPS Field of View"
+                      className="nh3d-option-slider"
+                      max={110}
+                      min={45}
+                      onChange={(event) =>
+                        updateClientFovDraft(Number(event.target.value))
+                      }
+                      step={1}
+                      type="range"
+                      value={clientOptionsDraft.fpsFov}
+                    />
+                    <div className="nh3d-option-slider-value">
+                      {clientOptionsDraft.fpsFov}°
+                    </div>
                   </div>
                 </div>
-                <div className="nh3d-option-slider-control">
-                  <input
-                    aria-label="FPS Field of View"
-                    className="nh3d-option-slider"
-                    max={110}
-                    min={45}
-                    onChange={(event) =>
-                      updateClientFovDraft(Number(event.target.value))
-                    }
-                    step={1}
-                    type="range"
-                    value={clientOptionsDraft.fpsFov}
-                  />
-                  <div className="nh3d-option-slider-value">
-                    {clientOptionsDraft.fpsFov}°
+
+                <div className="nh3d-option-row nh3d-option-row-slider">
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">Look Sensitivity X</div>
+                    <div className="nh3d-option-description">
+                      Horizontal mouselook/touch-look sensitivity.
+                    </div>
+                  </div>
+                  <div className="nh3d-option-slider-control">
+                    <input
+                      aria-label="Look Sensitivity X"
+                      className="nh3d-option-slider"
+                      max={nh3dFpsLookSensitivityMax}
+                      min={nh3dFpsLookSensitivityMin}
+                      onChange={(event) =>
+                        updateClientLookSensitivityDraft(
+                          "fpsLookSensitivityX",
+                          Number(event.target.value),
+                        )
+                      }
+                      step={0.01}
+                      type="range"
+                      value={clientOptionsDraft.fpsLookSensitivityX}
+                    />
+                    <div className="nh3d-option-slider-value">
+                      {clientOptionsDraft.fpsLookSensitivityX.toFixed(2)}x
+                    </div>
                   </div>
                 </div>
-              </div>
+
+                <div className="nh3d-option-row nh3d-option-row-slider">
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">Look Sensitivity Y</div>
+                    <div className="nh3d-option-description">
+                      Vertical mouselook/touch-look sensitivity.
+                    </div>
+                  </div>
+                  <div className="nh3d-option-slider-control">
+                    <input
+                      aria-label="Look Sensitivity Y"
+                      className="nh3d-option-slider"
+                      max={nh3dFpsLookSensitivityMax}
+                      min={nh3dFpsLookSensitivityMin}
+                      onChange={(event) =>
+                        updateClientLookSensitivityDraft(
+                          "fpsLookSensitivityY",
+                          Number(event.target.value),
+                        )
+                      }
+                      step={0.01}
+                      type="range"
+                      value={clientOptionsDraft.fpsLookSensitivityY}
+                    />
+                    <div className="nh3d-option-slider-value">
+                      {clientOptionsDraft.fpsLookSensitivityY.toFixed(2)}x
+                    </div>
+                  </div>
+                </div>
+              </>
             ) : null}
           </div>
           <div className="nh3d-menu-actions">
@@ -2115,7 +2258,7 @@ export default function App(): JSX.Element {
             }}
             type="button"
           >
-            ×
+            {"\u00D7"}
           </button>
         ) : null}
         {positionRequest}
@@ -2123,3 +2266,4 @@ export default function App(): JSX.Element {
     </>
   );
 }
+

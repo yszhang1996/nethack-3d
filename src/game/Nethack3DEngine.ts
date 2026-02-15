@@ -38,7 +38,11 @@ import type {
   PlayerStatsSnapshot,
   QuestionDialogState,
 } from "./ui-types";
-import { normalizeNh3dClientOptions } from "./ui-types";
+import {
+  nh3dFpsLookSensitivityMax,
+  nh3dFpsLookSensitivityMin,
+  normalizeNh3dClientOptions,
+} from "./ui-types";
 
 type LightingGrid = {
   minX: number;
@@ -294,6 +298,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly firstPersonPitchMin = -1.18;
   private readonly firstPersonPitchMax = 1.18;
   private readonly firstPersonMouseSensitivity = 0.0026;
+  private readonly fpsDiagonalAimBias = 0.035;
   private fpsPointerLockActive: boolean = false;
   private fpsPointerLockRestorePending: boolean = false;
   private fpsCurrentAimDirection: AimDirection | null = null;
@@ -1213,6 +1218,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.minimapContainer = container;
     this.minimapCanvasContext = mapContext;
     this.minimapViewportContext = viewportContext;
+    this.updateMinimapPresentation();
     this.resetMinimap();
     this.renderMinimapViewportOverlay();
   }
@@ -1258,11 +1264,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.minimapContainer.style.display = visible ? "" : "none";
     this.minimapContainer.style.pointerEvents = visible ? "auto" : "none";
     this.minimapContainer.setAttribute("aria-hidden", visible ? "false" : "true");
+    this.updateMinimapPresentation();
     if (!visible) {
       this.stopMinimapDrag();
       return;
     }
     this.renderMinimapViewportOverlay();
+  }
+
+  private updateMinimapPresentation(): void {
+    if (!this.minimapContainer) {
+      return;
+    }
+    const fpsMode = this.isFpsMode();
+    this.minimapContainer.classList.toggle("nh3d-minimap-fps", fpsMode);
   }
 
   private parseTileStateSignature(signature: string): {
@@ -1396,6 +1411,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.configureBaseLightingForPlayMode();
+    this.updateMinimapPresentation();
     this.refreshTilesFromStateCache();
     this.syncFpsPointerLockForUiState(false);
     this.markLightingDirty();
@@ -1602,6 +1618,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const viewport = this.computeMinimapViewportRect();
     this.minimapViewportRect = viewport;
+    const fpsMode = this.isFpsMode();
 
     const context = this.minimapViewportContext;
     context.clearRect(0, 0, MINIMAP_WIDTH_TILES, MINIMAP_HEIGHT_TILES);
@@ -1629,7 +1646,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const drawWidth = Math.max(0, drawMaxX - drawMinX);
     const drawHeight = Math.max(0, drawMaxY - drawMinY);
 
-    if (drawWidth > 0 && drawHeight > 0) {
+    if (!fpsMode && drawWidth > 0 && drawHeight > 0) {
       context.fillStyle = "rgba(214, 233, 255, 0.08)";
       context.fillRect(drawMinX, drawMinY, drawWidth, drawHeight);
 
@@ -1644,6 +1661,88 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.isValidMinimapCoordinate(this.playerPos.x, this.playerPos.y)) {
+      if (fpsMode) {
+        const playerX = this.playerPos.x + 0.5;
+        const playerY = this.playerPos.y + 0.5;
+        const forwardX = -Math.sin(this.cameraYaw);
+        const forwardY = Math.cos(this.cameraYaw);
+        const facingAngle = Math.atan2(forwardY, forwardX);
+        const verticalFovRadians = THREE.MathUtils.degToRad(this.camera.fov);
+        const horizontalFovRadians =
+          2 *
+          Math.atan(
+            Math.tan(verticalFovRadians * 0.5) * Math.max(0.1, this.camera.aspect),
+          );
+        // Keep cone angle matched to the actual rendered camera FOV.
+        const halfConeRadians = horizontalFovRadians * 0.5;
+        // Shrink the rendered cone footprint proportionally while preserving angle.
+        const baseConeRangeTiles = THREE.MathUtils.clamp(
+          8 + horizontalFovRadians * 3.4,
+          8,
+          15,
+        );
+        const coneRangeTiles = baseConeRangeTiles * 0.68;
+
+        const leftAngle = facingAngle - halfConeRadians;
+        const rightAngle = facingAngle + halfConeRadians;
+        const leftX = playerX + Math.cos(leftAngle) * coneRangeTiles;
+        const leftY = playerY + Math.sin(leftAngle) * coneRangeTiles;
+        const rightX = playerX + Math.cos(rightAngle) * coneRangeTiles;
+        const rightY = playerY + Math.sin(rightAngle) * coneRangeTiles;
+
+        context.save();
+        context.beginPath();
+        context.moveTo(playerX, playerY);
+        context.lineTo(leftX, leftY);
+        context.lineTo(rightX, rightY);
+        context.closePath();
+        const coneFillStyle = "rgba(166, 219, 255, 0.11)";
+        context.fillStyle = coneFillStyle;
+        context.fill();
+        // Blend the far edge with the fill so it reads as a cone, not a triangle.
+        context.strokeStyle = coneFillStyle;
+        context.lineWidth = 0.36;
+        context.stroke();
+
+        // Keep only subtle side boundaries from the origin.
+        context.beginPath();
+        context.moveTo(playerX, playerY);
+        context.lineTo(leftX, leftY);
+        context.moveTo(playerX, playerY);
+        context.lineTo(rightX, rightY);
+        context.strokeStyle = "rgba(216, 240, 255, 0.34)";
+        context.lineWidth = 0.44;
+        context.stroke();
+
+        context.beginPath();
+        context.arc(playerX, playerY, 0.48, 0, Math.PI * 2, false);
+        context.fillStyle = "rgba(250, 252, 255, 0.96)";
+        context.fill();
+        context.lineWidth = 0.22;
+        context.strokeStyle = "rgba(36, 53, 79, 0.92)";
+        context.stroke();
+
+        const rightXDir = -forwardY;
+        const rightYDir = forwardX;
+        const noseX = playerX + forwardX * 0.92;
+        const noseY = playerY + forwardY * 0.92;
+        const tailCenterX = playerX - forwardX * 0.3;
+        const tailCenterY = playerY - forwardY * 0.3;
+        const tailLeftX = tailCenterX + rightXDir * 0.28;
+        const tailLeftY = tailCenterY + rightYDir * 0.28;
+        const tailRightX = tailCenterX - rightXDir * 0.28;
+        const tailRightY = tailCenterY - rightYDir * 0.28;
+        context.beginPath();
+        context.moveTo(noseX, noseY);
+        context.lineTo(tailLeftX, tailLeftY);
+        context.lineTo(tailRightX, tailRightY);
+        context.closePath();
+        context.fillStyle = "rgba(96, 173, 236, 0.95)";
+        context.fill();
+        context.restore();
+        return;
+      }
+
       context.fillStyle = this.minimapPalette[12];
       context.fillRect(
         this.playerPos.x - 0.4,
@@ -8684,26 +8783,81 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
+  private resolveFpsLookSensitivityScale(axis: "x" | "y"): number {
+    const rawValue =
+      axis === "x"
+        ? this.clientOptions.fpsLookSensitivityX
+        : this.clientOptions.fpsLookSensitivityY;
+    if (!Number.isFinite(rawValue)) {
+      return 1;
+    }
+    return THREE.MathUtils.clamp(
+      rawValue,
+      nh3dFpsLookSensitivityMin,
+      nh3dFpsLookSensitivityMax,
+    );
+  }
+
+  private applyFpsLookDelta(
+    deltaX: number,
+    deltaY: number,
+    baseSensitivity: number,
+  ): void {
+    const sensitivityX =
+      baseSensitivity * this.resolveFpsLookSensitivityScale("x");
+    const sensitivityY =
+      baseSensitivity * this.resolveFpsLookSensitivityScale("y");
+    this.cameraYaw = this.wrapAngle(this.cameraYaw + deltaX * sensitivityX);
+    this.cameraPitch = THREE.MathUtils.clamp(
+      this.cameraPitch - deltaY * sensitivityY,
+      this.firstPersonPitchMin,
+      this.firstPersonPitchMax,
+    );
+  }
+
   private getFpsAimDirectionFromCamera(): AimDirection | null {
     // FPS movement/fire should follow yaw, even when pitch is looking up/down.
-    const worldX = -Math.sin(this.cameraYaw);
-    const worldY = -Math.cos(this.cameraYaw);
-    let mapDx = Math.round(worldX);
-    let mapDy = Math.round(-worldY);
-    if (mapDx === 0 && mapDy === 0) {
-      if (Math.abs(worldX) >= Math.abs(worldY)) {
-        mapDx = worldX >= 0 ? 1 : -1;
-      } else {
-        mapDy = -worldY >= 0 ? 1 : -1;
+    // Use a nearest-of-8-direction projection with a small diagonal bias so
+    // diagonals are easier to target from mouselook.
+    const mapForwardX = -Math.sin(this.cameraYaw);
+    const mapForwardY = Math.cos(this.cameraYaw);
+    const candidates = [
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: -1 },
+      { dx: 1, dy: 0 },
+      { dx: 1, dy: 1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: -1, dy: -1 },
+    ];
+
+    let bestCandidate = candidates[0];
+    let bestScore = -Infinity;
+    for (const candidate of candidates) {
+      const lengthScale =
+        candidate.dx !== 0 && candidate.dy !== 0 ? Math.SQRT1_2 : 1;
+      const nx = candidate.dx * lengthScale;
+      const ny = candidate.dy * lengthScale;
+      const diagonalBoost =
+        candidate.dx !== 0 && candidate.dy !== 0 ? this.fpsDiagonalAimBias : 0;
+      const score = mapForwardX * nx + mapForwardY * ny + diagonalBoost;
+      if (score > bestScore) {
+        bestScore = score;
+        bestCandidate = candidate;
       }
     }
-    const input = this.getDirectionInputFromMapDelta(mapDx, mapDy);
+
+    const input = this.getDirectionInputFromMapDelta(
+      bestCandidate.dx,
+      bestCandidate.dy,
+    );
     if (!input) {
       return null;
     }
     return {
-      dx: mapDx,
-      dy: mapDy,
+      dx: bestCandidate.dx,
+      dy: bestCandidate.dy,
       input,
     };
   }
@@ -10736,6 +10890,88 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
+  private canUseFpsDirectionPromptTouchInput(event: TouchEvent): boolean {
+    if (!this.session || !this.isFpsMode() || !this.isInDirectionQuestion) {
+      return false;
+    }
+    if (!this.isTouchEventOnGameCanvas(event)) {
+      return false;
+    }
+    if (
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.fpsCrosshairContextMenuOpen ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.isInQuestion
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private resolveFpsDirectionTouchSwipeAction(
+    dx: number,
+    dy: number,
+    durationMs: number,
+  ): "confirm" | "self" | "cancel" | null {
+    const distance = Math.hypot(dx, dy);
+    if (distance < this.touchSwipeMinDistancePx) {
+      if (durationMs <= this.fpsTouchTapMaxDurationMs) {
+        return "confirm";
+      }
+      return null;
+    }
+    if (durationMs > this.touchSwipeMaxDurationMs) {
+      return null;
+    }
+
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    const axisBiasRatio = 0.62;
+
+    if (absX <= absY * axisBiasRatio) {
+      return dy < 0 ? "confirm" : "self";
+    }
+    if (absY <= absX * axisBiasRatio) {
+      return "cancel";
+    }
+    return absY >= absX ? (dy < 0 ? "confirm" : "self") : "cancel";
+  }
+
+  private confirmFpsDirectionQuestionFromAim(): boolean {
+    const lookDirectionInput = this.getFpsDirectionQuestionInputFromAim();
+    if (!lookDirectionInput) {
+      return false;
+    }
+    this.sendInput(lookDirectionInput);
+    this.hideDirectionQuestion();
+    return true;
+  }
+
+  private applyFpsDirectionTouchAction(
+    action: "confirm" | "self" | "cancel",
+  ): boolean {
+    if (!this.isInDirectionQuestion) {
+      return false;
+    }
+
+    if (action === "confirm") {
+      return this.confirmFpsDirectionQuestionFromAim();
+    }
+
+    if (action === "self") {
+      this.sendInput("s");
+      this.hideDirectionQuestion();
+      return true;
+    }
+
+    this.sendInput("Escape");
+    this.hideDirectionQuestion();
+    return true;
+  }
+
   private handleMapMouseInput(event: MouseEvent): boolean {
     if (!this.canUseMapMouseInput(event)) {
       return false;
@@ -10868,6 +11104,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleTouchStart(event: TouchEvent): void {
     if (this.isFpsMode()) {
+      if (this.isInDirectionQuestion) {
+        if (!this.canUseFpsDirectionPromptTouchInput(event)) {
+          this.clearFpsTouchGestures();
+          return;
+        }
+
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+          this.clearFpsTouchGestures();
+          return;
+        }
+        const splitX = rect.left + rect.width * 0.5;
+
+        if (this.fpsCrosshairContextMenuOpen) {
+          this.closeFpsCrosshairContextMenu(false);
+        }
+
+        for (let i = 0; i < event.changedTouches.length; i += 1) {
+          const touch = event.changedTouches.item(i);
+          if (!touch) {
+            continue;
+          }
+          const gesture: FpsTouchGestureState = {
+            touchId: touch.identifier,
+            startX: touch.clientX,
+            startY: touch.clientY,
+            lastX: touch.clientX,
+            lastY: touch.clientY,
+            startedAtMs: Date.now(),
+          };
+          if (touch.clientX < splitX) {
+            if (!this.fpsTouchMoveGesture) {
+              this.fpsTouchMoveGesture = gesture;
+            }
+          } else if (!this.fpsTouchLookGesture) {
+            this.fpsTouchLookGesture = gesture;
+          }
+        }
+
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (!this.canUseFpsTouchInput(event)) {
         this.clearFpsTouchGestures();
         return;
@@ -10934,6 +11215,47 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleTouchMove(event: TouchEvent): void {
     if (this.isFpsMode()) {
+      if (this.isInDirectionQuestion) {
+        if (!this.canUseFpsDirectionPromptTouchInput(event)) {
+          return;
+        }
+
+        let consumed = false;
+        if (this.fpsTouchLookGesture) {
+          const touch =
+            this.findTouchById(event.changedTouches, this.fpsTouchLookGesture.touchId) ||
+            this.findTouchById(event.touches, this.fpsTouchLookGesture.touchId);
+          if (touch) {
+            const deltaX = touch.clientX - this.fpsTouchLookGesture.lastX;
+            const deltaY = touch.clientY - this.fpsTouchLookGesture.lastY;
+            this.applyFpsLookDelta(
+              deltaX,
+              deltaY,
+              this.fpsTouchLookSensitivity,
+            );
+            this.fpsTouchLookGesture.lastX = touch.clientX;
+            this.fpsTouchLookGesture.lastY = touch.clientY;
+            consumed = true;
+          }
+        }
+
+        if (this.fpsTouchMoveGesture) {
+          const touch =
+            this.findTouchById(event.changedTouches, this.fpsTouchMoveGesture.touchId) ||
+            this.findTouchById(event.touches, this.fpsTouchMoveGesture.touchId);
+          if (touch) {
+            this.fpsTouchMoveGesture.lastX = touch.clientX;
+            this.fpsTouchMoveGesture.lastY = touch.clientY;
+            consumed = true;
+          }
+        }
+
+        if (consumed && event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (!this.canUseFpsTouchInput(event)) {
         return;
       }
@@ -10956,13 +11278,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           ) {
             this.closeFpsCrosshairContextMenu(false);
           }
-          this.cameraYaw = this.wrapAngle(
-            this.cameraYaw + deltaX * this.fpsTouchLookSensitivity,
-          );
-          this.cameraPitch = THREE.MathUtils.clamp(
-            this.cameraPitch - deltaY * this.fpsTouchLookSensitivity,
-            this.firstPersonPitchMin,
-            this.firstPersonPitchMax,
+          this.applyFpsLookDelta(
+            deltaX,
+            deltaY,
+            this.fpsTouchLookSensitivity,
           );
           this.fpsTouchLookGesture.lastX = touch.clientX;
           this.fpsTouchLookGesture.lastY = touch.clientY;
@@ -11006,6 +11325,63 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleTouchEnd(event: TouchEvent): void {
     if (this.isFpsMode()) {
+      if (this.isInDirectionQuestion) {
+        if (!event.changedTouches || event.changedTouches.length === 0) {
+          return;
+        }
+
+        let consumed = false;
+        const nowMs = Date.now();
+        for (let i = 0; i < event.changedTouches.length; i += 1) {
+          const touch = event.changedTouches.item(i);
+          if (!touch) {
+            continue;
+          }
+
+          if (
+            this.fpsTouchMoveGesture &&
+            touch.identifier === this.fpsTouchMoveGesture.touchId
+          ) {
+            const gesture = this.fpsTouchMoveGesture;
+            this.fpsTouchMoveGesture = null;
+            const dx = touch.clientX - gesture.startX;
+            const dy = touch.clientY - gesture.startY;
+            const durationMs = nowMs - gesture.startedAtMs;
+            const action = this.resolveFpsDirectionTouchSwipeAction(
+              dx,
+              dy,
+              durationMs,
+            );
+            if (action && this.applyFpsDirectionTouchAction(action)) {
+              consumed = true;
+            }
+          }
+
+          if (
+            this.fpsTouchLookGesture &&
+            touch.identifier === this.fpsTouchLookGesture.touchId
+          ) {
+            const gesture = this.fpsTouchLookGesture;
+            this.fpsTouchLookGesture = null;
+            const dx = touch.clientX - gesture.startX;
+            const dy = touch.clientY - gesture.startY;
+            const distance = Math.hypot(dx, dy);
+            const durationMs = nowMs - gesture.startedAtMs;
+            const isTap =
+              distance < this.fpsTouchLookMoveThresholdPx &&
+              durationMs <= this.fpsTouchTapMaxDurationMs;
+            if (isTap && this.confirmFpsDirectionQuestionFromAim()) {
+              consumed = true;
+            }
+          }
+        }
+
+        if (consumed && event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
+
       if (!event.changedTouches || event.changedTouches.length === 0) {
         return;
       }
@@ -11147,14 +11523,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isFpsMode() && this.fpsPointerLockActive) {
       const deltaX = event.movementX || 0;
       const deltaY = event.movementY || 0;
-      this.cameraYaw = this.wrapAngle(
-        this.cameraYaw + deltaX * this.firstPersonMouseSensitivity,
-      );
-      this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch - deltaY * this.firstPersonMouseSensitivity,
-        this.firstPersonPitchMin,
-        this.firstPersonPitchMax,
-      );
+      this.applyFpsLookDelta(deltaX, deltaY, this.firstPersonMouseSensitivity);
       return;
     }
 
@@ -11164,20 +11533,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaX = event.clientX - this.lastMouseX;
       const deltaY = event.clientY - this.lastMouseY;
 
-      this.cameraYaw = this.wrapAngle(
-        this.cameraYaw + deltaX * this.rotationSpeed,
-      );
-      this.cameraPitch = this.isFpsMode()
-        ? THREE.MathUtils.clamp(
-            this.cameraPitch - deltaY * this.rotationSpeed,
-            this.firstPersonPitchMin,
-            this.firstPersonPitchMax,
-          )
-        : THREE.MathUtils.clamp(
-            this.cameraPitch + deltaY * this.rotationSpeed,
-            this.minCameraPitch,
-            this.maxCameraPitch,
-          );
+      if (this.isFpsMode()) {
+        this.applyFpsLookDelta(deltaX, deltaY, this.rotationSpeed);
+      } else {
+        this.cameraYaw = this.wrapAngle(
+          this.cameraYaw + deltaX * this.rotationSpeed,
+        );
+        this.cameraPitch = THREE.MathUtils.clamp(
+          this.cameraPitch + deltaY * this.rotationSpeed,
+          this.minCameraPitch,
+          this.maxCameraPitch,
+        );
+      }
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
@@ -11185,14 +11552,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       event.preventDefault();
       const deltaX = event.clientX - this.lastMouseX;
       const deltaY = event.clientY - this.lastMouseY;
-      this.cameraYaw = this.wrapAngle(
-        this.cameraYaw + deltaX * this.rotationSpeed,
-      );
-      this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch - deltaY * this.rotationSpeed,
-        this.firstPersonPitchMin,
-        this.firstPersonPitchMax,
-      );
+      this.applyFpsLookDelta(deltaX, deltaY, this.rotationSpeed);
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     } else if (this.isRightMouseDown) {
