@@ -441,6 +441,33 @@ canvas {
   min-width: 350px;
 }
 
+.nh3d-dialog-direction-fps {
+  top: calc(var(--nh3d-safe-area-top) + 74px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(720px, calc(100vw - 20px));
+  min-width: 0;
+  max-width: min(720px, calc(100vw - 20px));
+  padding: 8px 14px;
+  border-width: 1px;
+  border-radius: 9px;
+  background: rgba(5, 16, 30, 0.84);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+.nh3d-dialog-direction-fps .nh3d-direction-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.nh3d-direction-fps-hint {
+  margin-top: 4px;
+  color: var(--nh3d-ui-text-muted);
+  font-size: 11px;
+}
+
 .nh3d-dialog-info {
   border: 2px solid var(--nh3d-ui-border-strong);
   background: var(--nh3d-ui-panel-bg-strong);
@@ -768,6 +795,12 @@ canvas {
   line-height: 1.3;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+}
+
+.nh3d-inventory-item-active {
+  border-left-color: #f7e86c;
+  box-shadow: 0 0 0 1px rgba(247, 232, 108, 0.32);
 }
 
 .nh3d-inventory-key {
@@ -782,6 +815,88 @@ canvas {
   color: var(--nh3d-ui-text);
   flex: 1;
   font-size: 13px;
+}
+
+.nh3d-context-menu {
+  position: fixed;
+  min-width: 200px;
+  max-width: min(360px, 92vw);
+  background: var(--nh3d-ui-panel-bg-strong);
+  border: 1px solid var(--nh3d-ui-border-strong);
+  border-radius: 7px;
+  box-shadow: var(--nh3d-ui-shadow);
+  padding: 8px;
+  z-index: 2200;
+}
+
+.nh3d-context-menu-title {
+  color: var(--nh3d-ui-accent-soft);
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--nh3d-ui-border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nh3d-context-menu-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.nh3d-context-menu-button {
+  border: 1px solid var(--nh3d-ui-button-border);
+  background: var(--nh3d-ui-button-bg);
+  color: var(--nh3d-ui-text);
+  border-radius: 3px;
+  padding: 6px 10px;
+  text-align: left;
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+
+.nh3d-context-menu-button:hover {
+  background: var(--nh3d-ui-button-bg-hover);
+  border-color: var(--nh3d-ui-accent);
+}
+
+.nh3d-inventory-context-menu {
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+}
+
+.nh3d-fps-crosshair {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1700;
+  pointer-events: none;
+}
+
+.nh3d-fps-crosshair-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f3fbff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.85),
+    0 0 8px rgba(102, 204, 255, 0.75);
+}
+
+.nh3d-fps-crosshair-context {
+  left: 50%;
+  top: 50%;
+  transform: translate(19.2px, -50%);
+  z-index: 1701;
+  max-width: min(280px, 42vw);
 }
 
 .nh3d-inventory-keybinds-title {
@@ -1532,6 +1647,21 @@ canvas {
     max-width: 72px;
     max-height: 72px;
     aspect-ratio: 1 / 1;
+  }
+
+  .nh3d-dialog-direction-fps {
+    top: calc(var(--nh3d-safe-area-top) + 56px);
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    padding: 7px 10px;
+  }
+
+  .nh3d-dialog-direction-fps .nh3d-direction-text {
+    font-size: 13px;
+  }
+
+  .nh3d-direction-fps-hint {
+    font-size: 10px;
   }
 
   .nh3d-menu-actions,

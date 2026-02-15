@@ -8,6 +8,7 @@ export type {
   Nethack3DEngineUIAdapter,
   NethackConnectionState,
   NethackMenuItem,
+  PlayMode,
   PlayerStatsSnapshot,
   QuestionDialogState,
 } from "./ui-types";

@@ -27,10 +27,13 @@ import type {
 } from "./types";
 import type {
   CharacterCreationConfig,
+  FpsContextAction,
+  FpsCrosshairContextState,
   Nethack3DEngineController,
   Nethack3DEngineOptions,
   Nethack3DEngineUIAdapter,
   NethackConnectionState,
+  PlayMode,
   PlayerStatsSnapshot,
   QuestionDialogState,
 } from "./ui-types";
@@ -106,6 +109,9 @@ type DamageNumberParticle = {
   lifetimeMs: number;
   radius: number;
   baseScale: THREE.Vector2;
+  fpsFloating: boolean;
+  fpsLateralOffset: number;
+  fpsBaseHeightOffset: number;
 };
 
 type CharacterCreationQuestionPayload = {
@@ -123,6 +129,41 @@ type MinimapViewportRect = {
   minY: number;
   width: number;
   height: number;
+};
+
+type AimDirection = {
+  dx: number;
+  dy: number;
+  input: string;
+};
+
+type FpsCrosshairTargetHint =
+  | "monster"
+  | "loot"
+  | "door"
+  | "stairs_up"
+  | "stairs_down"
+  | "wall"
+  | "water"
+  | "trap"
+  | "feature"
+  | "floor"
+  | "unknown";
+
+type FpsCrosshairGlanceCacheEntry = {
+  hint: FpsCrosshairTargetHint;
+  sourceText: string;
+  updatedAtMs: number;
+};
+
+type FpsCrosshairGlancePending = {
+  requestId: number;
+  tileKey: string;
+  tileX: number;
+  tileY: number;
+  startedAtMs: number;
+  sawPositionInput: boolean;
+  positionResolvedAtMs: number | null;
 };
 
 /**
@@ -217,8 +258,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
+  private readonly inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
   private isTextInputActive: boolean = false;
-  private characterCreationConfig: CharacterCreationConfig = { mode: "create" };
+  private characterCreationConfig: CharacterCreationConfig = {
+    mode: "create",
+    playMode: "normal",
+  };
+  private playMode: PlayMode = "normal";
   private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
@@ -230,6 +276,65 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly pointerRaycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private readonly pointerIntersection = new THREE.Vector3();
+  private readonly tileVisualScaleFps = 1;
+  private readonly fpsCameraFov = 62;
+  private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
+  private readonly firstPersonPitchMin = -1.18;
+  private readonly firstPersonPitchMax = 1.18;
+  private readonly firstPersonMouseSensitivity = 0.0026;
+  private fpsPointerLockActive: boolean = false;
+  private fpsPointerLockRestorePending: boolean = false;
+  private fpsCurrentAimDirection: AimDirection | null = null;
+  private fpsForwardHighlight: THREE.Mesh | null = null;
+  private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private fpsForwardHighlightTexture: THREE.CanvasTexture | null = null;
+  private fpsAimLinePulseUntilMs: number = 0;
+  private fpsFireSuppressionUntilMs: number = 0;
+  private readonly fpsFireSuppressionDurationMs: number = 1500;
+  private fpsCrosshairContextMenuOpen: boolean = false;
+  private fpsCrosshairContextSignature: string = "";
+  private fpsCrosshairGlanceCache: Map<string, FpsCrosshairGlanceCacheEntry> =
+    new Map();
+  private fpsCrosshairGlancePending: FpsCrosshairGlancePending | null = null;
+  private fpsCrosshairGlanceRequestSequence: number = 0;
+  private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
+  private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
+  private readonly fpsCrosshairGlancePostResolveGraceMs: number = 420;
+  private fpsWallChamferGeometryCache: Map<number, THREE.ExtrudeGeometry> =
+    new Map();
+  private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
+    new Map();
+  private fpsWallChamferFloorMeshes: Map<string, THREE.Mesh> = new Map();
+  private fpsWallChamferFaceMaterialCache: Map<
+    TileMaterialKind,
+    THREE.MeshBasicMaterial
+  > = new Map();
+  private fpsWallChamferFloorMaterialCache: Map<
+    TileMaterialKind,
+    { material: THREE.MeshBasicMaterial; texture: THREE.CanvasTexture }
+  > = new Map();
+  private readonly fpsWallChamferInset = TILE_SIZE * 0.25;
+  private readonly fpsWallChamferFloorZ = 0.001;
+  private readonly elevatedMonsterZ = WALL_HEIGHT * 0.58;
+  private readonly elevatedLootZ = WALL_HEIGHT * 0.42;
+  private entityBlobShadows: Map<string, THREE.Mesh> = new Map();
+  private entityBlobShadowTexture: THREE.CanvasTexture | null = null;
+  private monsterBillboards: Map<string, THREE.Sprite> = new Map();
+  private monsterBillboardTextures: Map<
+    string,
+    { texture: THREE.CanvasTexture; refCount: number }
+  > = new Map();
+  private fpsStepCameraActive: boolean = false;
+  private fpsStepCameraStartMs: number = 0;
+  private readonly fpsStepCameraBaseDurationMs: number = 92;
+  private fpsStepCameraDurationMs: number = this.fpsStepCameraBaseDurationMs;
+  private readonly fpsAutoMoveDetectionWindowMs: number = 120;
+  private lastManualDirectionalInputAtMs: number = 0;
+  private fpsAutoMoveDirection: { dx: number; dy: number } | null = null;
+  private fpsAutoTurnTargetYaw: number | null = null;
+  private readonly fpsAutoTurnSpeedRadPerSec: number = 8.8;
+  private fpsStepCameraFrom = new THREE.Vector3();
+  private fpsStepCameraTo = new THREE.Vector3();
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -311,6 +416,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerHealNumberLifetimeMs: number = 1200;
   private readonly playerHealNumberFadeDelayMs: number = 250;
   private readonly playerDamageNumberWallBounce: number = 0.35;
+  private readonly playerDamageNumberForwardOffset: number = TILE_SIZE * 0.42;
+  private readonly playerDamageNumberFpsLateralSpread: number = TILE_SIZE * 0.14;
+  private readonly playerDamageNumberFpsRiseDistance: number = 0.34;
+  private readonly playerDamageNumberFpsScaleFactor: number = 0.33;
+  private readonly playerDamageNumberForwardLift: number = 0.07;
+  private readonly playerDamageNumberForwardDirection = new THREE.Vector3();
+  private readonly playerDamageNumberRightDirection = new THREE.Vector3();
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.24;
   private minimapContainer: HTMLDivElement | null = null;
@@ -456,6 +568,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lightingCenterCurrent = new THREE.Vector2();
   private lightingCenterTarget = new THREE.Vector2();
   private lightingCenterInitialized: boolean = false;
+  private ambientLight: THREE.AmbientLight | null = null;
+  private directionalLight: THREE.DirectionalLight | null = null;
+  private fpsPlayerLight: THREE.PointLight | null = null;
 
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
@@ -535,6 +650,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateLightingCenter(deltaSeconds: number): void {
+    if (this.isFpsMode()) {
+      return;
+    }
+
     this.lightingCenterTarget.set(this.playerPos.x, this.playerPos.y);
     if (!this.lightingCenterInitialized) {
       this.lightingCenterCurrent.copy(this.lightingCenterTarget);
@@ -807,6 +926,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateLightingOverlay(): void {
+    if (this.isFpsMode()) {
+      this.disposeLightingOverlay();
+      return;
+    }
+
     if (!this.lightingDirty) {
       return;
     }
@@ -826,12 +950,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderLightingOverlay(grid);
   }
 
+  private configureBaseLightingForPlayMode(): void {
+    if (!this.ambientLight || !this.directionalLight) {
+      return;
+    }
+
+    if (this.isFpsMode()) {
+      this.ambientLight.intensity = 0.72;
+      this.directionalLight.intensity = 1.25;
+      if (!this.fpsPlayerLight) {
+        this.fpsPlayerLight = new THREE.PointLight(0xfff4d8, 2.8, 14, 1.35);
+        this.fpsPlayerLight.castShadow = false;
+        this.scene.add(this.fpsPlayerLight);
+      }
+      this.fpsPlayerLight.intensity = 2.8;
+      this.fpsPlayerLight.distance = 14;
+      this.fpsPlayerLight.decay = 1.35;
+      this.fpsPlayerLight.visible = true;
+      this.updateFpsPlayerLightPosition();
+      return;
+    }
+
+    this.ambientLight.intensity = 0.4;
+    this.directionalLight.intensity = 0.8;
+    if (this.fpsPlayerLight) {
+      this.fpsPlayerLight.visible = false;
+    }
+  }
+
+  private updateFpsPlayerLightPosition(): void {
+    if (!this.fpsPlayerLight || !this.isFpsMode()) {
+      return;
+    }
+    this.fpsPlayerLight.position.copy(this.camera.position);
+    this.fpsPlayerLight.position.z = this.camera.position.z + 0.04;
+  }
+
   constructor(options: Nethack3DEngineOptions = {}) {
     this.mountElement = options.mountElement ?? null;
     this.uiAdapter = options.uiAdapter ?? null;
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
+      playMode: "normal",
     };
+    this.playMode =
+      this.characterCreationConfig.playMode === "fps" ? "fps" : "normal";
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
@@ -843,15 +1006,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
     }
 
-    // Set initial camera position looking straight down with a slight tilt
-    this.cameraDistance = 15;
-    this.cameraPitch = THREE.MathUtils.clamp(
-      Math.PI / 2 - 0.2,
-      this.minCameraPitch,
-      this.maxCameraPitch,
-    );
-    // Yaw is in radians; start at 180 degrees to face the board correctly.
-    this.cameraYaw = Math.PI;
+    if (this.playMode === "fps") {
+      this.camera.fov = this.fpsCameraFov;
+      this.camera.updateProjectionMatrix();
+      this.cameraDistance = 0;
+      this.cameraPitch = 0;
+      this.cameraYaw = Math.PI;
+      this.cameraFollowInitialized = true;
+    } else {
+      // Set initial camera position looking straight down with a slight tilt
+      this.cameraDistance = 15;
+      this.cameraPitch = THREE.MathUtils.clamp(
+        Math.PI / 2 - 0.2,
+        this.minCameraPitch,
+        this.maxCameraPitch,
+      );
+      // Yaw is in radians; start at 180 degrees to face the board correctly.
+      this.cameraYaw = Math.PI;
+    }
   }
 
   private initThreeJS(): void {
@@ -875,21 +1047,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.loadCameraSmoothingFromCSS();
 
     // --- Lighting ---
-    const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
-    this.scene.add(ambientLight);
+    this.ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+    this.scene.add(this.ambientLight);
 
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    directionalLight.position.set(10, 10, 5);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    this.scene.add(directionalLight);
+    this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    this.directionalLight.position.set(10, 10, 5);
+    this.directionalLight.castShadow = true;
+    this.directionalLight.shadow.mapSize.width = 2048;
+    this.directionalLight.shadow.mapSize.height = 2048;
+    this.scene.add(this.directionalLight);
+    this.configureBaseLightingForPlayMode();
 
     // --- Event Listeners ---
     window.addEventListener("resize", this.onWindowResize.bind(this), false);
     window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
     window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
     window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
+    document.addEventListener(
+      "pointerlockchange",
+      this.handlePointerLockChange.bind(this),
+      false,
+    );
 
     // Mouse controls for camera
     window.addEventListener("wheel", this.handleMouseWheel.bind(this), false);
@@ -1537,6 +1715,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
       // this.addGameMessage("Local NetHack runtime started");
+      if (this.isFpsMode()) {
+        this.addGameMessage(
+          "FPS mode active: WASD move, F search, left-click fire, right-click mouselook.",
+        );
+      }
       this.setLoadingVisible(false);
     } catch (error) {
       console.error("Failed to start local NetHack runtime:", error);
@@ -1547,7 +1730,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private handleRuntimeEvent(data: RuntimeEvent): void {
+  private handleRuntimeEvent(event: RuntimeEvent): void {
+    const data = event as RuntimeEvent & Record<string, any>;
     switch (data.type) {
       case "map_glyph":
         this.tryResolvePendingCharacterDamage(data);
@@ -1631,9 +1815,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
         }
 
-        // Create a fake player glyph at the new position to ensure visual update
-        // Use a typical player glyph number (runtime commonly reports 330 for @).
-        this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
+        if (this.isFpsMode()) {
+          const newKey = `${data.newPosition.x},${data.newPosition.y}`;
+          const newTerrain = this.lastKnownTerrain.get(newKey);
+          if (newTerrain) {
+            this.updateTile(
+              data.newPosition.x,
+              data.newPosition.y,
+              newTerrain.glyph,
+              newTerrain.char,
+              newTerrain.color,
+            );
+          } else {
+            this.requestTileUpdate(data.newPosition.x, data.newPosition.y);
+          }
+        } else {
+          // Create a fake player glyph at the new position to ensure visual update
+          // Use a typical player glyph number (runtime commonly reports 330 for @).
+          this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
+        }
         console.log(
           `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
         );
@@ -1650,12 +1850,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "text":
+        this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
 
       case "raw_print":
+        this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
@@ -1867,6 +2069,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "ridden":
       case "detect":
       case "invis":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private isLootLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.isPlayerGlyph) {
+      return false;
+    }
+
+    switch (behavior.effective.kind) {
+      case "obj":
+      case "body":
         return true;
       default:
         return false;
@@ -2327,6 +2543,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     for (const tile of updates) {
       const key = `${tile.x},${tile.y}`;
+      const behavior = this.classifyTilePayload(tile);
+      if (
+        this.isFpsMode() &&
+        this.fpsStepCameraActive &&
+        behavior &&
+        !behavior.isPlayerGlyph &&
+        (this.isMonsterLikeBehavior(behavior) || this.isLootLikeBehavior(behavior))
+      ) {
+        this.pendingTileUpdates.set(key, tile);
+        continue;
+      }
+
       const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}`;
       if (this.tileStateCache.get(key) === signature) {
         continue;
@@ -2337,6 +2565,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
+
+    if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+      this.tileFlushScheduled = true;
+      requestAnimationFrame(() => this.flushPendingTileUpdates());
+    }
   }
 
   /**
@@ -2508,6 +2741,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     textColor: string,
     darkenFactor: number = 1,
     size: number = 256,
+    drawFloorGrid: boolean = false,
   ): THREE.CanvasTexture {
     const canvas = document.createElement("canvas");
     canvas.width = size;
@@ -2523,6 +2757,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyphChar,
       textColor,
       darkenFactor,
+      drawFloorGrid,
     );
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -2544,6 +2779,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     glyphChar: string,
     textColor: string,
     darkenFactor: number = 1,
+    drawFloorGrid: boolean = false,
   ): void {
     context.clearRect(0, 0, size, size);
 
@@ -2557,6 +2793,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     context.fillStyle = `#${contrastBackground}`;
     context.fillRect(0, 0, size, size);
+
+    if (drawFloorGrid) {
+      const gridLineWidth = Math.max(2, Math.floor(size * 0.02));
+      const inset = gridLineWidth * 0.5;
+      context.lineWidth = gridLineWidth;
+      context.strokeStyle = "rgba(8, 12, 16, 0.26)";
+      context.strokeRect(inset, inset, size - gridLineWidth, size - gridLineWidth);
+    }
 
     const trimmed = glyphChar.trim();
     if (trimmed.length === 0) {
@@ -2771,6 +3015,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
         baseZ,
       );
     }
+    const sprite = this.monsterBillboards.get(key);
+    if (sprite) {
+      const spriteZ =
+        typeof sprite.userData?.elevatedZ === "number"
+          ? sprite.userData.elevatedZ
+          : this.elevatedMonsterZ;
+      sprite.position.set(
+        state.tileX * TILE_SIZE,
+        -state.tileY * TILE_SIZE,
+        spriteZ,
+      );
+    }
+    const shadow = this.entityBlobShadows.get(key);
+    if (shadow) {
+      const shadowZ = mesh?.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
+      shadow.position.set(
+        state.tileX * TILE_SIZE,
+        -state.tileY * TILE_SIZE,
+        shadowZ,
+      );
+    }
 
     this.glyphDamageShakes.delete(key);
   }
@@ -2812,6 +3077,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
         -state.tileY * TILE_SIZE + offsetY,
         baseZ,
       );
+      const sprite = this.monsterBillboards.get(key);
+      if (sprite) {
+        const spriteZ =
+          typeof sprite.userData?.elevatedZ === "number"
+            ? sprite.userData.elevatedZ
+            : this.elevatedMonsterZ;
+        sprite.position.set(
+          state.tileX * TILE_SIZE + offsetX,
+          -state.tileY * TILE_SIZE + offsetY,
+          spriteZ,
+        );
+      }
+      const shadow = this.entityBlobShadows.get(key);
+      if (shadow) {
+        const shadowZ = mesh.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
+        shadow.position.set(
+          state.tileX * TILE_SIZE + offsetX * 0.4,
+          -state.tileY * TILE_SIZE + offsetY * 0.4,
+          shadowZ,
+        );
+      }
 
       if (progress >= 1) {
         this.stopGlyphDamageShake(key);
@@ -2928,38 +3214,61 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.opacity = 1;
 
     const sprite = new THREE.Sprite(material);
-    const scaleMultiplier = 2.5;
-    const scaleY = 0.42 * scaleMultiplier;
-    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
+    const scaleMultiplier = 1.1;
+    const useFpsFloating = this.isFpsMode();
+    const fpsScaleFactor = useFpsFloating
+      ? this.playerDamageNumberFpsScaleFactor
+      : 1;
+    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+    const scaleX = Math.max(
+      0.26 * scaleMultiplier * fpsScaleFactor,
+      scaleY * aspectRatio,
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
+    const fpsLateralOffset = useFpsFloating
+      ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
+      : 0;
+    const fpsBaseHeightOffset = 0.28;
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
       tileX * TILE_SIZE,
       -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + 0.28,
+      this.damageParticleFloorZ + fpsBaseHeightOffset,
+    );
+    this.applyFpsForwardOffsetToPlayerNumberPosition(
+      sprite.position,
+      useFpsFloating,
+      fpsLateralOffset,
     );
     this.alignPlayerDamageNumberToCamera(sprite);
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
-    const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
-    const launchAngleRad = THREE.MathUtils.degToRad(10);
-    const launchAzimuthRad = Math.random() * Math.PI * 2;
-    const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
-    const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
+    let velocity = new THREE.Vector3(0, 0, 0);
+    if (!useFpsFloating) {
+      const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
+      const launchAngleRad = THREE.MathUtils.degToRad(10);
+      const launchAzimuthRad = Math.random() * Math.PI * 2;
+      const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
+      const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
+      velocity = new THREE.Vector3(
+        Math.cos(launchAzimuthRad) * horizontalSpeed,
+        Math.sin(launchAzimuthRad) * horizontalSpeed,
+        verticalSpeed,
+      );
+    }
 
     this.playerDamageNumberParticles.push({
       kind: "damage",
       sprite,
-      velocity: new THREE.Vector3(
-        Math.cos(launchAzimuthRad) * horizontalSpeed,
-        Math.sin(launchAzimuthRad) * horizontalSpeed,
-        verticalSpeed,
-      ),
+      velocity,
       ageMs: 0,
       lifetimeMs: this.playerDamageNumberLifetimeMs,
-      radius: 0.09,
+      radius: 0.055,
       baseScale,
+      fpsFloating: useFpsFloating,
+      fpsLateralOffset,
+      fpsBaseHeightOffset,
     });
   }
 
@@ -2983,30 +3292,91 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.opacity = 1;
 
     const sprite = new THREE.Sprite(material);
-    const scaleMultiplier = 2.3;
-    const scaleY = 0.42 * scaleMultiplier;
-    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
+    const scaleMultiplier = 1.0;
+    const useFpsFloating = this.isFpsMode();
+    const fpsScaleFactor = useFpsFloating
+      ? this.playerDamageNumberFpsScaleFactor
+      : 1;
+    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+    const scaleX = Math.max(
+      0.26 * scaleMultiplier * fpsScaleFactor,
+      scaleY * aspectRatio,
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
+    const fpsLateralOffset = useFpsFloating
+      ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
+      : 0;
+    const fpsBaseHeightOffset = 0.24;
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
       tileX * TILE_SIZE,
       -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + 0.24,
+      this.damageParticleFloorZ + fpsBaseHeightOffset,
+    );
+    this.applyFpsForwardOffsetToPlayerNumberPosition(
+      sprite.position,
+      useFpsFloating,
+      fpsLateralOffset,
     );
     this.alignPlayerDamageNumberToCamera(sprite);
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
-    const verticalSpeed = 3.2 + Math.random() * 0.8;
+    const verticalSpeed = useFpsFloating ? 0 : 3.2 + Math.random() * 0.8;
     this.playerDamageNumberParticles.push({
       kind: "heal",
       sprite,
       velocity: new THREE.Vector3(0, 0, verticalSpeed),
       ageMs: 0,
       lifetimeMs: this.playerHealNumberLifetimeMs,
-      radius: 0.09,
+      radius: 0.055,
       baseScale,
+      fpsFloating: useFpsFloating,
+      fpsLateralOffset,
+      fpsBaseHeightOffset,
     });
+  }
+
+  private applyFpsForwardOffsetToPlayerNumberPosition(
+    position: THREE.Vector3,
+    applyVerticalLift: boolean,
+    lateralOffset: number = 0,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    this.camera.getWorldDirection(this.playerDamageNumberForwardDirection);
+    this.playerDamageNumberForwardDirection.z = 0;
+    const lengthSq = this.playerDamageNumberForwardDirection.lengthSq();
+    if (lengthSq > 1e-8) {
+      this.playerDamageNumberForwardDirection.multiplyScalar(1 / Math.sqrt(lengthSq));
+    } else {
+      this.playerDamageNumberForwardDirection.set(
+        -Math.sin(this.cameraYaw),
+        -Math.cos(this.cameraYaw),
+        0,
+      );
+    }
+    this.playerDamageNumberRightDirection.set(
+      this.playerDamageNumberForwardDirection.y,
+      -this.playerDamageNumberForwardDirection.x,
+      0,
+    );
+
+    position.x +=
+      this.playerDamageNumberForwardDirection.x *
+      this.playerDamageNumberForwardOffset;
+    position.y +=
+      this.playerDamageNumberForwardDirection.y *
+      this.playerDamageNumberForwardOffset;
+    if (lateralOffset !== 0) {
+      position.x += this.playerDamageNumberRightDirection.x * lateralOffset;
+      position.y += this.playerDamageNumberRightDirection.y * lateralOffset;
+    }
+    if (applyVerticalLift) {
+      position.z += this.playerDamageNumberForwardLift;
+    }
   }
 
   private alignPlayerDamageNumberToCamera(sprite: THREE.Sprite): void {
@@ -3420,6 +3790,53 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       const particle = this.playerDamageNumberParticles[i];
       particle.ageMs += deltaMs;
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1,
+      );
+
+      if (this.isFpsMode() && particle.fpsFloating) {
+        particle.sprite.position.set(
+          this.playerPos.x * TILE_SIZE,
+          -this.playerPos.y * TILE_SIZE,
+          this.damageParticleFloorZ +
+            particle.fpsBaseHeightOffset +
+            this.playerDamageNumberFpsRiseDistance * lifeT,
+        );
+        this.applyFpsForwardOffsetToPlayerNumberPosition(
+          particle.sprite.position,
+          false,
+          particle.fpsLateralOffset,
+        );
+        this.alignPlayerDamageNumberToCamera(particle.sprite);
+
+        const material = particle.sprite.material;
+        if (!(material instanceof THREE.SpriteMaterial)) {
+          this.disposePlayerDamageNumberParticle(i);
+          continue;
+        }
+
+        const fadeStart = 0.42;
+        const fadeT = THREE.MathUtils.clamp(
+          (lifeT - fadeStart) / (1 - fadeStart),
+          0,
+          1,
+        );
+        material.opacity = Math.max(0, 1 - Math.pow(fadeT, 1.7));
+        const scaleBoost = 1 + lifeT * 0.06;
+        particle.sprite.scale.set(
+          particle.baseScale.x * scaleBoost,
+          particle.baseScale.y * scaleBoost,
+          1,
+        );
+
+        if (lifeT >= 1 || material.opacity <= 0.01) {
+          this.disposePlayerDamageNumberParticle(i);
+        }
+        continue;
+      }
+
       if (particle.kind === "damage") {
         particle.velocity.z -= this.playerDamageNumberGravity * deltaSeconds;
         particle.velocity.x *= drag;
@@ -3432,6 +3849,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (particle.kind === "heal") {
         particle.sprite.position.x = this.playerPos.x * TILE_SIZE;
         particle.sprite.position.y = -this.playerPos.y * TILE_SIZE;
+        this.applyFpsForwardOffsetToPlayerNumberPosition(
+          particle.sprite.position,
+          false,
+        );
       }
       this.alignPlayerDamageNumberToCamera(particle.sprite);
 
@@ -3454,11 +3875,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const lifeT = THREE.MathUtils.clamp(
-        particle.ageMs / particle.lifetimeMs,
-        0,
-        1,
-      );
       if (particle.kind === "heal") {
         const fadeDelayMs = this.playerHealNumberFadeDelayMs;
         const fadeDurationMs = Math.max(1, particle.lifetimeMs - fadeDelayMs);
@@ -3535,11 +3951,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     textColor: string,
     isWall: boolean,
     darkenFactor: number = 1,
+    drawFloorGrid: boolean = false,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
-    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}`;
+    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
 
     if (overlay.textureKey !== textureKey) {
       if (overlay.textureKey) {
@@ -3554,6 +3971,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
           glyphChar,
           textColor,
           clampedDarken,
+          256,
+          drawFloorGrid,
         ),
       );
       overlay.material.map = overlay.texture;
@@ -3573,7 +3992,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     overlay.material.opacity = 1;
 
-    if (isWall) {
+    const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
+    if (isWall && fpsWallChamferMask > 0) {
+      // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
+      // Tint cut corners with nearby floor-like material to expose a readable diagonal passage.
+      const chamferKind =
+        typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+          ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+          : null;
+      const chamferMaterial = chamferKind
+        ? this.getMaterialByKind(chamferKind)
+        : baseMaterial;
+      mesh.material = [overlay.material, baseMaterial, chamferMaterial];
+    } else if (isWall) {
       mesh.material = [
         baseMaterial,
         baseMaterial,
@@ -3634,6 +4065,434 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isPassableTileForFpsDiagonal(tileX: number, tileY: number): boolean {
+    const mesh = this.tileMap.get(`${tileX},${tileY}`);
+    if (!mesh) {
+      return false;
+    }
+    return !Boolean(mesh.userData?.isWall);
+  }
+
+  private shouldChamferFpsWallCorner(
+    tileX: number,
+    tileY: number,
+    cornerDx: -1 | 1,
+    cornerDy: -1 | 1,
+  ): boolean {
+    return (
+      this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY) &&
+      this.isPassableTileForFpsDiagonal(tileX, tileY + cornerDy) &&
+      this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY + cornerDy)
+    );
+  }
+
+  private computeFpsWallChamferMask(tileX: number, tileY: number): number {
+    let mask = 0;
+    // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, -1, -1)) {
+      mask |= 1;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, 1, -1)) {
+      mask |= 2;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, 1, 1)) {
+      mask |= 4;
+    }
+    if (this.shouldChamferFpsWallCorner(tileX, tileY, -1, 1)) {
+      mask |= 8;
+    }
+    return mask;
+  }
+
+  private getFpsChamferMaterialKindForWall(
+    wallMaterialKind: TileMaterialKind,
+  ): TileMaterialKind {
+    return wallMaterialKind === "dark_wall" ? "dark" : "floor";
+  }
+
+  private getFpsWallChamferDisplayBaseHex(materialKind: TileMaterialKind): string {
+    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+    const tonedBackground = this.toneColor(baseColorHex, 0.8);
+    return this.ensureTextContrast(tonedBackground, "#F4F4F4");
+  }
+
+  private getFpsWallChamferFaceMaterial(
+    materialKind: TileMaterialKind,
+  ): THREE.MeshBasicMaterial {
+    const cached = this.fpsWallChamferFaceMaterialCache.get(materialKind);
+    if (cached) {
+      return cached;
+    }
+
+    const displayHex = this.getFpsWallChamferDisplayBaseHex(materialKind);
+    const material = new THREE.MeshBasicMaterial({
+      color: Number.parseInt(displayHex, 16),
+    });
+    this.fpsWallChamferFaceMaterialCache.set(materialKind, material);
+    return material;
+  }
+
+  private getFpsWallChamferFloorMaterial(
+    materialKind: TileMaterialKind,
+  ): THREE.MeshBasicMaterial {
+    const cached = this.fpsWallChamferFloorMaterialCache.get(materialKind);
+    if (cached) {
+      return cached.material;
+    }
+
+    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+    const texture = this.createGlyphTexture(
+      baseColorHex,
+      " ",
+      "#F4F4F4",
+      1,
+      256,
+      true,
+    );
+    const material = new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: false,
+    });
+    this.fpsWallChamferFloorMaterialCache.set(materialKind, { material, texture });
+    return material;
+  }
+
+  private clearFpsWallChamferMaterialCaches(): void {
+    this.fpsWallChamferFaceMaterialCache.forEach((material) => material.dispose());
+    this.fpsWallChamferFaceMaterialCache.clear();
+    this.fpsWallChamferFloorMaterialCache.forEach(({ material, texture }) => {
+      material.dispose();
+      texture.dispose();
+    });
+    this.fpsWallChamferFloorMaterialCache.clear();
+  }
+
+  private splitFpsChamferGeometryGroups(
+    geometry: THREE.ExtrudeGeometry,
+  ): THREE.ExtrudeGeometry {
+    const index = geometry.getIndex();
+    const position = geometry.getAttribute("position");
+    if (!index || !(position instanceof THREE.BufferAttribute)) {
+      return geometry;
+    }
+
+    const capIndices: number[] = [];
+    const wallIndices: number[] = [];
+    const chamferIndices: number[] = [];
+
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+
+    for (let i = 0; i < index.count; i += 3) {
+      const ia = index.getX(i);
+      const ib = index.getX(i + 1);
+      const ic = index.getX(i + 2);
+      a.fromBufferAttribute(position, ia);
+      b.fromBufferAttribute(position, ib);
+      c.fromBufferAttribute(position, ic);
+      ab.subVectors(b, a);
+      ac.subVectors(c, a);
+      normal.crossVectors(ab, ac).normalize();
+
+      const absX = Math.abs(normal.x);
+      const absY = Math.abs(normal.y);
+      const absZ = Math.abs(normal.z);
+      const target =
+        absZ >= 0.9
+          ? capIndices
+          : absX > 0.2 && absY > 0.2
+            ? chamferIndices
+            : wallIndices;
+      target.push(ia, ib, ic);
+    }
+
+    const ordered = [...capIndices, ...wallIndices, ...chamferIndices];
+    geometry.setIndex(ordered);
+    geometry.clearGroups();
+    let start = 0;
+    if (capIndices.length > 0) {
+      geometry.addGroup(start, capIndices.length, 0);
+      start += capIndices.length;
+    }
+    if (wallIndices.length > 0) {
+      geometry.addGroup(start, wallIndices.length, 1);
+      start += wallIndices.length;
+    }
+    if (chamferIndices.length > 0) {
+      geometry.addGroup(start, chamferIndices.length, 2);
+    }
+
+    return geometry;
+  }
+
+  private createFpsChamferedWallGeometry(mask: number): THREE.ExtrudeGeometry {
+    const half = TILE_SIZE / 2;
+    const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
+    const cutNorthWest = (mask & 1) !== 0;
+    const cutNorthEast = (mask & 2) !== 0;
+    const cutSouthEast = (mask & 4) !== 0;
+    const cutSouthWest = (mask & 8) !== 0;
+    const points: THREE.Vector2[] = [];
+
+    if (cutSouthWest) {
+      points.push(new THREE.Vector2(-half, -half + inset));
+      points.push(new THREE.Vector2(-half + inset, -half));
+    } else {
+      points.push(new THREE.Vector2(-half, -half));
+    }
+
+    if (cutSouthEast) {
+      points.push(new THREE.Vector2(half - inset, -half));
+      points.push(new THREE.Vector2(half, -half + inset));
+    } else {
+      points.push(new THREE.Vector2(half, -half));
+    }
+
+    if (cutNorthEast) {
+      points.push(new THREE.Vector2(half, half - inset));
+      points.push(new THREE.Vector2(half - inset, half));
+    } else {
+      points.push(new THREE.Vector2(half, half));
+    }
+
+    if (cutNorthWest) {
+      points.push(new THREE.Vector2(-half + inset, half));
+      points.push(new THREE.Vector2(-half, half - inset));
+    } else {
+      points.push(new THREE.Vector2(-half, half));
+    }
+
+    const shape = new THREE.Shape(points);
+    const geometry = new THREE.ExtrudeGeometry(shape, {
+      depth: WALL_HEIGHT,
+      bevelEnabled: false,
+      steps: 1,
+      curveSegments: 1,
+    });
+    this.splitFpsChamferGeometryGroups(geometry);
+    // Align with box geometry, which is centered around z=0.
+    geometry.translate(0, 0, -WALL_HEIGHT / 2);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    return geometry;
+  }
+
+  private getFpsWallGeometry(mask: number): THREE.BufferGeometry {
+    if (mask === 0) {
+      return this.wallGeometry;
+    }
+    const cached = this.fpsWallChamferGeometryCache.get(mask);
+    if (cached) {
+      return cached;
+    }
+    const geometry = this.createFpsChamferedWallGeometry(mask);
+    this.fpsWallChamferGeometryCache.set(mask, geometry);
+    return geometry;
+  }
+
+  private getFpsWallChamferFloorGeometry(mask: number): THREE.ShapeGeometry | null {
+    if (mask === 0) {
+      return null;
+    }
+    const cached = this.fpsWallChamferFloorGeometryCache.get(mask);
+    if (cached) {
+      return cached;
+    }
+
+    const half = TILE_SIZE / 2;
+    const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
+    const shapes: THREE.Shape[] = [];
+    const addTriangle = (
+      p1: THREE.Vector2,
+      p2: THREE.Vector2,
+      p3: THREE.Vector2,
+    ): void => {
+      const shape = new THREE.Shape([p1, p2, p3]);
+      shape.autoClose = true;
+      shapes.push(shape);
+    };
+
+    // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
+    if (mask & 1) {
+      addTriangle(
+        new THREE.Vector2(-half, half),
+        new THREE.Vector2(-half + inset, half),
+        new THREE.Vector2(-half, half - inset),
+      );
+    }
+    if (mask & 2) {
+      addTriangle(
+        new THREE.Vector2(half, half),
+        new THREE.Vector2(half - inset, half),
+        new THREE.Vector2(half, half - inset),
+      );
+    }
+    if (mask & 4) {
+      addTriangle(
+        new THREE.Vector2(half, -half),
+        new THREE.Vector2(half - inset, -half),
+        new THREE.Vector2(half, -half + inset),
+      );
+    }
+    if (mask & 8) {
+      addTriangle(
+        new THREE.Vector2(-half, -half),
+        new THREE.Vector2(-half + inset, -half),
+        new THREE.Vector2(-half, -half + inset),
+      );
+    }
+
+    const geometry = new THREE.ShapeGeometry(shapes);
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+    this.fpsWallChamferFloorGeometryCache.set(mask, geometry);
+    return geometry;
+  }
+
+  private removeFpsWallChamferFloorMesh(key: string): void {
+    const mesh = this.fpsWallChamferFloorMeshes.get(key);
+    if (!mesh) {
+      return;
+    }
+    this.scene.remove(mesh);
+    this.fpsWallChamferFloorMeshes.delete(key);
+  }
+
+  private upsertFpsWallChamferFloorMesh(
+    tileX: number,
+    tileY: number,
+    mask: number,
+    materialKind: TileMaterialKind | null,
+  ): void {
+    const key = `${tileX},${tileY}`;
+    if (mask === 0 || !materialKind) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    const geometry = this.getFpsWallChamferFloorGeometry(mask);
+    if (!geometry) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    let mesh = this.fpsWallChamferFloorMeshes.get(key);
+    const material = this.getFpsWallChamferFloorMaterial(materialKind);
+    if (!mesh) {
+      mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(
+        tileX * TILE_SIZE,
+        -tileY * TILE_SIZE,
+        this.fpsWallChamferFloorZ,
+      );
+      mesh.castShadow = false;
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 108;
+      this.scene.add(mesh);
+      this.fpsWallChamferFloorMeshes.set(key, mesh);
+      return;
+    }
+
+    if (mesh.geometry !== geometry) {
+      mesh.geometry = geometry;
+    }
+    if (mesh.material !== material) {
+      mesh.material = material;
+    }
+    mesh.position.set(
+      tileX * TILE_SIZE,
+      -tileY * TILE_SIZE,
+      this.fpsWallChamferFloorZ,
+    );
+  }
+
+  private refreshFpsWallChamferGeometryAt(tileX: number, tileY: number): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh || !mesh.userData?.isWall) {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    if (!materialKind || materialKind === "door") {
+      this.removeFpsWallChamferFloorMesh(key);
+      return;
+    }
+
+    const nextMask = this.computeFpsWallChamferMask(tileX, tileY);
+    const nextChamferKind =
+      nextMask > 0
+        ? this.getFpsChamferMaterialKindForWall(materialKind)
+        : null;
+    const previousMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
+    const previousChamferKind =
+      typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+        ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+        : null;
+    const nextGeometry = this.getFpsWallGeometry(nextMask);
+    const geometryChanged = mesh.geometry !== nextGeometry;
+    if (geometryChanged) {
+      mesh.geometry = nextGeometry;
+    }
+    mesh.userData.fpsWallChamferMask = nextMask;
+    mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
+    this.upsertFpsWallChamferFloorMesh(
+      tileX,
+      tileY,
+      nextMask,
+      nextChamferKind,
+    );
+    const chamferKindChanged = previousChamferKind !== nextChamferKind;
+    if (!geometryChanged && previousMask === nextMask && !chamferKindChanged) {
+      return;
+    }
+
+    const baseMaterial = this.getMaterialByKind(materialKind);
+    const glyphChar =
+      typeof mesh.userData?.glyphChar === "string" ? mesh.userData.glyphChar : " ";
+    const textColor =
+      typeof mesh.userData?.glyphTextColor === "string"
+        ? mesh.userData.glyphTextColor
+        : "#F4F4F4";
+    const darkenFactor =
+      typeof mesh.userData?.glyphDarkenFactor === "number"
+        ? mesh.userData.glyphDarkenFactor
+        : 1;
+    this.applyGlyphMaterial(
+      key,
+      mesh,
+      baseMaterial,
+      glyphChar,
+      textColor,
+      true,
+      darkenFactor,
+      true,
+    );
+  }
+
+  private refreshFpsWallChamferGeometryNear(tileX: number, tileY: number): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        this.refreshFpsWallChamferGeometryAt(tileX + dx, tileY + dy);
+      }
+    }
+  }
+
   private clearScene(): void {
     this.clearDamageEffects();
     this.lastKnownPlayerHp = null;
@@ -3648,6 +4507,50 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
+    this.fpsWallChamferFloorMeshes.forEach((mesh) => {
+      this.scene.remove(mesh);
+    });
+    this.fpsWallChamferFloorMeshes.clear();
+    this.clearFpsWallChamferMaterialCaches();
+
+    for (const key of Array.from(this.monsterBillboards.keys())) {
+      this.removeMonsterBillboard(key);
+    }
+    for (const entry of this.monsterBillboardTextures.values()) {
+      entry.texture.dispose();
+    }
+    this.monsterBillboardTextures.clear();
+    if (this.entityBlobShadowTexture) {
+      this.entityBlobShadowTexture.dispose();
+      this.entityBlobShadowTexture = null;
+    }
+    this.entityBlobShadows.clear();
+
+    if (this.fpsForwardHighlight) {
+      this.scene.remove(this.fpsForwardHighlight);
+      this.fpsForwardHighlight.geometry.dispose();
+      this.fpsForwardHighlightMaterial?.dispose();
+      this.fpsForwardHighlight = null;
+      this.fpsForwardHighlightMaterial = null;
+    }
+    if (this.fpsForwardHighlightTexture) {
+      this.fpsForwardHighlightTexture.dispose();
+      this.fpsForwardHighlightTexture = null;
+    }
+    this.fpsCurrentAimDirection = null;
+    this.fpsAimLinePulseUntilMs = 0;
+    this.fpsFireSuppressionUntilMs = 0;
+    this.fpsStepCameraActive = false;
+    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
+    this.lastManualDirectionalInputAtMs = 0;
+    this.fpsAutoMoveDirection = null;
+    this.fpsAutoTurnTargetYaw = null;
+    this.fpsPointerLockRestorePending = false;
+    this.fpsCrosshairContextMenuOpen = false;
+    this.fpsCrosshairContextSignature = "";
+    this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlancePending = null;
+    this.uiAdapter?.setFpsCrosshairContext(null);
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -3701,9 +4604,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private setPositionInputMode(active: boolean): void {
     if (!active) {
+      if (this.fpsCrosshairGlancePending?.sawPositionInput) {
+        this.fpsCrosshairGlancePending.positionResolvedAtMs = Date.now();
+      }
       this.positionInputModeActive = false;
       this.hasRuntimePositionCursor = false;
       this.clearPositionCursor();
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -3712,6 +4619,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.positionInputModeActive = true;
+    if (this.fpsCrosshairGlancePending) {
+      this.fpsCrosshairGlancePending.sawPositionInput = true;
+    }
+    this.syncFpsPointerLockForUiState(false);
 
     // Preserve any cursor published before the active-state event arrives.
     if (!this.hasRuntimePositionCursor) {
@@ -3758,6 +4669,245 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private createMonsterBillboardTexture(
+    glyphChar: string,
+    textColor: string,
+  ): THREE.CanvasTexture {
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create monster billboard texture context");
+    }
+
+    context.clearRect(0, 0, size, size);
+    const symbol = String(glyphChar || "?").trim() || "?";
+    context.font = `700 ${Math.floor(size * 0.62)}px "Roboto Condensed", "Segoe UI", sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.lineJoin = "round";
+    context.lineCap = "round";
+    context.lineWidth = Math.max(10, Math.floor(size * 0.11));
+    context.strokeStyle = "rgba(0, 0, 0, 0.9)";
+    context.fillStyle = textColor || "#ffffff";
+    context.strokeText(symbol, size / 2, size / 2);
+    context.fillText(symbol, size / 2, size / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    return texture;
+  }
+
+  private ensureEntityBlobShadowTexture(): THREE.CanvasTexture {
+    if (this.entityBlobShadowTexture) {
+      return this.entityBlobShadowTexture;
+    }
+
+    const size = 128;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create entity blob shadow texture context");
+    }
+
+    const gradient = context.createRadialGradient(
+      size / 2,
+      size / 2,
+      size * 0.08,
+      size / 2,
+      size / 2,
+      size * 0.48,
+    );
+    gradient.addColorStop(0, "rgba(0, 0, 0, 0.55)");
+    gradient.addColorStop(0.72, "rgba(0, 0, 0, 0.16)");
+    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, size, size);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.entityBlobShadowTexture = texture;
+    return texture;
+  }
+
+  private acquireMonsterBillboardTexture(
+    key: string,
+    factory: () => THREE.CanvasTexture,
+  ): THREE.CanvasTexture {
+    const cached = this.monsterBillboardTextures.get(key);
+    if (cached) {
+      cached.refCount += 1;
+      return cached.texture;
+    }
+    const texture = factory();
+    this.monsterBillboardTextures.set(key, { texture, refCount: 1 });
+    return texture;
+  }
+
+  private releaseMonsterBillboardTexture(key: string): void {
+    if (!key) {
+      return;
+    }
+    const cached = this.monsterBillboardTextures.get(key);
+    if (!cached) {
+      return;
+    }
+    cached.refCount -= 1;
+    if (cached.refCount <= 0) {
+      cached.texture.dispose();
+      this.monsterBillboardTextures.delete(key);
+    }
+  }
+
+  private removeEntityBlobShadow(key: string): void {
+    const shadow = this.entityBlobShadows.get(key);
+    if (!shadow) {
+      return;
+    }
+    this.scene.remove(shadow);
+    const material = shadow.material;
+    if (material instanceof THREE.MeshBasicMaterial) {
+      material.dispose();
+    }
+    shadow.geometry.dispose();
+    this.entityBlobShadows.delete(key);
+  }
+
+  private removeMonsterBillboard(key: string): void {
+    this.removeEntityBlobShadow(key);
+    const sprite = this.monsterBillboards.get(key);
+    if (!sprite) {
+      return;
+    }
+    const material = sprite.material;
+    if (material instanceof THREE.SpriteMaterial) {
+      const textureKey =
+        typeof sprite.userData?.textureKey === "string"
+          ? sprite.userData.textureKey
+          : "";
+      if (textureKey) {
+        this.releaseMonsterBillboardTexture(textureKey);
+      } else if (material.map) {
+        material.map.dispose();
+      }
+      material.dispose();
+    }
+    this.scene.remove(sprite);
+    this.monsterBillboards.delete(key);
+  }
+
+  private ensureEntityBlobShadow(
+    key: string,
+    x: number,
+    y: number,
+    scaleBase: number,
+    isWall: boolean,
+  ): void {
+    let shadow = this.entityBlobShadows.get(key);
+    if (!shadow) {
+      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+      const material = new THREE.MeshBasicMaterial({
+        map: this.ensureEntityBlobShadowTexture(),
+        transparent: true,
+        opacity: 0.58,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      shadow = new THREE.Mesh(geometry, material);
+      shadow.renderOrder = 905;
+      this.entityBlobShadows.set(key, shadow);
+      this.scene.add(shadow);
+    }
+
+    shadow.position.set(
+      x * TILE_SIZE,
+      -y * TILE_SIZE,
+      isWall ? WALL_HEIGHT + 0.03 : 0.028,
+    );
+    shadow.scale.set(scaleBase, scaleBase * 0.82, 1);
+  }
+
+  private ensureMonsterBillboard(
+    key: string,
+    x: number,
+    y: number,
+    glyphChar: string,
+    textColor: string,
+    entityType: "monster" | "loot" = "monster",
+    isWall: boolean = false,
+  ): void {
+    const textureKey = `${glyphChar}|${textColor}`;
+    const spriteKey = key;
+    let sprite = this.monsterBillboards.get(spriteKey);
+    if (!sprite) {
+      const texture = this.acquireMonsterBillboardTexture(textureKey, () =>
+        this.createMonsterBillboardTexture(glyphChar, textColor),
+      );
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      sprite = new THREE.Sprite(material);
+      sprite.renderOrder = 910;
+      sprite.userData.textureKey = textureKey;
+      this.monsterBillboards.set(spriteKey, sprite);
+      this.scene.add(sprite);
+    } else {
+      const existingTextureKey =
+        typeof sprite.userData?.textureKey === "string"
+          ? sprite.userData.textureKey
+          : "";
+      if (existingTextureKey !== textureKey) {
+        const material = sprite.material;
+        if (material instanceof THREE.SpriteMaterial) {
+          if (existingTextureKey) {
+            this.releaseMonsterBillboardTexture(existingTextureKey);
+          } else if (material.map) {
+            material.map.dispose();
+          }
+          material.map = this.acquireMonsterBillboardTexture(textureKey, () =>
+            this.createMonsterBillboardTexture(glyphChar, textColor),
+          );
+          material.needsUpdate = true;
+          sprite.userData.textureKey = textureKey;
+        }
+      }
+    }
+
+    const elevatedZ =
+      entityType === "loot" ? this.elevatedLootZ : this.elevatedMonsterZ;
+    sprite.userData.elevatedZ = elevatedZ;
+    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, elevatedZ);
+    const scaleBase = this.isFpsMode()
+      ? entityType === "loot"
+        ? 0.82
+        : 1.08
+      : 0.9;
+    sprite.scale.set(scaleBase, scaleBase, 1);
+    const shadowScale = entityType === "loot" ? 0.58 : 0.76;
+    this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
+  }
+
   private updateTile(
     x: number,
     y: number,
@@ -3774,6 +4924,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
+    const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
+    const shouldElevateEntityInFps =
+      this.isFpsMode() && (isMonsterLikeCharacter || isLootLikeCharacter);
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
     if (isUndiscovered) {
@@ -3781,6 +4934,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
+      this.removeMonsterBillboard(key);
       this.activeEffectTileKeys.delete(key);
       const overlay = this.glyphOverlayMap.get(key);
       if (overlay) {
@@ -3788,6 +4942,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.glyphOverlayMap.delete(key);
       }
       this.queueMinimapTileUpdate(x, y, behavior, true);
+      this.refreshFpsWallChamferGeometryNear(x, y);
+      this.markLightingDirty();
+      return;
+    }
+
+    if (behavior.isPlayerGlyph && this.isFpsMode()) {
+      const oldPos = { ...this.playerPos };
+      this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
+      this.playerPos = { x, y };
+      this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
+      for (const [tileKey, tileMesh] of this.tileMap.entries()) {
+        if (!tileMesh.userData?.isPlayerGlyph) {
+          continue;
+        }
+        this.scene.remove(tileMesh);
+        this.tileMap.delete(tileKey);
+        this.tileStateCache.delete(tileKey);
+        const staleOverlay = this.glyphOverlayMap.get(tileKey);
+        if (staleOverlay) {
+          this.disposeGlyphOverlay(staleOverlay);
+          this.glyphOverlayMap.delete(tileKey);
+        }
+      }
+      this.removeMonsterBillboard(key);
+      if (mesh && mesh.userData?.isPlayerGlyph) {
+        this.scene.remove(mesh);
+        this.tileMap.delete(key);
+        this.tileStateCache.delete(key);
+      }
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        this.disposeGlyphOverlay(overlay);
+        this.glyphOverlayMap.delete(key);
+      }
+      if (!this.lastKnownTerrain.has(key)) {
+        this.requestTileUpdate(x, y);
+      }
       this.markLightingDirty();
       return;
     }
@@ -3807,10 +4998,47 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
-    const material = this.getMaterialByKind(behavior.materialKind);
+    let renderBehavior = behavior;
+    let tileGlyphChar = behavior.glyphChar;
+    let tileTextColor = behavior.textColor;
+    if (shouldElevateEntityInFps) {
+      const floorSnapshot = this.lastKnownTerrain.get(key);
+      if (floorSnapshot) {
+        renderBehavior = classifyTileBehavior({
+          glyph: floorSnapshot.glyph,
+          runtimeChar: floorSnapshot.char ?? null,
+          runtimeColor:
+            typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+          priorTerrain: floorSnapshot,
+        });
+      } else {
+        renderBehavior = classifyTileBehavior({
+          glyph: 2396,
+          runtimeChar: ".",
+          runtimeColor: null,
+          priorTerrain: null,
+        });
+      }
+      tileGlyphChar = " ";
+      tileTextColor = renderBehavior.textColor;
+    }
+
+    const material = this.getMaterialByKind(renderBehavior.materialKind);
+    const wallChamferMask =
+      this.isFpsMode() &&
+      renderBehavior.geometryKind === "wall" &&
+      renderBehavior.materialKind !== "door"
+        ? this.computeFpsWallChamferMask(x, y)
+        : 0;
+    const wallChamferMaterialKind =
+      wallChamferMask > 0
+        ? this.getFpsChamferMaterialKindForWall(renderBehavior.materialKind)
+        : null;
     const geometry =
-      behavior.geometryKind === "wall" ? this.wallGeometry : this.floorGeometry;
-    const targetZ = behavior.isWall ? WALL_HEIGHT / 2 : 0;
+      renderBehavior.geometryKind === "wall"
+        ? this.getFpsWallGeometry(wallChamferMask)
+        : this.floorGeometry;
+    const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
 
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
@@ -3826,27 +5054,58 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     mesh.userData.tileX = x;
     mesh.userData.tileY = y;
-    mesh.userData.isWall = behavior.isWall;
+    mesh.userData.isWall = renderBehavior.isWall;
+    mesh.userData.materialKind = renderBehavior.materialKind;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
     mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
     mesh.userData.isMonsterLikeCharacter = isMonsterLikeCharacter;
+    mesh.userData.isLootLikeCharacter = isLootLikeCharacter;
     mesh.userData.isDamageFlashableCharacter =
       this.isDamageFlashableBehavior(behavior);
     mesh.userData.glyphChar = behavior.glyphChar;
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
+    mesh.userData.fpsWallChamferMask = wallChamferMask;
+    mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
+    const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
+    mesh.scale.set(visualScale, visualScale, visualScale);
+    const drawFpsFloorGrid = this.isFpsMode();
 
     this.applyGlyphMaterial(
       key,
       mesh,
       material,
-      behavior.glyphChar,
-      behavior.textColor,
-      behavior.isWall,
-      behavior.darkenFactor,
+      tileGlyphChar,
+      tileTextColor,
+      renderBehavior.isWall,
+      renderBehavior.darkenFactor,
+      drawFpsFloorGrid,
     );
+    if (this.isFpsMode() && isMonsterLikeCharacter) {
+      this.ensureMonsterBillboard(
+        key,
+        x,
+        y,
+        behavior.glyphChar,
+        behavior.textColor,
+        "monster",
+        renderBehavior.isWall,
+      );
+    } else if (this.isFpsMode() && isLootLikeCharacter) {
+      this.ensureMonsterBillboard(
+        key,
+        x,
+        y,
+        behavior.glyphChar,
+        behavior.textColor,
+        "loot",
+        renderBehavior.isWall,
+      );
+    } else {
+      this.removeMonsterBillboard(key);
+    }
     if (behavior.effectKind) {
       this.activeEffectTileKeys.add(key);
     } else {
@@ -3859,6 +5118,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
     this.queueMinimapTileUpdate(x, y, behavior, false);
+    this.refreshFpsWallChamferGeometryNear(x, y);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
@@ -3898,7 +5158,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (moved) {
-      this.recenterCameraOnPlayerIfNeeded();
+      if (this.isFpsMode()) {
+        const nowMs = Date.now();
+        const autoMoveLikely =
+          nowMs - this.lastManualDirectionalInputAtMs >
+          this.fpsAutoMoveDetectionWindowMs;
+        const moveDx = Math.sign(toX - fromX);
+        const moveDy = Math.sign(toY - fromY);
+        this.updateFpsCameraAutoTurnFromMovement(
+          moveDx,
+          moveDy,
+          autoMoveLikely,
+        );
+        this.beginFpsStepCameraTransition(
+          fromX,
+          fromY,
+          toX,
+          toY,
+        );
+      } else {
+        this.recenterCameraOnPlayerIfNeeded();
+      }
     }
 
     const hasRecentMovementInput =
@@ -3907,6 +5187,90 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.hasPlayerMovedOnce && moved && hasRecentMovementInput) {
       this.hasPlayerMovedOnce = true;
     }
+  }
+
+  private updateFpsCameraAutoTurnFromMovement(
+    moveDx: number,
+    moveDy: number,
+    autoMoveLikely: boolean,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    if (!autoMoveLikely) {
+      this.fpsAutoMoveDirection = null;
+      this.fpsAutoTurnTargetYaw = null;
+      return;
+    }
+    if (moveDx === 0 && moveDy === 0) {
+      return;
+    }
+
+    if (
+      this.fpsAutoMoveDirection &&
+      this.fpsAutoMoveDirection.dx === moveDx &&
+      this.fpsAutoMoveDirection.dy === moveDy
+    ) {
+      return;
+    }
+
+    // Map movement deltas to the yaw convention used by FPS controls.
+    const targetYaw = this.wrapAngle(Math.atan2(-moveDx, moveDy));
+    this.fpsAutoTurnTargetYaw = targetYaw;
+    this.fpsAutoMoveDirection = { dx: moveDx, dy: moveDy };
+  }
+
+  private updateFpsAutoTurnYaw(deltaSeconds: number): void {
+    if (!this.isFpsMode() || this.fpsAutoTurnTargetYaw === null) {
+      return;
+    }
+
+    const delta = this.wrapAngle(this.fpsAutoTurnTargetYaw - this.cameraYaw);
+    const maxStep = this.fpsAutoTurnSpeedRadPerSec * Math.max(0, deltaSeconds);
+    if (Math.abs(delta) <= maxStep) {
+      this.cameraYaw = this.fpsAutoTurnTargetYaw;
+      this.fpsAutoTurnTargetYaw = null;
+      return;
+    }
+
+    this.cameraYaw = this.wrapAngle(
+      this.cameraYaw + Math.sign(delta) * maxStep,
+    );
+  }
+
+  private beginFpsStepCameraTransition(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    const fromEyeX = fromX * TILE_SIZE;
+    const fromEyeY = -fromY * TILE_SIZE;
+    const toEyeX = toX * TILE_SIZE;
+    const toEyeY = -toY * TILE_SIZE;
+
+    if (!this.fpsStepCameraActive) {
+      this.fpsStepCameraFrom.set(fromEyeX, fromEyeY, this.firstPersonEyeHeight);
+    } else {
+      const now = performance.now();
+      const progress = THREE.MathUtils.clamp(
+        (now - this.fpsStepCameraStartMs) / this.fpsStepCameraDurationMs,
+        0,
+        1,
+      );
+      const eased = 1 - Math.pow(1 - progress, 3);
+      this.fpsStepCameraFrom.lerp(this.fpsStepCameraTo, eased);
+    }
+
+    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
+
+    this.fpsStepCameraTo.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
+    this.fpsStepCameraStartMs = performance.now();
+    this.fpsStepCameraActive = true;
   }
 
   private showFloatingGameMessage(message: string): void {
@@ -5286,6 +6650,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionActionFocusIndex = -1;
     this.activeQuestionMenuPageIndex = 0;
     this.rebuildActiveQuestionMenuPagination();
+    this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
       this.syncQuestionDialogState();
@@ -5564,6 +6929,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showDirectionQuestion(question: string): void {
     // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
+    this.syncFpsPointerLockForUiState(this.isFpsMode());
 
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(question);
@@ -5581,12 +6947,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // Clear previous content
     directionDialog.innerHTML = "";
+    directionDialog.classList.remove("nh3d-dialog-direction-fps");
 
     // Add question text
     const questionText = document.createElement("div");
     questionText.className = "nh3d-direction-text";
     questionText.textContent = question;
     directionDialog.appendChild(questionText);
+
+    if (this.isFpsMode()) {
+      const hintText = document.createElement("div");
+      hintText.className = "nh3d-direction-fps-hint";
+      hintText.textContent =
+        "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels.";
+      directionDialog.appendChild(hintText);
+      directionDialog.classList.add("nh3d-dialog-direction-fps");
+      directionDialog.classList.add("is-visible");
+      return;
+    }
 
     // Add direction buttons
     const directionsContainer = document.createElement("div");
@@ -5615,7 +6993,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       button.appendChild(key);
 
       button.onclick = () => {
-        this.sendInput(dir.key);
+        if (typeof dir.key === "string" && dir.key.length > 0) {
+          this.sendInput(dir.key);
+        }
         this.hideDirectionQuestion();
       };
 
@@ -5673,8 +7053,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private hideDirectionQuestion(): void {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false; // Clear general question state
+    this.clearFpsFireSuppression();
     if (this.uiAdapter) {
       this.uiAdapter.setDirectionQuestion(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -5682,10 +7064,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (directionDialog) {
       directionDialog.classList.remove("is-visible");
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private showInfoMenuDialog(title: string, lines: string[]): void {
     this.isInfoDialogVisible = true;
+    this.syncFpsPointerLockForUiState(false);
     const normalizedLines = this.normalizeInfoMenuLines(lines);
     if (this.uiAdapter) {
       this.uiAdapter.setInfoMenu({
@@ -5739,6 +7123,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInfoDialogVisible = false;
     if (this.uiAdapter) {
       this.uiAdapter.setInfoMenu(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -5746,6 +7131,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (infoDialog) {
       infoDialog.classList.remove("is-visible");
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private toggleInfoMenuDialog(): void {
@@ -5763,6 +7149,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private showInventoryDialog(): void {
     this.isInventoryDialogVisible = true;
+    this.syncFpsPointerLockForUiState(false);
     if (this.uiAdapter) {
       this.uiAdapter.setInventory({
         visible: true,
@@ -5877,6 +7264,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         items: [...this.currentInventory],
       });
       this.pendingInventoryDialog = false;
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -5886,6 +7274,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Clear any pending inventory dialog flag
     this.pendingInventoryDialog = false;
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private toggleInventoryDialogState(): void {
@@ -5927,9 +7316,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.uiAdapter) {
+      this.syncFpsPointerLockForUiState(false);
       this.uiAdapter.setPositionRequest(text);
       this.positionHideTimerId = window.setTimeout(() => {
         this.uiAdapter?.setPositionRequest(null);
+        this.syncFpsPointerLockForUiState(true);
       }, 3000);
       return;
     }
@@ -5944,12 +7335,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     posDialog.textContent = text;
     posDialog.classList.add("is-visible");
+    this.syncFpsPointerLockForUiState(false);
 
     // Auto-hide after 3 seconds
     this.positionHideTimerId = window.setTimeout(() => {
       if (posDialog) {
         posDialog.classList.remove("is-visible");
       }
+      this.syncFpsPointerLockForUiState(true);
     }, 3000);
   }
 
@@ -6008,6 +7401,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showTextInputRequest(text: string, maxLength = 256): void {
     this.isInQuestion = true;
     this.isTextInputActive = true;
+    this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
       this.uiAdapter.setTextInput({
@@ -6029,6 +7423,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.uiAdapter) {
       this.uiAdapter.setTextInput(null);
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private hideQuestion(): void {
@@ -6049,6 +7444,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (this.uiAdapter) {
       this.uiAdapter.setQuestion(null);
+      this.syncFpsPointerLockForUiState(true);
       return;
     }
 
@@ -6060,6 +7456,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       (questionDialog as any).isPickupDialog = false;
       (questionDialog as any).menuItems = null;
     }
+    this.syncFpsPointerLockForUiState(true);
   }
 
   private createPickupDialog(
@@ -6442,6 +7839,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.toggleInventoryDialogState();
   }
 
+  public runInventoryItemAction(
+    actionId: string,
+    itemAccelerator: string,
+  ): void {
+    const normalizedActionId = String(actionId || "")
+      .trim()
+      .toLowerCase();
+    const accelerator = String(itemAccelerator || "").trim();
+    if (!this.session || !normalizedActionId || accelerator.length !== 1) {
+      return;
+    }
+
+    const commandMap: Record<string, string> = {
+      apply: "a",
+      drop: "d",
+      eat: "e",
+      quaff: "q",
+      read: "r",
+      throw: "t",
+      wield: "w",
+      wear: "W",
+      "take-off": "T",
+      "put-on": "P",
+      remove: "R",
+      zap: "z",
+      cast: "Z",
+    };
+
+    const commandKey = commandMap[normalizedActionId];
+    if (!commandKey) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    this.hideInventoryDialog();
+    this.sendInputSequence([
+      `${this.inventoryContextSelectionPrefix}${accelerator}`,
+      commandKey,
+    ]);
+  }
+
+  public dismissFpsCrosshairContextMenu(): void {
+    this.closeFpsCrosshairContextMenu(true);
+  }
+
   public runQuickAction(actionId: string): void {
     const normalizedActionId = String(actionId || "")
       .trim()
@@ -6449,6 +7891,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!normalizedActionId || !this.session) {
       return;
     }
+
+    this.closeFpsCrosshairContextMenu(true);
 
     if (
       this.metaCommandModeActive ||
@@ -6481,10 +7925,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.sendInput("l");
         return;
       case "open":
+        this.armFpsFireSuppression();
         this.sendInput("o");
         return;
       case "close":
+        this.armFpsFireSuppression();
         this.sendInput("c");
+        return;
+      case "ascend":
+        this.sendInput("<");
+        return;
+      case "descend":
+        this.sendInput(">");
         return;
       case "extended":
         this.sendInput("#");
@@ -6503,6 +7955,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.closeFpsCrosshairContextMenu(true);
+
     if (
       this.metaCommandModeActive ||
       this.isInQuestion ||
@@ -6515,6 +7969,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
     if (this.isInventoryDialogOpen()) {
       this.hideInventoryDialog();
+    }
+
+    if (normalizedCommandText === "kick") {
+      this.armFpsFireSuppression();
     }
 
     const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
@@ -6582,6 +8040,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private sendInput(input: string): void {
     this.logNameInputTrace(input);
 
+    if (this.isMovementInput(input)) {
+      this.lastManualDirectionalInputAtMs = Date.now();
+      this.fpsAutoMoveDirection = null;
+      this.fpsAutoTurnTargetYaw = null;
+    }
+
     if (
       !this.hasPlayerMovedOnce &&
       !this.isInQuestion &&
@@ -6602,6 +8066,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.session || inputs.length === 0) {
       return;
     }
+
+    const nowMs = Date.now();
+    for (const input of inputs) {
+      if (this.isMovementInput(input)) {
+        this.lastManualDirectionalInputAtMs = nowMs;
+        this.fpsAutoMoveDirection = null;
+        this.fpsAutoTurnTargetYaw = null;
+        break;
+      }
+    }
+
     this.session.sendInputSequence(inputs);
   }
 
@@ -6827,7 +8302,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
     this.exitMetaCommandMode();
+    this.closeFpsCrosshairContextMenu(false);
     this.stopMinimapDrag();
+    if (document.pointerLockElement === this.renderer.domElement) {
+      document.exitPointerLock?.();
+    }
+    this.fpsPointerLockActive = false;
+    this.fpsPointerLockRestorePending = false;
   }
 
   private normalizeWaitKey(event: KeyboardEvent): string | null {
@@ -6915,6 +8396,228 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.mapArrowKeyToDirectionKey(key) ||
       this.mapNavigationKeyToDirectionKey(key)
     );
+  }
+
+  private isFpsMode(): boolean {
+    return this.playMode === "fps";
+  }
+
+  private getDirectionInputFromMapDelta(dx: number, dy: number): string | null {
+    if (dx === 0 && dy === 0) {
+      return null;
+    }
+    if (this.numberPadModeEnabled) {
+      if (dx === 0 && dy < 0) return "8";
+      if (dx === 0 && dy > 0) return "2";
+      if (dx < 0 && dy === 0) return "4";
+      if (dx > 0 && dy === 0) return "6";
+      if (dx < 0 && dy < 0) return "7";
+      if (dx > 0 && dy < 0) return "9";
+      if (dx < 0 && dy > 0) return "1";
+      if (dx > 0 && dy > 0) return "3";
+      return null;
+    }
+
+    if (dx === 0 && dy < 0) return "k";
+    if (dx === 0 && dy > 0) return "j";
+    if (dx < 0 && dy === 0) return "h";
+    if (dx > 0 && dy === 0) return "l";
+    if (dx < 0 && dy < 0) return "y";
+    if (dx > 0 && dy < 0) return "u";
+    if (dx < 0 && dy > 0) return "b";
+    if (dx > 0 && dy > 0) return "n";
+    return null;
+  }
+
+  private getFpsAimDirectionFromCamera(): AimDirection | null {
+    // FPS movement/fire should follow yaw, even when pitch is looking up/down.
+    const worldX = -Math.sin(this.cameraYaw);
+    const worldY = -Math.cos(this.cameraYaw);
+    let mapDx = Math.round(worldX);
+    let mapDy = Math.round(-worldY);
+    if (mapDx === 0 && mapDy === 0) {
+      if (Math.abs(worldX) >= Math.abs(worldY)) {
+        mapDx = worldX >= 0 ? 1 : -1;
+      } else {
+        mapDy = -worldY >= 0 ? 1 : -1;
+      }
+    }
+    const input = this.getDirectionInputFromMapDelta(mapDx, mapDy);
+    if (!input) {
+      return null;
+    }
+    return {
+      dx: mapDx,
+      dy: mapDy,
+      input,
+    };
+  }
+
+  private rotateAimDirectionLeft(aim: AimDirection): AimDirection {
+    const dx = aim.dy;
+    const dy = -aim.dx;
+    return {
+      dx,
+      dy,
+      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
+    };
+  }
+
+  private rotateAimDirectionRight(aim: AimDirection): AimDirection {
+    const dx = -aim.dy;
+    const dy = aim.dx;
+    return {
+      dx,
+      dy,
+      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
+    };
+  }
+
+  private tryResolveFpsMovementInput(key: string): string | null {
+    const lower = key.toLowerCase();
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return null;
+    }
+
+    switch (lower) {
+      case "w":
+        return aim.input;
+      case "s": {
+        const backward = this.getDirectionInputFromMapDelta(-aim.dx, -aim.dy);
+        return backward;
+      }
+      case "a":
+        return this.rotateAimDirectionLeft(aim).input;
+      case "d":
+        return this.rotateAimDirectionRight(aim).input;
+      default:
+        return null;
+    }
+  }
+
+  private fireInCurrentAimDirection(): void {
+    this.armFpsFireSuppression();
+    this.fpsAimLinePulseUntilMs = Date.now() + 220;
+    // In FPS mode, fire should first ask for direction; the direction prompt
+    // confirmation path (left-click/W/etc.) supplies the actual direction input.
+    this.sendInput("f");
+  }
+
+  private armFpsFireSuppression(): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    this.fpsFireSuppressionUntilMs =
+      Date.now() + this.fpsFireSuppressionDurationMs;
+  }
+
+  private clearFpsFireSuppression(): void {
+    this.fpsFireSuppressionUntilMs = 0;
+  }
+
+  private isFpsFireSuppressed(): boolean {
+    return this.isFpsMode() && Date.now() < this.fpsFireSuppressionUntilMs;
+  }
+
+  private getFpsDirectionQuestionInputFromAim(): string | null {
+    const aim = this.getFpsAimDirectionFromCamera();
+    return aim?.input ?? null;
+  }
+
+  private tryResolveFpsDirectionQuestionInput(event: KeyboardEvent): string | null {
+    const lowerKey = event.key.toLowerCase();
+    if (lowerKey === "a" || lowerKey === "d") {
+      return "Escape";
+    }
+    if (lowerKey === "s") {
+      return "s";
+    }
+    if (lowerKey === "w") {
+      return this.getFpsDirectionQuestionInputFromAim();
+    }
+    if (event.key === "<" || event.key === ",") {
+      return "<";
+    }
+    if (event.key === ">") {
+      return ">";
+    }
+    if (
+      event.key === "Enter" ||
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "Space"
+    ) {
+      return this.getFpsDirectionQuestionInputFromAim();
+    }
+    return null;
+  }
+
+  private handlePointerLockChange(): void {
+    this.fpsPointerLockActive =
+      document.pointerLockElement === this.renderer.domElement;
+    if (this.fpsPointerLockActive) {
+      this.fpsPointerLockRestorePending = false;
+    }
+    this.syncFpsPointerLockForUiState(false);
+  }
+
+  private isFpsPointerLockBlockedByUi(): boolean {
+    const allowDirectionLook = this.isFpsMode() && this.isInDirectionQuestion;
+    const modalBlocksPointerLock =
+      this.isAnyModalVisible() &&
+      !(allowDirectionLook && this.isOnlyDirectionDialogVisible());
+    return (
+      (this.isInQuestion && !allowDirectionLook) ||
+      (this.isInDirectionQuestion && !allowDirectionLook) ||
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.fpsCrosshairContextMenuOpen ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      modalBlocksPointerLock
+    );
+  }
+
+  private isOnlyDirectionDialogVisible(): boolean {
+    const visibleDialogs = Array.from(
+      document.querySelectorAll(".nh3d-dialog.is-visible"),
+    );
+    if (visibleDialogs.length === 0) {
+      return false;
+    }
+    return visibleDialogs.every(
+      (dialog) => (dialog as HTMLElement).id === "direction-dialog",
+    );
+  }
+
+  private syncFpsPointerLockForUiState(tryAcquire: boolean): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    const isRendererLocked =
+      document.pointerLockElement === this.renderer.domElement;
+    if (this.isFpsPointerLockBlockedByUi()) {
+      if (isRendererLocked || this.fpsPointerLockActive) {
+        this.fpsPointerLockRestorePending = true;
+      }
+      if (isRendererLocked) {
+        document.exitPointerLock?.();
+      }
+      this.fpsPointerLockActive = false;
+      return;
+    }
+
+    if (
+      (tryAcquire || this.fpsPointerLockRestorePending) &&
+      !isRendererLocked &&
+      !this.fpsPointerLockActive
+    ) {
+      this.fpsPointerLockRestorePending = false;
+      this.renderer.domElement.requestPointerLock?.();
+    }
   }
 
   private getModalNavigationDirection(
@@ -7082,6 +8785,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       if (
+        !this.isFpsMode() &&
         !event.altKey &&
         !event.ctrlKey &&
         !event.metaKey &&
@@ -7195,6 +8899,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (
+      this.isFpsMode() &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      const fpsMoveInput = this.tryResolveFpsMovementInput(event.key);
+      if (fpsMoveInput) {
+        event.preventDefault();
+        if (event.shiftKey) {
+          if (event.repeat) {
+            return;
+          }
+          this.sendForcedDirectionalInput(fpsMoveInput);
+          return;
+        }
+        this.sendInput(fpsMoveInput);
+        return;
+      }
+
+      if (event.key === "f" || event.key === "F") {
+        event.preventDefault();
+        this.sendInput("s");
+        return;
+      }
+    }
+
     // Filter out modifier keys that shouldn't be sent to NetHack
     // Note: Home, End, PageUp, PageDown are NOT filtered as they can be used for diagonal movement
     const modifierKeys = [
@@ -7272,6 +9006,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isInQuestion || this.isInDirectionQuestion) {
       // If it's a direction question, handle direction input
       if (this.isInDirectionQuestion) {
+        if (this.isFpsMode()) {
+          const keyToSend = this.tryResolveFpsDirectionQuestionInput(event);
+          if (keyToSend) {
+            event.preventDefault();
+            this.sendInput(keyToSend);
+            this.hideDirectionQuestion();
+          }
+          return;
+        }
+
         // With number_pad:1 option, we can pass numpad keys and arrow keys directly
         let keyToSend = null;
 
@@ -7513,10 +9257,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 this.moveQuestionActionFocus(-1);
                 return;
               }
-              if (effectiveDirection === "left") {
-                this.moveQuestionActionFocus(-1);
-                return;
-              }
               if (
                 effectiveDirection === "right" ||
                 effectiveDirection === "down"
@@ -7596,6 +9336,57 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateCamera(deltaSeconds: number): void {
+    if (this.isFpsMode()) {
+      const targetEyeX = this.playerPos.x * TILE_SIZE;
+      const targetEyeY = -this.playerPos.y * TILE_SIZE;
+      let eyeX = targetEyeX;
+      let eyeY = targetEyeY;
+      const eyeZ = this.firstPersonEyeHeight;
+
+      this.updateFpsAutoTurnYaw(deltaSeconds);
+
+      if (this.fpsStepCameraActive) {
+        const progress = THREE.MathUtils.clamp(
+          (performance.now() - this.fpsStepCameraStartMs) /
+            this.fpsStepCameraDurationMs,
+          0,
+          1,
+        );
+        const eased = 1 - Math.pow(1 - progress, 3);
+        eyeX = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.x,
+          this.fpsStepCameraTo.x,
+          eased,
+        );
+        eyeY = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.y,
+          this.fpsStepCameraTo.y,
+          eased,
+        );
+        if (progress >= 1) {
+          this.fpsStepCameraActive = false;
+          this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
+          this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
+          if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+            this.tileFlushScheduled = true;
+            requestAnimationFrame(() => this.flushPendingTileUpdates());
+          }
+        }
+      }
+
+      const forwardX = -Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch);
+      const forwardY = -Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch);
+      const forwardZ = Math.sin(this.cameraPitch);
+
+      this.camera.position.set(eyeX, eyeY, eyeZ);
+      this.camera.lookAt(
+        eyeX + forwardX,
+        eyeY + forwardY,
+        eyeZ + forwardZ,
+      );
+      return;
+    }
+
     const { x, y } = this.playerPos;
     const targetX = x * TILE_SIZE + this.cameraPanX;
     const targetY = -y * TILE_SIZE + this.cameraPanY;
@@ -7636,6 +9427,136 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.camera.lookAt(followX, followY, 0);
   }
 
+  private ensureFpsForwardHighlightTexture(): THREE.CanvasTexture {
+    if (this.fpsForwardHighlightTexture) {
+      return this.fpsForwardHighlightTexture;
+    }
+
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create FPS forward highlight texture context");
+    }
+
+    context.clearRect(0, 0, size, size);
+    const imageData = context.createImageData(size, size);
+    const data = imageData.data;
+    const center = size * 0.5;
+    const smoothstep = (edge0: number, edge1: number, x: number): number => {
+      const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+      return t * t * (3 - 2 * t);
+    };
+
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const px = x + 0.5;
+        const py = y + 0.5;
+        const edgeDistance = Math.min(px, py, size - px, size - py);
+        const edgeNorm = edgeDistance / center;
+
+        const outerFeather = smoothstep(0.0, 0.2, edgeNorm);
+        const inwardFade = 1 - smoothstep(0.16, 0.84, edgeNorm);
+        // Slightly lower intensity than previous square profile.
+        const alpha = THREE.MathUtils.clamp(
+          outerFeather * inwardFade * 0.58,
+          0,
+          1,
+        );
+
+        const i = (y * size + x) * 4;
+        data[i] = 255;
+        data[i + 1] = 238;
+        data[i + 2] = 118;
+        data[i + 3] = Math.round(alpha * 255);
+      }
+    }
+
+    context.putImageData(imageData, 0, 0);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.fpsForwardHighlightTexture = texture;
+    return texture;
+  }
+
+  private ensureFpsAimVisuals(): void {
+    if (this.fpsForwardHighlight) {
+      return;
+    }
+
+    if (!this.fpsForwardHighlight) {
+      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.9, TILE_SIZE * 0.9);
+      const material = new THREE.MeshBasicMaterial({
+        map: this.ensureFpsForwardHighlightTexture(),
+        color: 0xfff6a8,
+        transparent: true,
+        opacity: 0.46,
+        blending: THREE.AdditiveBlending,
+        depthTest: true,
+        depthWrite: false,
+        toneMapped: false,
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.renderOrder = 980;
+      this.scene.add(mesh);
+      this.fpsForwardHighlight = mesh;
+      this.fpsForwardHighlightMaterial = material;
+    }
+  }
+
+  private updateFpsAimVisuals(timeMs: number): void {
+    if (!this.isFpsMode()) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      this.fpsCurrentAimDirection = null;
+      return;
+    }
+
+    if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      return;
+    }
+
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return;
+    }
+    this.fpsCurrentAimDirection = aim;
+    this.ensureFpsAimVisuals();
+
+    const targetX = this.playerPos.x + aim.dx;
+    const targetY = this.playerPos.y + aim.dy;
+    const targetKey = `${targetX},${targetY}`;
+    const targetTile = this.tileMap.get(targetKey);
+    const targetZ = targetTile?.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+
+    if (this.fpsForwardHighlight) {
+      this.fpsForwardHighlight.position.set(
+        targetX * TILE_SIZE,
+        -targetY * TILE_SIZE,
+        targetZ,
+      );
+      this.fpsForwardHighlight.visible = true;
+      if (this.fpsForwardHighlightMaterial) {
+        const pulse = timeMs <= this.fpsAimLinePulseUntilMs ? 1 : 0.45;
+        this.fpsForwardHighlightMaterial.opacity = 0.2 + pulse * 0.32;
+      }
+    }
+
+  }
+
   private wrapAngle(angle: number): number {
     const twoPi = Math.PI * 2;
     angle = ((angle % twoPi) + twoPi) % twoPi;
@@ -7664,7 +9585,583 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return false;
   }
 
+  private clearFpsCrosshairContextMenu(): void {
+    if (!this.uiAdapter) {
+      this.fpsCrosshairContextSignature = "";
+      return;
+    }
+    if (!this.fpsCrosshairContextSignature) {
+      return;
+    }
+    this.fpsCrosshairContextSignature = "";
+    this.uiAdapter.setFpsCrosshairContext(null);
+  }
+
+  private openFpsCrosshairContextMenu(): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextMenuOpen = true;
+    this.syncFpsPointerLockForUiState(false);
+    this.updateFpsCrosshairContextMenu();
+  }
+
+  private closeFpsCrosshairContextMenu(restorePointerLock: boolean): void {
+    if (!this.fpsCrosshairContextMenuOpen && !this.fpsCrosshairContextSignature) {
+      return;
+    }
+    this.fpsCrosshairContextMenuOpen = false;
+    this.fpsCrosshairGlancePending = null;
+    this.clearFpsCrosshairContextMenu();
+    if (restorePointerLock) {
+      this.syncFpsPointerLockForUiState(true);
+    }
+  }
+
+  private getTileUnderFpsCrosshair(): {
+    key: string;
+    x: number;
+    y: number;
+    mesh: THREE.Mesh;
+  } | null {
+    const tiles = Array.from(this.tileMap.values());
+    if (tiles.length === 0) {
+      return null;
+    }
+
+    this.pointerNdc.set(0, 0);
+    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
+    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
+    if (intersections.length === 0) {
+      return null;
+    }
+
+    const hit = intersections[0]?.object;
+    if (!(hit instanceof THREE.Mesh)) {
+      return null;
+    }
+
+    const x = Math.round(hit.position.x / TILE_SIZE);
+    const y = Math.round(-hit.position.y / TILE_SIZE);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+
+    return {
+      key: `${x},${y}`,
+      x,
+      y,
+      mesh: hit,
+    };
+  }
+
+  private sanitizeFpsCrosshairGlanceText(rawText: string): string {
+    return String(rawText || "")
+      .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private shouldIgnoreFpsCrosshairGlanceText(text: string): boolean {
+    const normalized = text.toLowerCase();
+    if (!normalized) {
+      return true;
+    }
+    if (
+      normalized.startsWith("pick ") &&
+      normalized.includes("monster, object or location")
+    ) {
+      return true;
+    }
+    if (normalized.startsWith("please move the cursor")) {
+      return true;
+    }
+    if (normalized.includes("what do you want to look at")) {
+      return true;
+    }
+    return false;
+  }
+
+  private inferFpsCrosshairTargetHintFromGlanceText(
+    text: string,
+  ): FpsCrosshairTargetHint {
+    const normalized = text.toLowerCase();
+
+    if (
+      /(?:staircase|stairs|stairway|ladder).*\bup\b/.test(normalized) ||
+      /\bup\b.*(?:staircase|stairs|stairway|ladder)/.test(normalized)
+    ) {
+      return "stairs_up";
+    }
+    if (
+      /(?:staircase|stairs|stairway|ladder).*\bdown\b/.test(normalized) ||
+      /\bdown\b.*(?:staircase|stairs|stairway|ladder)/.test(normalized)
+    ) {
+      return "stairs_down";
+    }
+    if (/\bdoor\b/.test(normalized)) {
+      return "door";
+    }
+    if (/\btrap\b/.test(normalized)) {
+      return "trap";
+    }
+    if (/\b(fountain|sink|pool|water|moat|lava)\b/.test(normalized)) {
+      return "water";
+    }
+    if (/\b(altar|throne|grave|headstone|tree|bars|boulder|statue)\b/.test(normalized)) {
+      return "feature";
+    }
+    if (/\b(wall|rock)\b/.test(normalized)) {
+      return "wall";
+    }
+    if (
+      /\b(you see here|there is|lying here|on the floor)\b/.test(normalized) ||
+      /\b(gold|coin|corpse|potion|scroll|ring|wand|spellbook|weapon|armor|amulet|gem|food)\b/.test(
+        normalized,
+      )
+    ) {
+      return "loot";
+    }
+    if (
+      /\b(peaceful|hostile|tame|asleep|sleeping|fleeing)\b/.test(normalized) ||
+      /\bis here\b/.test(normalized)
+    ) {
+      return "monster";
+    }
+    if (/\b(floor|room|corridor|passage)\b/.test(normalized)) {
+      return "floor";
+    }
+    if (normalized.includes("never heard")) {
+      return "unknown";
+    }
+    return "unknown";
+  }
+
+  private captureFpsCrosshairGlanceMessage(messageLike: unknown): void {
+    if (!this.fpsCrosshairGlancePending || typeof messageLike !== "string") {
+      return;
+    }
+
+    const text = this.sanitizeFpsCrosshairGlanceText(messageLike);
+    if (!text || this.shouldIgnoreFpsCrosshairGlanceText(text)) {
+      return;
+    }
+
+    const pending = this.fpsCrosshairGlancePending;
+    const hint = this.inferFpsCrosshairTargetHintFromGlanceText(text);
+    this.fpsCrosshairGlanceCache.set(pending.tileKey, {
+      hint,
+      sourceText: text,
+      updatedAtMs: Date.now(),
+    });
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextSignature = "";
+  }
+
+  private expireFpsCrosshairGlanceState(nowMs: number): void {
+    const staleCacheKeys: string[] = [];
+    for (const [key, entry] of this.fpsCrosshairGlanceCache.entries()) {
+      if (nowMs - entry.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs * 2) {
+        staleCacheKeys.push(key);
+      }
+    }
+    for (const key of staleCacheKeys) {
+      this.fpsCrosshairGlanceCache.delete(key);
+    }
+
+    const pending = this.fpsCrosshairGlancePending;
+    if (!pending) {
+      return;
+    }
+
+    const ageMs = nowMs - pending.startedAtMs;
+    const postResolveAgeMs =
+      pending.positionResolvedAtMs === null
+        ? 0
+        : nowMs - pending.positionResolvedAtMs;
+    const shouldExpireByTimeout = ageMs > this.fpsCrosshairGlanceTimeoutMs;
+    const shouldExpireAfterResolve =
+      pending.positionResolvedAtMs !== null &&
+      postResolveAgeMs > this.fpsCrosshairGlancePostResolveGraceMs;
+    if (!shouldExpireByTimeout && !shouldExpireAfterResolve) {
+      return;
+    }
+
+    if (!this.fpsCrosshairGlanceCache.has(pending.tileKey)) {
+      this.fpsCrosshairGlanceCache.set(pending.tileKey, {
+        hint: "unknown",
+        sourceText: "",
+        updatedAtMs: nowMs,
+      });
+    }
+    this.fpsCrosshairGlancePending = null;
+    this.fpsCrosshairContextSignature = "";
+  }
+
+  private getCachedFpsCrosshairTargetHint(
+    tileKey: string,
+    nowMs: number,
+  ): FpsCrosshairTargetHint | null {
+    const cached = this.fpsCrosshairGlanceCache.get(tileKey);
+    if (!cached) {
+      return null;
+    }
+    if (nowMs - cached.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs) {
+      this.fpsCrosshairGlanceCache.delete(tileKey);
+      return null;
+    }
+    return cached.hint;
+  }
+
+  private startFpsCrosshairGlanceProbe(
+    target: { key: string; x: number; y: number },
+    nowMs: number,
+  ): void {
+    if (!this.session || !this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
+      return;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return;
+    }
+
+    const cached = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    if (cached !== null) {
+      return;
+    }
+
+    if (this.fpsCrosshairGlancePending) {
+      const pendingAgeMs = nowMs - this.fpsCrosshairGlancePending.startedAtMs;
+      if (this.fpsCrosshairGlancePending.tileKey === target.key) {
+        return;
+      }
+      if (pendingAgeMs <= this.fpsCrosshairGlanceTimeoutMs) {
+        return;
+      }
+      this.fpsCrosshairGlancePending = null;
+    }
+
+    this.fpsCrosshairGlancePending = {
+      requestId: ++this.fpsCrosshairGlanceRequestSequence,
+      tileKey: target.key,
+      tileX: target.x,
+      tileY: target.y,
+      startedAtMs: nowMs,
+      sawPositionInput: false,
+      positionResolvedAtMs: null,
+    };
+
+    this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"]);
+    this.sendMouseInput(target.x, target.y, 0);
+  }
+
+  private getFpsCrosshairHintFromTile(
+    key: string,
+    mesh: THREE.Mesh,
+  ): FpsCrosshairTargetHint {
+    if (
+      Boolean(mesh.userData?.isMonsterLikeCharacter) ||
+      this.monsterBillboards.has(key)
+    ) {
+      return "monster";
+    }
+    if (Boolean(mesh.userData?.isLootLikeCharacter)) {
+      return "loot";
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? mesh.userData.materialKind
+        : "";
+    if (materialKind === "door") {
+      return "door";
+    }
+    if (materialKind === "stairs_up") {
+      return "stairs_up";
+    }
+    if (materialKind === "stairs_down") {
+      return "stairs_down";
+    }
+    if (materialKind === "water" || materialKind === "fountain") {
+      return "water";
+    }
+    if (materialKind === "trap") {
+      return "trap";
+    }
+    if (materialKind === "feature") {
+      return "feature";
+    }
+    if (Boolean(mesh.userData?.isWall)) {
+      return "wall";
+    }
+    return "floor";
+  }
+
+  private getFpsCrosshairActionsForTile(
+    key: string,
+    mesh: THREE.Mesh,
+    glanceHint: FpsCrosshairTargetHint | null = null,
+  ): FpsContextAction[] {
+    const actions: FpsContextAction[] = [];
+    const addQuickAction = (id: string, label: string, value: string = id) => {
+      if (actions.some((action) => action.id === id && action.kind === "quick")) {
+        return;
+      }
+      actions.push({
+        id,
+        label,
+        kind: "quick",
+        value,
+      });
+    };
+    const addExtendedAction = (
+      id: string,
+      label: string,
+      value: string = id,
+    ) => {
+      if (
+        actions.some((action) => action.id === id && action.kind === "extended")
+      ) {
+        return;
+      }
+      actions.push({
+        id,
+        label,
+        kind: "extended",
+        value,
+      });
+    };
+
+    let isMonster =
+      Boolean(mesh.userData?.isMonsterLikeCharacter) ||
+      this.monsterBillboards.has(key);
+    let isLoot = Boolean(mesh.userData?.isLootLikeCharacter);
+    let isWall = Boolean(mesh.userData?.isWall);
+    let materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? mesh.userData.materialKind
+        : "";
+    if (glanceHint) {
+      switch (glanceHint) {
+        case "monster":
+          isMonster = true;
+          isLoot = false;
+          break;
+        case "loot":
+          isLoot = true;
+          break;
+        case "door":
+          materialKind = "door";
+          isWall = false;
+          break;
+        case "stairs_up":
+          materialKind = "stairs_up";
+          isWall = false;
+          break;
+        case "stairs_down":
+          materialKind = "stairs_down";
+          isWall = false;
+          break;
+        case "water":
+          materialKind = "water";
+          isWall = false;
+          break;
+        case "trap":
+          materialKind = "trap";
+          isWall = false;
+          break;
+        case "feature":
+          materialKind = "feature";
+          isWall = false;
+          break;
+        case "wall":
+          isWall = true;
+          break;
+        case "floor":
+          isWall = false;
+          break;
+        default:
+          break;
+      }
+    }
+    const isStairsUp = materialKind === "stairs_up";
+    const isStairsDown = materialKind === "stairs_down";
+
+    if (isStairsUp) {
+      addQuickAction("ascend", "Ascend (<)");
+    }
+    if (isStairsDown) {
+      addQuickAction("descend", "Descend (>)");
+    }
+
+    if (isMonster) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      return actions;
+    }
+
+    if (isLoot) {
+      addQuickAction("pickup", "Pick Up");
+      addQuickAction("loot", "Loot");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    if (materialKind === "door") {
+      addQuickAction("open", "Open");
+      addQuickAction("close", "Close");
+      addExtendedAction("kick", "Kick");
+      addQuickAction("search", "Search");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    if (isStairsUp || isStairsDown) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      addQuickAction("pickup", "Pick Up");
+      return actions;
+    }
+
+    if (
+      materialKind === "water" ||
+      materialKind === "fountain" ||
+      materialKind === "trap" ||
+      materialKind === "feature"
+    ) {
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
+      return actions;
+    }
+
+    if (isWall) {
+      addQuickAction("search", "Search");
+      addQuickAction("open", "Open");
+      addQuickAction("look", "Look");
+      return actions;
+    }
+
+    addQuickAction("search", "Search");
+    addQuickAction("pickup", "Pick Up");
+    addQuickAction("loot", "Loot");
+    addQuickAction("look", "Look");
+    return actions;
+  }
+
+  private getFpsCrosshairTitle(
+    key: string,
+    mesh: THREE.Mesh,
+    glanceHint: FpsCrosshairTargetHint | null = null,
+  ): string {
+    const hint = glanceHint ?? this.getFpsCrosshairHintFromTile(key, mesh);
+    switch (hint) {
+      case "monster":
+        return "Target: monster";
+      case "loot":
+        return "Target: loot";
+      case "door":
+        return "Target: door";
+      case "stairs_up":
+        return "Target: stairs up";
+      case "stairs_down":
+        return "Target: stairs down";
+      case "wall":
+        return "Target: wall";
+      case "water":
+        return "Target: water";
+      case "trap":
+        return "Target: trap";
+      case "feature":
+        return "Target: feature";
+      default:
+        return "Target: tile";
+    }
+  }
+
+  private updateFpsCrosshairContextMenu(): void {
+    if (!this.uiAdapter) {
+      return;
+    }
+    if (!this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    const nowMs = Date.now();
+    this.expireFpsCrosshairGlanceState(nowMs);
+    const glanceProbePositionInputActive =
+      this.positionInputModeActive && this.fpsCrosshairGlancePending !== null;
+
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      (this.positionInputModeActive && !glanceProbePositionInputActive) ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.isAnyModalVisible()
+    ) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    const target = this.getTileUnderFpsCrosshair();
+    if (!target) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    this.startFpsCrosshairGlanceProbe(target, nowMs);
+    const glanceHint = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    const actions = this.getFpsCrosshairActionsForTile(
+      target.key,
+      target.mesh,
+      glanceHint,
+    );
+    if (actions.length === 0) {
+      this.clearFpsCrosshairContextMenu();
+      return;
+    }
+
+    let title = this.getFpsCrosshairTitle(target.key, target.mesh, glanceHint);
+    if (
+      glanceHint === null &&
+      this.fpsCrosshairGlancePending &&
+      this.fpsCrosshairGlancePending.tileKey === target.key
+    ) {
+      title = `${title} (scanning...)`;
+    }
+    const signature = `${target.x},${target.y}|${title}|${actions
+      .map((action) => `${action.kind}:${action.id}:${action.value}`)
+      .join(",")}`;
+    if (signature === this.fpsCrosshairContextSignature) {
+      return;
+    }
+
+    this.fpsCrosshairContextSignature = signature;
+    const state: FpsCrosshairContextState = {
+      title,
+      tileX: target.x,
+      tileY: target.y,
+      actions,
+    };
+    this.uiAdapter.setFpsCrosshairContext(state);
+  }
+
   private handleMouseWheel(event: WheelEvent): void {
+    if (this.isFpsMode()) {
+      event.preventDefault();
+      return;
+    }
+
     // Disable camera zoom while any modal/dialog is visible.
     if (this.isAnyModalVisible()) {
       return;
@@ -7721,6 +10218,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.metaCommandModeActive) {
       return false;
     }
+    if (this.isFpsMode() && !this.positionInputModeActive) {
+      return false;
+    }
     return true;
   }
 
@@ -7748,6 +10248,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
     if (this.metaCommandModeActive || this.positionInputModeActive) {
+      return false;
+    }
+    if (this.isFpsMode()) {
       return false;
     }
     return true;
@@ -7876,6 +10379,53 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private canUseFpsGameplayMouseInput(event: MouseEvent): boolean {
+    if (!this.session || !this.isFpsMode()) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.metaCommandModeActive ||
+      this.positionInputModeActive
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private canUseFpsDirectionPromptMouseInput(event: MouseEvent): boolean {
+    if (!this.session || !this.isFpsMode() || !this.isInDirectionQuestion) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.fpsCrosshairContextMenuOpen ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
   private handleMapMouseInput(event: MouseEvent): boolean {
     if (!this.canUseMapMouseInput(event)) {
       return false;
@@ -7914,6 +10464,77 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    if (
+      this.isFpsMode() &&
+      this.isInDirectionQuestion &&
+      event.button === 0 &&
+      this.canUseFpsDirectionPromptMouseInput(event)
+    ) {
+      event.preventDefault();
+      if (document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+        return;
+      }
+      const lookDirectionInput = this.getFpsDirectionQuestionInputFromAim();
+      if (!lookDirectionInput) {
+        return;
+      }
+      this.sendInput(lookDirectionInput);
+      this.hideDirectionQuestion();
+      return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      this.isInDirectionQuestion &&
+      event.button === 2 &&
+      this.canUseFpsDirectionPromptMouseInput(event)
+    ) {
+      event.preventDefault();
+      this.sendInput("Escape");
+      this.hideDirectionQuestion();
+      return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      event.button === 0 &&
+      this.canUseFpsGameplayMouseInput(event)
+    ) {
+      event.preventDefault();
+      if (this.isFpsFireSuppressed()) {
+        if (document.pointerLockElement !== this.renderer.domElement) {
+          this.renderer.domElement.requestPointerLock?.();
+        }
+        return;
+      }
+      if (this.fpsCrosshairContextMenuOpen) {
+        this.closeFpsCrosshairContextMenu(true);
+        return;
+      }
+      if (document.pointerLockElement !== this.renderer.domElement) {
+        this.renderer.domElement.requestPointerLock?.();
+        return;
+      }
+      this.fireInCurrentAimDirection();
+      return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      event.button === 2 &&
+      this.canUseFpsGameplayMouseInput(event)
+    ) {
+      event.preventDefault();
+      if (this.fpsCrosshairContextMenuOpen) {
+        this.closeFpsCrosshairContextMenu(true);
+      } else {
+        this.openFpsCrosshairContextMenu();
+      }
+      this.isRightMouseDown = false;
+      return;
+    }
+
     if (this.handleMapMouseInput(event)) {
       event.preventDefault();
       return;
@@ -8033,6 +10654,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseMove(event: MouseEvent): void {
+    if (this.isFpsMode() && this.fpsPointerLockActive) {
+      const deltaX = event.movementX || 0;
+      const deltaY = event.movementY || 0;
+      this.cameraYaw = this.wrapAngle(
+        this.cameraYaw + deltaX * this.firstPersonMouseSensitivity,
+      );
+      this.cameraPitch = THREE.MathUtils.clamp(
+        this.cameraPitch - deltaY * this.firstPersonMouseSensitivity,
+        this.firstPersonPitchMin,
+        this.firstPersonPitchMax,
+      );
+      return;
+    }
+
     if (this.isMiddleMouseDown) {
       // Middle mouse - rotate camera
       event.preventDefault();
@@ -8040,14 +10675,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaY = event.clientY - this.lastMouseY;
 
       this.cameraYaw = this.wrapAngle(
-        this.cameraYaw - deltaX * this.rotationSpeed,
+        this.cameraYaw + deltaX * this.rotationSpeed,
+      );
+      this.cameraPitch = this.isFpsMode()
+        ? THREE.MathUtils.clamp(
+            this.cameraPitch - deltaY * this.rotationSpeed,
+            this.firstPersonPitchMin,
+            this.firstPersonPitchMax,
+          )
+        : THREE.MathUtils.clamp(
+            this.cameraPitch + deltaY * this.rotationSpeed,
+            this.minCameraPitch,
+            this.maxCameraPitch,
+          );
+
+      this.lastMouseX = event.clientX;
+      this.lastMouseY = event.clientY;
+    } else if (this.isFpsMode() && this.isRightMouseDown) {
+      event.preventDefault();
+      const deltaX = event.clientX - this.lastMouseX;
+      const deltaY = event.clientY - this.lastMouseY;
+      this.cameraYaw = this.wrapAngle(
+        this.cameraYaw + deltaX * this.rotationSpeed,
       );
       this.cameraPitch = THREE.MathUtils.clamp(
-        this.cameraPitch + deltaY * this.rotationSpeed,
-        this.minCameraPitch,
-        this.maxCameraPitch,
+        this.cameraPitch - deltaY * this.rotationSpeed,
+        this.firstPersonPitchMin,
+        this.firstPersonPitchMax,
       );
-
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     } else if (this.isRightMouseDown) {
@@ -8157,8 +10812,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastFrameTimeMs = timeMs;
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
+    this.syncFpsPointerLockForUiState(false);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.updateFpsPlayerLightPosition();
+    this.updateFpsCrosshairContextMenu();
+    this.updateFpsAimVisuals(timeMs);
     this.updateLightingCenter(deltaSeconds);
     this.renderMinimapViewportOverlay();
     this.updateMetaCommandModalPosition();

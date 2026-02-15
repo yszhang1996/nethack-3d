@@ -50,6 +50,8 @@ class LocalNetHackRuntime {
     this.metaInputPrefix = "__META__:";
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.textInputPrefix = "__TEXT_INPUT__:";
+    this.inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+    this.pendingInventoryContextSelection = null;
     this.pendingTextRequest = null;
     this.textInputMaxLength = 256;
     this.mouseInputTokenKey = "__MOUSE_INPUT__";
@@ -235,6 +237,7 @@ class LocalNetHackRuntime {
     this.activeInputRequest = null;
     this.menuSelections.clear();
     this.pendingExtendedCommands = [];
+    this.pendingInventoryContextSelection = null;
     this.awaitingQuestionInput = false;
     this.windowTextBuffers.clear();
 
@@ -355,6 +358,10 @@ class LocalNetHackRuntime {
     if (this.isTextInputCommand(input)) {
       const text = input.slice(this.textInputPrefix.length);
       this.handleTextInputResponse(text, source);
+      return;
+    }
+
+    if (this.armInventoryContextSelectionFromInput(input)) {
       return;
     }
 
@@ -834,6 +841,74 @@ class LocalNetHackRuntime {
     return (
       typeof input === "string" && input.startsWith(this.textInputPrefix)
     );
+  }
+
+  isInventoryContextSelectionInput(input) {
+    return (
+      typeof input === "string" &&
+      input.startsWith(this.inventoryContextSelectionPrefix) &&
+      input.length > this.inventoryContextSelectionPrefix.length
+    );
+  }
+
+  armInventoryContextSelectionFromInput(input) {
+    if (!this.isInventoryContextSelectionInput(input)) {
+      return false;
+    }
+
+    const accelerator = input
+      .slice(this.inventoryContextSelectionPrefix.length)
+      .trim();
+    if (accelerator.length !== 1) {
+      return false;
+    }
+
+    this.pendingInventoryContextSelection = {
+      accelerator,
+      createdAt: Date.now(),
+    };
+    console.log(
+      `Armed inventory context selection accelerator: "${accelerator}"`,
+    );
+    return true;
+  }
+
+  consumePendingInventoryContextSelection(menuItems) {
+    const pending = this.pendingInventoryContextSelection;
+    this.pendingInventoryContextSelection = null;
+
+    if (!pending || !Array.isArray(menuItems) || menuItems.length === 0) {
+      return null;
+    }
+
+    if (Date.now() - pending.createdAt > 1500) {
+      return null;
+    }
+
+    const accelerator = String(pending.accelerator || "");
+    if (accelerator.length !== 1) {
+      return null;
+    }
+
+    const exact = menuItems.find(
+      (item) =>
+        item &&
+        !item.isCategory &&
+        typeof item.accelerator === "string" &&
+        item.accelerator === accelerator,
+    );
+    if (exact) {
+      return exact;
+    }
+
+    const caseInsensitive = menuItems.find(
+      (item) =>
+        item &&
+        !item.isCategory &&
+        typeof item.accelerator === "string" &&
+        item.accelerator.toLowerCase() === accelerator.toLowerCase(),
+    );
+    return caseInsensitive || null;
   }
 
   handleTextInputResponse(text, source = "user") {
@@ -2816,6 +2891,24 @@ class LocalNetHackRuntime {
           console.log(
             `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
+          const directInventorySelection =
+            this.consumePendingInventoryContextSelection(this.currentMenuItems);
+          if (directInventorySelection) {
+            const selectionEntry =
+              this.createSelectionEntryFromMenuItem(directInventorySelection);
+            if (selectionEntry) {
+              this.menuSelections.clear();
+              const selectionKey = this.getMenuSelectionKey(selectionEntry);
+              this.menuSelections.set(selectionKey, selectionEntry);
+              this.isInMultiPickup = false;
+              console.log(
+                `Auto-selected inventory item via context action: ${selectionEntry.menuChar} (${selectionEntry.text})`,
+              );
+              // Skip question emission/wait so the clicked action resolves immediately.
+              return 0;
+            }
+          }
+
           const isMultiSelectQuestion =
             this.isMultiSelectLootQuestion(menuQuestion);
           if (isMultiSelectQuestion) {

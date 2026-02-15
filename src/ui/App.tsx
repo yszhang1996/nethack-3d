@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Nethack3DEngine } from "../game";
 import type {
   CharacterCreationConfig,
+  FpsCrosshairContextState,
   NethackMenuItem,
+  PlayMode,
 } from "../game/ui-types";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
@@ -221,6 +223,10 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
+const startupPlayModeOptions: Array<{ value: PlayMode; label: string }> = [
+  { value: "normal", label: "Normal" },
+  { value: "fps", label: "FPS" },
+];
 type StartupFlowStep = "choose" | "create" | "random-name";
 type MobileActionEntry = {
   id: string;
@@ -229,6 +235,29 @@ type MobileActionEntry = {
   value: string;
 };
 type MobileActionSheetMode = "quick" | "extended";
+type InventoryContextMenuState = {
+  accelerator: string;
+  itemText: string;
+  x: number;
+  y: number;
+};
+
+const clampInventoryContextMenuPosition = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { x: number; y: number } => {
+  const padding = 8;
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : 220;
+  const safeHeight = Number.isFinite(height) && height > 0 ? height : 260;
+  const maxX = Math.max(padding, window.innerWidth - safeWidth - padding);
+  const maxY = Math.max(padding, window.innerHeight - safeHeight - padding);
+  return {
+    x: Math.min(Math.max(x, padding), maxX),
+    y: Math.min(Math.max(y, padding), maxY),
+  };
+};
 
 const mobileActions: MobileActionEntry[] = [
   { id: "wait", label: "Wait", kind: "quick", value: "wait" },
@@ -367,6 +396,7 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
+  const [createPlayMode, setCreatePlayMode] = useState<PlayMode>("normal");
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -391,10 +421,35 @@ export default function App(): JSX.Element {
   const infoMenu = useGameStore((state) => state.infoMenu);
   const inventory = useGameStore((state) => state.inventory);
   const textInputRequest = useGameStore((state) => state.textInput);
+  const fpsCrosshairContext = useGameStore(
+    (state) => state.fpsCrosshairContext,
+  );
   const positionRequest = useGameStore((state) => state.positionRequest);
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
+  const isFpsPlayMode = characterCreationConfig?.playMode === "fps";
+  const inventoryItemActions = useMemo(
+    () => [
+      { id: "apply", label: "Apply" },
+      { id: "drop", label: "Drop" },
+      { id: "eat", label: "Eat" },
+      { id: "quaff", label: "Quaff" },
+      { id: "read", label: "Read" },
+      { id: "throw", label: "Throw" },
+      { id: "wield", label: "Wield" },
+      { id: "wear", label: "Wear" },
+      { id: "take-off", label: "Take Off" },
+      { id: "put-on", label: "Put On" },
+      { id: "remove", label: "Remove" },
+      { id: "zap", label: "Zap" },
+      { id: "cast", label: "Cast" },
+    ],
+    [],
+  );
+  const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const [inventoryContextMenu, setInventoryContextMenu] =
+    useState<InventoryContextMenuState | null>(null);
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -635,6 +690,137 @@ export default function App(): JSX.Element {
     setTextInputValue("");
   };
 
+  const openInventoryContextMenu = (
+    item: NethackMenuItem,
+    clientX: number,
+    clientY: number,
+  ): void => {
+    if (!isFpsPlayMode || typeof item.accelerator !== "string") {
+      return;
+    }
+
+    const initial = clampInventoryContextMenuPosition(
+      clientX + 8,
+      clientY + 8,
+      220,
+      260,
+    );
+
+    setInventoryContextMenu({
+      accelerator: item.accelerator,
+      itemText: String(item.text || "Unknown item"),
+      x: initial.x,
+      y: initial.y,
+    });
+  };
+
+  const runFpsCrosshairContextAction = (
+    action: FpsCrosshairContextState["actions"][number],
+  ): void => {
+    if (action.kind === "quick") {
+      controller?.runQuickAction(action.value);
+      return;
+    }
+    controller?.runExtendedCommand(action.value);
+  };
+
+  useEffect(() => {
+    if (!inventory.visible) {
+      setInventoryContextMenu(null);
+    }
+  }, [inventory.visible]);
+
+  useEffect(() => {
+    if (!inventoryContextMenu) {
+      return;
+    }
+
+    const handlePointerDown = (event: MouseEvent): void => {
+      const target = event.target as Node | null;
+      if (target && inventoryContextMenuRef.current?.contains(target)) {
+        return;
+      }
+      setInventoryContextMenu(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        setInventoryContextMenu(null);
+      }
+    };
+
+    const handleViewportResize = (): void => {
+      setInventoryContextMenu((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const menuElement = inventoryContextMenuRef.current;
+        const rect = menuElement?.getBoundingClientRect();
+        const clamped = clampInventoryContextMenuPosition(
+          previous.x,
+          previous.y,
+          rect?.width ?? 220,
+          rect?.height ?? 260,
+        );
+        if (clamped.x === previous.x && clamped.y === previous.y) {
+          return previous;
+        }
+        return {
+          ...previous,
+          x: clamped.x,
+          y: clamped.y,
+        };
+      });
+    };
+
+    window.addEventListener("mousedown", handlePointerDown, true);
+    window.addEventListener("contextmenu", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("resize", handleViewportResize);
+    return () => {
+      window.removeEventListener("mousedown", handlePointerDown, true);
+      window.removeEventListener("contextmenu", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [inventoryContextMenu]);
+
+  useLayoutEffect(() => {
+    if (!inventoryContextMenu) {
+      return;
+    }
+
+    const menuElement = inventoryContextMenuRef.current;
+    if (!menuElement) {
+      return;
+    }
+
+    const rect = menuElement.getBoundingClientRect();
+    const clamped = clampInventoryContextMenuPosition(
+      inventoryContextMenu.x,
+      inventoryContextMenu.y,
+      rect.width,
+      rect.height,
+    );
+    if (
+      clamped.x === inventoryContextMenu.x &&
+      clamped.y === inventoryContextMenu.y
+    ) {
+      return;
+    }
+
+    setInventoryContextMenu((previous) => {
+      if (!previous) {
+        return previous;
+      }
+      return {
+        ...previous,
+        x: clamped.x,
+        y: clamped.y,
+      };
+    });
+  }, [inventoryContextMenu]);
+
   return (
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
@@ -676,6 +862,22 @@ export default function App(): JSX.Element {
                     value={createName}
                   />
                 </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Play Mode</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setCreatePlayMode(event.target.value as PlayMode)
+                    }
+                    value={createPlayMode}
+                  >
+                    {startupPlayModeOptions.map((playMode) => (
+                      <option key={playMode.value} value={playMode.value}>
+                        {playMode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -683,6 +885,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "random",
+                      playMode: createPlayMode,
                       name: normalizeStartupCharacterName(createName),
                     })
                   }
@@ -770,6 +973,22 @@ export default function App(): JSX.Element {
                     ))}
                   </select>
                 </label>
+                <label className="nh3d-startup-config-field">
+                  <span>Play Mode</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setCreatePlayMode(event.target.value as PlayMode)
+                    }
+                    value={createPlayMode}
+                  >
+                    {startupPlayModeOptions.map((playMode) => (
+                      <option key={playMode.value} value={playMode.value}>
+                        {playMode.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -777,6 +996,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "create",
+                      playMode: createPlayMode,
                       name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,
@@ -1155,59 +1375,72 @@ export default function App(): JSX.Element {
       ) : null}
 
       {directionQuestion ? (
-        <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
-          <div className="nh3d-direction-text">{directionQuestion}</div>
-          <div className="nh3d-direction-grid">
-            {getDirectionChoices(numberPadModeEnabled).map((direction, index) => {
-              if (direction.spacer || !direction.key || !direction.label) {
-                return (
-                  <div
-                    aria-hidden="true"
-                    className="nh3d-direction-spacer"
-                    key={`spacer-${index}`}
-                  />
-                );
-              }
+        isFpsPlayMode ? (
+          <div
+            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps is-visible"
+            id="direction-dialog"
+          >
+            <div className="nh3d-direction-text">{directionQuestion}</div>
+            <div className="nh3d-direction-fps-hint">
+              Look to aim. Left-click or W confirms. S targets self. A/D or
+              right-click cancels.
+            </div>
+          </div>
+        ) : (
+          <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
+            <div className="nh3d-direction-text">{directionQuestion}</div>
+            <div className="nh3d-direction-grid">
+              {getDirectionChoices(numberPadModeEnabled).map((direction, index) => {
+                if (direction.spacer || !direction.key || !direction.label) {
+                  return (
+                    <div
+                      aria-hidden="true"
+                      className="nh3d-direction-spacer"
+                      key={`spacer-${index}`}
+                    />
+                  );
+                }
 
-              return (
+                return (
+                  <button
+                    className="nh3d-direction-button"
+                    key={direction.key}
+                    onClick={() => controller?.chooseDirection(direction.key!)}
+                    type="button"
+                  >
+                    <div className="nh3d-direction-symbol">{direction.label}</div>
+                    <div className="nh3d-direction-key">{direction.key}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="nh3d-direction-extra-row">
+              {directionAuxChoices.map((direction) => (
                 <button
-                  className="nh3d-direction-button"
+                  className="nh3d-direction-button nh3d-direction-button-extra"
                   key={direction.key}
-                  onClick={() => controller?.chooseDirection(direction.key!)}
+                  onClick={() => controller?.chooseDirection(direction.key)}
                   type="button"
                 >
                   <div className="nh3d-direction-symbol">{direction.label}</div>
                   <div className="nh3d-direction-key">{direction.key}</div>
                 </button>
-              );
-            })}
-          </div>
-          <div className="nh3d-direction-extra-row">
-            {directionAuxChoices.map((direction) => (
+              ))}
+            </div>
+            <div className="nh3d-dialog-hint">
+              {getDirectionHelpText(numberPadModeEnabled)}
+            </div>
+            <div className="nh3d-menu-actions">
               <button
-                className="nh3d-direction-button nh3d-direction-button-extra"
-                key={direction.key}
-                onClick={() => controller?.chooseDirection(direction.key)}
+                className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                onClick={() => controller?.cancelActivePrompt()}
                 type="button"
               >
-                <div className="nh3d-direction-symbol">{direction.label}</div>
-                <div className="nh3d-direction-key">{direction.key}</div>
+                Cancel
               </button>
-            ))}
+            </div>
           </div>
-          <div className="nh3d-dialog-hint">
-            {getDirectionHelpText(numberPadModeEnabled)}
-          </div>
-          <div className="nh3d-menu-actions">
-            <button
-              className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={() => controller?.cancelActivePrompt()}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
+        )
       ) : null}
 
       {infoMenu ? (
@@ -1249,7 +1482,52 @@ export default function App(): JSX.Element {
                     {item.text}
                   </div>
                 ) : (
-                  <div className="nh3d-inventory-item" key={`item-${index}`}>
+                  <div
+                    className={`nh3d-inventory-item${
+                      isFpsPlayMode &&
+                      inventoryContextMenu?.accelerator === item.accelerator
+                        ? " nh3d-inventory-item-active"
+                        : ""
+                    }`}
+                    key={`item-${index}`}
+                    onClick={(event) => {
+                      if (!isFpsPlayMode) {
+                        return;
+                      }
+                      openInventoryContextMenu(
+                        item,
+                        event.clientX,
+                        event.clientY,
+                      );
+                    }}
+                    onContextMenu={(event) => {
+                      if (!isFpsPlayMode) {
+                        return;
+                      }
+                      event.preventDefault();
+                      openInventoryContextMenu(
+                        item,
+                        event.clientX,
+                        event.clientY,
+                      );
+                    }}
+                    onKeyDown={(event) => {
+                      if (!isFpsPlayMode) {
+                        return;
+                      }
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        const target = event.currentTarget.getBoundingClientRect();
+                        openInventoryContextMenu(
+                          item,
+                          target.right,
+                          target.top + target.height / 2,
+                        );
+                      }
+                    }}
+                    role={isFpsPlayMode ? "button" : undefined}
+                    tabIndex={isFpsPlayMode ? 0 : undefined}
+                  >
                     <span className="nh3d-inventory-key">{item.accelerator || "?"})</span>
                     <span className="nh3d-inventory-text">{item.text || "Unknown item"}</span>
                   </div>
@@ -1259,26 +1537,32 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-inventory-keybinds-title">🎮 ITEM COMMANDS</div>
           <div className="nh3d-inventory-keybinds">
-            <div className="nh3d-inventory-keybinds-text">
-              <span className="nh3d-inventory-command-key">a</span>)pply{" "}
-              <span className="nh3d-inventory-command-key">d</span>)rop{" "}
-              <span className="nh3d-inventory-command-key">e</span>)at{" "}
-              <span className="nh3d-inventory-command-key">q</span>)uaff{" "}
-              <span className="nh3d-inventory-command-key">r</span>)ead{" "}
-              <span className="nh3d-inventory-command-key">t</span>)hrow{" "}
-              <span className="nh3d-inventory-command-key">w</span>)ield{" "}
-              <span className="nh3d-inventory-command-key">W</span>)ear{" "}
-              <span className="nh3d-inventory-command-key">T</span>)ake-off{" "}
-              <span className="nh3d-inventory-command-key">P</span>)ut-on{" "}
-              <span className="nh3d-inventory-command-key">R</span>)emove{" "}
-              <span className="nh3d-inventory-command-key">z</span>)ap{" "}
-              <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
-              Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
-              <span className="nh3d-inventory-command-key">[</span>)armor{" "}
-              <span className="nh3d-inventory-command-key">=</span>)rings{" "}
-              <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
-              <span className="nh3d-inventory-command-key">(</span>)tools
-            </div>
+            {isFpsPlayMode ? (
+              <div className="nh3d-inventory-keybinds-text">
+                Left- or right-click an item to open contextual commands.
+              </div>
+            ) : (
+              <div className="nh3d-inventory-keybinds-text">
+                <span className="nh3d-inventory-command-key">a</span>)pply{" "}
+                <span className="nh3d-inventory-command-key">d</span>)rop{" "}
+                <span className="nh3d-inventory-command-key">e</span>)at{" "}
+                <span className="nh3d-inventory-command-key">q</span>)uaff{" "}
+                <span className="nh3d-inventory-command-key">r</span>)ead{" "}
+                <span className="nh3d-inventory-command-key">t</span>)hrow{" "}
+                <span className="nh3d-inventory-command-key">w</span>)ield{" "}
+                <span className="nh3d-inventory-command-key">W</span>)ear{" "}
+                <span className="nh3d-inventory-command-key">T</span>)ake-off{" "}
+                <span className="nh3d-inventory-command-key">P</span>)ut-on{" "}
+                <span className="nh3d-inventory-command-key">R</span>)emove{" "}
+                <span className="nh3d-inventory-command-key">z</span>)ap{" "}
+                <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
+                Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
+                <span className="nh3d-inventory-command-key">[</span>)armor{" "}
+                <span className="nh3d-inventory-command-key">=</span>)rings{" "}
+                <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
+                <span className="nh3d-inventory-command-key">(</span>)tools
+              </div>
+            )}
           </div>
           <div className="nh3d-inventory-close">Press ENTER, ESC, or 'i' to close</div>
           <div className="nh3d-menu-actions">
@@ -1289,6 +1573,69 @@ export default function App(): JSX.Element {
             >
               Close
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isFpsPlayMode && inventoryContextMenu ? (
+        <div
+          className="nh3d-context-menu nh3d-inventory-context-menu"
+          onContextMenu={(event) => event.preventDefault()}
+          ref={inventoryContextMenuRef}
+          style={{
+            left: `${inventoryContextMenu.x}px`,
+            top: `${inventoryContextMenu.y}px`,
+          }}
+        >
+          <div className="nh3d-context-menu-title">
+            {inventoryContextMenu.itemText} ({inventoryContextMenu.accelerator})
+          </div>
+          <div className="nh3d-context-menu-actions">
+            {inventoryItemActions.map((action) => (
+              <button
+                className="nh3d-context-menu-button"
+                key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
+                onClick={() => {
+                  controller?.runInventoryItemAction(
+                    action.id,
+                    inventoryContextMenu.accelerator,
+                  );
+                  setInventoryContextMenu(null);
+                }}
+                type="button"
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {isFpsPlayMode &&
+      characterCreationConfig !== null &&
+      connectionState === "running" &&
+      !loadingVisible ? (
+        <div aria-hidden="true" className="nh3d-fps-crosshair">
+          <div className="nh3d-fps-crosshair-dot" />
+        </div>
+      ) : null}
+
+      {isFpsPlayMode && fpsCrosshairContext ? (
+        <div className="nh3d-context-menu nh3d-fps-crosshair-context">
+          <div className="nh3d-context-menu-title">
+            {fpsCrosshairContext.title} ({fpsCrosshairContext.tileX},{fpsCrosshairContext.tileY})
+          </div>
+          <div className="nh3d-context-menu-actions">
+            {fpsCrosshairContext.actions.map((action) => (
+              <button
+                className="nh3d-context-menu-button"
+                key={`crosshair-${action.kind}-${action.id}-${action.value}`}
+                onClick={() => runFpsCrosshairContextAction(action)}
+                type="button"
+              >
+                {action.label}
+              </button>
+            ))}
           </div>
         </div>
       ) : null}
