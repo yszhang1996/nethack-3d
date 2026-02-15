@@ -166,6 +166,15 @@ type FpsCrosshairGlancePending = {
   positionResolvedAtMs: number | null;
 };
 
+type FpsTouchGestureState = {
+  touchId: number;
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  startedAtMs: number;
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -352,6 +361,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     y: number;
     startedAtMs: number;
   } | null = null;
+  private fpsTouchMoveGesture: FpsTouchGestureState | null = null;
+  private fpsTouchLookGesture: FpsTouchGestureState | null = null;
+  private readonly fpsTouchLookSensitivity: number = 0.0038;
+  private readonly fpsTouchLookMoveThresholdPx: number = 8;
+  private readonly fpsTouchTapMaxDurationMs: number = 280;
   private readonly touchSwipeMinDistancePx: number = 26;
   private readonly touchSwipeMaxDurationMs: number = 720;
   private minDistance: number = 5;
@@ -8301,6 +8315,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
+    this.clearFpsTouchGestures();
     this.exitMetaCommandMode();
     this.closeFpsCrosshairContextMenu(false);
     this.stopMinimapDrag();
@@ -10256,6 +10271,61 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
+  private canUseFpsTouchInput(event: TouchEvent): boolean {
+    if (!this.session || !this.isFpsMode()) {
+      return false;
+    }
+    if (!this.isTouchEventOnGameCanvas(event)) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.metaCommandModeActive ||
+      this.positionInputModeActive
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private clearFpsTouchGestures(): void {
+    this.fpsTouchMoveGesture = null;
+    this.fpsTouchLookGesture = null;
+  }
+
+  private findTouchById(list: TouchList, touchId: number): Touch | null {
+    for (let i = 0; i < list.length; i += 1) {
+      const touch = list.item(i);
+      if (touch && touch.identifier === touchId) {
+        return touch;
+      }
+    }
+    return null;
+  }
+
+  private resolveFpsMovementInputFromSwipe(dx: number, dy: number): string | null {
+    const absX = Math.abs(dx);
+    const absY = Math.abs(dy);
+    if (absX < this.touchSwipeMinDistancePx && absY < this.touchSwipeMinDistancePx) {
+      return null;
+    }
+
+    const axisBiasRatio = 0.62;
+    let key: string;
+    if (absX <= absY * axisBiasRatio) {
+      key = dy < 0 ? "w" : "s";
+    } else if (absY <= absX * axisBiasRatio) {
+      key = dx < 0 ? "a" : "d";
+    } else {
+      key = absY >= absX ? (dy < 0 ? "w" : "s") : dx < 0 ? "a" : "d";
+    }
+    return this.tryResolveFpsMovementInput(key);
+  }
+
   private resolveDirectionKeyFromDelta(
     dx: number,
     dy: number,
@@ -10557,6 +10627,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchStart(event: TouchEvent): void {
+    if (this.isFpsMode()) {
+      if (!this.canUseFpsTouchInput(event)) {
+        this.clearFpsTouchGestures();
+        return;
+      }
+
+      const rect = this.renderer.domElement.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        this.clearFpsTouchGestures();
+        return;
+      }
+      const splitX = rect.left + rect.width * 0.5;
+
+      for (let i = 0; i < event.changedTouches.length; i += 1) {
+        const touch = event.changedTouches.item(i);
+        if (!touch) {
+          continue;
+        }
+        const gesture: FpsTouchGestureState = {
+          touchId: touch.identifier,
+          startX: touch.clientX,
+          startY: touch.clientY,
+          lastX: touch.clientX,
+          lastY: touch.clientY,
+          startedAtMs: Date.now(),
+        };
+        const isLeftSide = touch.clientX < splitX;
+        if (isLeftSide) {
+          if (!this.fpsTouchMoveGesture) {
+            this.fpsTouchMoveGesture = gesture;
+            if (this.fpsCrosshairContextMenuOpen) {
+              this.closeFpsCrosshairContextMenu(false);
+            }
+          }
+        } else if (!this.fpsTouchLookGesture) {
+          this.fpsTouchLookGesture = gesture;
+        }
+      }
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (!this.canUseMapTouchInput(event)) {
       this.touchSwipeStart = null;
       return;
@@ -10578,6 +10693,69 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchMove(event: TouchEvent): void {
+    if (this.isFpsMode()) {
+      if (!this.canUseFpsTouchInput(event)) {
+        return;
+      }
+
+      let consumed = false;
+      if (this.fpsTouchLookGesture) {
+        const touch =
+          this.findTouchById(event.changedTouches, this.fpsTouchLookGesture.touchId) ||
+          this.findTouchById(event.touches, this.fpsTouchLookGesture.touchId);
+        if (touch) {
+          const deltaX = touch.clientX - this.fpsTouchLookGesture.lastX;
+          const deltaY = touch.clientY - this.fpsTouchLookGesture.lastY;
+          const traveled = Math.hypot(
+            touch.clientX - this.fpsTouchLookGesture.startX,
+            touch.clientY - this.fpsTouchLookGesture.startY,
+          );
+          if (
+            traveled >= this.fpsTouchLookMoveThresholdPx &&
+            this.fpsCrosshairContextMenuOpen
+          ) {
+            this.closeFpsCrosshairContextMenu(false);
+          }
+          this.cameraYaw = this.wrapAngle(
+            this.cameraYaw + deltaX * this.fpsTouchLookSensitivity,
+          );
+          this.cameraPitch = THREE.MathUtils.clamp(
+            this.cameraPitch - deltaY * this.fpsTouchLookSensitivity,
+            this.firstPersonPitchMin,
+            this.firstPersonPitchMax,
+          );
+          this.fpsTouchLookGesture.lastX = touch.clientX;
+          this.fpsTouchLookGesture.lastY = touch.clientY;
+          consumed = true;
+        }
+      }
+
+      if (this.fpsTouchMoveGesture) {
+        const touch =
+          this.findTouchById(event.changedTouches, this.fpsTouchMoveGesture.touchId) ||
+          this.findTouchById(event.touches, this.fpsTouchMoveGesture.touchId);
+        if (touch) {
+          this.fpsTouchMoveGesture.lastX = touch.clientX;
+          this.fpsTouchMoveGesture.lastY = touch.clientY;
+          if (this.fpsCrosshairContextMenuOpen) {
+            const traveled = Math.hypot(
+              touch.clientX - this.fpsTouchMoveGesture.startX,
+              touch.clientY - this.fpsTouchMoveGesture.startY,
+            );
+            if (traveled >= this.touchSwipeMinDistancePx) {
+              this.closeFpsCrosshairContextMenu(false);
+            }
+          }
+          consumed = true;
+        }
+      }
+
+      if (consumed && event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (!this.touchSwipeStart || !this.canUseMapTouchInput(event)) {
       return;
     }
@@ -10587,6 +10765,74 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchEnd(event: TouchEvent): void {
+    if (this.isFpsMode()) {
+      if (!event.changedTouches || event.changedTouches.length === 0) {
+        return;
+      }
+
+      let consumed = false;
+      const nowMs = Date.now();
+      for (let i = 0; i < event.changedTouches.length; i += 1) {
+        const touch = event.changedTouches.item(i);
+        if (!touch) {
+          continue;
+        }
+
+        if (
+          this.fpsTouchLookGesture &&
+          touch.identifier === this.fpsTouchLookGesture.touchId
+        ) {
+          const gesture = this.fpsTouchLookGesture;
+          this.fpsTouchLookGesture = null;
+          const dx = touch.clientX - gesture.startX;
+          const dy = touch.clientY - gesture.startY;
+          const distance = Math.hypot(dx, dy);
+          const durationMs = nowMs - gesture.startedAtMs;
+          const isTap =
+            distance < this.fpsTouchLookMoveThresholdPx &&
+            durationMs <= this.fpsTouchTapMaxDurationMs;
+          if (isTap) {
+            if (this.fpsCrosshairContextMenuOpen) {
+              this.closeFpsCrosshairContextMenu(false);
+            } else {
+              this.openFpsCrosshairContextMenu();
+            }
+            consumed = true;
+          }
+        }
+
+        if (
+          this.fpsTouchMoveGesture &&
+          touch.identifier === this.fpsTouchMoveGesture.touchId
+        ) {
+          const gesture = this.fpsTouchMoveGesture;
+          this.fpsTouchMoveGesture = null;
+          const dx = touch.clientX - gesture.startX;
+          const dy = touch.clientY - gesture.startY;
+          const durationMs = nowMs - gesture.startedAtMs;
+          const fpsMoveInput =
+            durationMs <= this.touchSwipeMaxDurationMs
+              ? this.resolveFpsMovementInputFromSwipe(dx, dy)
+              : null;
+          if (fpsMoveInput) {
+            if (this.fpsCrosshairContextMenuOpen) {
+              this.closeFpsCrosshairContextMenu(false);
+            }
+            if (!this.hasPlayerMovedOnce) {
+              this.lastMovementInputAtMs = nowMs;
+            }
+            this.sendInput(fpsMoveInput);
+            consumed = true;
+          }
+        }
+      }
+
+      if (consumed && event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     const start = this.touchSwipeStart;
     this.touchSwipeStart = null;
     if (!start || !this.canUseMapTouchInput(event)) {
@@ -10650,6 +10896,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchCancel(): void {
+    if (this.isFpsMode()) {
+      this.clearFpsTouchGestures();
+      return;
+    }
     this.touchSwipeStart = null;
   }
 
