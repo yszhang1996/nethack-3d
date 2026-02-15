@@ -3,9 +3,10 @@ import { Nethack3DEngine } from "../game";
 import type {
   CharacterCreationConfig,
   FpsCrosshairContextState,
+  Nh3dClientOptions,
   NethackMenuItem,
-  PlayMode,
 } from "../game/ui-types";
+import { defaultNh3dClientOptions } from "../game/ui-types";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
@@ -223,10 +224,6 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
-const startupPlayModeOptions: Array<{ value: PlayMode; label: string }> = [
-  { value: "normal", label: "Normal" },
-  { value: "fps", label: "FPS" },
-];
 type StartupFlowStep = "choose" | "create" | "random-name";
 type MobileActionEntry = {
   id: string;
@@ -241,6 +238,44 @@ type InventoryContextMenuState = {
   x: number;
   y: number;
 };
+type ClientOptionToggle = {
+  key: keyof Nh3dClientOptions;
+  label: string;
+  description: string;
+};
+
+const clientOptionToggles: ClientOptionToggle[] = [
+  {
+    key: "fpsMode",
+    label: "FPS mode",
+    description: "Use first-person controls and mouselook.",
+  },
+  {
+    key: "minimap",
+    label: "Minimap",
+    description: "Show or hide the dungeon minimap.",
+  },
+  {
+    key: "damageNumbers",
+    label: "Damage numbers",
+    description: "Show floating damage and healing numbers.",
+  },
+  {
+    key: "tileShakeOnHit",
+    label: "Tile shake on hit",
+    description: "Shake impact tiles when combat lands.",
+  },
+  {
+    key: "blood",
+    label: "Blood",
+    description: "Render blood mist particle effects on hits.",
+  },
+  {
+    key: "liveMessageLog",
+    label: "Live message log",
+    description: "Display the scrolling in-game message log.",
+  },
+];
 
 const clampInventoryContextMenuPosition = (
   x: number,
@@ -396,7 +431,15 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
-  const [createPlayMode, setCreatePlayMode] = useState<PlayMode>("normal");
+  const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>({
+    ...defaultNh3dClientOptions,
+  });
+  const [clientOptionsDraft, setClientOptionsDraft] = useState<Nh3dClientOptions>(
+    {
+      ...defaultNh3dClientOptions,
+    },
+  );
+  const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -407,6 +450,7 @@ export default function App(): JSX.Element {
   const [textInputValue, setTextInputValue] = useState("");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore((state) => state.setEngineController);
+  const setPositionRequest = useGameStore((state) => state.setPositionRequest);
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
   const statusText = useGameStore((state) => state.statusText);
@@ -428,7 +472,7 @@ export default function App(): JSX.Element {
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
-  const isFpsPlayMode = characterCreationConfig?.playMode === "fps";
+  const isFpsPlayMode = clientOptions.fpsMode;
   const inventoryItemActions = useMemo(
     () => [
       { id: "apply", label: "Apply" },
@@ -459,6 +503,7 @@ export default function App(): JSX.Element {
       mountElement: canvasRootRef.current,
       uiAdapter: adapter,
       characterCreationConfig,
+      clientOptions,
     });
     setEngineController(engine);
     registerDebugHelpers(engine);
@@ -466,6 +511,13 @@ export default function App(): JSX.Element {
       setEngineController(null);
     };
   }, [adapter, characterCreationConfig, setEngineController]);
+
+  useEffect(() => {
+    if (!controller) {
+      return;
+    }
+    controller.setClientOptions(clientOptions);
+  }, [controller, clientOptions]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) {
@@ -605,6 +657,20 @@ export default function App(): JSX.Element {
     characterCreationConfig !== null &&
     connectionState === "running" &&
     !loadingVisible;
+  const isDesktopGameRunning =
+    !isMobileViewport &&
+    characterCreationConfig !== null &&
+    connectionState === "running" &&
+    !loadingVisible;
+  const hasGameplayOverlayOpen =
+    Boolean(question) ||
+    Boolean(directionQuestion) ||
+    Boolean(infoMenu) ||
+    inventory.visible ||
+    Boolean(textInputRequest) ||
+    Boolean(positionRequest) ||
+    Boolean(inventoryContextMenu) ||
+    Boolean(fpsCrosshairContext);
 
   useEffect(() => {
     if (!isMobileGameRunning) {
@@ -613,6 +679,12 @@ export default function App(): JSX.Element {
       setIsMobileLogVisible(false);
     }
   }, [isMobileGameRunning]);
+
+  useEffect(() => {
+    if (!clientOptions.liveMessageLog) {
+      setIsMobileLogVisible(false);
+    }
+  }, [clientOptions.liveMessageLog]);
 
   useEffect(() => {
     if (!textInputRequest) {
@@ -689,6 +761,49 @@ export default function App(): JSX.Element {
     controller?.submitTextInput(value);
     setTextInputValue("");
   };
+
+  const openClientOptionsDialog = (): void => {
+    setClientOptionsDraft({ ...clientOptions });
+    setIsClientOptionsVisible(true);
+    controller?.dismissFpsCrosshairContextMenu();
+  };
+
+  const closeClientOptionsDialog = (): void => {
+    setIsClientOptionsVisible(false);
+    setClientOptionsDraft({ ...clientOptions });
+  };
+
+  const confirmClientOptionsDialog = (): void => {
+    const next = { ...clientOptionsDraft };
+    setClientOptions(next);
+    setIsClientOptionsVisible(false);
+    controller?.setClientOptions(next);
+  };
+
+  const updateClientOptionDraft = (
+    optionKey: keyof Nh3dClientOptions,
+    enabled: boolean,
+  ): void => {
+    setClientOptionsDraft((previous) => ({
+      ...previous,
+      [optionKey]: enabled,
+    }));
+  };
+
+  const renderMobileDialogCloseButton = (
+    onClick: () => void,
+    label = "Close",
+  ): JSX.Element | null =>
+    isMobileViewport ? (
+      <button
+        aria-label={label}
+        className="nh3d-mobile-dialog-close"
+        onClick={onClick}
+        type="button"
+      >
+        ×
+      </button>
+    ) : null;
 
   const openInventoryContextMenu = (
     item: NethackMenuItem,
@@ -821,12 +936,65 @@ export default function App(): JSX.Element {
     });
   }, [inventoryContextMenu]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleEscapeForClientOptions = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape" || isMobileViewport) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      if (isClientOptionsVisible) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeClientOptionsDialog();
+        return;
+      }
+
+      if (!isDesktopGameRunning || hasGameplayOverlayOpen) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      openClientOptionsDialog();
+    };
+
+    window.addEventListener("keydown", handleEscapeForClientOptions, true);
+    return () => {
+      window.removeEventListener("keydown", handleEscapeForClientOptions, true);
+    };
+  }, [
+    clientOptions,
+    controller,
+    hasGameplayOverlayOpen,
+    isClientOptionsVisible,
+    isDesktopGameRunning,
+    isMobileViewport,
+  ]);
+
   return (
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
 
       {characterCreationConfig === null ? (
         <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
+          {renderMobileDialogCloseButton(
+            () => setStartupFlowStep("choose"),
+            "Reset character setup",
+          )}
           {startupFlowStep === "choose" ? (
             <>
               <div className="nh3d-question-text">Choose your character setup:</div>
@@ -846,6 +1014,15 @@ export default function App(): JSX.Element {
                   Create character
                 </button>
               </div>
+              <div className="nh3d-menu-actions">
+                <button
+                  className="nh3d-menu-action-button"
+                  onClick={openClientOptionsDialog}
+                  type="button"
+                >
+                  NetHack 3D Options
+                </button>
+              </div>
             </>
           ) : startupFlowStep === "random-name" ? (
             <>
@@ -862,22 +1039,6 @@ export default function App(): JSX.Element {
                     value={createName}
                   />
                 </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Play Mode</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) =>
-                      setCreatePlayMode(event.target.value as PlayMode)
-                    }
-                    value={createPlayMode}
-                  >
-                    {startupPlayModeOptions.map((playMode) => (
-                      <option key={playMode.value} value={playMode.value}>
-                        {playMode.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -885,7 +1046,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "random",
-                      playMode: createPlayMode,
+                      playMode: clientOptions.fpsMode ? "fps" : "normal",
                       name: normalizeStartupCharacterName(createName),
                     })
                   }
@@ -899,6 +1060,13 @@ export default function App(): JSX.Element {
                   type="button"
                 >
                   Back
+                </button>
+                <button
+                  className="nh3d-menu-action-button"
+                  onClick={openClientOptionsDialog}
+                  type="button"
+                >
+                  NetHack 3D Options
                 </button>
               </div>
             </>
@@ -973,22 +1141,6 @@ export default function App(): JSX.Element {
                     ))}
                   </select>
                 </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Play Mode</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) =>
-                      setCreatePlayMode(event.target.value as PlayMode)
-                    }
-                    value={createPlayMode}
-                  >
-                    {startupPlayModeOptions.map((playMode) => (
-                      <option key={playMode.value} value={playMode.value}>
-                        {playMode.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
               </div>
               <div className="nh3d-menu-actions">
                 <button
@@ -996,7 +1148,7 @@ export default function App(): JSX.Element {
                   onClick={() =>
                     setCharacterCreationConfig({
                       mode: "create",
-                      playMode: createPlayMode,
+                      playMode: clientOptions.fpsMode ? "fps" : "normal",
                       name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,
@@ -1014,6 +1166,13 @@ export default function App(): JSX.Element {
                   type="button"
                 >
                   Back
+                </button>
+                <button
+                  className="nh3d-menu-action-button"
+                  onClick={openClientOptionsDialog}
+                  type="button"
+                >
+                  NetHack 3D Options
                 </button>
               </div>
             </>
@@ -1034,13 +1193,15 @@ export default function App(): JSX.Element {
       {!isMobileGameRunning ? (
         <div className="top-left-ui with-stats">
           {!isMobileViewport ? <div id="game-status">{statusText}</div> : null}
-          <div id="game-log">
-            {gameMessages.map((message, index) => (
-              <div key={`${index}-${message}`}>{message}</div>
-            ))}
-          </div>
+          {clientOptions.liveMessageLog ? (
+            <div id="game-log">
+              {gameMessages.map((message, index) => (
+                <div key={`${index}-${message}`}>{message}</div>
+              ))}
+            </div>
+          ) : null}
         </div>
-      ) : (
+      ) : clientOptions.liveMessageLog ? (
         <div
           className={`nh3d-mobile-log${
             isMobileLogVisible ? "" : " nh3d-mobile-log-hidden"
@@ -1052,11 +1213,15 @@ export default function App(): JSX.Element {
             } as React.CSSProperties
           }
         >
+          {renderMobileDialogCloseButton(
+            () => setIsMobileLogVisible(false),
+            "Close message log",
+          )}
           {gameMessages.map((message, index) => (
             <div key={`${index}-${message}`}>{message}</div>
           ))}
         </div>
-      )}
+      ) : null}
 
       <div id="floating-log-message-layer">
         {floatingMessages.map((entry, index) => (
@@ -1151,8 +1316,60 @@ export default function App(): JSX.Element {
         </div>
       </div>
 
+      {isClientOptionsVisible ? (
+        <div className="nh3d-dialog nh3d-dialog-options is-visible" id="nh3d-client-options-dialog">
+          {renderMobileDialogCloseButton(
+            closeClientOptionsDialog,
+            "Close NetHack 3D options",
+          )}
+          <div className="nh3d-options-title">NetHack 3D Client Options</div>
+          <div className="nh3d-options-list">
+            {clientOptionToggles.map((toggle) => {
+              const enabled = Boolean(clientOptionsDraft[toggle.key]);
+              return (
+                <div className="nh3d-option-row" key={toggle.key}>
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">{toggle.label}</div>
+                    <div className="nh3d-option-description">{toggle.description}</div>
+                  </div>
+                  <button
+                    aria-checked={enabled}
+                    className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
+                    onClick={() => updateClientOptionDraft(toggle.key, !enabled)}
+                    role="switch"
+                    type="button"
+                  >
+                    <span className="nh3d-option-switch-thumb" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={confirmClientOptionsDialog}
+              type="button"
+            >
+              Confirm
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={closeClientOptionsDialog}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {textInputRequest ? (
         <div className="nh3d-dialog nh3d-dialog-text is-visible" id="text-input-dialog">
+          {renderMobileDialogCloseButton(
+            () => submitTextInput(""),
+            "Cancel text input",
+          )}
           <div className="nh3d-question-text">{textInputRequest.text}</div>
           <input
             className="nh3d-text-input"
@@ -1194,6 +1411,10 @@ export default function App(): JSX.Element {
 
       {question ? (
         <div className="nh3d-dialog nh3d-dialog-question is-visible" id="question-dialog">
+          {renderMobileDialogCloseButton(
+            () => controller?.cancelActivePrompt(),
+            "Cancel prompt",
+          )}
           <div className="nh3d-question-text">{question.text}</div>
           {question.menuItems.length > 0 ? (
             question.isPickupDialog ? (
@@ -1380,6 +1601,10 @@ export default function App(): JSX.Element {
             className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps is-visible"
             id="direction-dialog"
           >
+            {renderMobileDialogCloseButton(
+              () => controller?.cancelActivePrompt(),
+              "Cancel direction prompt",
+            )}
             <div className="nh3d-direction-text">{directionQuestion}</div>
             <div className="nh3d-direction-fps-hint">
               Look to aim. Left-click or W confirms. S targets self. A/D or
@@ -1388,6 +1613,10 @@ export default function App(): JSX.Element {
           </div>
         ) : (
           <div className="nh3d-dialog nh3d-dialog-direction is-visible" id="direction-dialog">
+            {renderMobileDialogCloseButton(
+              () => controller?.cancelActivePrompt(),
+              "Cancel direction prompt",
+            )}
             <div className="nh3d-direction-text">{directionQuestion}</div>
             <div className="nh3d-direction-grid">
               {getDirectionChoices(numberPadModeEnabled).map((direction, index) => {
@@ -1445,6 +1674,10 @@ export default function App(): JSX.Element {
 
       {infoMenu ? (
         <div className="nh3d-dialog nh3d-dialog-info is-visible" id="info-menu-dialog">
+          {renderMobileDialogCloseButton(
+            () => controller?.closeInfoMenuDialog(),
+            "Close information window",
+          )}
           <div className="nh3d-info-title">{infoMenu.title || "NetHack Information"}</div>
           <div className="nh3d-info-body">
             {infoMenu.lines.length > 0 ? infoMenu.lines.join("\n") : "(No details)"}
@@ -1466,7 +1699,11 @@ export default function App(): JSX.Element {
 
       {inventory.visible ? (
         <div className="nh3d-dialog nh3d-dialog-inventory is-visible" id="inventory-dialog">
-          <div className="nh3d-inventory-title">📦 INVENTORY</div>
+          {renderMobileDialogCloseButton(
+            () => controller?.closeInventoryDialog(),
+            "Close inventory",
+          )}
+          <div className="nh3d-inventory-title">INVENTORY</div>
           <div className="nh3d-inventory-items">
             {inventory.items.length === 0 ? (
               <div className="nh3d-inventory-empty">Your inventory is empty.</div>
@@ -1535,7 +1772,7 @@ export default function App(): JSX.Element {
               )
             )}
           </div>
-          <div className="nh3d-inventory-keybinds-title">🎮 ITEM COMMANDS</div>
+          <div className="nh3d-inventory-keybinds-title">ITEM COMMANDS</div>
           <div className="nh3d-inventory-keybinds">
             {isFpsPlayMode ? (
               <div className="nh3d-inventory-keybinds-text">
@@ -1646,15 +1883,38 @@ export default function App(): JSX.Element {
             <div className="nh3d-mobile-actions-title">
               {mobileActionSheetMode === "quick" ? "Actions" : "Extended Commands"}
             </div>
-            {mobileActionSheetMode === "extended" ? (
+            <div className="nh3d-mobile-actions-controls">
+              {mobileActionSheetMode === "extended" ? (
+                <button
+                  className="nh3d-mobile-actions-back"
+                  onClick={() => setMobileActionSheetMode("quick")}
+                  type="button"
+                >
+                  Back
+                </button>
+              ) : null}
               <button
                 className="nh3d-mobile-actions-back"
-                onClick={() => setMobileActionSheetMode("quick")}
+                onClick={() => {
+                  setIsMobileActionSheetVisible(false);
+                  setMobileActionSheetMode("quick");
+                  openClientOptionsDialog();
+                }}
                 type="button"
               >
-                Back
+                Options
               </button>
-            ) : null}
+              <button
+                className="nh3d-mobile-actions-close"
+                onClick={() => {
+                  setIsMobileActionSheetVisible(false);
+                  setMobileActionSheetMode("quick");
+                }}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
           </div>
           {mobileActionSheetMode === "quick" ? (
             <div className="nh3d-mobile-actions-grid is-fixed-layout">
@@ -1663,6 +1923,7 @@ export default function App(): JSX.Element {
                   className="nh3d-mobile-actions-button"
                   key={action.id}
                   onClick={() => {
+                    controller?.dismissFpsCrosshairContextMenu();
                     if (action.id === "extended") {
                       setMobileActionSheetMode("extended");
                       return;
@@ -1673,6 +1934,7 @@ export default function App(): JSX.Element {
                       controller?.runExtendedCommand(action.value);
                     }
                     setIsMobileActionSheetVisible(false);
+                    setMobileActionSheetMode("quick");
                   }}
                   type="button"
                 >
@@ -1693,6 +1955,7 @@ export default function App(): JSX.Element {
                         className="nh3d-mobile-actions-button"
                         key={`common-${command}`}
                         onClick={() => {
+                          controller?.dismissFpsCrosshairContextMenu();
                           controller?.runExtendedCommand(command);
                           setIsMobileActionSheetVisible(false);
                           setMobileActionSheetMode("quick");
@@ -1713,6 +1976,7 @@ export default function App(): JSX.Element {
                       className="nh3d-mobile-actions-button"
                       key={`all-${command}`}
                       onClick={() => {
+                        controller?.dismissFpsCrosshairContextMenu();
                         controller?.runExtendedCommand(command);
                         setIsMobileActionSheetVisible(false);
                         setMobileActionSheetMode("quick");
@@ -1733,14 +1997,22 @@ export default function App(): JSX.Element {
         <div className="nh3d-mobile-bottom-bar">
           <button
             className="nh3d-mobile-bottom-button"
-            onClick={() => controller?.toggleInventoryDialog()}
+            onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
+              controller?.toggleInventoryDialog();
+            }}
             type="button"
           >
             Inventory
           </button>
           <button
             className="nh3d-mobile-bottom-button"
+            disabled={!clientOptions.liveMessageLog}
             onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
+              if (!clientOptions.liveMessageLog) {
+                return;
+              }
               setIsMobileLogVisible((visible) => {
                 const next = !visible;
                 if (next) {
@@ -1756,14 +2028,20 @@ export default function App(): JSX.Element {
           </button>
           <button
             className="nh3d-mobile-bottom-button"
-            onClick={() => controller?.runQuickAction("pickup")}
+            onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
+              controller?.runQuickAction("pickup");
+            }}
             type="button"
           >
             Pick Up
           </button>
           <button
             className="nh3d-mobile-bottom-button"
-            onClick={() => controller?.runQuickAction("search")}
+            onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
+              controller?.runQuickAction("search");
+            }}
             type="button"
           >
             Search
@@ -1773,6 +2051,7 @@ export default function App(): JSX.Element {
               isMobileActionSheetVisible ? " is-active" : ""
             }`}
             onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
               setIsMobileActionSheetVisible((visible) => {
                 const next = !visible;
                 if (next) {
@@ -1790,6 +2069,19 @@ export default function App(): JSX.Element {
       ) : null}
 
       <div className={positionRequest ? "is-visible" : ""} id="position-dialog">
+        {isMobileViewport && positionRequest ? (
+          <button
+            aria-label="Close position prompt"
+            className="nh3d-position-dialog-close"
+            onClick={() => {
+              controller?.cancelActivePrompt();
+              setPositionRequest(null);
+            }}
+            type="button"
+          >
+            ×
+          </button>
+        ) : null}
         {positionRequest}
       </div>
     </>

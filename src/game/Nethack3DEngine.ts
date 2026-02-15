@@ -29,6 +29,7 @@ import type {
   CharacterCreationConfig,
   FpsContextAction,
   FpsCrosshairContextState,
+  Nh3dClientOptions,
   Nethack3DEngineController,
   Nethack3DEngineOptions,
   Nethack3DEngineUIAdapter,
@@ -37,6 +38,7 @@ import type {
   PlayerStatsSnapshot,
   QuestionDialogState,
 } from "./ui-types";
+import { normalizeNh3dClientOptions } from "./ui-types";
 
 type LightingGrid = {
   minX: number;
@@ -273,6 +275,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mode: "create",
     playMode: "normal",
   };
+  private clientOptions: Nh3dClientOptions = normalizeNh3dClientOptions();
   private playMode: PlayMode = "normal";
   private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
@@ -1007,8 +1010,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       mode: "create",
       playMode: "normal",
     };
-    this.playMode =
-      this.characterCreationConfig.playMode === "fps" ? "fps" : "normal";
+    this.clientOptions = normalizeNh3dClientOptions(options.clientOptions);
+    const explicitFpsMode = options.clientOptions?.fpsMode;
+    const initialFpsMode =
+      typeof explicitFpsMode === "boolean"
+        ? explicitFpsMode
+        : this.characterCreationConfig.playMode === "fps";
+    this.playMode = initialFpsMode ? "fps" : "normal";
+    this.clientOptions.fpsMode = this.playMode === "fps";
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
@@ -1038,6 +1047,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Yaw is in radians; start at 180 degrees to face the board correctly.
       this.cameraYaw = Math.PI;
     }
+    this.updateMinimapVisibility();
+    this.applyClientOptions(this.clientOptions);
   }
 
   private initThreeJS(): void {
@@ -1226,6 +1237,188 @@ class Nethack3DEngine implements Nethack3DEngineController {
         MINIMAP_WIDTH_TILES,
         MINIMAP_HEIGHT_TILES,
       );
+    }
+  }
+
+  private updateMinimapVisibility(): void {
+    if (!this.minimapContainer) {
+      return;
+    }
+
+    const visible = this.clientOptions.minimap;
+    this.minimapContainer.style.display = visible ? "" : "none";
+    this.minimapContainer.style.pointerEvents = visible ? "auto" : "none";
+    this.minimapContainer.setAttribute("aria-hidden", visible ? "false" : "true");
+    if (!visible) {
+      this.stopMinimapDrag();
+      return;
+    }
+    this.renderMinimapViewportOverlay();
+  }
+
+  private parseTileStateSignature(signature: string): {
+    glyph: number;
+    char?: string;
+    color?: number;
+  } | null {
+    const parts = String(signature || "").split("|");
+    if (parts.length < 2) {
+      return null;
+    }
+
+    const glyphToken = parts.shift();
+    const colorToken = parts.pop();
+    if (!glyphToken || colorToken === undefined) {
+      return null;
+    }
+
+    const glyph = Number.parseInt(glyphToken, 10);
+    if (!Number.isFinite(glyph)) {
+      return null;
+    }
+
+    const joinedChar = parts.join("|");
+    const normalizedChar = joinedChar.length > 0 ? joinedChar : undefined;
+    const color =
+      colorToken.trim().length > 0 ? Number.parseInt(colorToken, 10) : NaN;
+    return {
+      glyph,
+      char: normalizedChar,
+      color: Number.isFinite(color) ? color : undefined,
+    };
+  }
+
+  private refreshTilesFromStateCache(): void {
+    const snapshots: Array<{
+      x: number;
+      y: number;
+      glyph: number;
+      char?: string;
+      color?: number;
+    }> = [];
+    for (const [key, signature] of this.tileStateCache.entries()) {
+      const [rawX, rawY] = key.split(",");
+      const x = Number.parseInt(rawX, 10);
+      const y = Number.parseInt(rawY, 10);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      const parsed = this.parseTileStateSignature(signature);
+      if (!parsed) {
+        continue;
+      }
+      snapshots.push({
+        x,
+        y,
+        glyph: parsed.glyph,
+        char: parsed.char,
+        color: parsed.color,
+      });
+    }
+
+    for (const snapshot of snapshots) {
+      this.updateTile(
+        snapshot.x,
+        snapshot.y,
+        snapshot.glyph,
+        snapshot.char,
+        snapshot.color,
+      );
+    }
+  }
+
+  private applyPlayMode(nextPlayMode: PlayMode): void {
+    const resolvedPlayMode: PlayMode = nextPlayMode === "fps" ? "fps" : "normal";
+    if (this.playMode === resolvedPlayMode) {
+      this.configureBaseLightingForPlayMode();
+      this.markLightingDirty();
+      return;
+    }
+
+    this.playMode = resolvedPlayMode;
+    this.clientOptions.fpsMode = this.playMode === "fps";
+    this.characterCreationConfig.playMode = this.playMode;
+    this.clearFpsTouchGestures();
+    this.isMiddleMouseDown = false;
+    this.isRightMouseDown = false;
+    this.fpsAutoMoveDirection = null;
+    this.fpsAutoTurnTargetYaw = null;
+    this.fpsStepCameraActive = false;
+
+    if (this.playMode === "fps") {
+      const eyeX = this.playerPos.x * TILE_SIZE;
+      const eyeY = -this.playerPos.y * TILE_SIZE;
+      const currentYaw = Number.isFinite(this.cameraYaw)
+        ? this.cameraYaw
+        : Math.PI;
+      this.camera.fov = this.fpsCameraFov;
+      this.camera.updateProjectionMatrix();
+      this.cameraDistance = 0;
+      this.cameraPitch = 0;
+      this.cameraYaw = this.wrapAngle(currentYaw);
+      this.cameraFollowInitialized = true;
+      this.fpsStepCameraFrom.set(eyeX, eyeY, this.firstPersonEyeHeight);
+      this.fpsStepCameraTo.set(eyeX, eyeY, this.firstPersonEyeHeight);
+    } else {
+      this.closeFpsCrosshairContextMenu(false);
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      this.fpsCurrentAimDirection = null;
+      this.fpsFireSuppressionUntilMs = 0;
+      this.fpsCrosshairGlancePending = null;
+      this.fpsCrosshairContextSignature = "";
+      if (document.pointerLockElement === this.renderer.domElement) {
+        document.exitPointerLock?.();
+      }
+      this.fpsPointerLockActive = false;
+      this.fpsPointerLockRestorePending = false;
+      this.camera.fov = 75;
+      this.camera.updateProjectionMatrix();
+      this.cameraDistance = 15;
+      this.cameraYaw = Math.PI;
+      this.cameraPitch = THREE.MathUtils.clamp(
+        Math.PI / 2 - 0.2,
+        this.minCameraPitch,
+        this.maxCameraPitch,
+      );
+      this.cameraFollowInitialized = false;
+      this.requestTileUpdate(this.playerPos.x, this.playerPos.y);
+    }
+
+    this.configureBaseLightingForPlayMode();
+    this.refreshTilesFromStateCache();
+    this.syncFpsPointerLockForUiState(false);
+    this.markLightingDirty();
+  }
+
+  private applyClientOptions(nextOptions: Nh3dClientOptions): void {
+    const normalized = normalizeNh3dClientOptions(nextOptions);
+    const previous = this.clientOptions;
+    const playModeChanged = previous.fpsMode !== normalized.fpsMode;
+    const minimapChanged = previous.minimap !== normalized.minimap;
+    const damageNumbersChanged =
+      previous.damageNumbers !== normalized.damageNumbers;
+    const tileShakeChanged =
+      previous.tileShakeOnHit !== normalized.tileShakeOnHit;
+    const bloodChanged = previous.blood !== normalized.blood;
+
+    this.clientOptions = normalized;
+
+    if (playModeChanged) {
+      this.applyPlayMode(normalized.fpsMode ? "fps" : "normal");
+    }
+    if (minimapChanged) {
+      this.updateMinimapVisibility();
+    }
+    if (damageNumbersChanged && !normalized.damageNumbers) {
+      this.clearPlayerDamageNumberParticles();
+    }
+    if (tileShakeChanged && !normalized.tileShakeOnHit) {
+      this.clearGlyphDamageShakes();
+    }
+    if (bloodChanged && !normalized.blood) {
+      this.clearBloodMistParticles();
     }
   }
 
@@ -2523,11 +2716,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (variant === "hit") {
       this.startGlyphDamageFlash(key);
     }
-    if (isPlayerTarget && variant === "hit") {
+    if (
+      isPlayerTarget &&
+      variant === "hit" &&
+      this.clientOptions.damageNumbers
+    ) {
       this.spawnPlayerDamageNumberParticle(x, y, damage);
     }
-    this.startGlyphDamageShake(x, y, variant);
-    this.spawnBloodMistParticles(x, y, damage, variant);
+    if (this.clientOptions.tileShakeOnHit) {
+      this.startGlyphDamageShake(x, y, variant);
+    }
+    if (this.clientOptions.blood) {
+      this.spawnBloodMistParticles(x, y, damage, variant);
+    }
   }
 
   private enqueueTileUpdate(tile: any): void {
@@ -3116,6 +3317,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (progress >= 1) {
         this.stopGlyphDamageShake(key);
       }
+    }
+  }
+
+  private clearGlyphDamageShakes(): void {
+    const shakeKeys = Array.from(this.glyphDamageShakes.keys());
+    for (const key of shakeKeys) {
+      this.stopGlyphDamageShake(key);
     }
   }
 
@@ -3793,6 +4001,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private clearBloodMistParticles(): void {
+    for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
+      this.disposeDamageParticle(i);
+    }
+  }
+
   private updatePlayerDamageNumberParticles(deltaSeconds: number): void {
     if (!this.playerDamageNumberParticles.length) {
       return;
@@ -3919,6 +4133,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (lifeT >= 1 || material.opacity <= 0.01) {
         this.disposePlayerDamageNumberParticle(i);
       }
+    }
+  }
+
+  private clearPlayerDamageNumberParticles(): void {
+    for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
+      this.disposePlayerDamageNumberParticle(i);
     }
   }
 
@@ -5603,11 +5823,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
       }
       if (playerHealingGained && playerHealingGained > 0) {
-        this.spawnPlayerHealNumberParticle(
-          this.playerPos.x,
-          this.playerPos.y,
-          playerHealingGained,
-        );
+        if (this.clientOptions.damageNumbers) {
+          this.spawnPlayerHealNumberParticle(
+            this.playerPos.x,
+            this.playerPos.y,
+            playerHealingGained,
+          );
+        }
       }
     }
 
@@ -7991,6 +8213,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
     this.sendInputSequence(sequence);
+  }
+
+  public setClientOptions(options: Nh3dClientOptions): void {
+    this.applyClientOptions(options);
   }
 
   public closeInventoryDialog(): void {
@@ -11069,7 +11295,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateFpsCrosshairContextMenu();
     this.updateFpsAimVisuals(timeMs);
     this.updateLightingCenter(deltaSeconds);
-    this.renderMinimapViewportOverlay();
+    if (this.clientOptions.minimap) {
+      this.renderMinimapViewportOverlay();
+    }
     this.updateMetaCommandModalPosition();
     this.updateLightingOverlay();
     this.updateEffectAnimations(timeMs);

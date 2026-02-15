@@ -84,6 +84,55 @@ export type FpsCrosshairContextState = {
 
 export type PlayMode = "normal" | "fps";
 
+export type Nh3dClientOptions = {
+  fpsMode: boolean;
+  minimap: boolean;
+  damageNumbers: boolean;
+  tileShakeOnHit: boolean;
+  blood: boolean;
+  liveMessageLog: boolean;
+};
+
+export const defaultNh3dClientOptions: Nh3dClientOptions = {
+  fpsMode: false,
+  minimap: true,
+  damageNumbers: true,
+  tileShakeOnHit: true,
+  blood: true,
+  liveMessageLog: true,
+};
+
+export function normalizeNh3dClientOptions(
+  overrides?: Partial<Nh3dClientOptions> | null,
+): Nh3dClientOptions {
+  return {
+    fpsMode:
+      typeof overrides?.fpsMode === "boolean"
+        ? overrides.fpsMode
+        : defaultNh3dClientOptions.fpsMode,
+    minimap:
+      typeof overrides?.minimap === "boolean"
+        ? overrides.minimap
+        : defaultNh3dClientOptions.minimap,
+    damageNumbers:
+      typeof overrides?.damageNumbers === "boolean"
+        ? overrides.damageNumbers
+        : defaultNh3dClientOptions.damageNumbers,
+    tileShakeOnHit:
+      typeof overrides?.tileShakeOnHit === "boolean"
+        ? overrides.tileShakeOnHit
+        : defaultNh3dClientOptions.tileShakeOnHit,
+    blood:
+      typeof overrides?.blood === "boolean"
+        ? overrides.blood
+        : defaultNh3dClientOptions.blood,
+    liveMessageLog:
+      typeof overrides?.liveMessageLog === "boolean"
+        ? overrides.liveMessageLog
+        : defaultNh3dClientOptions.liveMessageLog,
+  };
+}
+
 export type CharacterCreationConfig = {
   mode: "random" | "create";
   playMode?: PlayMode;
@@ -127,6 +176,7 @@ export interface Nethack3DEngineController {
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(actionId: string): void;
   runExtendedCommand(commandText: string): void;
+  setClientOptions(options: Nh3dClientOptions): void;
   closeInventoryDialog(): void;
   closeInfoMenuDialog(): void;
 }
@@ -135,5 +185,6 @@ export interface Nethack3DEngineOptions {
   mountElement?: HTMLElement | null;
   uiAdapter?: Nethack3DEngineUIAdapter | null;
   characterCreationConfig?: CharacterCreationConfig;
+  clientOptions?: Partial<Nh3dClientOptions>;
   loggingEnabled?: boolean;
 }
