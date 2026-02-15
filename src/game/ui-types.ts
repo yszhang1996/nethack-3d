@@ -86,6 +86,7 @@ export type PlayMode = "normal" | "fps";
 
 export type Nh3dClientOptions = {
   fpsMode: boolean;
+  fpsFov: number;
   minimap: boolean;
   damageNumbers: boolean;
   tileShakeOnHit: boolean;
@@ -95,6 +96,7 @@ export type Nh3dClientOptions = {
 
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
+  fpsFov: 62,
   minimap: true,
   damageNumbers: true,
   tileShakeOnHit: true,
@@ -105,11 +107,17 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
 export function normalizeNh3dClientOptions(
   overrides?: Partial<Nh3dClientOptions> | null,
 ): Nh3dClientOptions {
+  const rawFpsFov =
+    typeof overrides?.fpsFov === "number" && Number.isFinite(overrides.fpsFov)
+      ? overrides.fpsFov
+      : defaultNh3dClientOptions.fpsFov;
+  const fpsFov = Math.round(Math.max(45, Math.min(110, rawFpsFov)));
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
         ? overrides.fpsMode
         : defaultNh3dClientOptions.fpsMode,
+    fpsFov,
     minimap:
       typeof overrides?.minimap === "boolean"
         ? overrides.minimap

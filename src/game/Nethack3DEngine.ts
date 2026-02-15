@@ -289,7 +289,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly pointerNdc = new THREE.Vector2();
   private readonly pointerIntersection = new THREE.Vector3();
   private readonly tileVisualScaleFps = 1;
-  private readonly fpsCameraFov = 62;
+  private readonly defaultFpsCameraFov = 62;
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
   private readonly firstPersonPitchMin = -1.18;
   private readonly firstPersonPitchMax = 1.18;
@@ -1003,6 +1003,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsPlayerLight.position.z = this.camera.position.z + 0.04;
   }
 
+  private resolveFpsCameraFov(): number {
+    const candidate =
+      typeof this.clientOptions.fpsFov === "number" &&
+      Number.isFinite(this.clientOptions.fpsFov)
+        ? this.clientOptions.fpsFov
+        : this.defaultFpsCameraFov;
+    return THREE.MathUtils.clamp(candidate, 45, 110);
+  }
+
   constructor(options: Nethack3DEngineOptions = {}) {
     this.mountElement = options.mountElement ?? null;
     this.uiAdapter = options.uiAdapter ?? null;
@@ -1030,7 +1039,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.playMode === "fps") {
-      this.camera.fov = this.fpsCameraFov;
+      this.camera.fov = this.resolveFpsCameraFov();
       this.camera.updateProjectionMatrix();
       this.cameraDistance = 0;
       this.cameraPitch = 0;
@@ -1351,7 +1360,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const currentYaw = Number.isFinite(this.cameraYaw)
         ? this.cameraYaw
         : Math.PI;
-      this.camera.fov = this.fpsCameraFov;
+      this.camera.fov = this.resolveFpsCameraFov();
       this.camera.updateProjectionMatrix();
       this.cameraDistance = 0;
       this.cameraPitch = 0;
@@ -1396,6 +1405,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const normalized = normalizeNh3dClientOptions(nextOptions);
     const previous = this.clientOptions;
     const playModeChanged = previous.fpsMode !== normalized.fpsMode;
+    const fpsFovChanged = previous.fpsFov !== normalized.fpsFov;
     const minimapChanged = previous.minimap !== normalized.minimap;
     const damageNumbersChanged =
       previous.damageNumbers !== normalized.damageNumbers;
@@ -1407,6 +1417,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (playModeChanged) {
       this.applyPlayMode(normalized.fpsMode ? "fps" : "normal");
+    }
+    if (fpsFovChanged && this.playMode === "fps") {
+      this.camera.fov = this.resolveFpsCameraFov();
+      this.camera.updateProjectionMatrix();
     }
     if (minimapChanged) {
       this.updateMinimapVisibility();

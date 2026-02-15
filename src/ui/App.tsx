@@ -238,8 +238,9 @@ type InventoryContextMenuState = {
   x: number;
   y: number;
 };
+type ClientOptionToggleKey = keyof Omit<Nh3dClientOptions, "fpsFov">;
 type ClientOptionToggle = {
-  key: keyof Nh3dClientOptions;
+  key: ClientOptionToggleKey;
   label: string;
   description: string;
 };
@@ -781,12 +782,20 @@ export default function App(): JSX.Element {
   };
 
   const updateClientOptionDraft = (
-    optionKey: keyof Nh3dClientOptions,
+    optionKey: ClientOptionToggleKey,
     enabled: boolean,
   ): void => {
     setClientOptionsDraft((previous) => ({
       ...previous,
       [optionKey]: enabled,
+    }));
+  };
+
+  const updateClientFovDraft = (rawValue: number): void => {
+    const clamped = Math.max(45, Math.min(110, Math.round(rawValue)));
+    setClientOptionsDraft((previous) => ({
+      ...previous,
+      fpsFov: clamped,
     }));
   };
 
@@ -1344,6 +1353,33 @@ export default function App(): JSX.Element {
                 </div>
               );
             })}
+            {clientOptionsDraft.fpsMode ? (
+              <div className="nh3d-option-row nh3d-option-row-slider">
+                <div className="nh3d-option-copy">
+                  <div className="nh3d-option-label">FPS Field of View</div>
+                  <div className="nh3d-option-description">
+                    Adjust first-person camera FOV.
+                  </div>
+                </div>
+                <div className="nh3d-option-slider-control">
+                  <input
+                    aria-label="FPS Field of View"
+                    className="nh3d-option-slider"
+                    max={110}
+                    min={45}
+                    onChange={(event) =>
+                      updateClientFovDraft(Number(event.target.value))
+                    }
+                    step={1}
+                    type="range"
+                    value={clientOptionsDraft.fpsFov}
+                  />
+                  <div className="nh3d-option-slider-value">
+                    {clientOptionsDraft.fpsFov}°
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
           <div className="nh3d-menu-actions">
             <button
