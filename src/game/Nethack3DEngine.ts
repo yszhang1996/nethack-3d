@@ -109,6 +109,9 @@ type DamageNumberParticle = {
   lifetimeMs: number;
   radius: number;
   baseScale: THREE.Vector2;
+  fpsFloating: boolean;
+  fpsLateralOffset: number;
+  fpsBaseHeightOffset: number;
 };
 
 type CharacterCreationQuestionPayload = {
@@ -284,6 +287,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsCurrentAimDirection: AimDirection | null = null;
   private fpsForwardHighlight: THREE.Mesh | null = null;
   private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
+  private fpsForwardHighlightTexture: THREE.CanvasTexture | null = null;
   private fpsAimLinePulseUntilMs: number = 0;
   private fpsFireSuppressionUntilMs: number = 0;
   private readonly fpsFireSuppressionDurationMs: number = 1500;
@@ -406,6 +410,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerHealNumberLifetimeMs: number = 1200;
   private readonly playerHealNumberFadeDelayMs: number = 250;
   private readonly playerDamageNumberWallBounce: number = 0.35;
+  private readonly playerDamageNumberForwardOffset: number = TILE_SIZE * 0.42;
+  private readonly playerDamageNumberFpsLateralSpread: number = TILE_SIZE * 0.14;
+  private readonly playerDamageNumberFpsRiseDistance: number = 0.34;
+  private readonly playerDamageNumberFpsScaleFactor: number = 0.33;
+  private readonly playerDamageNumberForwardLift: number = 0.07;
+  private readonly playerDamageNumberForwardDirection = new THREE.Vector3();
+  private readonly playerDamageNumberRightDirection = new THREE.Vector3();
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.24;
   private minimapContainer: HTMLDivElement | null = null;
@@ -3197,38 +3208,61 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.opacity = 1;
 
     const sprite = new THREE.Sprite(material);
-    const scaleMultiplier = 2.5;
-    const scaleY = 0.42 * scaleMultiplier;
-    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
+    const scaleMultiplier = 1.1;
+    const useFpsFloating = this.isFpsMode();
+    const fpsScaleFactor = useFpsFloating
+      ? this.playerDamageNumberFpsScaleFactor
+      : 1;
+    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+    const scaleX = Math.max(
+      0.26 * scaleMultiplier * fpsScaleFactor,
+      scaleY * aspectRatio,
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
+    const fpsLateralOffset = useFpsFloating
+      ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
+      : 0;
+    const fpsBaseHeightOffset = 0.28;
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
       tileX * TILE_SIZE,
       -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + 0.28,
+      this.damageParticleFloorZ + fpsBaseHeightOffset,
+    );
+    this.applyFpsForwardOffsetToPlayerNumberPosition(
+      sprite.position,
+      useFpsFloating,
+      fpsLateralOffset,
     );
     this.alignPlayerDamageNumberToCamera(sprite);
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
-    const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
-    const launchAngleRad = THREE.MathUtils.degToRad(10);
-    const launchAzimuthRad = Math.random() * Math.PI * 2;
-    const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
-    const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
+    let velocity = new THREE.Vector3(0, 0, 0);
+    if (!useFpsFloating) {
+      const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
+      const launchAngleRad = THREE.MathUtils.degToRad(10);
+      const launchAzimuthRad = Math.random() * Math.PI * 2;
+      const horizontalSpeed = launchSpeed * Math.sin(launchAngleRad);
+      const verticalSpeed = launchSpeed * Math.cos(launchAngleRad);
+      velocity = new THREE.Vector3(
+        Math.cos(launchAzimuthRad) * horizontalSpeed,
+        Math.sin(launchAzimuthRad) * horizontalSpeed,
+        verticalSpeed,
+      );
+    }
 
     this.playerDamageNumberParticles.push({
       kind: "damage",
       sprite,
-      velocity: new THREE.Vector3(
-        Math.cos(launchAzimuthRad) * horizontalSpeed,
-        Math.sin(launchAzimuthRad) * horizontalSpeed,
-        verticalSpeed,
-      ),
+      velocity,
       ageMs: 0,
       lifetimeMs: this.playerDamageNumberLifetimeMs,
-      radius: 0.09,
+      radius: 0.055,
       baseScale,
+      fpsFloating: useFpsFloating,
+      fpsLateralOffset,
+      fpsBaseHeightOffset,
     });
   }
 
@@ -3252,30 +3286,91 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.opacity = 1;
 
     const sprite = new THREE.Sprite(material);
-    const scaleMultiplier = 2.3;
-    const scaleY = 0.42 * scaleMultiplier;
-    const scaleX = Math.max(0.26 * scaleMultiplier, scaleY * aspectRatio);
+    const scaleMultiplier = 1.0;
+    const useFpsFloating = this.isFpsMode();
+    const fpsScaleFactor = useFpsFloating
+      ? this.playerDamageNumberFpsScaleFactor
+      : 1;
+    const scaleY = 0.42 * scaleMultiplier * fpsScaleFactor;
+    const scaleX = Math.max(
+      0.26 * scaleMultiplier * fpsScaleFactor,
+      scaleY * aspectRatio,
+    );
     const baseScale = new THREE.Vector2(scaleX, scaleY);
+    const fpsLateralOffset = useFpsFloating
+      ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
+      : 0;
+    const fpsBaseHeightOffset = 0.24;
     sprite.scale.set(baseScale.x, baseScale.y, 1);
     sprite.position.set(
       tileX * TILE_SIZE,
       -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + 0.24,
+      this.damageParticleFloorZ + fpsBaseHeightOffset,
+    );
+    this.applyFpsForwardOffsetToPlayerNumberPosition(
+      sprite.position,
+      useFpsFloating,
+      fpsLateralOffset,
     );
     this.alignPlayerDamageNumberToCamera(sprite);
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
-    const verticalSpeed = 3.2 + Math.random() * 0.8;
+    const verticalSpeed = useFpsFloating ? 0 : 3.2 + Math.random() * 0.8;
     this.playerDamageNumberParticles.push({
       kind: "heal",
       sprite,
       velocity: new THREE.Vector3(0, 0, verticalSpeed),
       ageMs: 0,
       lifetimeMs: this.playerHealNumberLifetimeMs,
-      radius: 0.09,
+      radius: 0.055,
       baseScale,
+      fpsFloating: useFpsFloating,
+      fpsLateralOffset,
+      fpsBaseHeightOffset,
     });
+  }
+
+  private applyFpsForwardOffsetToPlayerNumberPosition(
+    position: THREE.Vector3,
+    applyVerticalLift: boolean,
+    lateralOffset: number = 0,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    this.camera.getWorldDirection(this.playerDamageNumberForwardDirection);
+    this.playerDamageNumberForwardDirection.z = 0;
+    const lengthSq = this.playerDamageNumberForwardDirection.lengthSq();
+    if (lengthSq > 1e-8) {
+      this.playerDamageNumberForwardDirection.multiplyScalar(1 / Math.sqrt(lengthSq));
+    } else {
+      this.playerDamageNumberForwardDirection.set(
+        -Math.sin(this.cameraYaw),
+        -Math.cos(this.cameraYaw),
+        0,
+      );
+    }
+    this.playerDamageNumberRightDirection.set(
+      this.playerDamageNumberForwardDirection.y,
+      -this.playerDamageNumberForwardDirection.x,
+      0,
+    );
+
+    position.x +=
+      this.playerDamageNumberForwardDirection.x *
+      this.playerDamageNumberForwardOffset;
+    position.y +=
+      this.playerDamageNumberForwardDirection.y *
+      this.playerDamageNumberForwardOffset;
+    if (lateralOffset !== 0) {
+      position.x += this.playerDamageNumberRightDirection.x * lateralOffset;
+      position.y += this.playerDamageNumberRightDirection.y * lateralOffset;
+    }
+    if (applyVerticalLift) {
+      position.z += this.playerDamageNumberForwardLift;
+    }
   }
 
   private alignPlayerDamageNumberToCamera(sprite: THREE.Sprite): void {
@@ -3689,6 +3784,53 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       const particle = this.playerDamageNumberParticles[i];
       particle.ageMs += deltaMs;
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1,
+      );
+
+      if (this.isFpsMode() && particle.fpsFloating) {
+        particle.sprite.position.set(
+          this.playerPos.x * TILE_SIZE,
+          -this.playerPos.y * TILE_SIZE,
+          this.damageParticleFloorZ +
+            particle.fpsBaseHeightOffset +
+            this.playerDamageNumberFpsRiseDistance * lifeT,
+        );
+        this.applyFpsForwardOffsetToPlayerNumberPosition(
+          particle.sprite.position,
+          false,
+          particle.fpsLateralOffset,
+        );
+        this.alignPlayerDamageNumberToCamera(particle.sprite);
+
+        const material = particle.sprite.material;
+        if (!(material instanceof THREE.SpriteMaterial)) {
+          this.disposePlayerDamageNumberParticle(i);
+          continue;
+        }
+
+        const fadeStart = 0.42;
+        const fadeT = THREE.MathUtils.clamp(
+          (lifeT - fadeStart) / (1 - fadeStart),
+          0,
+          1,
+        );
+        material.opacity = Math.max(0, 1 - Math.pow(fadeT, 1.7));
+        const scaleBoost = 1 + lifeT * 0.06;
+        particle.sprite.scale.set(
+          particle.baseScale.x * scaleBoost,
+          particle.baseScale.y * scaleBoost,
+          1,
+        );
+
+        if (lifeT >= 1 || material.opacity <= 0.01) {
+          this.disposePlayerDamageNumberParticle(i);
+        }
+        continue;
+      }
+
       if (particle.kind === "damage") {
         particle.velocity.z -= this.playerDamageNumberGravity * deltaSeconds;
         particle.velocity.x *= drag;
@@ -3701,6 +3843,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (particle.kind === "heal") {
         particle.sprite.position.x = this.playerPos.x * TILE_SIZE;
         particle.sprite.position.y = -this.playerPos.y * TILE_SIZE;
+        this.applyFpsForwardOffsetToPlayerNumberPosition(
+          particle.sprite.position,
+          false,
+        );
       }
       this.alignPlayerDamageNumberToCamera(particle.sprite);
 
@@ -3723,11 +3869,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const lifeT = THREE.MathUtils.clamp(
-        particle.ageMs / particle.lifetimeMs,
-        0,
-        1,
-      );
       if (particle.kind === "heal") {
         const fadeDelayMs = this.playerHealNumberFadeDelayMs;
         const fadeDurationMs = Math.max(1, particle.lifetimeMs - fadeDelayMs);
@@ -4385,6 +4526,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsForwardHighlightMaterial?.dispose();
       this.fpsForwardHighlight = null;
       this.fpsForwardHighlightMaterial = null;
+    }
+    if (this.fpsForwardHighlightTexture) {
+      this.fpsForwardHighlightTexture.dispose();
+      this.fpsForwardHighlightTexture = null;
     }
     this.fpsCurrentAimDirection = null;
     this.fpsAimLinePulseUntilMs = 0;
@@ -8672,6 +8817,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const fpsMoveInput = this.tryResolveFpsMovementInput(event.key);
       if (fpsMoveInput) {
         event.preventDefault();
+        if (event.shiftKey) {
+          if (event.repeat) {
+            return;
+          }
+          this.sendForcedDirectionalInput(fpsMoveInput);
+          return;
+        }
         this.sendInput(fpsMoveInput);
         return;
       }
@@ -9179,18 +9331,83 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.camera.lookAt(followX, followY, 0);
   }
 
+  private ensureFpsForwardHighlightTexture(): THREE.CanvasTexture {
+    if (this.fpsForwardHighlightTexture) {
+      return this.fpsForwardHighlightTexture;
+    }
+
+    const size = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create FPS forward highlight texture context");
+    }
+
+    context.clearRect(0, 0, size, size);
+    const imageData = context.createImageData(size, size);
+    const data = imageData.data;
+    const center = size * 0.5;
+    const smoothstep = (edge0: number, edge1: number, x: number): number => {
+      const t = THREE.MathUtils.clamp((x - edge0) / (edge1 - edge0), 0, 1);
+      return t * t * (3 - 2 * t);
+    };
+
+    for (let y = 0; y < size; y += 1) {
+      for (let x = 0; x < size; x += 1) {
+        const px = x + 0.5;
+        const py = y + 0.5;
+        const edgeDistance = Math.min(px, py, size - px, size - py);
+        const edgeNorm = edgeDistance / center;
+
+        const outerFeather = smoothstep(0.0, 0.2, edgeNorm);
+        const inwardFade = 1 - smoothstep(0.16, 0.84, edgeNorm);
+        // Slightly lower intensity than previous square profile.
+        const alpha = THREE.MathUtils.clamp(
+          outerFeather * inwardFade * 0.58,
+          0,
+          1,
+        );
+
+        const i = (y * size + x) * 4;
+        data[i] = 255;
+        data[i + 1] = 238;
+        data[i + 2] = 118;
+        data[i + 3] = Math.round(alpha * 255);
+      }
+    }
+
+    context.putImageData(imageData, 0, 0);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    this.fpsForwardHighlightTexture = texture;
+    return texture;
+  }
+
   private ensureFpsAimVisuals(): void {
     if (this.fpsForwardHighlight) {
       return;
     }
 
     if (!this.fpsForwardHighlight) {
-      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.82, TILE_SIZE * 0.82);
+      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.9, TILE_SIZE * 0.9);
       const material = new THREE.MeshBasicMaterial({
-        color: 0xf9fb66,
+        map: this.ensureFpsForwardHighlightTexture(),
+        color: 0xfff6a8,
         transparent: true,
-        opacity: 0.34,
-        depthTest: false,
+        opacity: 0.46,
+        blending: THREE.AdditiveBlending,
+        depthTest: true,
+        depthWrite: false,
+        toneMapped: false,
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.renderOrder = 980;
@@ -9238,7 +9455,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsForwardHighlight.visible = true;
       if (this.fpsForwardHighlightMaterial) {
         const pulse = timeMs <= this.fpsAimLinePulseUntilMs ? 1 : 0.45;
-        this.fpsForwardHighlightMaterial.opacity = 0.18 + pulse * 0.28;
+        this.fpsForwardHighlightMaterial.opacity = 0.2 + pulse * 0.32;
       }
     }
 
