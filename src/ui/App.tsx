@@ -716,6 +716,115 @@ export default function App(): JSX.Element {
   }, [isMobileViewport]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.documentElement;
+    if (!isMobileViewport) {
+      root.style.removeProperty("--nh3d-mobile-visible-height");
+      root.style.removeProperty("--nh3d-mobile-visible-top-offset");
+      root.style.removeProperty("--nh3d-mobile-visible-bottom-offset");
+      return;
+    }
+
+    const updateMobileVisibleViewportMetrics = (): void => {
+      const visualViewport = window.visualViewport;
+      const layoutViewportHeight = window.innerHeight;
+      const viewportOffsetTop = visualViewport ? visualViewport.offsetTop : 0;
+      const viewportBottomOffset = visualViewport
+        ? Math.max(
+            0,
+            layoutViewportHeight -
+              (visualViewport.height + visualViewport.offsetTop),
+          )
+        : 0;
+
+      root.style.setProperty(
+        "--nh3d-mobile-visible-height",
+        `${Math.max(0, Math.round(layoutViewportHeight))}px`,
+      );
+      root.style.setProperty(
+        "--nh3d-mobile-visible-top-offset",
+        `${Math.max(0, Math.round(viewportOffsetTop))}px`,
+      );
+      root.style.setProperty(
+        "--nh3d-mobile-visible-bottom-offset",
+        `${Math.max(0, Math.round(viewportBottomOffset))}px`,
+      );
+    };
+
+    updateMobileVisibleViewportMetrics();
+    window.addEventListener("resize", updateMobileVisibleViewportMetrics);
+    const orientationRefreshTimeoutIds: number[] = [];
+    const handleOrientationViewportRefresh = (): void => {
+      updateMobileVisibleViewportMetrics();
+      orientationRefreshTimeoutIds.push(
+        window.setTimeout(updateMobileVisibleViewportMetrics, 120),
+      );
+      orientationRefreshTimeoutIds.push(
+        window.setTimeout(updateMobileVisibleViewportMetrics, 280),
+      );
+    };
+    window.addEventListener("orientationchange", handleOrientationViewportRefresh);
+
+    const visualViewport = window.visualViewport;
+    if (visualViewport) {
+      visualViewport.addEventListener(
+        "resize",
+        updateMobileVisibleViewportMetrics,
+      );
+      visualViewport.addEventListener(
+        "scroll",
+        updateMobileVisibleViewportMetrics,
+      );
+    }
+    const screenOrientation = window.screen?.orientation;
+    if (
+      screenOrientation &&
+      typeof screenOrientation.addEventListener === "function"
+    ) {
+      screenOrientation.addEventListener(
+        "change",
+        handleOrientationViewportRefresh,
+      );
+    }
+
+    return () => {
+      window.removeEventListener("resize", updateMobileVisibleViewportMetrics);
+      window.removeEventListener(
+        "orientationchange",
+        handleOrientationViewportRefresh,
+      );
+      if (visualViewport) {
+        visualViewport.removeEventListener(
+          "resize",
+          updateMobileVisibleViewportMetrics,
+        );
+        visualViewport.removeEventListener(
+          "scroll",
+          updateMobileVisibleViewportMetrics,
+        );
+      }
+      if (
+        screenOrientation &&
+        typeof screenOrientation.removeEventListener === "function"
+      ) {
+        screenOrientation.removeEventListener(
+          "change",
+          handleOrientationViewportRefresh,
+        );
+      }
+      for (const timeoutId of orientationRefreshTimeoutIds) {
+        window.clearTimeout(timeoutId);
+      }
+      root.style.removeProperty("--nh3d-mobile-visible-height");
+      root.style.removeProperty("--nh3d-mobile-visible-top-offset");
+      root.style.removeProperty("--nh3d-mobile-visible-bottom-offset");
+    };
+  }, [isMobileViewport]);
+
+  useEffect(() => {
     if (typeof document === "undefined") {
       return;
     }
