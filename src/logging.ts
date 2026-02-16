@@ -12,7 +12,9 @@ if (!globalScope.__NH3D_ORIGINAL_CONSOLE_LOG__) {
 }
 
 if (typeof globalScope.__NH3D_LOGGING_ENABLED__ !== "boolean") {
-  globalScope.__NH3D_LOGGING_ENABLED__ = false;
+  // import.meta.env.DEV is a Vite feature that is true when running in development mode
+  // (i.e. on localhost) and false when built for production.
+  globalScope.__NH3D_LOGGING_ENABLED__ = import.meta.env.DEV;
 }
 
 function applyConsoleLogState(): void {
