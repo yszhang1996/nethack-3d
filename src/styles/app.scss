@@ -31,6 +31,12 @@
   --nh3d-ui-button-warm-text: #d5e7ff;
   --nh3d-ui-button-warm-ring: rgba(102, 204, 255, 0.3);
   --nh3d-ui-shadow: 0 10px 22px rgba(0, 0, 0, 0.55);
+  --nh3d-scrollbar-track: rgba(3, 12, 24, 0.82);
+  --nh3d-scrollbar-track-border: rgba(102, 204, 255, 0.22);
+  --nh3d-scrollbar-thumb: #3d7ea7;
+  --nh3d-scrollbar-thumb-hover: #57a7d4;
+  --nh3d-scrollbar-thumb-active: #7bc7f2;
+  --nh3d-scrollbar-thumb-border: rgba(8, 22, 36, 0.9);
 }
 
 /* Basic page styling to make the canvas fill the screen */
@@ -149,22 +155,97 @@ canvas {
 #game-log {
   max-height: 250px;
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--nh3d-ui-border) rgba(0, 0, 0, 0.5);
   line-height: 1.4;
 }
 
-#game-log::-webkit-scrollbar {
-  width: 8px;
+#game-log,
+.nh3d-mobile-log,
+.nh3d-dialog,
+.nh3d-inventory-items,
+.nh3d-choice-list,
+.nh3d-context-menu,
+.nh3d-inventory-context-menu,
+.nh3d-mobile-actions-grid,
+.nh3d-mobile-actions-sections {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nh3d-scrollbar-thumb) var(--nh3d-scrollbar-track);
 }
 
-#game-log::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.45);
+#game-log::-webkit-scrollbar,
+.nh3d-mobile-log::-webkit-scrollbar,
+.nh3d-dialog::-webkit-scrollbar,
+.nh3d-inventory-items::-webkit-scrollbar,
+.nh3d-choice-list::-webkit-scrollbar,
+.nh3d-context-menu::-webkit-scrollbar,
+.nh3d-inventory-context-menu::-webkit-scrollbar,
+.nh3d-mobile-actions-grid::-webkit-scrollbar,
+.nh3d-mobile-actions-sections::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
 }
 
-#game-log::-webkit-scrollbar-thumb {
-  background: var(--nh3d-ui-border);
-  border-radius: 4px;
+#game-log::-webkit-scrollbar-track,
+.nh3d-mobile-log::-webkit-scrollbar-track,
+.nh3d-dialog::-webkit-scrollbar-track,
+.nh3d-inventory-items::-webkit-scrollbar-track,
+.nh3d-choice-list::-webkit-scrollbar-track,
+.nh3d-context-menu::-webkit-scrollbar-track,
+.nh3d-inventory-context-menu::-webkit-scrollbar-track,
+.nh3d-mobile-actions-grid::-webkit-scrollbar-track,
+.nh3d-mobile-actions-sections::-webkit-scrollbar-track {
+  background: var(--nh3d-scrollbar-track);
+  border: 1px solid var(--nh3d-scrollbar-track-border);
+  border-radius: 999px;
+}
+
+#game-log::-webkit-scrollbar-thumb,
+.nh3d-mobile-log::-webkit-scrollbar-thumb,
+.nh3d-dialog::-webkit-scrollbar-thumb,
+.nh3d-inventory-items::-webkit-scrollbar-thumb,
+.nh3d-choice-list::-webkit-scrollbar-thumb,
+.nh3d-context-menu::-webkit-scrollbar-thumb,
+.nh3d-inventory-context-menu::-webkit-scrollbar-thumb,
+.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb,
+.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb {
+  background: var(--nh3d-scrollbar-thumb);
+  border: 1px solid var(--nh3d-scrollbar-thumb-border);
+  border-radius: 999px;
+}
+
+#game-log::-webkit-scrollbar-thumb:hover,
+.nh3d-mobile-log::-webkit-scrollbar-thumb:hover,
+.nh3d-dialog::-webkit-scrollbar-thumb:hover,
+.nh3d-inventory-items::-webkit-scrollbar-thumb:hover,
+.nh3d-choice-list::-webkit-scrollbar-thumb:hover,
+.nh3d-context-menu::-webkit-scrollbar-thumb:hover,
+.nh3d-inventory-context-menu::-webkit-scrollbar-thumb:hover,
+.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb:hover,
+.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb:hover {
+  background: var(--nh3d-scrollbar-thumb-hover);
+}
+
+#game-log::-webkit-scrollbar-thumb:active,
+.nh3d-mobile-log::-webkit-scrollbar-thumb:active,
+.nh3d-dialog::-webkit-scrollbar-thumb:active,
+.nh3d-inventory-items::-webkit-scrollbar-thumb:active,
+.nh3d-choice-list::-webkit-scrollbar-thumb:active,
+.nh3d-context-menu::-webkit-scrollbar-thumb:active,
+.nh3d-inventory-context-menu::-webkit-scrollbar-thumb:active,
+.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb:active,
+.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb:active {
+  background: var(--nh3d-scrollbar-thumb-active);
+}
+
+#game-log::-webkit-scrollbar-corner,
+.nh3d-mobile-log::-webkit-scrollbar-corner,
+.nh3d-dialog::-webkit-scrollbar-corner,
+.nh3d-inventory-items::-webkit-scrollbar-corner,
+.nh3d-choice-list::-webkit-scrollbar-corner,
+.nh3d-context-menu::-webkit-scrollbar-corner,
+.nh3d-inventory-context-menu::-webkit-scrollbar-corner,
+.nh3d-mobile-actions-grid::-webkit-scrollbar-corner,
+.nh3d-mobile-actions-sections::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .nh3d-mobile-log-hidden {
@@ -414,18 +495,51 @@ canvas {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 32px;
-  min-width: 32px;
-  height: 32px;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
   border-radius: 999px;
-  border: 1px solid var(--nh3d-ui-border-strong);
-  background: rgba(5, 16, 30, 0.9);
-  color: var(--nh3d-ui-accent-soft);
+  border: 1px solid rgba(145, 180, 220, 0.72);
+  background: rgba(12, 26, 42, 0.96);
+  color: #e7f3ff;
   font-family: "Courier New", monospace;
-  font-size: 18px;
+  font-size: 21px;
+  font-weight: 700;
   line-height: 1;
+  padding: 0;
   cursor: pointer;
   z-index: 1;
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease,
+    box-shadow 120ms ease,
+    transform 80ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.nh3d-mobile-dialog-close:hover,
+.nh3d-position-dialog-close:hover {
+  border-color: rgba(187, 214, 242, 0.9);
+  background: rgba(20, 37, 58, 0.98);
+  color: #f2f8ff;
+  box-shadow:
+    0 3px 10px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.nh3d-mobile-dialog-close:active,
+.nh3d-position-dialog-close:active {
+  transform: translateY(1px) scale(0.96);
+}
+
+.nh3d-mobile-dialog-close:focus-visible,
+.nh3d-position-dialog-close:focus-visible {
+  outline: 2px solid rgba(173, 216, 255, 0.9);
+  outline-offset: 1px;
 }
 
 .nh3d-dialog.is-visible {
@@ -528,13 +642,15 @@ canvas {
   overflow-x: hidden;
 }
 
-.nh3d-dialog-inventory {
+.nh3d-dialog.nh3d-dialog-inventory {
   border: 2px solid var(--nh3d-ui-border-strong);
   background: var(--nh3d-ui-panel-bg-strong);
   min-width: 450px;
   max-width: 600px;
   max-height: 95vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .nh3d-dialog-name {
@@ -949,8 +1065,17 @@ canvas {
 
 .nh3d-inventory-items {
   margin-bottom: 20px;
-  max-height: 70vh;
+  max-height: none;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
+}
+
+.nh3d-dialog.nh3d-dialog-inventory .nh3d-menu-actions,
+.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-keybinds-title,
+.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-keybinds,
+.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-close {
+  flex: 0 0 auto;
 }
 
 .nh3d-inventory-empty {
@@ -1759,20 +1884,24 @@ canvas {
   }
 
   .nh3d-dialog {
-    top: 52%;
+    --nh3d-dialog-mobile-padding: 14px;
+    top: calc(var(--nh3d-safe-area-top) + 8px);
     left: 50%;
+    transform: translateX(-50%);
+    box-sizing: border-box;
     width: max-content;
     max-width: calc(100vw - 50px);
     max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) -
-        var(--nh3d-mobile-visible-top-offset, 0px) -
-        max(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - var(--nh3d-safe-area-top) - max(
           env(safe-area-inset-bottom),
           var(--nh3d-mobile-visible-bottom-offset, 0px)
         ) -
-        160px
+        16px
     );
-    padding: 14px;
+    padding: var(--nh3d-dialog-mobile-padding);
     border-radius: 8px;
     overflow-x: auto;
     overflow-y: auto;
@@ -1789,7 +1918,9 @@ canvas {
   .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-info-title,
   .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-inventory-title,
   .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-options-title {
+    padding-left: 38px;
     padding-right: 38px;
+    box-sizing: border-box;
   }
 
   .nh3d-dialog-question,
@@ -1809,12 +1940,6 @@ canvas {
     overflow-wrap: break-word;
   }
 
-  .nh3d-dialog-inventory {
-    width: max-content;
-    max-width: calc(100vw - 50px);
-    overflow-x: auto;
-  }
-
   #character-setup-dialog {
     top: 50%;
     left: 50%;
@@ -1822,9 +1947,10 @@ canvas {
     width: min(92vw, 680px);
     max-width: calc(100vw - 16px);
     max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) -
-        var(--nh3d-mobile-visible-top-offset, 0px) -
-        max(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - max(
           env(safe-area-inset-bottom),
           var(--nh3d-mobile-visible-bottom-offset, 0px)
         ) -
@@ -1917,9 +2043,21 @@ canvas {
     font-size: 10px;
   }
 
-  .nh3d-menu-actions,
-  .nh3d-pickup-actions {
+  .nh3d-dialog .nh3d-menu-actions,
+  .nh3d-dialog .nh3d-pickup-actions {
     flex-wrap: wrap;
+    position: sticky;
+    bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+    z-index: 3;
+    box-sizing: border-box;
+    background: var(--nh3d-ui-panel-bg-strong);
+    border-top: 1px solid var(--nh3d-ui-border);
+    box-shadow: 0 -8px 14px rgba(0, 0, 0, 0.45);
+    padding: 8px var(--nh3d-dialog-mobile-padding, 14px);
+    margin-top: 12px;
+    margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+    margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+    margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
   }
 
   .nh3d-option-row-slider {
@@ -1935,14 +2073,6 @@ canvas {
 
   .nh3d-option-slider {
     width: 100%;
-  }
-
-  .nh3d-pickup-actions {
-    position: sticky;
-    bottom: 0;
-    background: var(--nh3d-ui-panel-bg);
-    padding: 8px 0;
-    margin-top: 12px;
   }
 
   .nh3d-menu-action-button,
@@ -2003,15 +2133,28 @@ canvas {
     position: absolute;
     top: 6px;
     right: 6px;
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 999px;
-    border: 1px solid var(--nh3d-ui-border-strong);
-    background: rgba(5, 16, 30, 0.92);
-    color: var(--nh3d-ui-accent-soft);
+    border: 1px solid rgba(145, 180, 220, 0.72);
+    background: rgba(12, 26, 42, 0.96);
+    color: #e7f3ff;
     font-family: "Courier New", monospace;
-    font-size: 17px;
+    font-size: 19px;
+    font-weight: 700;
     line-height: 1;
+    padding: 0;
+    cursor: pointer;
+    box-shadow:
+      0 2px 8px rgba(0, 0, 0, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease,
+      box-shadow 120ms ease,
+      transform 80ms ease;
+    -webkit-tap-highlight-color: transparent;
   }
 }
 
@@ -2028,10 +2171,10 @@ canvas {
     top: calc(var(--nh3d-safe-area-top) + 8px);
     transform: translateX(-50%);
     max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) -
-        var(--nh3d-mobile-visible-top-offset, 0px) -
-        var(--nh3d-safe-area-top) -
-        max(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - var(--nh3d-safe-area-top) - max(
           env(safe-area-inset-bottom),
           var(--nh3d-mobile-visible-bottom-offset, 0px)
         ) -
@@ -2043,10 +2186,10 @@ canvas {
     top: 50%;
     transform: translate(-50%, -50%);
     max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) -
-        var(--nh3d-mobile-visible-top-offset, 0px) -
-        var(--nh3d-safe-area-top) -
-        max(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - var(--nh3d-safe-area-top) - max(
           env(safe-area-inset-bottom),
           var(--nh3d-mobile-visible-bottom-offset, 0px)
         ) -
