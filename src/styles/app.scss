@@ -729,8 +729,6 @@ canvas {
     overflow: hidden;
 
     .nh3d-menu-actions,
-    .nh3d-inventory-keybinds-title,
-    .nh3d-inventory-keybinds,
     .nh3d-inventory-close {
       flex: 0 0 auto;
     }
@@ -1686,7 +1684,7 @@ canvas {
 
 .nh3d-inventory-context-menu {
   @extend %custom-scrollbar;
-  max-height: min(70vh, 420px);
+  max-height: min(70vh, 450px);
   overflow-y: auto;
 }
 
@@ -1719,19 +1717,6 @@ canvas {
   max-width: min(280px, calc(50vw - 28px));
 }
 
-.nh3d-inventory-keybinds-title {
-  font-size: 13px;
-  font-weight: bold;
-  color: var(--nh3d-ui-accent-soft);
-  margin-bottom: 8px;
-  border-top: 1px solid var(--nh3d-ui-border);
-  padding-top: 12px;
-
-  @media (pointer: coarse) {
-    display: none;
-  }
-}
-
 .nh3d-inventory-keybinds {
   font-size: 11px;
   line-height: 1.2;
@@ -1749,10 +1734,6 @@ canvas {
 .nh3d-inventory-keybinds-text {
   color: var(--nh3d-ui-text-muted);
   white-space: pre-line;
-}
-
-.nh3d-inventory-command-key {
-  color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-inventory-close {

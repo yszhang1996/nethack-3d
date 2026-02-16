@@ -443,7 +443,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerHealNumberFadeDelayMs: number = 250;
   private readonly playerDamageNumberWallBounce: number = 0.35;
   private readonly playerDamageNumberForwardOffset: number = TILE_SIZE * 0.42;
-  private readonly playerDamageNumberFpsLateralSpread: number = TILE_SIZE * 0.14;
+  private readonly playerDamageNumberFpsLateralSpread: number =
+    TILE_SIZE * 0.14;
   private readonly playerDamageNumberFpsRiseDistance: number = 0.34;
   private readonly playerDamageNumberNormalScaleFactor: number = 3;
   private readonly playerDamageNumberFpsScaleFactor: number = 0.33;
@@ -1268,7 +1269,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const visible = this.clientOptions.minimap;
     this.minimapContainer.style.display = visible ? "" : "none";
     this.minimapContainer.style.pointerEvents = visible ? "auto" : "none";
-    this.minimapContainer.setAttribute("aria-hidden", visible ? "false" : "true");
+    this.minimapContainer.setAttribute(
+      "aria-hidden",
+      visible ? "false" : "true",
+    );
     this.updateMinimapPresentation();
     if (!visible) {
       this.stopMinimapDrag();
@@ -1357,7 +1361,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private applyPlayMode(nextPlayMode: PlayMode): void {
-    const resolvedPlayMode: PlayMode = nextPlayMode === "fps" ? "fps" : "normal";
+    const resolvedPlayMode: PlayMode =
+      nextPlayMode === "fps" ? "fps" : "normal";
     if (this.playMode === resolvedPlayMode) {
       this.configureBaseLightingForPlayMode();
       this.markLightingDirty();
@@ -1676,7 +1681,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const horizontalFovRadians =
           2 *
           Math.atan(
-            Math.tan(verticalFovRadians * 0.5) * Math.max(0.1, this.camera.aspect),
+            Math.tan(verticalFovRadians * 0.5) *
+              Math.max(0.1, this.camera.aspect),
           );
         // Keep cone angle matched to the actual rendered camera FOV.
         const halfConeRadians = horizontalFovRadians * 0.5;
@@ -2888,7 +2894,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.fpsStepCameraActive &&
         behavior &&
         !behavior.isPlayerGlyph &&
-        (this.isMonsterLikeBehavior(behavior) || this.isLootLikeBehavior(behavior))
+        (this.isMonsterLikeBehavior(behavior) ||
+          this.isLootLikeBehavior(behavior))
       ) {
         this.pendingTileUpdates.set(key, tile);
         continue;
@@ -2977,7 +2984,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!direction) {
       return;
     }
-    this.requestTileUpdateWithRetry(originX + direction.dx, originY + direction.dy);
+    this.requestTileUpdateWithRetry(
+      originX + direction.dx,
+      originY + direction.dy,
+    );
   }
 
   private submitDirectionAnswer(directionKey: string): void {
@@ -3192,7 +3202,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const inset = gridLineWidth * 0.5;
       context.lineWidth = gridLineWidth;
       context.strokeStyle = "rgba(8, 12, 16, 0.26)";
-      context.strokeRect(inset, inset, size - gridLineWidth, size - gridLineWidth);
+      context.strokeRect(
+        inset,
+        inset,
+        size - gridLineWidth,
+        size - gridLineWidth,
+      );
     }
 
     const trimmed = glyphChar.trim();
@@ -3750,7 +3765,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.playerDamageNumberForwardDirection.z = 0;
     const lengthSq = this.playerDamageNumberForwardDirection.lengthSq();
     if (lengthSq > 1e-8) {
-      this.playerDamageNumberForwardDirection.multiplyScalar(1 / Math.sqrt(lengthSq));
+      this.playerDamageNumberForwardDirection.multiplyScalar(
+        1 / Math.sqrt(lengthSq),
+      );
     } else {
       this.playerDamageNumberForwardDirection.set(
         -Math.sin(this.cameraYaw),
@@ -4524,8 +4541,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return wallMaterialKind === "dark_wall" ? "dark" : "floor";
   }
 
-  private getFpsWallChamferDisplayBaseHex(materialKind: TileMaterialKind): string {
-    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+  private getFpsWallChamferDisplayBaseHex(
+    materialKind: TileMaterialKind,
+  ): string {
+    const baseColorHex =
+      this.getMaterialByKind(materialKind).color.getHexString();
     const tonedBackground = this.toneColor(baseColorHex, 0.8);
     return this.ensureTextContrast(tonedBackground, "#F4F4F4");
   }
@@ -4554,7 +4574,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return cached.material;
     }
 
-    const baseColorHex = this.getMaterialByKind(materialKind).color.getHexString();
+    const baseColorHex =
+      this.getMaterialByKind(materialKind).color.getHexString();
     const texture = this.createGlyphTexture(
       baseColorHex,
       " ",
@@ -4567,12 +4588,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       map: texture,
       transparent: false,
     });
-    this.fpsWallChamferFloorMaterialCache.set(materialKind, { material, texture });
+    this.fpsWallChamferFloorMaterialCache.set(materialKind, {
+      material,
+      texture,
+    });
     return material;
   }
 
   private clearFpsWallChamferMaterialCaches(): void {
-    this.fpsWallChamferFaceMaterialCache.forEach((material) => material.dispose());
+    this.fpsWallChamferFaceMaterialCache.forEach((material) =>
+      material.dispose(),
+    );
     this.fpsWallChamferFaceMaterialCache.clear();
     this.fpsWallChamferFloorMaterialCache.forEach(({ material, texture }) => {
       material.dispose();
@@ -4709,7 +4735,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return geometry;
   }
 
-  private getFpsWallChamferFloorGeometry(mask: number): THREE.ShapeGeometry | null {
+  private getFpsWallChamferFloorGeometry(
+    mask: number,
+  ): THREE.ShapeGeometry | null {
     if (mask === 0) {
       return null;
     }
@@ -4847,9 +4875,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const nextMask = this.computeFpsWallChamferMask(tileX, tileY);
     const nextChamferKind =
-      nextMask > 0
-        ? this.getFpsChamferMaterialKindForWall(materialKind)
-        : null;
+      nextMask > 0 ? this.getFpsChamferMaterialKindForWall(materialKind) : null;
     const previousMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     const previousChamferKind =
       typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
@@ -4862,12 +4888,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     mesh.userData.fpsWallChamferMask = nextMask;
     mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
-    this.upsertFpsWallChamferFloorMesh(
-      tileX,
-      tileY,
-      nextMask,
-      nextChamferKind,
-    );
+    this.upsertFpsWallChamferFloorMesh(tileX, tileY, nextMask, nextChamferKind);
     const chamferKindChanged = previousChamferKind !== nextChamferKind;
     if (!geometryChanged && previousMask === nextMask && !chamferKindChanged) {
       return;
@@ -4875,7 +4896,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const baseMaterial = this.getMaterialByKind(materialKind);
     const glyphChar =
-      typeof mesh.userData?.glyphChar === "string" ? mesh.userData.glyphChar : " ";
+      typeof mesh.userData?.glyphChar === "string"
+        ? mesh.userData.glyphChar
+        : " ";
     const textColor =
       typeof mesh.userData?.glyphTextColor === "string"
         ? mesh.userData.glyphTextColor
@@ -4896,7 +4919,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private refreshFpsWallChamferGeometryNear(tileX: number, tileY: number): void {
+  private refreshFpsWallChamferGeometryNear(
+    tileX: number,
+    tileY: number,
+  ): void {
     if (!this.isFpsMode()) {
       return;
     }
@@ -5241,7 +5267,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     let shadow = this.entityBlobShadows.get(key);
     if (!shadow) {
-      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.8, TILE_SIZE * 0.8);
+      const geometry = new THREE.PlaneGeometry(
+        TILE_SIZE * 0.8,
+        TILE_SIZE * 0.8,
+      );
       const material = new THREE.MeshBasicMaterial({
         map: this.ensureEntityBlobShadowTexture(),
         transparent: true,
@@ -5428,7 +5457,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
           glyph: floorSnapshot.glyph,
           runtimeChar: floorSnapshot.char ?? null,
           runtimeColor:
-            typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+            typeof floorSnapshot.color === "number"
+              ? floorSnapshot.color
+              : null,
           priorTerrain: floorSnapshot,
         });
       } else {
@@ -5590,12 +5621,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           moveDy,
           autoMoveLikely,
         );
-        this.beginFpsStepCameraTransition(
-          fromX,
-          fromY,
-          toX,
-          toY,
-        );
+        this.beginFpsStepCameraTransition(fromX, fromY, toX, toY);
       } else {
         this.recenterCameraOnPlayerIfNeeded();
       }
@@ -7657,27 +7683,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     inventoryDialog.appendChild(itemsContainer);
 
-    // Add compact NetHack item handling keybinds
-    const keybindsTitle = document.createElement("div");
-    keybindsTitle.className = "nh3d-inventory-keybinds-title";
-    keybindsTitle.textContent = "🎮 ITEM COMMANDS";
-    inventoryDialog.appendChild(keybindsTitle);
-
-    // Create commands container
-    const keybindsContainer = document.createElement("div");
-    keybindsContainer.className = "nh3d-inventory-keybinds";
-
-    // Create highlighted command list with color-coded keys
-    const commandText = `<span class="nh3d-inventory-command-key">a</span>)pply <span class="nh3d-inventory-command-key">d</span>)rop <span class="nh3d-inventory-command-key">e</span>)at <span class="nh3d-inventory-command-key">q</span>)uaff <span class="nh3d-inventory-command-key">r</span>)ead <span class="nh3d-inventory-command-key">t</span>)hrow <span class="nh3d-inventory-command-key">w</span>)ield <span class="nh3d-inventory-command-key">W</span>)ear <span class="nh3d-inventory-command-key">T</span>)ake-off <span class="nh3d-inventory-command-key">P</span>)ut-on <span class="nh3d-inventory-command-key">R</span>)emove <span class="nh3d-inventory-command-key">z</span>)ap <span class="nh3d-inventory-command-key">Z</span>)cast
-    Special: <span class="nh3d-inventory-command-key">"</span>)weapons <span class="nh3d-inventory-command-key">[</span>)armor <span class="nh3d-inventory-command-key">=</span>)rings <span class="nh3d-inventory-command-key">"</span>)amulets <span class="nh3d-inventory-command-key">(</span>)tools`;
-
-    keybindsContainer.innerHTML = `<div class="nh3d-inventory-keybinds-text">${commandText}</div>`;
-    inventoryDialog.appendChild(keybindsContainer);
-
     // Add close instructions
     const closeText = document.createElement("div");
     closeText.className = "nh3d-inventory-close";
-    closeText.textContent = "Press ENTER, ESC, or 'i' to close";
+    closeText.textContent =
+      "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close";
     inventoryDialog.appendChild(closeText);
 
     const actions = document.createElement("div");
@@ -9032,7 +9042,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return aim?.input ?? null;
   }
 
-  private tryResolveFpsDirectionQuestionInput(event: KeyboardEvent): string | null {
+  private tryResolveFpsDirectionQuestionInput(
+    event: KeyboardEvent,
+  ): string | null {
     const lowerKey = event.key.toLowerCase();
     if (lowerKey === "a" || lowerKey === "d") {
       return "Escape";
@@ -9889,11 +9901,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const forwardZ = Math.sin(this.cameraPitch);
 
       this.camera.position.set(eyeX, eyeY, eyeZ);
-      this.camera.lookAt(
-        eyeX + forwardX,
-        eyeY + forwardY,
-        eyeZ + forwardZ,
-      );
+      this.camera.lookAt(eyeX + forwardX, eyeY + forwardY, eyeZ + forwardZ);
       return;
     }
 
@@ -10004,7 +10012,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (!this.fpsForwardHighlight) {
-      const geometry = new THREE.PlaneGeometry(TILE_SIZE * 0.9, TILE_SIZE * 0.9);
+      const geometry = new THREE.PlaneGeometry(
+        TILE_SIZE * 0.9,
+        TILE_SIZE * 0.9,
+      );
       const material = new THREE.MeshBasicMaterial({
         map: this.ensureFpsForwardHighlightTexture(),
         color: 0xfff6a8,
@@ -10032,7 +10043,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (this.isAnyModalVisible() || this.isInQuestion || this.isInDirectionQuestion) {
+    if (
+      this.isAnyModalVisible() ||
+      this.isInQuestion ||
+      this.isInDirectionQuestion
+    ) {
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
       }
@@ -10064,7 +10079,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.fpsForwardHighlightMaterial.opacity = 0.2 + pulse * 0.32;
       }
     }
-
   }
 
   private wrapAngle(angle: number): number {
@@ -10119,7 +10133,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private closeFpsCrosshairContextMenu(restorePointerLock: boolean): void {
-    if (!this.fpsCrosshairContextMenuOpen && !this.fpsCrosshairContextSignature) {
+    if (
+      !this.fpsCrosshairContextMenuOpen &&
+      !this.fpsCrosshairContextSignature
+    ) {
       return;
     }
     this.fpsCrosshairContextMenuOpen = false;
@@ -10220,7 +10237,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (/\b(fountain|sink|pool|water|moat|lava)\b/.test(normalized)) {
       return "water";
     }
-    if (/\b(altar|throne|grave|headstone|tree|bars|boulder|statue)\b/.test(normalized)) {
+    if (
+      /\b(altar|throne|grave|headstone|tree|bars|boulder|statue)\b/.test(
+        normalized,
+      )
+    ) {
       return "feature";
     }
     if (/\b(wall|rock)\b/.test(normalized)) {
@@ -10329,7 +10350,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     target: { key: string; x: number; y: number },
     nowMs: number,
   ): void {
-    if (!this.session || !this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
+    if (
+      !this.session ||
+      !this.isFpsMode() ||
+      !this.fpsCrosshairContextMenuOpen
+    ) {
       return;
     }
     if (
@@ -10421,7 +10446,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): FpsContextAction[] {
     const actions: FpsContextAction[] = [];
     const addQuickAction = (id: string, label: string, value: string = id) => {
-      if (actions.some((action) => action.id === id && action.kind === "quick")) {
+      if (
+        actions.some((action) => action.id === id && action.kind === "quick")
+      ) {
         return;
       }
       actions.push({
@@ -10802,10 +10829,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
-  private resolveFpsMovementInputFromSwipe(dx: number, dy: number): string | null {
+  private resolveFpsMovementInputFromSwipe(
+    dx: number,
+    dy: number,
+  ): string | null {
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
-    if (absX < this.touchSwipeMinDistancePx && absY < this.touchSwipeMinDistancePx) {
+    if (
+      absX < this.touchSwipeMinDistancePx &&
+      absY < this.touchSwipeMinDistancePx
+    ) {
       return null;
     }
 
@@ -11339,7 +11372,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         let consumed = false;
         if (this.fpsTouchLookGesture) {
           const touch =
-            this.findTouchById(event.changedTouches, this.fpsTouchLookGesture.touchId) ||
+            this.findTouchById(
+              event.changedTouches,
+              this.fpsTouchLookGesture.touchId,
+            ) ||
             this.findTouchById(event.touches, this.fpsTouchLookGesture.touchId);
           if (touch) {
             const deltaX = touch.clientX - this.fpsTouchLookGesture.lastX;
@@ -11357,7 +11393,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
         if (this.fpsTouchMoveGesture) {
           const touch =
-            this.findTouchById(event.changedTouches, this.fpsTouchMoveGesture.touchId) ||
+            this.findTouchById(
+              event.changedTouches,
+              this.fpsTouchMoveGesture.touchId,
+            ) ||
             this.findTouchById(event.touches, this.fpsTouchMoveGesture.touchId);
           if (touch) {
             this.fpsTouchMoveGesture.lastX = touch.clientX;
@@ -11379,7 +11418,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       let consumed = false;
       if (this.fpsTouchLookGesture) {
         const touch =
-          this.findTouchById(event.changedTouches, this.fpsTouchLookGesture.touchId) ||
+          this.findTouchById(
+            event.changedTouches,
+            this.fpsTouchLookGesture.touchId,
+          ) ||
           this.findTouchById(event.touches, this.fpsTouchLookGesture.touchId);
         if (touch) {
           const deltaX = touch.clientX - this.fpsTouchLookGesture.lastX;
@@ -11394,11 +11436,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           ) {
             this.closeFpsCrosshairContextMenu(false);
           }
-          this.applyFpsLookDelta(
-            deltaX,
-            deltaY,
-            this.fpsTouchLookSensitivity,
-          );
+          this.applyFpsLookDelta(deltaX, deltaY, this.fpsTouchLookSensitivity);
           this.fpsTouchLookGesture.lastX = touch.clientX;
           this.fpsTouchLookGesture.lastY = touch.clientY;
           consumed = true;
@@ -11407,7 +11445,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       if (this.fpsTouchMoveGesture) {
         const touch =
-          this.findTouchById(event.changedTouches, this.fpsTouchMoveGesture.touchId) ||
+          this.findTouchById(
+            event.changedTouches,
+            this.fpsTouchMoveGesture.touchId,
+          ) ||
           this.findTouchById(event.touches, this.fpsTouchMoveGesture.touchId);
         if (touch) {
           this.fpsTouchMoveGesture.lastX = touch.clientX;

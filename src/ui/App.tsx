@@ -154,7 +154,11 @@ function isYesNoChoicePrompt(parsedChoices: string[]): boolean {
   }
 
   const normalized = parsedChoices
-    .map((choice) => String(choice || "").trim().toLowerCase())
+    .map((choice) =>
+      String(choice || "")
+        .trim()
+        .toLowerCase(),
+    )
     .filter((choice) => choice.length > 0);
   if (normalized.length === 0) {
     return false;
@@ -522,7 +526,9 @@ export default function App(): JSX.Element {
   const [statsBarHeight, setStatsBarHeight] = useState(0);
   const [textInputValue, setTextInputValue] = useState("");
   const adapter = useMemo(() => createEngineUiAdapter(), []);
-  const setEngineController = useGameStore((state) => state.setEngineController);
+  const setEngineController = useGameStore(
+    (state) => state.setEngineController,
+  );
   const setPositionRequest = useGameStore((state) => state.setPositionRequest);
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
@@ -767,7 +773,10 @@ export default function App(): JSX.Element {
         window.setTimeout(updateMobileVisibleViewportMetrics, 280),
       );
     };
-    window.addEventListener("orientationchange", handleOrientationViewportRefresh);
+    window.addEventListener(
+      "orientationchange",
+      handleOrientationViewportRefresh,
+    );
 
     const visualViewport = window.visualViewport;
     if (visualViewport) {
@@ -906,7 +915,8 @@ export default function App(): JSX.Element {
   const questionMenuPageIndex = question?.menuPageIndex ?? 0;
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
   const questionSelectableMenuItemCount = question
-    ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item)).length
+    ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item))
+        .length
     : 0;
   const showPickupActionButtons =
     Boolean(question?.isPickupDialog) &&
@@ -1017,7 +1027,7 @@ export default function App(): JSX.Element {
     clientX: number,
     clientY: number,
   ): void => {
-    if (!isFpsPlayMode || typeof item.accelerator !== "string") {
+    if (typeof item.accelerator !== "string") {
       return;
     }
 
@@ -1197,10 +1207,15 @@ export default function App(): JSX.Element {
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
 
       {characterCreationConfig === null ? (
-        <div className="nh3d-dialog nh3d-dialog-question is-visible" id="character-setup-dialog">
+        <div
+          className="nh3d-dialog nh3d-dialog-question is-visible"
+          id="character-setup-dialog"
+        >
           {startupFlowStep === "choose" ? (
             <>
-              <div className="nh3d-question-text">Choose your character setup:</div>
+              <div className="nh3d-question-text">
+                Choose your character setup:
+              </div>
               <div className="nh3d-choice-list">
                 <button
                   className="nh3d-choice-button nh3d-character-setup-choice-button"
@@ -1534,12 +1549,16 @@ export default function App(): JSX.Element {
                 <div className="nh3d-option-row" key={toggle.key}>
                   <div className="nh3d-option-copy">
                     <div className="nh3d-option-label">{toggle.label}</div>
-                    <div className="nh3d-option-description">{toggle.description}</div>
+                    <div className="nh3d-option-description">
+                      {toggle.description}
+                    </div>
                   </div>
                   <button
                     aria-checked={enabled}
                     className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
-                    onClick={() => updateClientOptionDraft(toggle.key, !enabled)}
+                    onClick={() =>
+                      updateClientOptionDraft(toggle.key, !enabled)
+                    }
                     role="switch"
                     type="button"
                   >
@@ -1743,7 +1762,9 @@ export default function App(): JSX.Element {
                       }`}
                       key={`pickup-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.togglePickupChoice(getMenuSelectionInput(item))
+                        controller?.togglePickupChoice(
+                          getMenuSelectionInput(item),
+                        )
                       }
                     >
                       <input
@@ -1753,11 +1774,15 @@ export default function App(): JSX.Element {
                         className="nh3d-pickup-checkbox"
                         onClick={(event) => event.stopPropagation()}
                         onChange={() =>
-                          controller?.togglePickupChoice(getMenuSelectionInput(item))
+                          controller?.togglePickupChoice(
+                            getMenuSelectionInput(item),
+                          )
                         }
                         type="checkbox"
                       />
-                      <span className="nh3d-pickup-key">{item.accelerator})</span>
+                      <span className="nh3d-pickup-key">
+                        {item.accelerator})
+                      </span>
                       <span className="nh3d-pickup-text">{item.text}</span>
                     </div>
                   ),
@@ -1808,7 +1833,9 @@ export default function App(): JSX.Element {
                       }`}
                       key={`menu-${item.accelerator}-${index}`}
                       onClick={() =>
-                        controller?.chooseQuestionChoice(getMenuSelectionInput(item))
+                        controller?.chooseQuestionChoice(
+                          getMenuSelectionInput(item),
+                        )
                       }
                       type="button"
                     >
@@ -1840,7 +1867,9 @@ export default function App(): JSX.Element {
             <div
               className={`nh3d-choice-list${
                 parsedQuestionChoices.length > 0 &&
-                parsedQuestionChoices.every((choice) => choice.trim().length === 1)
+                parsedQuestionChoices.every(
+                  (choice) => choice.trim().length === 1,
+                )
                   ? " is-compact"
                   : ""
               }${isYesNoQuestionChoices ? " is-yes-no" : ""}`}
@@ -1850,7 +1879,7 @@ export default function App(): JSX.Element {
                   className={`nh3d-choice-button${
                     choice === question.defaultChoice
                       ? " nh3d-choice-button-default"
-                    : ""
+                      : ""
                   }`}
                   key={choice}
                   onClick={() => controller?.chooseQuestionChoice(choice)}
@@ -1923,29 +1952,35 @@ export default function App(): JSX.Element {
             )}
             <div className="nh3d-direction-text">{directionQuestion}</div>
             <div className="nh3d-direction-grid">
-              {getDirectionChoices(numberPadModeEnabled).map((direction, index) => {
-                if (direction.spacer || !direction.key || !direction.label) {
-                  return (
-                    <div
-                      aria-hidden="true"
-                      className="nh3d-direction-spacer"
-                      key={`spacer-${index}`}
-                    />
-                  );
-                }
+              {getDirectionChoices(numberPadModeEnabled).map(
+                (direction, index) => {
+                  if (direction.spacer || !direction.key || !direction.label) {
+                    return (
+                      <div
+                        aria-hidden="true"
+                        className="nh3d-direction-spacer"
+                        key={`spacer-${index}`}
+                      />
+                    );
+                  }
 
-                return (
-                  <button
-                    className="nh3d-direction-button"
-                    key={direction.key}
-                    onClick={() => controller?.chooseDirection(direction.key!)}
-                    type="button"
-                  >
-                    <div className="nh3d-direction-symbol">{direction.label}</div>
-                    <div className="nh3d-direction-key">{direction.key}</div>
-                  </button>
-                );
-              })}
+                  return (
+                    <button
+                      className="nh3d-direction-button"
+                      key={direction.key}
+                      onClick={() =>
+                        controller?.chooseDirection(direction.key!)
+                      }
+                      type="button"
+                    >
+                      <div className="nh3d-direction-symbol">
+                        {direction.label}
+                      </div>
+                      <div className="nh3d-direction-key">{direction.key}</div>
+                    </button>
+                  );
+                },
+              )}
             </div>
             <div className="nh3d-direction-extra-row">
               {directionAuxChoices.map((direction) => (
@@ -1985,9 +2020,13 @@ export default function App(): JSX.Element {
             () => controller?.closeInfoMenuDialog(),
             "Close information window",
           )}
-          <div className="nh3d-info-title">{infoMenu.title || "NetHack Information"}</div>
+          <div className="nh3d-info-title">
+            {infoMenu.title || "NetHack Information"}
+          </div>
           <div className="nh3d-info-body">
-            {infoMenu.lines.length > 0 ? infoMenu.lines.join("\n") : "(No details)"}
+            {infoMenu.lines.length > 0
+              ? infoMenu.lines.join("\n")
+              : "(No details)"}
           </div>
           <div className="nh3d-info-hint">
             Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
@@ -2016,7 +2055,9 @@ export default function App(): JSX.Element {
           <div className="nh3d-inventory-title">INVENTORY</div>
           <div className="nh3d-inventory-items">
             {inventory.items.length === 0 ? (
-              <div className="nh3d-inventory-empty">Your inventory is empty.</div>
+              <div className="nh3d-inventory-empty">
+                Your inventory is empty.
+              </div>
             ) : (
               inventory.items.map((item, index) =>
                 item.isCategory ? (
@@ -2031,16 +2072,12 @@ export default function App(): JSX.Element {
                 ) : (
                   <div
                     className={`nh3d-inventory-item${
-                      isFpsPlayMode &&
                       inventoryContextMenu?.accelerator === item.accelerator
                         ? " nh3d-inventory-item-active"
                         : ""
                     }`}
                     key={`item-${index}`}
                     onClick={(event) => {
-                      if (!isFpsPlayMode) {
-                        return;
-                      }
                       openInventoryContextMenu(
                         item,
                         event.clientX,
@@ -2048,9 +2085,6 @@ export default function App(): JSX.Element {
                       );
                     }}
                     onContextMenu={(event) => {
-                      if (!isFpsPlayMode) {
-                        return;
-                      }
                       event.preventDefault();
                       openInventoryContextMenu(
                         item,
@@ -2059,12 +2093,10 @@ export default function App(): JSX.Element {
                       );
                     }}
                     onKeyDown={(event) => {
-                      if (!isFpsPlayMode) {
-                        return;
-                      }
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        const target = event.currentTarget.getBoundingClientRect();
+                        const target =
+                          event.currentTarget.getBoundingClientRect();
                         openInventoryContextMenu(
                           item,
                           target.right,
@@ -2072,46 +2104,24 @@ export default function App(): JSX.Element {
                         );
                       }
                     }}
-                    role={isFpsPlayMode ? "button" : undefined}
-                    tabIndex={isFpsPlayMode ? 0 : undefined}
+                    role={"button"}
+                    tabIndex={0}
                   >
-                    <span className="nh3d-inventory-key">{item.accelerator || "?"})</span>
-                    <span className="nh3d-inventory-text">{item.text || "Unknown item"}</span>
+                    <span className="nh3d-inventory-key">
+                      {item.accelerator || "?"})
+                    </span>
+                    <span className="nh3d-inventory-text">
+                      {item.text || "Unknown item"}
+                    </span>
                   </div>
                 ),
               )
             )}
           </div>
-          <div className="nh3d-inventory-keybinds-title">ITEM COMMANDS</div>
-          <div className="nh3d-inventory-keybinds">
-            {isFpsPlayMode ? (
-              <div className="nh3d-inventory-keybinds-text">
-                Left- or right-click an item to open contextual commands.
-              </div>
-            ) : (
-              <div className="nh3d-inventory-keybinds-text">
-                <span className="nh3d-inventory-command-key">a</span>)pply{" "}
-                <span className="nh3d-inventory-command-key">d</span>)rop{" "}
-                <span className="nh3d-inventory-command-key">e</span>)at{" "}
-                <span className="nh3d-inventory-command-key">q</span>)uaff{" "}
-                <span className="nh3d-inventory-command-key">r</span>)ead{" "}
-                <span className="nh3d-inventory-command-key">t</span>)hrow{" "}
-                <span className="nh3d-inventory-command-key">w</span>)ield{" "}
-                <span className="nh3d-inventory-command-key">W</span>)ear{" "}
-                <span className="nh3d-inventory-command-key">T</span>)ake-off{" "}
-                <span className="nh3d-inventory-command-key">P</span>)ut-on{" "}
-                <span className="nh3d-inventory-command-key">R</span>)emove{" "}
-                <span className="nh3d-inventory-command-key">z</span>)ap{" "}
-                <span className="nh3d-inventory-command-key">Z</span>)cast{"\n"}
-                Special: <span className="nh3d-inventory-command-key">"</span>)weapons{" "}
-                <span className="nh3d-inventory-command-key">[</span>)armor{" "}
-                <span className="nh3d-inventory-command-key">=</span>)rings{" "}
-                <span className="nh3d-inventory-command-key">"</span>)amulets{" "}
-                <span className="nh3d-inventory-command-key">(</span>)tools
-              </div>
-            )}
+          <div className="nh3d-inventory-close">
+            Select an item to open contextual commands. Press ENTER, ESC, or 'i'
+            to close
           </div>
-          <div className="nh3d-inventory-close">Press ENTER, ESC, or 'i' to close</div>
           <div className="nh3d-menu-actions">
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
@@ -2124,7 +2134,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {isFpsPlayMode && inventoryContextMenu ? (
+      {inventoryContextMenu ? (
         <div
           className="nh3d-context-menu nh3d-inventory-context-menu"
           onContextMenu={(event) => event.preventDefault()}
@@ -2170,7 +2180,8 @@ export default function App(): JSX.Element {
       {isFpsPlayMode && fpsCrosshairContext ? (
         <div className="nh3d-context-menu nh3d-fps-crosshair-context">
           <div className="nh3d-context-menu-title">
-            {fpsCrosshairContext.title} ({fpsCrosshairContext.tileX},{fpsCrosshairContext.tileY})
+            {fpsCrosshairContext.title} ({fpsCrosshairContext.tileX},
+            {fpsCrosshairContext.tileY})
           </div>
           <div className="nh3d-context-menu-actions">
             {fpsCrosshairContext.actions.map((action) => (
@@ -2191,7 +2202,9 @@ export default function App(): JSX.Element {
         <div className="nh3d-mobile-actions-sheet">
           <div className="nh3d-mobile-actions-title-row">
             <div className="nh3d-mobile-actions-title">
-              {mobileActionSheetMode === "quick" ? "Actions" : "Extended Commands"}
+              {mobileActionSheetMode === "quick"
+                ? "Actions"
+                : "Extended Commands"}
             </div>
             <div className="nh3d-mobile-actions-controls">
               {mobileActionSheetMode === "extended" ? (
@@ -2279,7 +2292,9 @@ export default function App(): JSX.Element {
                 </div>
               ) : null}
               <div className="nh3d-mobile-actions-section">
-                <div className="nh3d-mobile-actions-subheader">All commands</div>
+                <div className="nh3d-mobile-actions-subheader">
+                  All commands
+                </div>
                 <div className="nh3d-mobile-actions-grid is-extended">
                   {mobileExtendedCommandNames.map((command) => (
                     <button
@@ -2397,4 +2412,3 @@ export default function App(): JSX.Element {
     </>
   );
 }
-
