@@ -646,7 +646,7 @@ canvas {
   border: 2px solid var(--nh3d-ui-border-strong);
   background: var(--nh3d-ui-panel-bg-strong);
   min-width: 450px;
-  max-width: 600px;
+  // max-width: 600px;
   max-height: 95vh;
   display: flex;
   flex-direction: column;
@@ -1885,9 +1885,9 @@ canvas {
 
   .nh3d-dialog {
     --nh3d-dialog-mobile-padding: 14px;
-    top: calc(var(--nh3d-safe-area-top) + 8px);
+    top: 50%;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translate(-50%, -50%);
     box-sizing: border-box;
     width: max-content;
     max-width: calc(100vw - 50px);
@@ -1930,7 +1930,7 @@ canvas {
   .nh3d-dialog-text,
   .nh3d-dialog-info {
     min-width: 0;
-    max-width: calc(100vw - 50px);
+    max-width: calc(100vw - 20px);
   }
 
   .nh3d-info-body {
@@ -2168,8 +2168,8 @@ canvas {
   }
 
   .nh3d-dialog:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
-    top: calc(var(--nh3d-safe-area-top) + 8px);
-    transform: translateX(-50%);
+    top: 50%;
+    transform: translate(-50%, -50%);
     max-height: calc(
       var(--nh3d-mobile-visible-height, 100vh) - var(
           --nh3d-mobile-visible-top-offset,
