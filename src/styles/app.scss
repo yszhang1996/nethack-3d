@@ -732,17 +732,21 @@ canvas {
     .nh3d-inventory-close {
       flex: 0 0 auto;
     }
+
+    @media (pointer: coarse) {
+      max-height: var(--nh3d-calculated-mobile-height, 80vh);
+
+      .nh3d-inventory-items {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+      }
+    }
   }
 
   @media (pointer: coarse) {
     --nh3d-dialog-mobile-padding: 9px;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    box-sizing: border-box;
-    width: max-content;
-    max-width: calc(100vw - 50px);
-    max-height: calc(
+
+    // Calculate dynamic height to respect safe areas
+    --nh3d-calculated-mobile-height: calc(
       var(--nh3d-mobile-visible-height, 100vh) - var(
           --nh3d-mobile-visible-top-offset,
           0px
@@ -752,6 +756,17 @@ canvas {
         ) -
         16px
     );
+
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    width: max-content;
+    max-width: calc(100vw - 50px);
+
+    // Apply calculation generic dialogs
+    max-height: var(--nh3d-calculated-mobile-height);
+
     padding: var(--nh3d-dialog-mobile-padding);
     border-radius: 8px;
     overflow-x: auto;
@@ -782,6 +797,7 @@ canvas {
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
     }
   }
 
