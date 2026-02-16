@@ -37,9 +37,54 @@
   --nh3d-scrollbar-thumb-hover: #57a7d4;
   --nh3d-scrollbar-thumb-active: #7bc7f2;
   --nh3d-scrollbar-thumb-border: rgba(8, 22, 36, 0.9);
+
+  @supports (height: 100dvh) {
+    --nh3d-mobile-visible-height: 100dvh;
+  }
 }
 
-/* Basic page styling to make the canvas fill the screen */
+// -----------------------------------------------------------------------------
+// Mixins & Placeholders
+// -----------------------------------------------------------------------------
+
+%custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--nh3d-scrollbar-thumb) var(--nh3d-scrollbar-track);
+
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--nh3d-scrollbar-track);
+    border: 1px solid var(--nh3d-scrollbar-track-border);
+    border-radius: 999px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--nh3d-scrollbar-thumb);
+    border: 1px solid var(--nh3d-scrollbar-thumb-border);
+    border-radius: 999px;
+
+    &:hover {
+      background: var(--nh3d-scrollbar-thumb-hover);
+    }
+
+    &:active {
+      background: var(--nh3d-scrollbar-thumb-active);
+    }
+  }
+
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Global & Base
+// -----------------------------------------------------------------------------
+
 html,
 body {
   margin: 0;
@@ -67,22 +112,50 @@ select {
   user-select: text;
 }
 
+// Mobile Input sizing
+@media (pointer: coarse) {
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="tel"],
+  input[type="url"],
+  input[type="password"],
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
 .nh3d-canvas-root {
   position: fixed;
   inset: 0;
+
+  @media (pointer: coarse) {
+    touch-action: none;
+    canvas {
+      touch-action: none;
+    }
+  }
 }
 
-/* The canvas where the 3D game will be rendered */
 canvas {
   display: block;
 }
 
-/* UI overlays */
 .ui-overlay {
   position: fixed;
   pointer-events: none;
   z-index: 1000;
 }
+
+.is-hidden {
+  display: none !important;
+}
+
+// -----------------------------------------------------------------------------
+// UI Components
+// -----------------------------------------------------------------------------
 
 .top-left-ui {
   position: fixed;
@@ -97,6 +170,16 @@ canvas {
   font-size: 12px;
   pointer-events: auto;
   box-shadow: var(--nh3d-ui-shadow);
+
+  &.with-stats {
+    top: calc(65px + var(--nh3d-safe-area-top));
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    #game-log {
+      display: none;
+    }
+  }
 }
 
 .nh3d-minimap {
@@ -117,20 +200,27 @@ canvas {
   pointer-events: auto;
   touch-action: none;
   user-select: none;
-}
 
-@supports (height: 100dvh) {
-  :root {
-    --nh3d-mobile-visible-height: 100dvh;
+  &.nh3d-minimap-fps {
+    width: min(36vw, 360px);
+    border-color: rgba(136, 186, 236, 0.66);
+    box-shadow:
+      inset 0 0 0 1px rgba(160, 208, 255, 0.15),
+      0 10px 22px rgba(0, 0, 0, 0.52);
   }
-}
 
-.nh3d-minimap.nh3d-minimap-fps {
-  width: min(36vw, 360px);
-  border-color: rgba(136, 186, 236, 0.66);
-  box-shadow:
-    inset 0 0 0 1px rgba(160, 208, 255, 0.15),
-    0 10px 22px rgba(0, 0, 0, 0.52);
+  @media (pointer: coarse) {
+    top: calc(
+      var(--nh3d-safe-area-top) + var(--nh3d-stats-bar-height, 64px) + 8px
+    );
+    right: 8px;
+    width: min(44vw, 220px);
+    opacity: 0.85;
+
+    &.nh3d-minimap-fps {
+      width: min(58vw, 300px);
+    }
+  }
 }
 
 .nh3d-minimap-canvas,
@@ -153,106 +243,14 @@ canvas {
 }
 
 #game-log {
+  @extend %custom-scrollbar;
   max-height: 250px;
   overflow-y: auto;
   line-height: 1.4;
 }
 
-#game-log,
-.nh3d-mobile-log,
-.nh3d-dialog,
-.nh3d-inventory-items,
-.nh3d-choice-list,
-.nh3d-context-menu,
-.nh3d-inventory-context-menu,
-.nh3d-mobile-actions-grid,
-.nh3d-mobile-actions-sections {
-  scrollbar-width: thin;
-  scrollbar-color: var(--nh3d-scrollbar-thumb) var(--nh3d-scrollbar-track);
-}
-
-#game-log::-webkit-scrollbar,
-.nh3d-mobile-log::-webkit-scrollbar,
-.nh3d-dialog::-webkit-scrollbar,
-.nh3d-inventory-items::-webkit-scrollbar,
-.nh3d-choice-list::-webkit-scrollbar,
-.nh3d-context-menu::-webkit-scrollbar,
-.nh3d-inventory-context-menu::-webkit-scrollbar,
-.nh3d-mobile-actions-grid::-webkit-scrollbar,
-.nh3d-mobile-actions-sections::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-#game-log::-webkit-scrollbar-track,
-.nh3d-mobile-log::-webkit-scrollbar-track,
-.nh3d-dialog::-webkit-scrollbar-track,
-.nh3d-inventory-items::-webkit-scrollbar-track,
-.nh3d-choice-list::-webkit-scrollbar-track,
-.nh3d-context-menu::-webkit-scrollbar-track,
-.nh3d-inventory-context-menu::-webkit-scrollbar-track,
-.nh3d-mobile-actions-grid::-webkit-scrollbar-track,
-.nh3d-mobile-actions-sections::-webkit-scrollbar-track {
-  background: var(--nh3d-scrollbar-track);
-  border: 1px solid var(--nh3d-scrollbar-track-border);
-  border-radius: 999px;
-}
-
-#game-log::-webkit-scrollbar-thumb,
-.nh3d-mobile-log::-webkit-scrollbar-thumb,
-.nh3d-dialog::-webkit-scrollbar-thumb,
-.nh3d-inventory-items::-webkit-scrollbar-thumb,
-.nh3d-choice-list::-webkit-scrollbar-thumb,
-.nh3d-context-menu::-webkit-scrollbar-thumb,
-.nh3d-inventory-context-menu::-webkit-scrollbar-thumb,
-.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb,
-.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb {
-  background: var(--nh3d-scrollbar-thumb);
-  border: 1px solid var(--nh3d-scrollbar-thumb-border);
-  border-radius: 999px;
-}
-
-#game-log::-webkit-scrollbar-thumb:hover,
-.nh3d-mobile-log::-webkit-scrollbar-thumb:hover,
-.nh3d-dialog::-webkit-scrollbar-thumb:hover,
-.nh3d-inventory-items::-webkit-scrollbar-thumb:hover,
-.nh3d-choice-list::-webkit-scrollbar-thumb:hover,
-.nh3d-context-menu::-webkit-scrollbar-thumb:hover,
-.nh3d-inventory-context-menu::-webkit-scrollbar-thumb:hover,
-.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb:hover,
-.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb:hover {
-  background: var(--nh3d-scrollbar-thumb-hover);
-}
-
-#game-log::-webkit-scrollbar-thumb:active,
-.nh3d-mobile-log::-webkit-scrollbar-thumb:active,
-.nh3d-dialog::-webkit-scrollbar-thumb:active,
-.nh3d-inventory-items::-webkit-scrollbar-thumb:active,
-.nh3d-choice-list::-webkit-scrollbar-thumb:active,
-.nh3d-context-menu::-webkit-scrollbar-thumb:active,
-.nh3d-inventory-context-menu::-webkit-scrollbar-thumb:active,
-.nh3d-mobile-actions-grid::-webkit-scrollbar-thumb:active,
-.nh3d-mobile-actions-sections::-webkit-scrollbar-thumb:active {
-  background: var(--nh3d-scrollbar-thumb-active);
-}
-
-#game-log::-webkit-scrollbar-corner,
-.nh3d-mobile-log::-webkit-scrollbar-corner,
-.nh3d-dialog::-webkit-scrollbar-corner,
-.nh3d-inventory-items::-webkit-scrollbar-corner,
-.nh3d-choice-list::-webkit-scrollbar-corner,
-.nh3d-context-menu::-webkit-scrollbar-corner,
-.nh3d-inventory-context-menu::-webkit-scrollbar-corner,
-.nh3d-mobile-actions-grid::-webkit-scrollbar-corner,
-.nh3d-mobile-actions-sections::-webkit-scrollbar-corner {
-  background: transparent;
-}
-
-.nh3d-mobile-log-hidden {
-  display: none;
-}
-
 .nh3d-mobile-log {
+  @extend %custom-scrollbar;
   position: fixed;
   left: 8px;
   right: 8px;
@@ -270,6 +268,24 @@ canvas {
   font-size: 12px;
   line-height: 1.4;
   box-shadow: var(--nh3d-ui-shadow);
+
+  @media (pointer: coarse) {
+    bottom: calc(68px + env(safe-area-inset-bottom));
+
+    .nh3d-mobile-dialog-close {
+      top: 8px;
+      right: 8px;
+      z-index: 2;
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    z-index: 1950;
+  }
+}
+
+.nh3d-mobile-log-hidden {
+  display: none;
 }
 
 .question-ui {
@@ -316,12 +332,12 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.option-button:hover {
-  background: var(--nh3d-ui-button-warm-bg-hover);
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  &:hover {
+    background: var(--nh3d-ui-button-warm-bg-hover);
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
 }
 
 .loading {
@@ -340,49 +356,256 @@ canvas {
   margin-top: 10px;
 }
 
-.is-hidden {
-  display: none !important;
-}
+// -----------------------------------------------------------------------------
+// Stats Bar
+// -----------------------------------------------------------------------------
 
-/* Stats bar styling */
 #stats-bar {
   font-family: "Courier New", monospace !important;
-}
-
-#stats-bar .stat-label {
-  color: var(--nh3d-ui-text-muted);
-  font-size: 10px;
-}
-
-#stats-bar .stat-value {
+  position: fixed;
+  top: var(--nh3d-safe-area-top);
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(10, 26, 44, 0.94) 0%,
+    rgba(5, 16, 30, 0.84) 100%
+  );
   color: var(--nh3d-ui-text);
-  font-weight: bold;
+  padding: 8px 15px;
+  font-size: 12px;
+  z-index: 1500;
+  border-bottom: 2px solid var(--nh3d-ui-border-strong);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+
+  .stat-label {
+    color: var(--nh3d-ui-text-muted);
+    font-size: 10px;
+  }
+
+  .stat-value {
+    color: var(--nh3d-ui-text);
+    font-weight: bold;
+  }
+
+  .hp-bar,
+  .power-bar {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--nh3d-ui-button-border);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .hp-fill {
+    height: 8px;
+    transition: width 0.3s ease-in-out;
+    border-radius: 3px;
+  }
+
+  .power-fill {
+    height: 8px;
+    background: #6666ff;
+    transition: width 0.3s ease-in-out;
+    border-radius: 3px;
+  }
+
+  .nh3d-stats-name {
+    font-weight: bold;
+    color: var(--nh3d-ui-accent);
+    min-width: 150px;
+  }
+
+  .nh3d-stats-meter {
+    display: flex;
+    flex-direction: column;
+    min-width: 120px;
+  }
+
+  .nh3d-stats-meter-label {
+    font-weight: bold;
+    margin-bottom: 2px;
+  }
+
+  .nh3d-stats-meter-label-hp {
+    color: #ff6666;
+  }
+
+  .nh3d-stats-meter-label-pw {
+    color: #6666ff;
+  }
+
+  .nh3d-stats-meter-track {
+    background: rgba(0, 0, 0, 0.45);
+    height: 8px;
+    border-radius: 4px;
+    border: 1px solid var(--nh3d-ui-button-border);
+  }
+
+  .nh3d-stats-meter-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .nh3d-stats-meter-fill-pw {
+    background: #6666ff;
+  }
+
+  .nh3d-stats-group {
+    display: flex;
+    gap: 15px;
+    font-size: 11px;
+  }
+
+  .nh3d-stats-core {
+    color: #ffaa00;
+  }
+
+  .nh3d-stats-secondary-ac {
+    color: #aaaaff;
+  }
+
+  .nh3d-stats-secondary-exp {
+    color: #ffbb66;
+  }
+
+  .nh3d-stats-secondary-gold {
+    color: #ffff66;
+  }
+
+  .nh3d-stats-secondary-time {
+    color: #66ffff;
+  }
+
+  .nh3d-stats-location {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 11px;
+    flex: 1;
+    text-align: right;
+  }
+
+  .nh3d-stats-dungeon {
+    color: #cccccc;
+  }
+
+  .nh3d-stats-hunger {
+    color: #ffaaff;
+  }
+
+  .nh3d-stats-mobile-inline-secondary,
+  .nh3d-stats-mobile-location-status {
+    display: none;
+  }
+
+  .nh3d-stats-mobile-location-status {
+    margin-left: 8px;
+    color: #ffaaff;
+  }
+
+  @media (pointer: coarse) {
+    gap: 8px;
+    padding: 8px 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    overflow-x: visible;
+    white-space: normal;
+
+    .nh3d-stats-name {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+
+    .nh3d-stats-meter {
+      flex: 1 1 150px;
+      min-width: 130px;
+    }
+
+    .nh3d-stats-group {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .nh3d-stats-group-core {
+      flex: 1 1 100%;
+    }
+
+    .nh3d-stats-group-secondary {
+      display: none;
+    }
+
+    .nh3d-stats-mobile-inline-secondary {
+      display: block;
+    }
+
+    .nh3d-stats-desktop-secondary {
+      display: none;
+    }
+
+    .nh3d-stats-location {
+      flex: 1 1 100%;
+      text-align: left;
+    }
+
+    .nh3d-stats-mobile-location-status {
+      display: inline;
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    flex-wrap: nowrap;
+    align-items: center;
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    gap: 10px;
+
+    .nh3d-stats-name {
+      flex: 0 0 auto;
+      min-width: 0;
+    }
+
+    .nh3d-stats-meter {
+      flex: 0 0 66px;
+      min-width: 60px;
+    }
+
+    .nh3d-stats-group {
+      flex-wrap: nowrap;
+      gap: 10px;
+    }
+
+    .nh3d-stats-group-core {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .nh3d-stats-location {
+      flex: 0 0 auto;
+      margin-left: auto;
+      text-align: right;
+      align-self: center;
+    }
+
+    .nh3d-stats-dungeon {
+      white-space: nowrap;
+    }
+
+    .nh3d-stats-mobile-location-status {
+      display: block;
+      margin-left: 0;
+      margin-top: 2px;
+    }
+  }
 }
 
-#stats-bar .hp-bar,
-#stats-bar .power-bar {
-  background: rgba(0, 0, 0, 0.4);
-  border: 1px solid var(--nh3d-ui-button-border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-#stats-bar .hp-fill {
-  height: 8px;
-  transition: width 0.3s ease-in-out;
-  border-radius: 3px;
-}
-
-#stats-bar .power-fill {
-  height: 8px;
-  background: #6666ff;
-  transition: width 0.3s ease-in-out;
-  border-radius: 3px;
-}
-
-.top-left-ui.with-stats {
-  top: calc(65px + var(--nh3d-safe-area-top));
-}
+// -----------------------------------------------------------------------------
+// Floating Messages
+// -----------------------------------------------------------------------------
 
 #floating-log-message-layer {
   position: fixed;
@@ -429,6 +652,10 @@ canvas {
   animation-timing-function: ease-out;
   animation-fill-mode: forwards;
   will-change: transform, opacity;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
 }
 
 @keyframes nh3d-floating-message-rise {
@@ -436,16 +663,9 @@ canvas {
     opacity: 1;
     transform: translateY(0);
   }
-
   to {
     opacity: 0;
     transform: translateY(calc(-1 * var(--floating-message-rise-px)));
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .floating-message-text {
-    animation: none;
   }
 }
 
@@ -470,13 +690,18 @@ canvas {
   pointer-events: none;
   z-index: 1850;
   display: none;
+
+  &.is-visible {
+    display: block;
+  }
 }
 
-.nh3d-meta-command.is-visible {
-  display: block;
-}
+// -----------------------------------------------------------------------------
+// Dialogs
+// -----------------------------------------------------------------------------
 
 .nh3d-dialog {
+  @extend %custom-scrollbar;
   position: fixed;
   top: 50%;
   left: 50%;
@@ -488,6 +713,94 @@ canvas {
   z-index: 2000;
   font-family: "Courier New", monospace;
   display: none;
+
+  &.is-visible {
+    display: block;
+  }
+
+  &.nh3d-dialog-inventory {
+    border: 2px solid var(--nh3d-ui-border-strong);
+    background: var(--nh3d-ui-panel-bg-strong);
+    max-height: 95vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+
+    .nh3d-menu-actions,
+    .nh3d-inventory-keybinds-title,
+    .nh3d-inventory-keybinds,
+    .nh3d-inventory-close {
+      flex: 0 0 auto;
+    }
+  }
+
+  @media (pointer: coarse) {
+    --nh3d-dialog-mobile-padding: 9px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    box-sizing: border-box;
+    width: max-content;
+    max-width: calc(100vw - 50px);
+    max-height: calc(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - var(--nh3d-safe-area-top) - max(
+          env(safe-area-inset-bottom),
+          var(--nh3d-mobile-visible-bottom-offset, 0px)
+        ) -
+        16px
+    );
+    padding: var(--nh3d-dialog-mobile-padding);
+    border-radius: 8px;
+    overflow-x: auto;
+    overflow-y: auto;
+
+    &.nh3d-dialog-has-mobile-close > .nh3d-question-text,
+    &.nh3d-dialog-has-mobile-close > .nh3d-direction-text,
+    &.nh3d-dialog-has-mobile-close > .nh3d-info-title,
+    &.nh3d-dialog-has-mobile-close > .nh3d-inventory-title,
+    &.nh3d-dialog-has-mobile-close > .nh3d-options-title {
+      padding-left: 38px;
+      padding-right: 38px;
+      box-sizing: border-box;
+    }
+
+    .nh3d-menu-actions,
+    .nh3d-pickup-actions {
+      flex-wrap: wrap;
+      position: sticky;
+      bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+      z-index: 3;
+      box-sizing: border-box;
+      background: var(--nh3d-ui-panel-bg-strong);
+      border-top: 1px solid var(--nh3d-ui-border);
+      box-shadow: 0 -8px 14px rgba(0, 0, 0, 0.45);
+      padding: 8px var(--nh3d-dialog-mobile-padding, 14px);
+      margin-top: 12px;
+      margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+      margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+      margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    &:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
+      top: 50%;
+      transform: translate(-50%, -50%);
+      max-height: calc(
+        var(--nh3d-mobile-visible-height, 100vh) - var(
+            --nh3d-mobile-visible-top-offset,
+            0px
+          ) - var(--nh3d-safe-area-top) - max(
+            env(safe-area-inset-bottom),
+            var(--nh3d-mobile-visible-bottom-offset, 0px)
+          ) -
+          16px
+      );
+    }
+  }
 }
 
 .nh3d-mobile-dialog-close {
@@ -519,31 +832,45 @@ canvas {
     box-shadow 120ms ease,
     transform 80ms ease;
   -webkit-tap-highlight-color: transparent;
+
+  &:hover {
+    border-color: rgba(187, 214, 242, 0.9);
+    background: rgba(20, 37, 58, 0.98);
+    color: #f2f8ff;
+    box-shadow:
+      0 3px 10px rgba(0, 0, 0, 0.5),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+
+  &:active {
+    transform: translateY(1px) scale(0.96);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(173, 216, 255, 0.9);
+    outline-offset: 1px;
+  }
+
+  @media (pointer: coarse) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
-.nh3d-mobile-dialog-close:hover,
-.nh3d-position-dialog-close:hover {
-  border-color: rgba(187, 214, 242, 0.9);
-  background: rgba(20, 37, 58, 0.98);
-  color: #f2f8ff;
-  box-shadow:
-    0 3px 10px rgba(0, 0, 0, 0.5),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
+.nh3d-position-dialog-close {
+  @extend .nh3d-mobile-dialog-close;
+  display: none;
 
-.nh3d-mobile-dialog-close:active,
-.nh3d-position-dialog-close:active {
-  transform: translateY(1px) scale(0.96);
-}
-
-.nh3d-mobile-dialog-close:focus-visible,
-.nh3d-position-dialog-close:focus-visible {
-  outline: 2px solid rgba(173, 216, 255, 0.9);
-  outline-offset: 1px;
-}
-
-.nh3d-dialog.is-visible {
-  display: block;
+  @media (pointer: coarse) {
+    display: inline-flex;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    font-size: 19px;
+  }
 }
 
 .nh3d-dialog-question {
@@ -553,6 +880,30 @@ canvas {
   max-width: 600px;
   max-height: 80vh;
   overflow-y: auto;
+
+  &.nh3d-dialog-question-yes-no {
+    overflow-x: hidden;
+
+    .nh3d-choice-list {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+      padding-right: 0;
+    }
+  }
+
+  .nh3d-choice-button,
+  .nh3d-menu-button,
+  .nh3d-menu-action-button,
+  .nh3d-pickup-action-button {
+    text-align: center;
+  }
+
+  @media (pointer: coarse) {
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+  }
 }
 
 .nh3d-dialog-text {
@@ -560,36 +911,96 @@ canvas {
   text-align: center;
   min-width: 320px;
   max-width: 560px;
+
+  @media (pointer: coarse) {
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+  }
 }
 
 #character-setup-dialog {
   width: min(92vw, 680px);
   box-sizing: border-box;
   overflow-x: hidden;
-}
 
-#character-setup-dialog .nh3d-question-text {
-  font-size: clamp(15px, 2.4vw, 19px);
-}
+  .nh3d-question-text {
+    font-size: clamp(15px, 2.4vw, 19px);
+  }
 
-#character-setup-dialog .nh3d-choice-list {
-  width: min(560px, 100%);
-  box-sizing: border-box;
-  max-width: 100%;
-  overflow-x: hidden;
-}
+  .nh3d-choice-list {
+    width: min(560px, 100%);
+    box-sizing: border-box;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
 
-#character-setup-dialog .nh3d-character-setup-choice-button {
-  width: min(320px, 100%);
-  min-height: 40px;
-  text-align: center;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  .nh3d-character-setup-choice-button {
+    width: min(320px, 100%);
+    min-height: 40px;
+    text-align: center;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
-#character-setup-dialog .nh3d-menu-actions {
-  margin-top: 12px;
+  .nh3d-menu-actions {
+    margin-top: 12px;
+  }
+
+  @media (pointer: coarse) {
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: min(92vw, 680px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - max(
+          env(safe-area-inset-bottom),
+          var(--nh3d-mobile-visible-bottom-offset, 0px)
+        ) -
+        32px
+    );
+    padding: 12px;
+    box-sizing: border-box;
+    overflow-x: hidden;
+
+    .nh3d-question-text {
+      margin-bottom: 12px;
+    }
+
+    .nh3d-choice-list {
+      margin-top: 10px;
+      width: 100%;
+      max-width: 100%;
+    }
+
+    .nh3d-menu-actions {
+      margin-top: 14px;
+    }
+
+    .nh3d-character-setup-choice-button {
+      width: 100%;
+      text-align: center;
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    top: 50%;
+    transform: translate(-50%, -50%);
+    max-height: calc(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-mobile-visible-top-offset,
+          0px
+        ) - var(--nh3d-safe-area-top) - max(
+          env(safe-area-inset-bottom),
+          var(--nh3d-mobile-visible-bottom-offset, 0px)
+        ) -
+        16px
+    );
+  }
 }
 
 .nh3d-dialog-direction {
@@ -597,6 +1008,11 @@ canvas {
   color: var(--nh3d-ui-accent-soft);
   text-align: center;
   min-width: 350px;
+
+  @media (pointer: coarse) {
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+  }
 }
 
 .nh3d-dialog-direction-fps {
@@ -612,22 +1028,37 @@ canvas {
   background: rgba(5, 16, 30, 0.84);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
   pointer-events: none;
-}
 
-.nh3d-dialog-direction-fps .nh3d-mobile-dialog-close {
-  pointer-events: auto;
-}
+  .nh3d-mobile-dialog-close {
+    pointer-events: auto;
+  }
 
-.nh3d-dialog-direction-fps .nh3d-direction-text {
-  margin: 0;
-  font-size: 14px;
-  line-height: 1.2;
+  .nh3d-direction-text {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.2;
+  }
+
+  @media (pointer: coarse) {
+    top: calc(var(--nh3d-safe-area-top) + 56px);
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    padding: 7px 10px;
+
+    .nh3d-direction-text {
+      font-size: 13px;
+    }
+  }
 }
 
 .nh3d-direction-fps-hint {
   margin-top: 4px;
   color: var(--nh3d-ui-text-muted);
   font-size: 11px;
+
+  @media (pointer: coarse) {
+    font-size: 10px;
+  }
 }
 
 .nh3d-dialog-info {
@@ -639,21 +1070,22 @@ canvas {
   max-height: 90vh;
   overflow-y: auto;
   overflow-x: hidden;
-}
 
-.nh3d-dialog.nh3d-dialog-inventory {
-  border: 2px solid var(--nh3d-ui-border-strong);
-  background: var(--nh3d-ui-panel-bg-strong);
-  max-height: 95vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  @media (pointer: coarse) {
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+  }
 }
 
 .nh3d-dialog-name {
   border: 2px solid var(--nh3d-ui-border-strong);
   text-align: center;
   min-width: 300px;
+
+  @media (pointer: coarse) {
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+  }
 }
 
 .nh3d-dialog-options {
@@ -663,6 +1095,10 @@ canvas {
   max-height: min(88vh, 760px);
   overflow-y: auto;
 }
+
+// -----------------------------------------------------------------------------
+// Options Menu
+// -----------------------------------------------------------------------------
 
 .nh3d-options-title {
   font-size: 18px;
@@ -724,31 +1160,36 @@ canvas {
     background-color 140ms ease,
     border-color 140ms ease,
     box-shadow 140ms ease;
-}
 
-.nh3d-option-switch-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: #cfe8ff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
-  transition:
-    transform 140ms ease,
-    background-color 140ms ease;
-}
+  .nh3d-option-switch-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: #cfe8ff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+    transition:
+      transform 140ms ease,
+      background-color 140ms ease;
+  }
 
-.nh3d-option-switch.is-on {
-  background: rgba(31, 111, 59, 0.95);
-  border-color: var(--nh3d-ui-confirm-border);
-}
+  &.is-on {
+    background: rgba(31, 111, 59, 0.95);
+    border-color: var(--nh3d-ui-confirm-border);
 
-.nh3d-option-switch.is-on .nh3d-option-switch-thumb {
-  transform: translateX(22px);
-  background: #e8fff0;
+    .nh3d-option-switch-thumb {
+      transform: translateX(22px);
+      background: #e8fff0;
+    }
+  }
 }
 
 .nh3d-option-row-slider {
   align-items: stretch;
+
+  @media (pointer: coarse) {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 .nh3d-option-slider-control {
@@ -757,11 +1198,21 @@ canvas {
   flex-direction: column;
   align-items: flex-end;
   gap: 6px;
+
+  @media (pointer: coarse) {
+    width: 100%;
+    align-items: stretch;
+    min-width: 0;
+  }
 }
 
 .nh3d-option-slider {
   width: min(240px, 42vw);
   accent-color: var(--nh3d-ui-accent);
+
+  @media (pointer: coarse) {
+    width: 100%;
+  }
 }
 
 .nh3d-option-slider-value {
@@ -769,6 +1220,10 @@ canvas {
   font-size: 12px;
   font-weight: bold;
 }
+
+// -----------------------------------------------------------------------------
+// Position & Directions
+// -----------------------------------------------------------------------------
 
 #position-dialog {
   position: fixed;
@@ -784,14 +1239,15 @@ canvas {
   font-family: "Courier New", monospace;
   text-align: center;
   display: none;
-}
 
-#position-dialog.is-visible {
-  display: block;
-}
+  &.is-visible {
+    display: block;
+  }
 
-.nh3d-position-dialog-close {
-  display: none;
+  @media (pointer: coarse) {
+    max-width: calc(100vw - 50px);
+    padding-right: 42px;
+  }
 }
 
 .nh3d-question-text {
@@ -811,9 +1267,14 @@ canvas {
   font-size: 12px;
   color: var(--nh3d-ui-text-muted);
   margin-top: 15px;
+
+  @media (pointer: coarse) {
+    display: none;
+  }
 }
 
 .nh3d-choice-list {
+  @extend %custom-scrollbar;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -823,33 +1284,32 @@ canvas {
   max-height: min(45vh, 360px);
   overflow-y: auto;
   padding-right: 4px;
-}
 
-.nh3d-choice-list.is-compact {
-  flex-direction: row;
-  justify-content: center;
-  flex-wrap: wrap;
-}
+  &.is-compact {
+    flex-direction: row;
+    justify-content: center;
+    flex-wrap: wrap;
 
-.nh3d-choice-list.is-yes-no {
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  flex-wrap: wrap;
-  width: 100%;
-  max-width: 100%;
-}
+    .nh3d-choice-button {
+      min-width: 44px;
+      text-align: center;
+    }
+  }
 
-.nh3d-dialog-question.nh3d-dialog-question-yes-no {
-  overflow-x: hidden;
-}
+  &.is-yes-no {
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    width: 100%;
+    max-width: 100%;
+  }
 
-.nh3d-dialog-question.nh3d-dialog-question-yes-no .nh3d-choice-list {
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  overflow-x: hidden;
-  padding-right: 0;
+  @media (pointer: coarse) {
+    width: max-content;
+    max-width: 100%;
+    max-height: min(38vh, 280px);
+  }
 }
 
 .nh3d-startup-config-grid {
@@ -857,6 +1317,10 @@ canvas {
   grid-template-columns: repeat(2, minmax(160px, 1fr));
   gap: 10px;
   margin-top: 8px;
+
+  @media (max-width: 720px), (pointer: coarse) {
+    grid-template-columns: 1fr;
+  }
 }
 
 .nh3d-startup-config-field {
@@ -868,15 +1332,7 @@ canvas {
   text-align: left;
 }
 
-.nh3d-startup-config-select {
-  background: var(--nh3d-ui-button-alt-bg);
-  color: var(--nh3d-ui-text);
-  border: 1px solid var(--nh3d-ui-button-border);
-  border-radius: 3px;
-  padding: 6px 8px;
-  font-family: "Courier New", monospace;
-}
-
+.nh3d-startup-config-select,
 .nh3d-startup-config-input {
   background: var(--nh3d-ui-button-alt-bg);
   color: var(--nh3d-ui-text);
@@ -884,11 +1340,9 @@ canvas {
   border-radius: 3px;
   padding: 6px 8px;
   font-family: "Courier New", monospace;
-}
 
-@media (max-width: 720px) {
-  .nh3d-startup-config-grid {
-    grid-template-columns: 1fr;
+  @media (pointer: coarse) {
+    font-size: 16px;
   }
 }
 
@@ -908,35 +1362,23 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-choice-button:hover {
-  background: var(--nh3d-ui-button-warm-bg-hover);
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
-}
+  &:hover {
+    background: var(--nh3d-ui-button-warm-bg-hover);
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
 
-.nh3d-choice-list.is-compact .nh3d-choice-button {
-  min-width: 44px;
-  text-align: center;
-}
+  &.nh3d-choice-button-default {
+    background: var(--nh3d-ui-confirm-bg);
+    border-color: var(--nh3d-ui-confirm-border);
+    color: var(--nh3d-ui-confirm-text);
 
-.nh3d-choice-button.nh3d-choice-button-default {
-  background: var(--nh3d-ui-confirm-bg);
-  border-color: var(--nh3d-ui-confirm-border);
-  color: var(--nh3d-ui-confirm-text);
-}
-
-.nh3d-choice-button.nh3d-choice-button-default:hover {
-  background: var(--nh3d-ui-confirm-bg-hover);
-  border-color: var(--nh3d-ui-confirm-border);
-}
-
-.nh3d-dialog-question .nh3d-choice-button,
-.nh3d-dialog-question .nh3d-menu-button,
-.nh3d-dialog-question .nh3d-menu-action-button,
-.nh3d-dialog-question .nh3d-pickup-action-button {
-  text-align: center;
+    &:hover {
+      background: var(--nh3d-ui-confirm-bg-hover);
+      border-color: var(--nh3d-ui-confirm-border);
+    }
+  }
 }
 
 .nh3d-direction-grid {
@@ -945,6 +1387,12 @@ canvas {
   gap: 2px;
   justify-content: center;
   margin: 16px 0;
+
+  @media (pointer: coarse) {
+    grid-template-columns: repeat(3, 72px);
+    gap: 2px;
+    justify-content: center;
+  }
 }
 
 .nh3d-direction-extra-row {
@@ -953,6 +1401,13 @@ canvas {
   gap: 2px;
   justify-content: center;
   margin: -4px 0 10px;
+
+  @media (pointer: coarse) {
+    grid-template-columns: repeat(3, 72px);
+    gap: 2px;
+    justify-content: center;
+    margin: -2px 0 10px;
+  }
 }
 
 .nh3d-direction-button {
@@ -976,14 +1431,22 @@ canvas {
   transition: background-color 0.2s;
   line-height: 1.2;
   box-shadow: inset 0 1px 0 rgba(233, 226, 207, 0.14);
-}
 
-.nh3d-direction-button:hover {
-  background: var(--nh3d-ui-button-warm-bg-hover);
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow:
-    inset 0 1px 0 rgba(233, 226, 207, 0.16),
-    0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  &:hover {
+    background: var(--nh3d-ui-button-warm-bg-hover);
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow:
+      inset 0 1px 0 rgba(233, 226, 207, 0.16),
+      0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
+
+  @media (pointer: coarse) {
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
+  }
 }
 
 .nh3d-direction-spacer {
@@ -992,6 +1455,14 @@ canvas {
   max-width: 72px;
   max-height: 72px;
   aspect-ratio: 1 / 1;
+
+  @media (pointer: coarse) {
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
+  }
 }
 
 .nh3d-direction-symbol {
@@ -1008,17 +1479,25 @@ canvas {
   max-width: 72px;
   max-height: 72px;
   aspect-ratio: 1 / 1;
-}
 
-.nh3d-direction-button-extra .nh3d-direction-symbol {
-  font-size: 10px;
-  letter-spacing: 0.06em;
-  margin-bottom: 1px;
-}
+  .nh3d-direction-symbol {
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    margin-bottom: 1px;
+  }
 
-.nh3d-direction-button-extra .nh3d-direction-key {
-  font-size: 15px;
-  line-height: 1;
+  .nh3d-direction-key {
+    font-size: 15px;
+    line-height: 1;
+  }
+
+  @media (pointer: coarse) {
+    width: 72px;
+    height: 72px;
+    max-width: 72px;
+    max-height: 72px;
+    aspect-ratio: 1 / 1;
+  }
 }
 
 .nh3d-info-title {
@@ -1039,6 +1518,13 @@ canvas {
   width: fit-content;
   max-width: 100%;
   padding: 6px 2px;
+
+  @media (pointer: coarse) {
+    font-size: 10px;
+    width: max-content;
+    max-width: calc(100vw - 44px);
+    overflow-wrap: break-word;
+  }
 }
 
 .nh3d-info-hint {
@@ -1048,7 +1534,15 @@ canvas {
   margin-top: 12px;
   border-top: 2px solid var(--nh3d-ui-border-strong);
   padding-top: 10px;
+
+  @media (pointer: coarse) {
+    display: none;
+  }
 }
+
+// -----------------------------------------------------------------------------
+// Inventory
+// -----------------------------------------------------------------------------
 
 .nh3d-inventory-title {
   font-size: 18px;
@@ -1061,18 +1555,12 @@ canvas {
 }
 
 .nh3d-inventory-items {
+  @extend %custom-scrollbar;
   margin-bottom: 20px;
   max-height: none;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-}
-
-.nh3d-dialog.nh3d-dialog-inventory .nh3d-menu-actions,
-.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-keybinds-title,
-.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-keybinds,
-.nh3d-dialog.nh3d-dialog-inventory .nh3d-inventory-close {
-  flex: 0 0 auto;
 }
 
 .nh3d-inventory-empty {
@@ -1091,10 +1579,10 @@ canvas {
   border-bottom: 1px solid var(--nh3d-ui-border);
   padding-bottom: 4px;
   text-transform: uppercase;
-}
 
-.nh3d-inventory-category.nh3d-inventory-category-first {
-  margin-top: 10px;
+  &.nh3d-inventory-category-first {
+    margin-top: 10px;
+  }
 }
 
 .nh3d-inventory-item {
@@ -1128,6 +1616,7 @@ canvas {
 }
 
 .nh3d-context-menu {
+  @extend %custom-scrollbar;
   position: fixed;
   min-width: 200px;
   max-width: min(360px, 92vw);
@@ -1170,14 +1659,15 @@ canvas {
   transition:
     background-color 120ms ease,
     border-color 120ms ease;
-}
 
-.nh3d-context-menu-button:hover {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-accent);
+  &:hover {
+    background: var(--nh3d-ui-button-bg-hover);
+    border-color: var(--nh3d-ui-accent);
+  }
 }
 
 .nh3d-inventory-context-menu {
+  @extend %custom-scrollbar;
   max-height: min(70vh, 420px);
   overflow-y: auto;
 }
@@ -1218,6 +1708,10 @@ canvas {
   margin-bottom: 8px;
   border-top: 1px solid var(--nh3d-ui-border);
   padding-top: 12px;
+
+  @media (pointer: coarse) {
+    display: none;
+  }
 }
 
 .nh3d-inventory-keybinds {
@@ -1228,6 +1722,10 @@ canvas {
   background: rgba(17, 48, 64, 0.35);
   border-radius: 4px;
   border: 1px solid var(--nh3d-ui-border);
+
+  @media (pointer: coarse) {
+    display: none;
+  }
 }
 
 .nh3d-inventory-keybinds-text {
@@ -1246,6 +1744,10 @@ canvas {
   margin-top: 10px;
   border-top: 1px solid var(--nh3d-ui-border);
   padding-top: 10px;
+
+  @media (pointer: coarse) {
+    display: none;
+  }
 }
 
 .nh3d-name-question {
@@ -1262,6 +1764,10 @@ canvas {
   border-radius: 3px;
   font-family: "Courier New", monospace;
   margin-bottom: 15px;
+
+  @media (pointer: coarse) {
+    font-size: 16px;
+  }
 }
 
 .nh3d-text-input {
@@ -1274,6 +1780,10 @@ canvas {
   font-family: "Courier New", monospace;
   margin-bottom: 12px;
   box-sizing: border-box;
+
+  @media (pointer: coarse) {
+    font-size: 16px;
+  }
 }
 
 .nh3d-name-submit {
@@ -1289,11 +1799,11 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-name-submit:hover {
-  background: var(--nh3d-ui-confirm-bg-hover);
-  box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.4);
+  &:hover {
+    background: var(--nh3d-ui-confirm-bg-hover);
+    box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.4);
+  }
 }
 
 .nh3d-menu-category {
@@ -1317,15 +1827,15 @@ canvas {
   cursor: pointer;
   font-family: "Courier New", monospace;
   line-height: 1.3;
-}
 
-.nh3d-pickup-item.nh3d-pickup-item-selected {
-  background: var(--nh3d-ui-button-bg);
-}
+  &.nh3d-pickup-item-selected {
+    background: var(--nh3d-ui-button-bg);
+  }
 
-.nh3d-pickup-item.nh3d-pickup-item-active {
-  border-color: var(--nh3d-ui-border-strong);
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.45);
+  &.nh3d-pickup-item-active {
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.45);
+  }
 }
 
 .nh3d-pickup-checkbox {
@@ -1369,46 +1879,47 @@ canvas {
     border-color 120ms ease,
     box-shadow 120ms ease,
     filter 120ms ease;
-}
 
-.nh3d-menu-action-button:hover,
-.nh3d-pickup-action-button:hover {
-  border-color: var(--nh3d-ui-button-warm-border);
-  background: var(--nh3d-ui-button-warm-bg-hover);
-}
+  &:hover {
+    border-color: var(--nh3d-ui-button-warm-border);
+    background: var(--nh3d-ui-button-warm-bg-hover);
+  }
 
-.nh3d-menu-action-button.nh3d-action-button-active,
-.nh3d-pickup-action-button.nh3d-action-button-active {
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
-  filter: brightness(1.08);
-}
+  &.nh3d-action-button-active {
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+    filter: brightness(1.08);
+  }
 
-.nh3d-menu-action-button.nh3d-menu-action-confirm,
-.nh3d-pickup-action-button.nh3d-pickup-action-confirm {
-  border-color: var(--nh3d-ui-confirm-border);
-  background: var(--nh3d-ui-confirm-bg);
-  color: var(--nh3d-ui-confirm-text);
-}
+  &.nh3d-menu-action-confirm,
+  &.nh3d-pickup-action-confirm {
+    border-color: var(--nh3d-ui-confirm-border);
+    background: var(--nh3d-ui-confirm-bg);
+    color: var(--nh3d-ui-confirm-text);
 
-.nh3d-menu-action-button.nh3d-menu-action-cancel,
-.nh3d-pickup-action-button.nh3d-pickup-action-cancel {
-  border-color: var(--nh3d-ui-cancel-border);
-  background: var(--nh3d-ui-cancel-bg);
-  color: var(--nh3d-ui-cancel-text);
-}
+    &:hover {
+      background: var(--nh3d-ui-confirm-bg-hover);
+      border-color: var(--nh3d-ui-confirm-border);
+      box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.38);
+    }
+  }
 
-.nh3d-menu-action-button.nh3d-menu-action-confirm:hover,
-.nh3d-pickup-action-button.nh3d-pickup-action-confirm:hover {
-  background: var(--nh3d-ui-confirm-bg-hover);
-  border-color: var(--nh3d-ui-confirm-border);
-  box-shadow: 0 0 0 1px rgba(114, 219, 152, 0.38);
-}
+  &.nh3d-menu-action-cancel,
+  &.nh3d-pickup-action-cancel {
+    border-color: var(--nh3d-ui-cancel-border);
+    background: var(--nh3d-ui-cancel-bg);
+    color: var(--nh3d-ui-cancel-text);
 
-.nh3d-menu-action-button.nh3d-menu-action-cancel:hover,
-.nh3d-pickup-action-button.nh3d-pickup-action-cancel:hover {
-  background: var(--nh3d-ui-cancel-bg-hover);
-  border-color: var(--nh3d-ui-cancel-border);
-  box-shadow: 0 0 0 1px rgba(241, 138, 149, 0.35);
+    &:hover {
+      background: var(--nh3d-ui-cancel-bg-hover);
+      border-color: var(--nh3d-ui-cancel-border);
+      box-shadow: 0 0 0 1px rgba(241, 138, 149, 0.35);
+    }
+  }
+
+  @media (pointer: coarse) {
+    flex: 1 1 40%;
+    min-width: 120px;
+  }
 }
 
 .nh3d-question-pagination {
@@ -1435,17 +1946,17 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-question-page-button:hover:not(:disabled) {
-  background: var(--nh3d-ui-button-warm-bg-hover);
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
-}
+  &:hover:not(:disabled) {
+    background: var(--nh3d-ui-button-warm-bg-hover);
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
 
-.nh3d-question-page-button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
 }
 
 .nh3d-question-page-indicator {
@@ -1473,17 +1984,17 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-menu-button:hover {
-  background: var(--nh3d-ui-button-warm-bg-hover);
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
-}
+  &:hover {
+    background: var(--nh3d-ui-button-warm-bg-hover);
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
 
-.nh3d-menu-button.nh3d-menu-button-active {
-  border-color: var(--nh3d-ui-button-warm-border);
-  box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  &.nh3d-menu-button-active {
+    border-color: var(--nh3d-ui-button-warm-border);
+    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+  }
 }
 
 .nh3d-menu-button-key {
@@ -1491,122 +2002,9 @@ canvas {
   font-weight: bold;
 }
 
-#stats-bar {
-  position: fixed;
-  top: var(--nh3d-safe-area-top);
-  left: 0;
-  right: 0;
-  background: linear-gradient(
-    180deg,
-    rgba(10, 26, 44, 0.94) 0%,
-    rgba(5, 16, 30, 0.84) 100%
-  );
-  color: var(--nh3d-ui-text);
-  padding: 8px 15px;
-  font-family: "Courier New", monospace !important;
-  font-size: 12px;
-  z-index: 1500;
-  border-bottom: 2px solid var(--nh3d-ui-border-strong);
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-}
-
-.nh3d-stats-name {
-  font-weight: bold;
-  color: var(--nh3d-ui-accent);
-  min-width: 150px;
-}
-
-.nh3d-stats-meter {
-  display: flex;
-  flex-direction: column;
-  min-width: 120px;
-}
-
-.nh3d-stats-meter-label {
-  font-weight: bold;
-  margin-bottom: 2px;
-}
-
-.nh3d-stats-meter-label-hp {
-  color: #ff6666;
-}
-
-.nh3d-stats-meter-label-pw {
-  color: #6666ff;
-}
-
-.nh3d-stats-meter-track {
-  background: rgba(0, 0, 0, 0.45);
-  height: 8px;
-  border-radius: 4px;
-  border: 1px solid var(--nh3d-ui-button-border);
-}
-
-.nh3d-stats-meter-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.nh3d-stats-meter-fill-pw {
-  background: #6666ff;
-}
-
-.nh3d-stats-group {
-  display: flex;
-  gap: 15px;
-  font-size: 11px;
-}
-
-.nh3d-stats-core {
-  color: #ffaa00;
-}
-
-.nh3d-stats-secondary-ac {
-  color: #aaaaff;
-}
-
-.nh3d-stats-secondary-exp {
-  color: #ffbb66;
-}
-
-.nh3d-stats-secondary-gold {
-  color: #ffff66;
-}
-
-.nh3d-stats-secondary-time {
-  color: #66ffff;
-}
-
-.nh3d-stats-location {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: 11px;
-  flex: 1;
-  text-align: right;
-}
-
-.nh3d-stats-dungeon {
-  color: #cccccc;
-}
-
-.nh3d-stats-hunger {
-  color: #ffaaff;
-}
-
-.nh3d-stats-mobile-inline-secondary,
-.nh3d-stats-mobile-location-status {
-  display: none;
-}
-
-.nh3d-stats-mobile-location-status {
-  margin-left: 8px;
-  color: #ffaaff;
-}
+// -----------------------------------------------------------------------------
+// Mobile Actions / Bottom Bar
+// -----------------------------------------------------------------------------
 
 .nh3d-mobile-bottom-bar {
   --nh3d-safe-area-bottom: 15px;
@@ -1625,27 +2023,49 @@ canvas {
   );
   border-top: 2px solid var(--nh3d-ui-border-strong);
   box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.5);
+
+  &::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: var(--nh3d-safe-area-bottom);
+    background: rgba(4, 12, 24, 0.98);
+    pointer-events: none;
+  }
+
+  .nh3d-mobile-browser-mode & {
+    --nh3d-safe-area-bottom: 0px;
+    bottom: 0;
+
+    &::after {
+      height: 0;
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    left: auto;
+    right: calc(8px + env(safe-area-inset-right));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: 94px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 6px;
+    border: 2px solid var(--nh3d-ui-border-strong);
+    border-top: 2px solid var(--nh3d-ui-border-strong);
+    border-radius: 8px;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+
+    &::after {
+      display: none;
+    }
+  }
 }
 
-.nh3d-mobile-bottom-bar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: var(--nh3d-safe-area-bottom);
-  background: rgba(4, 12, 24, 0.98);
-  pointer-events: none;
-}
-
-.nh3d-mobile-browser-mode .nh3d-mobile-bottom-bar {
-  --nh3d-safe-area-bottom: 0px;
-  bottom: 0;
-}
-
-.nh3d-mobile-browser-mode .nh3d-mobile-bottom-bar::after {
-  height: 0;
-}
 .nh3d-mobile-bottom-button {
   flex: 1 1 0;
   min-height: 38px;
@@ -1656,16 +2076,22 @@ canvas {
   font-family: "Courier New", monospace;
   font-size: 11px;
   font-weight: bold;
-}
 
-.nh3d-mobile-bottom-button.is-active {
-  border-color: var(--nh3d-ui-border-strong);
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.6);
-}
+  &.is-active {
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.6);
+  }
 
-.nh3d-mobile-bottom-button:disabled {
-  opacity: 0.45;
-  cursor: default;
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    flex: 0 0 auto;
+    width: 78px;
+    min-width: 78px;
+  }
 }
 
 .nh3d-mobile-actions-sheet {
@@ -1679,6 +2105,30 @@ canvas {
   background: var(--nh3d-ui-panel-bg-strong);
   padding: 10px;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.55);
+
+  @media (pointer: coarse) {
+    left: 8px;
+    right: 8px;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    max-height: min(44vh, 320px);
+    overflow-y: hidden;
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    left: calc(8px + env(safe-area-inset-left));
+    right: auto;
+    width: min(
+      306px,
+      calc(
+        100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
+      )
+    );
+    max-width: calc(
+      100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
+    );
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    max-height: min(66vh, 408px);
+  }
 }
 
 .nh3d-mobile-actions-title-row {
@@ -1718,12 +2168,17 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-mobile-actions-back:hover {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-border-strong);
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
+  &:hover {
+    background: var(--nh3d-ui-button-bg-hover);
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    width: auto;
+    min-width: 0;
+  }
 }
 
 .nh3d-mobile-actions-close {
@@ -1740,29 +2195,60 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
+
+  &:hover {
+    background: var(--nh3d-ui-cancel-bg-hover);
+    border-color: var(--nh3d-ui-cancel-border);
+    box-shadow: 0 0 0 1px rgba(241, 138, 149, 0.35);
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    width: auto;
+    min-width: 0;
+  }
 }
 
-.nh3d-mobile-actions-close:hover {
-  background: var(--nh3d-ui-cancel-bg-hover);
-  border-color: var(--nh3d-ui-cancel-border);
-  box-shadow: 0 0 0 1px rgba(241, 138, 149, 0.35);
+:root {
+  @media (orientation: landscape) and (pointer: coarse) {
+    --nh3d-mobile-actions-content-height: min(52vh, 316px);
+  }
 }
 
 .nh3d-mobile-actions-grid {
+  @extend %custom-scrollbar;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
-}
 
-.nh3d-mobile-actions-grid.is-extended {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
+  &.is-extended {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 
-.nh3d-mobile-actions-grid.is-fixed-layout {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  &.is-fixed-layout {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+
+    @media (orientation: landscape) and (pointer: coarse) {
+      height: var(--nh3d-mobile-actions-content-height);
+      max-height: var(--nh3d-mobile-actions-content-height);
+      overflow-y: auto;
+      align-content: start;
+    }
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    justify-content: start;
+
+    &.is-extended,
+    &.is-fixed-layout {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      justify-content: start;
+    }
+  }
 }
 
 .nh3d-mobile-actions-sections {
+  @extend %custom-scrollbar;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1770,6 +2256,13 @@ canvas {
   overflow-y: auto;
   padding-right: 2px;
   padding-bottom: 8px;
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    height: var(--nh3d-mobile-actions-content-height);
+    max-height: var(--nh3d-mobile-actions-content-height);
+    overflow-y: auto;
+    align-content: start;
+  }
 }
 
 .nh3d-mobile-actions-section {
@@ -1801,510 +2294,15 @@ canvas {
     background-color 120ms ease,
     border-color 120ms ease,
     box-shadow 120ms ease;
-}
 
-.nh3d-mobile-actions-button:hover {
-  background: var(--nh3d-ui-button-bg-hover);
-  border-color: var(--nh3d-ui-border-strong);
-  box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
-}
-
-@media (pointer: coarse) {
-  input[type="text"],
-  input[type="search"],
-  input[type="email"],
-  input[type="number"],
-  input[type="tel"],
-  input[type="url"],
-  input[type="password"],
-  textarea,
-  select,
-  .nh3d-name-input,
-  .nh3d-text-input,
-  .nh3d-startup-config-input,
-  .nh3d-startup-config-select {
-    font-size: 16px;
+  &:hover {
+    background: var(--nh3d-ui-button-bg-hover);
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.35);
   }
 
-  .nh3d-canvas-root,
-  .nh3d-canvas-root canvas {
-    touch-action: none;
-  }
-
-  #stats-bar {
-    gap: 8px;
-    padding: 8px 10px;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    overflow-x: visible;
-    white-space: normal;
-  }
-
-  #stats-bar .nh3d-stats-name {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-
-  #stats-bar .nh3d-stats-meter {
-    flex: 1 1 150px;
-    min-width: 130px;
-  }
-
-  #stats-bar .nh3d-stats-group {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
-  #stats-bar .nh3d-stats-group-core {
-    flex: 1 1 100%;
-  }
-
-  #stats-bar .nh3d-stats-group-secondary {
-    display: none;
-  }
-
-  #stats-bar .nh3d-stats-mobile-inline-secondary {
-    display: block;
-  }
-
-  #stats-bar .nh3d-stats-desktop-secondary {
-    display: none;
-  }
-
-  #stats-bar .nh3d-stats-location {
-    flex: 1 1 100%;
-    text-align: left;
-  }
-
-  #stats-bar .nh3d-stats-mobile-location-status {
-    display: inline;
-  }
-
-  .nh3d-dialog {
-    --nh3d-dialog-mobile-padding: 9px;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    box-sizing: border-box;
-    width: max-content;
-    max-width: calc(100vw - 50px);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - var(--nh3d-safe-area-top) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        16px
-    );
-    padding: var(--nh3d-dialog-mobile-padding);
-    border-radius: 8px;
-    overflow-x: auto;
-    overflow-y: auto;
-  }
-
-  .nh3d-mobile-dialog-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-question-text,
-  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-direction-text,
-  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-info-title,
-  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-inventory-title,
-  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-options-title {
-    padding-left: 38px;
-    padding-right: 38px;
-    box-sizing: border-box;
-  }
-
-  .nh3d-dialog-question,
-  .nh3d-dialog-direction,
-  .nh3d-dialog-inventory,
-  .nh3d-dialog-name,
-  .nh3d-dialog-text,
-  .nh3d-dialog-info {
-    min-width: 0;
-    max-width: calc(100vw - 20px);
-  }
-
-  .nh3d-info-body {
-    font-size: 10px;
-    width: max-content;
-    max-width: calc(100vw - 44px);
-    overflow-wrap: break-word;
-  }
-
-  #character-setup-dialog {
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: min(92vw, 680px);
-    max-width: calc(100vw - 16px);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        32px
-    );
-    padding: 12px;
-    box-sizing: border-box;
-    overflow-x: hidden;
-  }
-
-  #character-setup-dialog .nh3d-question-text {
-    margin-bottom: 12px;
-  }
-
-  #character-setup-dialog .nh3d-choice-list {
-    margin-top: 10px;
-    width: 100%;
-    max-width: 100%;
-  }
-
-  #character-setup-dialog .nh3d-menu-actions {
-    margin-top: 14px;
-  }
-
-  #character-setup-dialog .nh3d-character-setup-choice-button {
-    width: 100%;
-    text-align: center;
-  }
-
-  .nh3d-startup-config-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .nh3d-choice-list {
-    width: max-content;
-    max-width: 100%;
-    max-height: min(38vh, 280px);
-  }
-
-  .nh3d-direction-grid {
-    grid-template-columns: repeat(3, 72px);
-    gap: 2px;
-    justify-content: center;
-  }
-
-  .nh3d-direction-extra-row {
-    grid-template-columns: repeat(3, 72px);
-    gap: 2px;
-    justify-content: center;
-    margin: -2px 0 10px;
-  }
-
-  .nh3d-direction-button {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
-    max-height: 72px;
-    aspect-ratio: 1 / 1;
-  }
-
-  .nh3d-direction-spacer {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
-    max-height: 72px;
-    aspect-ratio: 1 / 1;
-  }
-
-  .nh3d-direction-button-extra {
-    width: 72px;
-    height: 72px;
-    max-width: 72px;
-    max-height: 72px;
-    aspect-ratio: 1 / 1;
-  }
-
-  .nh3d-dialog-direction-fps {
-    top: calc(var(--nh3d-safe-area-top) + 56px);
-    width: calc(100vw - 16px);
-    max-width: calc(100vw - 16px);
-    padding: 7px 10px;
-  }
-
-  .nh3d-dialog-direction-fps .nh3d-direction-text {
-    font-size: 13px;
-  }
-
-  .nh3d-direction-fps-hint {
-    font-size: 10px;
-  }
-
-  .nh3d-dialog .nh3d-menu-actions,
-  .nh3d-dialog .nh3d-pickup-actions {
-    flex-wrap: wrap;
-    position: sticky;
-    bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-    z-index: 3;
-    box-sizing: border-box;
-    background: var(--nh3d-ui-panel-bg-strong);
-    border-top: 1px solid var(--nh3d-ui-border);
-    box-shadow: 0 -8px 14px rgba(0, 0, 0, 0.45);
-    padding: 8px var(--nh3d-dialog-mobile-padding, 14px);
-    margin-top: 12px;
-    margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-    margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-    margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-  }
-
-  .nh3d-option-row-slider {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .nh3d-option-slider-control {
-    width: 100%;
-    align-items: stretch;
-    min-width: 0;
-  }
-
-  .nh3d-option-slider {
-    width: 100%;
-  }
-
-  .nh3d-menu-action-button,
-  .nh3d-pickup-action-button {
-    flex: 1 1 40%;
-    min-width: 120px;
-  }
-
-  /* Hide keyboard-centric helper copy on mobile modal/window UI. */
-  .nh3d-dialog-hint,
-  .nh3d-info-hint,
-  .nh3d-inventory-keybinds-title,
-  .nh3d-inventory-keybinds,
-  .nh3d-inventory-close {
-    display: none;
-  }
-
-  .nh3d-mobile-actions-sheet {
-    left: 8px;
-    right: 8px;
-    bottom: calc(68px + env(safe-area-inset-bottom));
-    max-height: min(44vh, 320px);
-    overflow-y: hidden;
-  }
-
-  .nh3d-mobile-log {
-    bottom: calc(68px + env(safe-area-inset-bottom));
-  }
-
-  .nh3d-mobile-log .nh3d-mobile-dialog-close {
-    top: 8px;
-    right: 8px;
-    z-index: 2;
-  }
-
-  .nh3d-minimap {
-    top: calc(
-      var(--nh3d-safe-area-top) + var(--nh3d-stats-bar-height, 64px) + 8px
-    );
-    right: 8px;
-    width: min(44vw, 220px);
-    opacity: 0.85;
-  }
-
-  .nh3d-minimap.nh3d-minimap-fps {
-    width: min(58vw, 300px);
-  }
-
-  #position-dialog {
-    max-width: calc(100vw - 50px);
-    padding-right: 42px;
-  }
-
-  .nh3d-position-dialog-close {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 24px;
-    height: 24px;
-    border-radius: 999px;
-    border: 1px solid rgba(145, 180, 220, 0.72);
-    background: rgba(12, 26, 42, 0.96);
-    color: #e7f3ff;
-    font-family: "Courier New", monospace;
-    font-size: 19px;
-    font-weight: 700;
-    line-height: 1;
-    padding: 0;
-    cursor: pointer;
-    box-shadow:
-      0 2px 8px rgba(0, 0, 0, 0.45),
-      inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    transition:
-      background-color 120ms ease,
-      border-color 120ms ease,
-      color 120ms ease,
-      box-shadow 120ms ease,
-      transform 80ms ease;
-    -webkit-tap-highlight-color: transparent;
-  }
-}
-
-@media (orientation: landscape) and (pointer: coarse) {
-  .top-left-ui #game-log {
-    display: none;
-  }
-
-  .nh3d-mobile-log {
-    z-index: 1950;
-  }
-
-  .nh3d-dialog:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
-    top: 50%;
-    transform: translate(-50%, -50%);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - var(--nh3d-safe-area-top) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        16px
-    );
-  }
-
-  #character-setup-dialog {
-    top: 50%;
-    transform: translate(-50%, -50%);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - var(--nh3d-safe-area-top) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        16px
-    );
-  }
-
-  :root {
-    --nh3d-mobile-actions-content-height: min(52vh, 316px);
-  }
-
-  .nh3d-mobile-bottom-bar {
-    left: auto;
-    right: calc(8px + env(safe-area-inset-right));
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    width: 94px;
-    box-sizing: border-box;
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-    padding: 6px;
-    border: 2px solid var(--nh3d-ui-border-strong);
-    border-top: 2px solid var(--nh3d-ui-border-strong);
-    border-radius: 8px;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
-  }
-
-  .nh3d-mobile-bottom-bar::after {
-    display: none;
-  }
-
-  .nh3d-mobile-bottom-button {
-    flex: 0 0 auto;
-    width: 78px;
-    min-width: 78px;
-  }
-
-  .nh3d-mobile-actions-sheet {
-    left: calc(8px + env(safe-area-inset-left));
-    right: auto;
-    width: min(
-      306px,
-      calc(
-        100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
-      )
-    );
-    max-width: calc(
-      100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
-    );
-    bottom: calc(8px + env(safe-area-inset-bottom));
-    max-height: min(66vh, 408px);
-  }
-
-  .nh3d-mobile-actions-grid,
-  .nh3d-mobile-actions-grid.is-extended,
-  .nh3d-mobile-actions-grid.is-fixed-layout {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    justify-content: start;
-  }
-
-  .nh3d-mobile-actions-grid.is-fixed-layout,
-  .nh3d-mobile-actions-sections {
-    height: var(--nh3d-mobile-actions-content-height);
-    max-height: var(--nh3d-mobile-actions-content-height);
-    overflow-y: auto;
-    align-content: start;
-  }
-
-  .nh3d-mobile-actions-back,
-  .nh3d-mobile-actions-close,
-  .nh3d-mobile-actions-button {
+  @media (orientation: landscape) and (pointer: coarse) {
     width: auto;
     min-width: 0;
-  }
-
-  #stats-bar {
-    flex-wrap: nowrap;
-    align-items: center;
-    white-space: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    gap: 10px;
-  }
-
-  #stats-bar .nh3d-stats-name {
-    flex: 0 0 auto;
-    min-width: 0;
-  }
-
-  #stats-bar .nh3d-stats-meter {
-    flex: 0 0 66px;
-    min-width: 60px;
-  }
-
-  #stats-bar .nh3d-stats-group {
-    flex-wrap: nowrap;
-    gap: 10px;
-  }
-
-  #stats-bar .nh3d-stats-group-core {
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-
-  #stats-bar .nh3d-stats-location {
-    flex: 0 0 auto;
-    margin-left: auto;
-    text-align: right;
-    align-self: center;
-  }
-
-  #stats-bar .nh3d-stats-dungeon {
-    white-space: nowrap;
-  }
-
-  #stats-bar .nh3d-stats-mobile-location-status {
-    display: block;
-    margin-left: 0;
-    margin-top: 2px;
   }
 }
