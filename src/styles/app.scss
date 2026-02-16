@@ -96,6 +96,8 @@ body {
   font-family: "Courier New", Courier, monospace;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 #root {
