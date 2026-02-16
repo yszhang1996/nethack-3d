@@ -371,6 +371,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     y: number;
     startedAtMs: number;
   } | null = null;
+  private pinchZoomStart: { distance: number; cameraDistance: number } | null =
+    null;
   private fpsTouchMoveGesture: FpsTouchGestureState | null = null;
   private fpsTouchLookGesture: FpsTouchGestureState | null = null;
   private readonly fpsTouchLookSensitivity: number = 0.0038;
@@ -11290,10 +11292,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (!this.canUseMapTouchInput(event)) {
       this.touchSwipeStart = null;
+      this.pinchZoomStart = null;
       return;
     }
+
+    if (event.touches.length === 2) {
+      const touch1 = event.touches[0];
+      const touch2 = event.touches[1];
+      const distance = Math.hypot(
+        touch1.clientX - touch2.clientX,
+        touch1.clientY - touch2.clientY,
+      );
+      this.pinchZoomStart = { distance, cameraDistance: this.cameraDistance };
+      this.touchSwipeStart = null; // Prevent swipe while pinching
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (event.touches.length !== 1) {
       this.touchSwipeStart = null;
+      this.pinchZoomStart = null;
       return;
     }
 
@@ -11303,6 +11323,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       y: touch.clientY,
       startedAtMs: Date.now(),
     };
+    this.pinchZoomStart = null;
     if (event.cancelable) {
       event.preventDefault();
     }
@@ -11410,7 +11431,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (!this.touchSwipeStart || !this.canUseMapTouchInput(event)) {
+    if (!this.canUseMapTouchInput(event)) {
+      this.touchSwipeStart = null;
+      this.pinchZoomStart = null;
+      return;
+    }
+
+    if (this.pinchZoomStart && event.touches.length === 2) {
+      const touch1 = event.touches[0];
+      const touch2 = event.touches[1];
+      const distance = Math.hypot(
+        touch1.clientX - touch2.clientX,
+        touch1.clientY - touch2.clientY,
+      );
+      const startDistance = this.pinchZoomStart.distance;
+      const scale = startDistance / distance;
+
+      const newCameraDistance = this.pinchZoomStart.cameraDistance * scale;
+      this.cameraDistance = THREE.MathUtils.clamp(
+        newCameraDistance,
+        this.minDistance,
+        this.maxDistance,
+      );
+
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (!this.touchSwipeStart) {
       return;
     }
     if (event.cancelable) {
@@ -11544,6 +11594,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (this.pinchZoomStart) {
+      this.pinchZoomStart = null;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     const start = this.touchSwipeStart;
     this.touchSwipeStart = null;
     if (!start || !this.canUseMapTouchInput(event)) {
@@ -11612,6 +11670,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.touchSwipeStart = null;
+    this.pinchZoomStart = null;
   }
 
   private handleMouseMove(event: MouseEvent): void {
