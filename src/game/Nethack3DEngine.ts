@@ -6964,6 +6964,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       questionDialog.className = "nh3d-dialog nh3d-dialog-question";
       document.body.appendChild(questionDialog);
     }
+    questionDialog.classList.remove("nh3d-dialog-question-yes-no");
 
     // Clear previous content
     questionDialog.innerHTML = "";
@@ -7016,6 +7017,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         choiceContainer.classList.add("is-compact");
       }
       if (isYesNoPrompt) {
+        questionDialog.classList.add("nh3d-dialog-question-yes-no");
         choiceContainer.classList.add("is-yes-no");
       }
       if (parsedChoices.length > 0) {

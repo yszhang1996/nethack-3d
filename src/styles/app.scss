@@ -727,6 +727,18 @@ canvas {
   max-width: 100%;
 }
 
+.nh3d-dialog-question.nh3d-dialog-question-yes-no {
+  overflow-x: hidden;
+}
+
+.nh3d-dialog-question.nh3d-dialog-question-yes-no .nh3d-choice-list {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  padding-right: 0;
+}
+
 .nh3d-startup-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));
@@ -1766,14 +1778,18 @@ canvas {
     overflow-y: auto;
   }
 
-  .nh3d-dialog.nh3d-dialog-has-mobile-close {
-    padding-right: 48px;
-  }
-
   .nh3d-mobile-dialog-close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-question-text,
+  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-direction-text,
+  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-info-title,
+  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-inventory-title,
+  .nh3d-dialog.nh3d-dialog-has-mobile-close > .nh3d-options-title {
+    padding-right: 38px;
   }
 
   .nh3d-dialog-question,
@@ -1891,10 +1907,6 @@ canvas {
     width: calc(100vw - 16px);
     max-width: calc(100vw - 16px);
     padding: 7px 10px;
-  }
-
-  .nh3d-dialog-direction-fps.nh3d-dialog-has-mobile-close {
-    padding-right: 42px;
   }
 
   .nh3d-dialog-direction-fps .nh3d-direction-text {

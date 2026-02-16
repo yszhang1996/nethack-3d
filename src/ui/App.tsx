@@ -1705,7 +1705,11 @@ export default function App(): JSX.Element {
 
       {question ? (
         <div
-          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-has-mobile-close is-visible"
+          className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-has-mobile-close is-visible${
+            question.menuItems.length === 0 && isYesNoQuestionChoices
+              ? " nh3d-dialog-question-yes-no"
+              : ""
+          }`}
           id="question-dialog"
         >
           {renderMobileDialogCloseButton(
