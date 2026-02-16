@@ -590,7 +590,6 @@ canvas {
 
 #character-setup-dialog .nh3d-menu-actions {
   margin-top: 12px;
-  padding-top: 2px;
 }
 
 .nh3d-dialog-direction {
@@ -645,8 +644,6 @@ canvas {
 .nh3d-dialog.nh3d-dialog-inventory {
   border: 2px solid var(--nh3d-ui-border-strong);
   background: var(--nh3d-ui-panel-bg-strong);
-  min-width: 450px;
-  // max-width: 600px;
   max-height: 95vh;
   display: flex;
   flex-direction: column;
@@ -1884,7 +1881,7 @@ canvas {
   }
 
   .nh3d-dialog {
-    --nh3d-dialog-mobile-padding: 14px;
+    --nh3d-dialog-mobile-padding: 9px;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
@@ -1973,7 +1970,6 @@ canvas {
 
   #character-setup-dialog .nh3d-menu-actions {
     margin-top: 14px;
-    padding-top: 4px;
   }
 
   #character-setup-dialog .nh3d-character-setup-choice-button {
