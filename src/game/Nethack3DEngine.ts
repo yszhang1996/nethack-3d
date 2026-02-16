@@ -4489,10 +4489,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     cornerDx: -1 | 1,
     cornerDy: -1 | 1,
   ): boolean {
+    // Chamfer a wall corner if the two adjacent tiles in the corner direction are passable.
+    // This handles both concave (inner) and convex (outer) corners,
+    // including the case of two walls meeting diagonally, which should reveal a gap.
     return (
       this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY) &&
-      this.isPassableTileForFpsDiagonal(tileX, tileY + cornerDy) &&
-      this.isPassableTileForFpsDiagonal(tileX + cornerDx, tileY + cornerDy)
+      this.isPassableTileForFpsDiagonal(tileX, tileY + cornerDy)
     );
   }
 
