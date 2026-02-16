@@ -2127,7 +2127,7 @@ canvas {
   @media (pointer: coarse) {
     left: 8px;
     right: 8px;
-    bottom: calc(68px + env(safe-area-inset-bottom));
+    bottom: calc(57px + env(safe-area-inset-bottom));
     max-height: min(44vh, 320px);
     overflow-y: hidden;
   }
