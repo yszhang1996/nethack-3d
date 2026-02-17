@@ -1,6 +1,6 @@
 import type { TerrainSnapshot } from "../types";
 import { getMergedGlyphOverride } from "./overrides";
-import { resolveGlyph } from "./registry";
+import { getGlyphCatalogRanges, resolveGlyph } from "./registry";
 import type {
   GlyphDisposition,
   ResolvedGlyph,
@@ -13,7 +13,22 @@ import type {
 const PLAYER_GLYPH_MIN = 330;
 const PLAYER_GLYPH_MAX = 360;
 
-const DARK_OVERLAY_GLYPHS = new Set([2377, 2397, 2398]);
+function resolveGlyphKindOffset(kind: string): number {
+  const range = getGlyphCatalogRanges().find((entry) => entry.kind === kind);
+  return typeof range?.start === "number" ? range.start : 0;
+}
+
+const GLYPH_CMAP_OFF = resolveGlyphKindOffset("cmap");
+
+function cmapGlyph(cmapIndex: number): number {
+  return GLYPH_CMAP_OFF + cmapIndex;
+}
+
+export const DEFAULT_FLOOR_GLYPH = cmapGlyph(19);
+
+const DARK_ROOM_GLYPH = cmapGlyph(20);
+const DARK_CORRIDOR_GLYPH = cmapGlyph(21);
+const DARK_OVERLAY_GLYPHS = new Set([cmapGlyph(0), DARK_ROOM_GLYPH, DARK_CORRIDOR_GLYPH]);
 
 type CmapSemantic =
   | "wall"
@@ -41,43 +56,43 @@ function setCmapSemanticRange(
   }
 }
 
-setCmapSemanticRange(2378, 2388, "wall");
-setCmapSemanticRange(2419, 2440, "trap");
-setCmapSemanticRange(2442, 2463, "feature");
+setCmapSemanticRange(cmapGlyph(1), cmapGlyph(11), "wall");
+setCmapSemanticRange(cmapGlyph(42), cmapGlyph(63), "trap");
+setCmapSemanticRange(cmapGlyph(65), cmapGlyph(86), "feature");
 
 Object.assign(CMAP_SEMANTICS, {
-  2377: "dark_wall",
-  2389: "door_closed",
-  2390: "door_open",
-  2391: "door_open",
-  2392: "door_closed",
-  2393: "door_closed",
-  2394: "wall",
-  2395: "wall",
-  2396: "floor",
-  2397: "dark_floor",
-  2398: "dark_floor",
-  2399: "floor",
-  2400: "stairs_up",
-  2401: "stairs_down",
-  2402: "stairs_up",
-  2403: "stairs_down",
-  2404: "feature",
-  2405: "feature",
-  2406: "feature",
-  2407: "floor",
-  2408: "fountain",
-  2409: "door_open",
-  2410: "door_open",
-  2411: "door_closed",
-  2412: "door_closed",
-  2413: "floor",
-  2414: "floor",
-  2415: "floor",
-  2416: "wall",
-  2417: "floor",
-  2418: "feature",
-  2441: "water",
+  [cmapGlyph(0)]: "dark_wall",
+  [cmapGlyph(12)]: "door_closed",
+  [cmapGlyph(13)]: "door_open",
+  [cmapGlyph(14)]: "door_open",
+  [cmapGlyph(15)]: "door_closed",
+  [cmapGlyph(16)]: "door_closed",
+  [cmapGlyph(17)]: "wall",
+  [cmapGlyph(18)]: "wall",
+  [cmapGlyph(19)]: "floor",
+  [DARK_ROOM_GLYPH]: "dark_floor",
+  [DARK_CORRIDOR_GLYPH]: "dark_floor",
+  [cmapGlyph(22)]: "floor",
+  [cmapGlyph(23)]: "stairs_up",
+  [cmapGlyph(24)]: "stairs_down",
+  [cmapGlyph(25)]: "stairs_up",
+  [cmapGlyph(26)]: "stairs_down",
+  [cmapGlyph(27)]: "feature",
+  [cmapGlyph(28)]: "feature",
+  [cmapGlyph(29)]: "feature",
+  [cmapGlyph(30)]: "floor",
+  [cmapGlyph(31)]: "fountain",
+  [cmapGlyph(32)]: "door_open",
+  [cmapGlyph(33)]: "door_open",
+  [cmapGlyph(34)]: "door_closed",
+  [cmapGlyph(35)]: "door_closed",
+  [cmapGlyph(36)]: "floor",
+  [cmapGlyph(37)]: "floor",
+  [cmapGlyph(38)]: "floor",
+  [cmapGlyph(39)]: "wall",
+  [cmapGlyph(40)]: "floor",
+  [cmapGlyph(41)]: "feature",
+  [cmapGlyph(64)]: "water",
 });
 
 function isPlayerGlyph(glyph: number, runtimeChar: string | null): boolean {
@@ -377,7 +392,7 @@ export function classifyTileBehavior(input: {
         input.priorTerrain.color ?? null
       );
     }
-    darkenFactor = input.glyph === 2398 ? 0.45 : 0.6;
+    darkenFactor = input.glyph === DARK_CORRIDOR_GLYPH ? 0.45 : 0.6;
   }
 
   const disposition = inferDisposition(effective, isPlayer);

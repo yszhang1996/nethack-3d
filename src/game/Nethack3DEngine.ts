@@ -13,7 +13,7 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import { classifyTileBehavior } from "./glyphs/behavior";
+import { DEFAULT_FLOOR_GLYPH, classifyTileBehavior } from "./glyphs/behavior";
 import type {
   TileBehaviorResult,
   TileEffectKind,
@@ -5464,7 +5464,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         });
       } else {
         renderBehavior = classifyTileBehavior({
-          glyph: 2396,
+          glyph: DEFAULT_FLOOR_GLYPH,
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,
