@@ -61,6 +61,7 @@ class LocalNetHackRuntime {
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
+    this.travelSpeedDelayMs = 200; // Default to normal
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -2169,27 +2170,37 @@ class LocalNetHackRuntime {
 
   decodeStatusValue(fieldName, ptrToArg) {
     // These are signals, ptrToArg value is not used.
-    const signalFields = new Set(["BL_RESET", "BL_FLUSH", "BL_CHARACTERISTICS"]);
+    const signalFields = new Set([
+      "BL_RESET",
+      "BL_FLUSH",
+      "BL_CHARACTERISTICS",
+    ]);
     if (signalFields.has(fieldName)) {
-        return { value: 0, valueType: 'i' };
+      return { value: 0, valueType: "i" };
     }
-    
+
     if (fieldName === "BL_CONDITION") {
-        // This is a pointer to the bitmask value
-        try {
-            const value = this.nethackModule.getValue(ptrToArg, 'i32');
-            return { value: value, valueType: 'i' };
-        } catch (e) {
-            console.log(`Status int decode failed for ${fieldName} at ptr ${ptrToArg}`, e);
-            return { value: 0, valueType: 'i' };
-        }
+      // This is a pointer to the bitmask value
+      try {
+        const value = this.nethackModule.getValue(ptrToArg, "i32");
+        return { value: value, valueType: "i" };
+      } catch (e) {
+        console.log(
+          `Status int decode failed for ${fieldName} at ptr ${ptrToArg}`,
+          e,
+        );
+        return { value: 0, valueType: "i" };
+      }
     }
 
     // For all other fields, NetHack provides a pre-formatted string.
     try {
-        return { value: this.nethackModule.UTF8ToString(ptrToArg), valueType: 's' };
+      return {
+        value: this.nethackModule.UTF8ToString(ptrToArg),
+        valueType: "s",
+      };
     } catch (e) {
-        return { value: '', valueType: 's' };
+      return { value: "", valueType: "s" };
     }
   }
 
@@ -3678,6 +3689,17 @@ class LocalNetHackRuntime {
           });
         }
         return 0;
+
+      case "shim_delay_output":
+        if (this.travelSpeedDelayMs <= 0) {
+          return 0; // No delay for instant
+        }
+        console.log(
+          `NetHack requesting output delay for travel (${this.travelSpeedDelayMs}ms).`,
+        );
+        return new Promise((resolve) =>
+          setTimeout(resolve, this.travelSpeedDelayMs),
+        );
 
       case "shim_start_screen":
         console.log("NetHack start_screen (no-op)");
