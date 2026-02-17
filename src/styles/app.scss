@@ -2045,7 +2045,7 @@ canvas {
 
   @media (orientation: landscape) and (pointer: coarse) {
     left: auto;
-    right: calc(0px);
+    right: env(safe-area-inset-bottom);
     bottom: calc(8px + env(safe-area-inset-bottom));
     width: 94px;
     box-sizing: border-box;
