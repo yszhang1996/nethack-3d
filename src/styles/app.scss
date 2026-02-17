@@ -2006,7 +2006,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-mobile-bottom-bar {
-  --nh3d-safe-area-bottom: 15px;
+  --nh3d-safe-area-bottom: 0px;
   position: fixed;
   left: 0;
   right: 0;
@@ -2045,7 +2045,7 @@ canvas {
 
   @media (orientation: landscape) and (pointer: coarse) {
     left: auto;
-    right: calc(8px + env(safe-area-inset-right));
+    right: calc(0px);
     bottom: calc(8px + env(safe-area-inset-bottom));
     width: 94px;
     box-sizing: border-box;
