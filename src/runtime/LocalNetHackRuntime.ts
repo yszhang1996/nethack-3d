@@ -2168,56 +2168,29 @@ class LocalNetHackRuntime {
   }
 
   decodeStatusValue(fieldName, ptrToArg) {
-    const rawPointerFields = new Set([
-      "BL_CONDITION",
-      "BL_RESET",
-      "BL_FLUSH",
-      "BL_CHARACTERISTICS",
-    ]);
-    const primaryType = rawPointerFields.has(fieldName) ? "p" : "s";
-    const fallbackType = primaryType === "s" ? "p" : "s";
-
-    try {
-      const primary = this.decodeShimArgValue(
-        "shim_status_update",
-        ptrToArg,
-        primaryType,
-      );
-      if (primary !== null && primary !== undefined) {
-        return {
-          value: primary,
-          valueType: primaryType,
-          usedFallback: false,
-        };
-      }
-    } catch (error) {
-      console.log(
-        `Status decode failed (${fieldName}, ${primaryType})`,
-        error && error.message ? error.message : error,
-      );
+    // These are signals, ptrToArg value is not used.
+    const signalFields = new Set(["BL_RESET", "BL_FLUSH", "BL_CHARACTERISTICS"]);
+    if (signalFields.has(fieldName)) {
+        return { value: 0, valueType: 'i' };
+    }
+    
+    if (fieldName === "BL_CONDITION") {
+        // This is a pointer to the bitmask value
+        try {
+            const value = this.nethackModule.getValue(ptrToArg, 'i32');
+            return { value: value, valueType: 'i' };
+        } catch (e) {
+            console.log(`Status int decode failed for ${fieldName} at ptr ${ptrToArg}`, e);
+            return { value: 0, valueType: 'i' };
+        }
     }
 
+    // For all other fields, NetHack provides a pre-formatted string.
     try {
-      const fallback = this.decodeShimArgValue(
-        "shim_status_update",
-        ptrToArg,
-        fallbackType,
-      );
-      if (fallback !== null && fallback !== undefined) {
-        return {
-          value: fallback,
-          valueType: fallbackType,
-          usedFallback: true,
-        };
-      }
-    } catch (error) {
-      console.log(
-        `Status decode fallback failed (${fieldName}, ${fallbackType})`,
-        error && error.message ? error.message : error,
-      );
+        return { value: this.nethackModule.UTF8ToString(ptrToArg), valueType: 's' };
+    } catch (e) {
+        return { value: '', valueType: 's' };
     }
-
-    return { value: null, valueType: "unknown", usedFallback: false };
   }
 
   shouldUseAllCountForMenuItem(item) {
@@ -2494,8 +2467,8 @@ class LocalNetHackRuntime {
         // Input/menu behavior expected by the browser port.
         "pickup_types:$",
         "number_pad:1",
-        "mouse_support:1",
-        "clicklook:1",
+        "mouse_support",
+        "clicklook",
         // Status tracking fields consumed by the HUD.
         "time",
         "showexp",
