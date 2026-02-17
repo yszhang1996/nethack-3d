@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyWasm } from "../wasm/copy-wasm.mjs";
+import { getAllTiles } from "./tile-parser.mjs";
 
 export const GLYPH_CATALOG_VERSIONS = /** @type {const} */ (["3.6.7", "3.7"]);
 
@@ -12,7 +13,7 @@ const CATALOG_TARGETS = [
     packageName: "@neth4ck/wasm-367",
     packageJsPath: "node_modules/@neth4ck/wasm-367/build/nethack.js",
     publicWasmPath: "public/nethack-367.wasm",
-    generatedCatalogPath: "src/game/glyphs/glyph-catalog.generated.ts",
+    generatedCatalogPath: "src/game/glyphs/glyph-catalog.367.generated.ts",
   },
   {
     version: "3.7",
@@ -236,17 +237,30 @@ function glyphKindForGlyph(ranges, glyph) {
  * @param {GlyphRange[]} ranges
  * @param {number} maxGlyph
  */
-function buildGlyphEntries(helpers, ranges, maxGlyph) {
+function buildGlyphEntries(helpers, ranges, maxGlyph, tiles, offsets, counts) {
   /** @type {GlyphEntry[]} */
   const entries = [];
   for (let glyph = 0; glyph < maxGlyph; glyph++) {
     const info = helpers.mapglyphHelper(glyph, 0, 0, 0);
+    const kind = glyphKindForGlyph(ranges, glyph);
+    let tileIndex = -1;
+
+    if (kind === "mon") {
+      tileIndex = glyph - offsets.mon;
+    } else if (kind === "obj") {
+      tileIndex = counts["monsters.txt"] + glyph - offsets.obj;
+    } else if (kind === "cmap") {
+      tileIndex =
+        counts["monsters.txt"] + counts["objects.txt"] + glyph - offsets.other;
+    }
+
     entries.push({
       glyph,
-      kind: glyphKindForGlyph(ranges, glyph),
+      kind: kind,
       ch: normalizeNumber(info?.ch, 0),
       color: normalizeNumber(info?.color, 0),
       special: normalizeNumber(info?.special, 0),
+      tileIndex: tileIndex,
     });
   }
   return entries;
@@ -272,7 +286,7 @@ function renderGlyphCatalogModule(model) {
 
   const entryLines = model.entries.map(
     (entry) =>
-      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special} },`,
+      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special}, tileIndex: ${entry.tileIndex} },`,
   );
 
   return `// @ts-nocheck
@@ -354,6 +368,8 @@ export async function generateGlyphCatalogSource(
   ]);
 
   const { nethackGlobal, wasmBinary } = runtimeInfo;
+  const { tiles, counts } = await getAllTiles(projectRoot);
+
   const glyphConstants = nethackGlobal.constants?.GLYPH;
   const mapglyphHelper = nethackGlobal.helpers?.mapglyphHelper;
 
@@ -366,7 +382,19 @@ export async function generateGlyphCatalogSource(
     normalizeNumber(glyphConstants.MAX_GLYPH, 0),
   );
   const { maxGlyph, ranges } = deriveGlyphRanges(glyphConstants);
-  const entries = buildGlyphEntries(nethackGlobal.helpers, ranges, maxGlyph);
+  const offsets = {
+    mon: glyphConstants.GLYPH_MON_OFF,
+    obj: glyphConstants.GLYPH_OBJ_OFF,
+    other: glyphConstants.GLYPH_CMAP_OFF, // Assuming 'other.txt' maps to cmap
+  };
+  const entries = buildGlyphEntries(
+    nethackGlobal.helpers,
+    ranges,
+    maxGlyph,
+    tiles,
+    offsets,
+    counts,
+  );
 
   return renderGlyphCatalogModule({
     sourceJsPath: `${target.packageName}/build/nethack.js`,

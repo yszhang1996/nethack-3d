@@ -384,6 +384,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
+  private tilesetTexture: THREE.Texture | null = null;
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -1088,6 +1089,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderer.setClearColor(0x000011); // Dark blue void background
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const textureLoader = new THREE.TextureLoader();
+    this.tilesetTexture = textureLoader.load("assets/nevanda-360.png");
+    this.tilesetTexture.magFilter = THREE.NearestFilter;
+    this.tilesetTexture.minFilter = THREE.NearestFilter;
 
     const host = this.mountElement ?? document.body;
     host.appendChild(this.renderer.domElement);

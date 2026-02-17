@@ -9,7 +9,7 @@ Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
 - Glyph resolution/classification source-of-truth is in:
   - `src/game/glyphs/registry.ts`
   - `src/game/glyphs/behavior.ts`
-  - `src/game/glyphs/glyph-catalog.generated.ts` (generated)
+  - `src/game/glyphs/glyph-catalog.367.generated.ts` (generated)
 - Material palette and shared geometries are near top of class fields.
 - Glyph overlays and text painting path:
 - `ensureGlyphOverlay`

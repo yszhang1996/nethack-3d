@@ -21,6 +21,7 @@ export interface GlyphCatalogEntry {
   ch: number;
   color: number;
   special: number;
+  tileIndex: number;
 }
 
 export interface GlyphCatalogRange {
@@ -46,6 +47,7 @@ export interface ResolvedGlyph {
   color: number | null;
   special: number | null;
   isKnown: boolean;
+  tileIndex: number;
 }
 
 export type TileMaterialKind =

@@ -3,7 +3,7 @@ import {
   GLYPH_CATALOG as GLYPH_CATALOG_367,
   GLYPH_CATALOG_META as GLYPH_CATALOG_META_367,
   GLYPH_CATALOG_RANGES as GLYPH_CATALOG_RANGES_367,
-} from "./glyph-catalog.generated";
+} from "./glyph-catalog.367.generated";
 import type {
   GlyphCatalogEntry,
   GlyphCatalogMeta,
@@ -18,7 +18,10 @@ type GlyphCatalogModule = {
   GLYPH_CATALOG_RANGES: readonly GlyphCatalogRange[];
 };
 
-const GLYPH_CATALOG_BY_VERSION: Record<NethackRuntimeVersion, GlyphCatalogModule> = {
+const GLYPH_CATALOG_BY_VERSION: Record<
+  NethackRuntimeVersion,
+  GlyphCatalogModule
+> = {
   "3.6.7": {
     GLYPH_CATALOG: GLYPH_CATALOG_367,
     GLYPH_CATALOG_META: GLYPH_CATALOG_META_367,
@@ -35,14 +38,15 @@ let activeGlyphCatalogVersion: NethackRuntimeVersion = "3.6.7";
 let activeGlyphCatalog: GlyphCatalogModule = GLYPH_CATALOG_BY_VERSION["3.6.7"];
 
 export async function setActiveGlyphCatalog(
-  version: NethackRuntimeVersion
+  version: NethackRuntimeVersion,
 ): Promise<void> {
   if (version === activeGlyphCatalogVersion) {
     return;
   }
 
   if (version === "3.7") {
-    const mod = (await import("./glyph-catalog.37.generated")) as GlyphCatalogModule;
+    const mod =
+      (await import("./glyph-catalog.37.generated")) as GlyphCatalogModule;
     GLYPH_CATALOG_BY_VERSION["3.7"] = mod;
     activeGlyphCatalog = mod;
     activeGlyphCatalogVersion = version;
@@ -101,7 +105,7 @@ export function getGlyphKind(glyph: number): GlyphKind | "unknown" {
 export function resolveGlyph(
   glyph: number,
   runtimeChar?: string | null,
-  runtimeColor?: number | null
+  runtimeColor?: number | null,
 ): ResolvedGlyph {
   const entry = getGlyphCatalogEntry(glyph);
   const normalizedRuntimeChar = normalizeRuntimeChar(runtimeChar);
@@ -115,6 +119,7 @@ export function resolveGlyph(
       color: normalizedRuntimeColor,
       special: null,
       isKnown: false,
+      tileIndex: -1,
     };
   }
 
@@ -123,8 +128,10 @@ export function resolveGlyph(
     glyph,
     kind: entry.kind,
     char: normalizedRuntimeChar ?? catalogChar,
-    color: typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
+    color:
+      typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
     special: typeof entry.special === "number" ? entry.special : null,
     isKnown: true,
+    tileIndex: entry.tileIndex,
   };
 }

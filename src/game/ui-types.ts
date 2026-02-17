@@ -96,6 +96,7 @@ export type Nh3dClientOptions = {
   tileShakeOnHit: boolean;
   blood: boolean;
   liveMessageLog: boolean;
+  tilesetMode: "ascii" | "tiles";
 };
 
 export const nh3dFpsLookSensitivityMin = 0.4;
@@ -111,6 +112,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
+  tilesetMode: "ascii",
 };
 
 export function normalizeNh3dClientOptions(
@@ -171,6 +173,10 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
+    tilesetMode:
+      overrides?.tilesetMode === "tiles"
+        ? "tiles"
+        : defaultNh3dClientOptions.tilesetMode,
   };
 }
 
