@@ -2267,20 +2267,17 @@ class LocalNetHackRuntime {
 
     try {
       const selectedItems = Array.from(this.menuSelections.values());
-      // This build's menu_item layout is:
-      //   anything item;      // +0 (4 bytes on wasm32)
-      //   long count;         // +4
-      //   unsigned itemflags; // +8
-      // Use 12-byte stride by default, allow overrides for diagnostics.
-      const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 12);
-      const configuredCountOffset = process.env.NH_MENU_COUNT_OFFSET;
-      const countOffsetPrimary =
-        configuredCountOffset !== undefined ? Number(configuredCountOffset) : 4;
-      const configuredItemFlagsOffset = process.env.NH_MENU_ITEMFLAGS_OFFSET;
-      const itemFlagsOffset =
-        configuredItemFlagsOffset !== undefined
-          ? Number(configuredItemFlagsOffset)
-          : 8;
+      const runtimeVersion = this.normalizeRuntimeVersion(
+        this.startupOptions?.runtimeVersion,
+      );
+
+      // NetHack 3.7.0's menu_item layout is 12 bytes. 3.6.7 is 8 bytes.
+      // 3.7.0: { anything item; long count; unsigned itemflags; }
+      // 3.6.7: { anything item; long count; }
+      const bytesPerMenuItem = runtimeVersion === "3.7" ? 12 : 8;
+      const countOffsetPrimary = 4;
+      const itemFlagsOffset = 8;
+
       const canWriteCountAt = (offset) =>
         Number.isInteger(offset) &&
         offset >= 0 &&
@@ -2339,14 +2336,11 @@ class LocalNetHackRuntime {
         // Some ports use -1 for "all" stack count semantics, others accept 1.
         // Default behavior is "auto": stacked items select all by default.
         const countMode = process.env.NH_MENU_COUNT_MODE || "auto";
-        const countValue =
-          countMode === "all"
-            ? -1
-            : countMode === "one"
-              ? 1
-              : this.shouldUseAllCountForMenuItem(item)
-                ? -1
-                : 1;
+        const useAllCount =
+          countMode === "all" ||
+          (countMode === "auto" && this.shouldUseAllCountForMenuItem(item));
+        const countValue = useAllCount ? -1 : 1;
+
         // Write count in both likely offsets for compatibility across layouts.
         if (canWriteCountAt(countOffsetPrimary)) {
           this.nethackModule.setValue(
@@ -2374,7 +2368,7 @@ class LocalNetHackRuntime {
             ? this.nethackModule.getValue(structOffset + itemFlagsOffset, "i32")
             : null;
         console.log(
-          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}`,
+          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}, countValue=${countValue}`,
         );
       }
       const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
@@ -3178,13 +3172,15 @@ class LocalNetHackRuntime {
           );
         }
 
+        const identifierValue = this.nethackModule.getValue(identifier, "*");
+
         // Store menu item for current question (only store non-category items or all items for display)
         if (this.currentWindow === menuWinid && menuText) {
           this.currentMenuItems.push({
             text: menuText,
             accelerator: menuChar,
             originalAccelerator: accelerator, // Store the original accelerator code
-            identifier: identifier, // NetHack menu identifier used by shim_select_menu
+            identifier: identifierValue, // NetHack menu identifier used by shim_select_menu
             window: menuWinid,
             glyph: menuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
@@ -3323,6 +3319,16 @@ class LocalNetHackRuntime {
           });
         }
         return 0;
+      case "shim_update_inventory":
+        console.log("NetHack update inventory callback received");
+        // This callback is usually triggered after inventory changes.
+        // We can use it to signal the UI to refresh its inventory display if needed.
+        if (this.eventHandler) {
+          this.emit({
+            type: "inventory_updated_signal",
+          });
+        }
+        return 0;
       case "shim_wait_synch":
         console.log("NetHack waiting for synchronization");
         return 0;
@@ -3348,16 +3354,21 @@ class LocalNetHackRuntime {
 
         const isPlausiblePtr = (ptr) =>
           Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
-        const ptrMode = isPlausiblePtr(ptrArgValue)
-          ? "arg"
-          : isPlausiblePtr(ptrResolvedValue)
-            ? "resolved_fallback"
-            : "invalid";
-        const menuListPtrPtr = isPlausiblePtr(ptrArgValue)
-          ? ptrArgValue
-          : isPlausiblePtr(ptrResolvedValue)
-            ? ptrResolvedValue
-            : 0;
+
+        let menuListPtrPtr = 0;
+        let ptrMode = "invalid";
+
+        if (isPlausiblePtr(ptrArgValue)) {
+          menuListPtrPtr = ptrArgValue;
+          ptrMode = "arg";
+        } else if (isPlausiblePtr(ptrResolvedValue)) {
+          menuListPtrPtr = ptrResolvedValue;
+          ptrMode = "resolved_fallback";
+        } else if (isPlausiblePtr(menuPtrArg)) {
+          menuListPtrPtr = menuPtrArg;
+          ptrMode = "original_arg";
+        }
+
         console.log(
           `Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
@@ -3711,9 +3722,8 @@ class LocalNetHackRuntime {
         }
         return 0;
 
-      // TO-DO: 3.7 won't launch the game without this, find out if there's more we need to do here
       case "shim_player_selection_cb":
-        return false;
+        return true;
 
       default:
         console.log(`Unknown callback: ${name}`, args);
