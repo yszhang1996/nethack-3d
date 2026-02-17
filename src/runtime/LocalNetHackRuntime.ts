@@ -61,7 +61,7 @@ class LocalNetHackRuntime {
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
-    this.travelSpeedDelayMs = 200; // Default to normal
+    this.travelSpeedDelayMs = 150; // Default to normal
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
