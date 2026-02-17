@@ -3711,6 +3711,10 @@ class LocalNetHackRuntime {
         }
         return 0;
 
+      // TO-DO: 3.7 won't launch the game without this, find out if there's more we need to do here
+      case "shim_player_selection_cb":
+        return false;
+
       default:
         console.log(`Unknown callback: ${name}`, args);
         return 0;
