@@ -1,6 +1,6 @@
 // @ts-nocheck
-import createModule from "@neth4ck/wasm-367";
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
+import type { NethackRuntimeVersion } from "./types";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
@@ -68,6 +68,19 @@ class LocalNetHackRuntime {
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
 
     this.ready = this.initializeNetHack();
+  }
+
+  normalizeRuntimeVersion(value) {
+    return value === "3.7" ? "3.7" : "3.6.7";
+  }
+
+  async loadRuntimeFactory(version) {
+    if (version === "3.7") {
+      const { default: factory } = await import("@neth4ck/wasm-37");
+      return factory;
+    }
+    const { default: factory } = await import("@neth4ck/wasm-367");
+    return factory;
   }
 
   normalizeCharacterOptionValue(value) {
@@ -837,9 +850,7 @@ class LocalNetHackRuntime {
   }
 
   isTextInputCommand(input) {
-    return (
-      typeof input === "string" && input.startsWith(this.textInputPrefix)
-    );
+    return typeof input === "string" && input.startsWith(this.textInputPrefix);
   }
 
   isInventoryContextSelectionInput(input) {
@@ -2400,6 +2411,13 @@ class LocalNetHackRuntime {
         return this.handleUICallback(name, args);
       };
 
+      /** @type {NethackRuntimeVersion} */
+      const runtimeVersion = this.normalizeRuntimeVersion(
+        this.startupOptions?.runtimeVersion,
+      );
+      const wasmAssetPath =
+        runtimeVersion === "3.7" ? "nethack-37.wasm" : "nethack.wasm";
+
       if (!globalThis.nethackGlobal) {
         globalThis.nethackGlobal = {
           constants: {
@@ -2499,11 +2517,13 @@ class LocalNetHackRuntime {
         runtimeOptions.push(...characterRuntimeOptions);
       }
 
+      const createModule = await this.loadRuntimeFactory(runtimeVersion);
+
       this.nethackInstance = await createModule({
         noInitialRun: true,
         locateFile: (assetPath) => {
           if (assetPath.endsWith(".wasm")) {
-            return this.resolveWasmAssetUrl("nethack.wasm");
+            return this.resolveWasmAssetUrl(wasmAssetPath);
           }
           return this.resolveWasmAssetUrl(assetPath);
         },
@@ -2517,9 +2537,7 @@ class LocalNetHackRuntime {
             mod.ENV.NETHACKOPTIONS = existingOptions
               ? `${existingOptions},${runtimeOptions.join(",")}`
               : runtimeOptions.join(",");
-            console.log(
-              `Configured NETHACKOPTIONS: ${mod.ENV.NETHACKOPTIONS}`,
-            );
+            console.log(`Configured NETHACKOPTIONS: ${mod.ENV.NETHACKOPTIONS}`);
           },
         ],
       });
@@ -2896,8 +2914,9 @@ class LocalNetHackRuntime {
           const directInventorySelection =
             this.consumePendingInventoryContextSelection(this.currentMenuItems);
           if (directInventorySelection) {
-            const selectionEntry =
-              this.createSelectionEntryFromMenuItem(directInventorySelection);
+            const selectionEntry = this.createSelectionEntryFromMenuItem(
+              directInventorySelection,
+            );
             if (selectionEntry) {
               this.menuSelections.clear();
               const selectionKey = this.getMenuSelectionKey(selectionEntry);
@@ -3534,9 +3553,12 @@ class LocalNetHackRuntime {
           return configuredName;
         }
 
-        console.log("[NAME_DEBUG] shim_askname falling back to default Web_user", {
-          callId: askNameCallId,
-        });
+        console.log(
+          "[NAME_DEBUG] shim_askname falling back to default Web_user",
+          {
+            callId: askNameCallId,
+          },
+        );
         return "Web_user";
       case "shim_mark_synch":
         console.log("NetHack marking synchronization");

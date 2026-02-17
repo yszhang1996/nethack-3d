@@ -1,3 +1,5 @@
+import type { NethackRuntimeVersion } from "../runtime/types";
+
 export type NethackConnectionState =
   | "disconnected"
   | "starting"
@@ -175,6 +177,7 @@ export function normalizeNh3dClientOptions(
 export type CharacterCreationConfig = {
   mode: "random" | "create";
   playMode?: PlayMode;
+  runtimeVersion?: NethackRuntimeVersion;
   name?: string;
   role?: string;
   race?: string;

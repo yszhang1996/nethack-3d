@@ -5,6 +5,8 @@ export type RuntimeEvent = {
 
 export type RuntimeEventHandler = (event: RuntimeEvent) => void;
 
+export type NethackRuntimeVersion = "3.6.7" | "3.7";
+
 export interface RuntimeBridge {
   start(): Promise<void>;
   sendInput(input: string): void;
@@ -25,6 +27,7 @@ export type RuntimeCharacterCreationConfig = {
 };
 
 export type RuntimeStartupOptions = {
+  runtimeVersion?: NethackRuntimeVersion;
   characterCreation?: RuntimeCharacterCreationConfig;
   loggingEnabled?: boolean;
 };

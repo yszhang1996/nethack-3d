@@ -13,22 +13,35 @@ import type {
 const PLAYER_GLYPH_MIN = 330;
 const PLAYER_GLYPH_MAX = 360;
 
-function resolveGlyphKindOffset(kind: string): number {
-  const range = getGlyphCatalogRanges().find((entry) => entry.kind === kind);
-  return typeof range?.start === "number" ? range.start : 0;
+function getGlyphKindRange(kind: string): { start: number; endExclusive: number } | null {
+  const ranges = getGlyphCatalogRanges();
+  for (const range of ranges) {
+    if (range.kind === kind) {
+      return { start: range.start, endExclusive: range.endExclusive };
+    }
+  }
+  return null;
 }
 
-const GLYPH_CMAP_OFF = resolveGlyphKindOffset("cmap");
-
-function cmapGlyph(cmapIndex: number): number {
-  return GLYPH_CMAP_OFF + cmapIndex;
+function getCmapIndex(glyph: number): number | null {
+  const range = getGlyphKindRange("cmap");
+  if (!range) {
+    return null;
+  }
+  if (glyph < range.start || glyph >= range.endExclusive) {
+    return null;
+  }
+  return glyph - range.start;
 }
 
-export const DEFAULT_FLOOR_GLYPH = cmapGlyph(19);
-
-const DARK_ROOM_GLYPH = cmapGlyph(20);
-const DARK_CORRIDOR_GLYPH = cmapGlyph(21);
-const DARK_OVERLAY_GLYPHS = new Set([cmapGlyph(0), DARK_ROOM_GLYPH, DARK_CORRIDOR_GLYPH]);
+export function getDefaultFloorGlyph(): number {
+  const range = getGlyphKindRange("cmap");
+  if (!range) {
+    return 0;
+  }
+  // drawing.c: S_room is index 19 ("floor of a room").
+  return range.start + 19;
+}
 
 type CmapSemantic =
   | "wall"
@@ -44,56 +57,46 @@ type CmapSemantic =
   | "dark_floor"
   | "dark_wall";
 
-const CMAP_SEMANTICS: Record<number, CmapSemantic> = {};
+function semanticForCmapIndex(cmapIndex: number): CmapSemantic {
+  // drawing.c indices in NetHack 3.6/3.7 use a stable layout for core terrain.
+  if (cmapIndex === 0) return "dark_wall"; // stone/out-of-bounds
 
-function setCmapSemanticRange(
-  start: number,
-  endInclusive: number,
-  semantic: CmapSemantic
-): void {
-  for (let glyph = start; glyph <= endInclusive; glyph++) {
-    CMAP_SEMANTICS[glyph] = semantic;
-  }
+  // Core walls and wall-like obstacles.
+  if (cmapIndex >= 1 && cmapIndex <= 11) return "wall";
+  if (cmapIndex === 15 || cmapIndex === 16) return "door_closed";
+  if (cmapIndex === 17 || cmapIndex === 18) return "wall"; // bars/tree
+  if (cmapIndex === 37 || cmapIndex === 38) return "wall"; // raised drawbridges
+
+  // Doors and floors.
+  if (cmapIndex === 12) return "floor"; // doorway
+  if (cmapIndex === 13 || cmapIndex === 14) return "door_open";
+
+  if (cmapIndex === 19) return "floor"; // room
+  if (cmapIndex === 20 || cmapIndex === 21) return "dark_floor"; // dark room/corridor
+  if (cmapIndex === 22) return "floor"; // lit corridor
+
+  // Stairs/ladders.
+  if (cmapIndex === 23 || cmapIndex === 25) return "stairs_up";
+  if (cmapIndex === 24 || cmapIndex === 26) return "stairs_down";
+
+  // Water-ish terrain.
+  if (cmapIndex === 31) return "fountain";
+  if (cmapIndex === 32 || cmapIndex === 34 || cmapIndex === 41) return "water";
+
+  // Traps (including the vibrating square).
+  if (cmapIndex >= 42 && cmapIndex <= 64) return "trap";
+
+  // Everything else is treated as a passable floor feature.
+  return "feature";
 }
 
-setCmapSemanticRange(cmapGlyph(1), cmapGlyph(11), "wall");
-setCmapSemanticRange(cmapGlyph(42), cmapGlyph(63), "trap");
-setCmapSemanticRange(cmapGlyph(65), cmapGlyph(86), "feature");
-
-Object.assign(CMAP_SEMANTICS, {
-  [cmapGlyph(0)]: "dark_wall",
-  [cmapGlyph(12)]: "door_closed",
-  [cmapGlyph(13)]: "door_open",
-  [cmapGlyph(14)]: "door_open",
-  [cmapGlyph(15)]: "door_closed",
-  [cmapGlyph(16)]: "door_closed",
-  [cmapGlyph(17)]: "wall",
-  [cmapGlyph(18)]: "wall",
-  [cmapGlyph(19)]: "floor",
-  [DARK_ROOM_GLYPH]: "dark_floor",
-  [DARK_CORRIDOR_GLYPH]: "dark_floor",
-  [cmapGlyph(22)]: "floor",
-  [cmapGlyph(23)]: "stairs_up",
-  [cmapGlyph(24)]: "stairs_down",
-  [cmapGlyph(25)]: "stairs_up",
-  [cmapGlyph(26)]: "stairs_down",
-  [cmapGlyph(27)]: "feature",
-  [cmapGlyph(28)]: "feature",
-  [cmapGlyph(29)]: "feature",
-  [cmapGlyph(30)]: "floor",
-  [cmapGlyph(31)]: "fountain",
-  [cmapGlyph(32)]: "door_open",
-  [cmapGlyph(33)]: "door_open",
-  [cmapGlyph(34)]: "door_closed",
-  [cmapGlyph(35)]: "door_closed",
-  [cmapGlyph(36)]: "floor",
-  [cmapGlyph(37)]: "floor",
-  [cmapGlyph(38)]: "floor",
-  [cmapGlyph(39)]: "wall",
-  [cmapGlyph(40)]: "floor",
-  [cmapGlyph(41)]: "feature",
-  [cmapGlyph(64)]: "water",
-});
+function semanticForCmapGlyph(glyph: number): CmapSemantic | null {
+  const cmapIndex = getCmapIndex(glyph);
+  if (cmapIndex === null) {
+    return null;
+  }
+  return semanticForCmapIndex(cmapIndex);
+}
 
 function isPlayerGlyph(glyph: number, runtimeChar: string | null): boolean {
   if (glyph < PLAYER_GLYPH_MIN || glyph > PLAYER_GLYPH_MAX) {
@@ -295,7 +298,7 @@ function classifyByKind(effective: ResolvedGlyph, isPlayer: boolean): {
 
   switch (effective.kind) {
     case "cmap": {
-      const semantic = CMAP_SEMANTICS[effective.glyph] || "feature";
+      const semantic = semanticForCmapGlyph(effective.glyph) || "feature";
       return applyCmapSemantic(semantic);
     }
     case "obj":
@@ -375,10 +378,12 @@ export function classifyTileBehavior(input: {
 
   const resolved = resolveGlyph(input.glyph, runtimeChar, input.runtimeColor);
   const resolvedCmapSemantic =
-    resolved.kind === "cmap" ? CMAP_SEMANTICS[resolved.glyph] ?? null : null;
+    resolved.kind === "cmap" ? semanticForCmapGlyph(resolved.glyph) : null;
   const isDeterministicDarkCmap =
     resolvedCmapSemantic === "dark_floor" || resolvedCmapSemantic === "dark_wall";
-  const isDarkOverlay = DARK_OVERLAY_GLYPHS.has(input.glyph);
+  const darkOverlayIndex = getCmapIndex(input.glyph);
+  const isDarkOverlay =
+    darkOverlayIndex === 0 || darkOverlayIndex === 20 || darkOverlayIndex === 21;
   const isPlayer = isPlayerGlyph(input.glyph, runtimeChar);
 
   let effective = resolved;
@@ -392,7 +397,7 @@ export function classifyTileBehavior(input: {
         input.priorTerrain.color ?? null
       );
     }
-    darkenFactor = input.glyph === DARK_CORRIDOR_GLYPH ? 0.45 : 0.6;
+    darkenFactor = darkOverlayIndex === 21 ? 0.45 : 0.6;
   }
 
   const disposition = inferDisposition(effective, isPlayer);

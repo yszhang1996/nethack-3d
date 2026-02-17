@@ -15,6 +15,7 @@ import {
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
+import type { NethackRuntimeVersion } from "../runtime/types";
 
 type DirectionChoice = {
   key?: string;
@@ -506,6 +507,8 @@ export default function App(): JSX.Element {
     useState<CharacterCreationConfig | null>(null);
   const [startupFlowStep, setStartupFlowStep] =
     useState<StartupFlowStep>("choose");
+  const [runtimeVersion, setRuntimeVersion] =
+    useState<NethackRuntimeVersion>("3.6.7");
   const [createRole, setCreateRole] = useState(startupRoleOptions[0]);
   const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
@@ -1216,6 +1219,23 @@ export default function App(): JSX.Element {
               <div className="nh3d-question-text">
                 Choose your character setup:
               </div>
+              <div className="nh3d-startup-config-grid">
+                <label className="nh3d-startup-config-field">
+                  <span>NetHack Version</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setRuntimeVersion(
+                        event.target.value as NethackRuntimeVersion,
+                      )
+                    }
+                    value={runtimeVersion}
+                  >
+                    <option value="3.6.7">3.6.x (3.6.7)</option>
+                    <option value="3.7">3.7</option>
+                  </select>
+                </label>
+              </div>
               <div className="nh3d-choice-list">
                 <button
                   className="nh3d-choice-button nh3d-character-setup-choice-button"
@@ -1245,6 +1265,21 @@ export default function App(): JSX.Element {
               <div className="nh3d-question-text">Random character name:</div>
               <div className="nh3d-startup-config-grid">
                 <label className="nh3d-startup-config-field">
+                  <span>NetHack Version</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setRuntimeVersion(
+                        event.target.value as NethackRuntimeVersion,
+                      )
+                    }
+                    value={runtimeVersion}
+                  >
+                    <option value="3.6.7">3.6.x (3.6.7)</option>
+                    <option value="3.7">3.7</option>
+                  </select>
+                </label>
+                <label className="nh3d-startup-config-field">
                   <span>Name</span>
                   <input
                     className="nh3d-startup-config-input"
@@ -1263,6 +1298,7 @@ export default function App(): JSX.Element {
                     setCharacterCreationConfig({
                       mode: "random",
                       playMode: clientOptions.fpsMode ? "fps" : "normal",
+                      runtimeVersion,
                       name: normalizeStartupCharacterName(createName),
                     })
                   }
@@ -1290,6 +1326,21 @@ export default function App(): JSX.Element {
             <>
               <div className="nh3d-question-text">Create your character:</div>
               <div className="nh3d-startup-config-grid">
+                <label className="nh3d-startup-config-field">
+                  <span>NetHack Version</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setRuntimeVersion(
+                        event.target.value as NethackRuntimeVersion,
+                      )
+                    }
+                    value={runtimeVersion}
+                  >
+                    <option value="3.6.7">3.6.x (3.6.7)</option>
+                    <option value="3.7">3.7</option>
+                  </select>
+                </label>
                 <label className="nh3d-startup-config-field">
                   <span>Name</span>
                   <input
@@ -1365,6 +1416,7 @@ export default function App(): JSX.Element {
                     setCharacterCreationConfig({
                       mode: "create",
                       playMode: clientOptions.fpsMode ? "fps" : "normal",
+                      runtimeVersion,
                       name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,

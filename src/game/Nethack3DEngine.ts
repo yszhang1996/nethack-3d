@@ -13,7 +13,8 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import { DEFAULT_FLOOR_GLYPH, classifyTileBehavior } from "./glyphs/behavior";
+import { classifyTileBehavior, getDefaultFloorGlyph } from "./glyphs/behavior";
+import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
   TileEffectKind,
@@ -1029,6 +1030,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
       playMode: "normal",
+      runtimeVersion: "3.6.7",
     };
     this.clientOptions = normalizeNh3dClientOptions(options.clientOptions);
     const explicitFpsMode = options.clientOptions?.fpsMode;
@@ -2024,11 +2026,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
+    await setActiveGlyphCatalog(this.characterCreationConfig.runtimeVersion ?? "3.6.7");
+
     this.session = new WorkerRuntimeBridge(
       (payload: RuntimeEvent) => {
         this.handleRuntimeEvent(payload);
       },
       {
+        runtimeVersion: this.characterCreationConfig.runtimeVersion ?? "3.6.7",
         characterCreation: {
           mode: this.characterCreationConfig.mode,
           name: this.characterCreationConfig.name,
@@ -5464,7 +5469,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         });
       } else {
         renderBehavior = classifyTileBehavior({
-          glyph: DEFAULT_FLOOR_GLYPH,
+          glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,

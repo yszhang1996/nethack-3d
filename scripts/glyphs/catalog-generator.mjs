@@ -4,13 +4,29 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyWasm } from "../wasm/copy-wasm.mjs";
 
-const SOURCE_WASM_RELATIVE_PATH = "public/nethack.wasm";
-const GENERATED_RELATIVE_PATH = "src/game/glyphs/glyph-catalog.generated.ts";
+export const GLYPH_CATALOG_VERSIONS = /** @type {const} */ (["3.6.7", "3.7"]);
+
+const CATALOG_TARGETS = [
+  {
+    version: "3.6.7",
+    packageName: "@neth4ck/wasm-367",
+    packageJsPath: "node_modules/@neth4ck/wasm-367/build/nethack.js",
+    publicWasmPath: "public/nethack.wasm",
+    generatedCatalogPath: "src/game/glyphs/glyph-catalog.generated.ts",
+  },
+  {
+    version: "3.7",
+    packageName: "@neth4ck/wasm-37",
+    packageJsPath: "node_modules/@neth4ck/wasm-37/build/nethack.js",
+    publicWasmPath: "public/nethack-37.wasm",
+    generatedCatalogPath: "src/game/glyphs/glyph-catalog.37.generated.ts",
+  },
+];
 
 /**
  * @typedef {(
  *  "mon" | "pet" | "invis" | "detect" | "body" | "ridden" | "obj" | "cmap" |
- *  "explode" | "zap" | "swallow" | "warning" | "statue"
+ *  "explode" | "zap" | "swallow" | "warning" | "statue" | "unexplored" | "nothing"
  * )} GlyphKind
  */
 
@@ -47,6 +63,8 @@ const KNOWN_GLYPH_KINDS = new Set([
   "swallow",
   "warning",
   "statue",
+  "unexplored",
+  "nothing",
 ]);
 
 const SAFE_NAME = "GlyphCatalog";
@@ -99,16 +117,19 @@ function createRuntimeCallback() {
 
 /**
  * @param {string} projectRoot
+ * @param {{ packageName: string; publicWasmPath: string }} target
  */
-async function bootCatalogRuntime(projectRoot) {
+async function bootCatalogRuntime(projectRoot, target) {
   copyWasm();
-  const wasmPath = path.join(projectRoot, SOURCE_WASM_RELATIVE_PATH);
+  const wasmPath = path.join(projectRoot, target.publicWasmPath);
   const wasmBinary = await fs.readFile(wasmPath);
 
-  const { default: factory } = await import("@neth4ck/wasm-367");
+  const { default: factory } = await import(target.packageName);
   if (typeof factory !== "function") {
-    throw new Error("NetHack factory not found in @neth4ck/wasm-367");
+    throw new Error(`NetHack factory not found in ${target.packageName}`);
   }
+
+  delete globalThis.nethackGlobal;
 
   globalThis.nethackCallback = createRuntimeCallback();
 
@@ -273,24 +294,50 @@ ${entryLines.join("\n")}
  * @param {string} projectRoot
  */
 export function getGeneratedCatalogPath(projectRoot) {
-  return path.join(projectRoot, GENERATED_RELATIVE_PATH);
+  const target = CATALOG_TARGETS[0];
+  return path.join(projectRoot, target.generatedCatalogPath);
 }
 
 /**
  * @param {string} projectRoot
  */
-function resolvePackageJsPath(projectRoot) {
-  const candidate = path.join(projectRoot, "node_modules/@neth4ck/wasm-367/build/nethack.js");
-  return candidate;
+function resolvePackageJsPath(projectRoot, target) {
+  return path.join(projectRoot, target.packageJsPath);
 }
 
-export async function generateGlyphCatalogSource(projectRoot) {
-  const jsPath = resolvePackageJsPath(projectRoot);
-  const wasmPath = path.join(projectRoot, SOURCE_WASM_RELATIVE_PATH);
+function normalizeCatalogVersion(version) {
+  if (version === "3.7") {
+    return "3.7";
+  }
+  return "3.6.7";
+}
+
+function resolveCatalogTarget(version) {
+  const normalized = normalizeCatalogVersion(version);
+  const target = CATALOG_TARGETS.find((entry) => entry.version === normalized);
+  if (!target) {
+    throw new Error(`Unsupported glyph catalog version: ${String(version)}`);
+  }
+  return target;
+}
+
+export function getGlyphCatalogTargets() {
+  return CATALOG_TARGETS.map((target) => ({ ...target }));
+}
+
+export function getGeneratedCatalogPathForVersion(projectRoot, version) {
+  const target = resolveCatalogTarget(version);
+  return path.join(projectRoot, target.generatedCatalogPath);
+}
+
+export async function generateGlyphCatalogSource(projectRoot, version = "3.6.7") {
+  const target = resolveCatalogTarget(version);
+  const jsPath = resolvePackageJsPath(projectRoot, target);
+  const wasmPath = path.join(projectRoot, target.publicWasmPath);
 
   const [jsBuffer, runtimeInfo] = await Promise.all([
     fs.readFile(jsPath),
-    bootCatalogRuntime(projectRoot),
+    bootCatalogRuntime(projectRoot, target),
   ]);
 
   const { nethackGlobal, wasmBinary } = runtimeInfo;
@@ -306,8 +353,8 @@ export async function generateGlyphCatalogSource(projectRoot) {
   const entries = buildGlyphEntries(nethackGlobal.helpers, ranges, maxGlyph);
 
   return renderGlyphCatalogModule({
-    sourceJsPath: "@neth4ck/wasm-367/build/nethack.js",
-    sourceWasmPath: toPosixPath(SOURCE_WASM_RELATIVE_PATH),
+    sourceJsPath: `${target.packageName}/build/nethack.js`,
+    sourceWasmPath: toPosixPath(target.publicWasmPath),
     sourceJsSha256: hashBuffer(jsBuffer),
     sourceWasmSha256: hashBuffer(wasmBinary),
     maxGlyph,
