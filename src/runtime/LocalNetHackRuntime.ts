@@ -2416,7 +2416,7 @@ class LocalNetHackRuntime {
         this.startupOptions?.runtimeVersion,
       );
       const wasmAssetPath =
-        runtimeVersion === "3.7" ? "nethack-37.wasm" : "nethack.wasm";
+        runtimeVersion === "3.7" ? "nethack-37.wasm" : "nethack-367.wasm";
 
       if (!globalThis.nethackGlobal) {
         globalThis.nethackGlobal = {

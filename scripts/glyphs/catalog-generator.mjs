@@ -11,7 +11,7 @@ const CATALOG_TARGETS = [
     version: "3.6.7",
     packageName: "@neth4ck/wasm-367",
     packageJsPath: "node_modules/@neth4ck/wasm-367/build/nethack.js",
-    publicWasmPath: "public/nethack.wasm",
+    publicWasmPath: "public/nethack-367.wasm",
     generatedCatalogPath: "src/game/glyphs/glyph-catalog.generated.ts",
   },
   {
@@ -78,7 +78,10 @@ function toPosixPath(inputPath) {
 }
 
 function glyphKindFromOffsetKey(key) {
-  const rawKind = key.replace(/^GLYPH_/, "").replace(/_OFF$/, "").toLowerCase();
+  const rawKind = key
+    .replace(/^GLYPH_/, "")
+    .replace(/_OFF$/, "")
+    .toLowerCase();
   if (!KNOWN_GLYPH_KINDS.has(rawKind)) {
     throw new Error(`Unsupported glyph kind '${rawKind}' from key '${key}'`);
   }
@@ -148,7 +151,9 @@ async function bootCatalogRuntime(projectRoot, target) {
     ],
   });
 
-  const setCallback = Module.cwrap("shim_graphics_set_callback", null, ["string"]);
+  const setCallback = Module.cwrap("shim_graphics_set_callback", null, [
+    "string",
+  ]);
   setCallback("nethackCallback");
 
   // Start main() — with a synchronous callback, _main() will throw at the first
@@ -166,7 +171,9 @@ async function bootCatalogRuntime(projectRoot, target) {
     !globalThis.nethackGlobal.constants?.GLYPH ||
     typeof globalThis.nethackGlobal.helpers?.mapglyphHelper !== "function"
   ) {
-    throw new Error("Runtime did not expose required glyph constants/helpers after _main()");
+    throw new Error(
+      "Runtime did not expose required glyph constants/helpers after _main()",
+    );
   }
 
   return {
@@ -182,7 +189,8 @@ function deriveGlyphRanges(glyphConstants) {
   const maxGlyph = normalizeNumber(glyphConstants.MAX_GLYPH, 0);
   const offsetEntries = Object.entries(glyphConstants)
     .filter(
-      ([key, value]) => /^GLYPH_[A-Z_]+_OFF$/.test(key) && Number.isFinite(value)
+      ([key, value]) =>
+        /^GLYPH_[A-Z_]+_OFF$/.test(key) && Number.isFinite(value),
     )
     .map(([key, value]) => ({ key, start: Number(value) }))
     .sort((a, b) => a.start - b.start);
@@ -196,7 +204,9 @@ function deriveGlyphRanges(glyphConstants) {
   for (let index = 0; index < offsetEntries.length; index++) {
     const current = offsetEntries[index];
     const nextStart =
-      index + 1 < offsetEntries.length ? offsetEntries[index + 1].start : maxGlyph;
+      index + 1 < offsetEntries.length
+        ? offsetEntries[index + 1].start
+        : maxGlyph;
     ranges.push({
       key: current.key,
       kind: glyphKindFromOffsetKey(current.key),
@@ -257,12 +267,12 @@ function buildGlyphEntries(helpers, ranges, maxGlyph) {
 function renderGlyphCatalogModule(model) {
   const rangeLines = model.ranges.map(
     (range) =>
-      `  { key: "${range.key}", kind: "${range.kind}", start: ${range.start}, endExclusive: ${range.endExclusive} },`
+      `  { key: "${range.key}", kind: "${range.kind}", start: ${range.start}, endExclusive: ${range.endExclusive} },`,
   );
 
   const entryLines = model.entries.map(
     (entry) =>
-      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special} },`
+      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special} },`,
   );
 
   return `// @ts-nocheck
@@ -330,7 +340,10 @@ export function getGeneratedCatalogPathForVersion(projectRoot, version) {
   return path.join(projectRoot, target.generatedCatalogPath);
 }
 
-export async function generateGlyphCatalogSource(projectRoot, version = "3.6.7") {
+export async function generateGlyphCatalogSource(
+  projectRoot,
+  version = "3.6.7",
+) {
   const target = resolveCatalogTarget(version);
   const jsPath = resolvePackageJsPath(projectRoot, target);
   const wasmPath = path.join(projectRoot, target.publicWasmPath);
@@ -348,7 +361,10 @@ export async function generateGlyphCatalogSource(projectRoot, version = "3.6.7")
     throw new Error("Runtime did not expose required glyph constants/helpers");
   }
 
-  const noGlyph = normalizeNumber(glyphConstants.NO_GLYPH, normalizeNumber(glyphConstants.MAX_GLYPH, 0));
+  const noGlyph = normalizeNumber(
+    glyphConstants.NO_GLYPH,
+    normalizeNumber(glyphConstants.MAX_GLYPH, 0),
+  );
   const { maxGlyph, ranges } = deriveGlyphRanges(glyphConstants);
   const entries = buildGlyphEntries(nethackGlobal.helpers, ranges, maxGlyph);
 
