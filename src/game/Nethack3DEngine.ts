@@ -2066,7 +2066,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // this.addGameMessage("Local NetHack runtime started");
       if (this.isFpsMode()) {
         this.addGameMessage(
-          "FPS mode active: WASD move, F search, left-click fire, right-click mouselook.",
+          "FPS mode active: WASD move, F search, left-click fire, right-click look/interact.",
         );
       }
       this.setLoadingVisible(false);
@@ -2118,78 +2118,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.pendingPlayerTileRefreshOnNextPosition = false;
           this.requestPlayerTileRefresh("player-position-sync");
         }
-        break;
-
-      case "force_player_redraw":
-        if (this.positionInputModeActive) {
-          console.log(
-            `🎯 Ignoring force_player_redraw while position-input mode is active`,
-          );
-          break;
-        }
-        // Force update player visual position when NetHack doesn't send map updates
-        console.log(
-          `🎯 Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`,
-        );
-
-        // Update the player position first
-        this.recordPlayerMovement(
-          data.oldPosition.x,
-          data.oldPosition.y,
-          data.newPosition.x,
-          data.newPosition.y,
-        );
-        this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
-        this.markLightingDirty();
-
-        // Clear the old player visual position by redrawing it as floor
-        const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
-        const oldOverlay = this.glyphOverlayMap.get(oldKey);
-        if (oldOverlay) {
-          console.log(
-            `🎯 Clearing old player overlay at (${data.oldPosition.x}, ${data.oldPosition.y})`,
-          );
-          this.disposeGlyphOverlay(oldOverlay);
-          this.glyphOverlayMap.delete(oldKey);
-        }
-
-        // Redraw the old player position using last known terrain to avoid color flicker.
-        const oldTerrain = this.lastKnownTerrain.get(oldKey);
-        if (oldTerrain) {
-          this.updateTile(
-            data.oldPosition.x,
-            data.oldPosition.y,
-            oldTerrain.glyph,
-            oldTerrain.char,
-            oldTerrain.color,
-          );
-        } else {
-          // Don't guess terrain when cache is missing; request authoritative tile data.
-          this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
-        }
-
-        if (this.isFpsMode()) {
-          const newKey = `${data.newPosition.x},${data.newPosition.y}`;
-          const newTerrain = this.lastKnownTerrain.get(newKey);
-          if (newTerrain) {
-            this.updateTile(
-              data.newPosition.x,
-              data.newPosition.y,
-              newTerrain.glyph,
-              newTerrain.char,
-              newTerrain.color,
-            );
-          } else {
-            this.requestTileUpdate(data.newPosition.x, data.newPosition.y);
-          }
-        } else {
-          // Create a fake player glyph at the new position to ensure visual update
-          // Use a typical player glyph number (runtime commonly reports 330 for @).
-          this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
-        }
-        console.log(
-          `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
-        );
         break;
 
       case "position_input_state":

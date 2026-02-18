@@ -73,7 +73,7 @@
 
 ## Runtime Event Contract (Worker -> Engine)
 
-- Map/data: `map_glyph`, `map_glyph_batch`, `player_position`, `force_player_redraw`, `tile_not_found`, `area_refresh_complete`, `clear_scene`.
+- Map/data: `map_glyph`, `map_glyph_batch`, `player_position`, `tile_not_found`, `area_refresh_complete`, `clear_scene`.
 - Text/UI: `text`, `raw_print`, `question`, `direction_question`, `position_request`, `name_request`, `inventory_update`, `info_menu`.
 - Player stats: `status_update`.
 

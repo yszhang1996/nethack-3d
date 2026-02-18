@@ -4,6 +4,7 @@ This document is the source-of-truth for movement and position input behavior
 after the runtime interaction overhaul.
 
 It focuses on:
+
 - Browser key intake and movement mapping.
 - Runtime single-consume input broker flow.
 - Shared callback consumption path for event/position/question input.
@@ -39,6 +40,7 @@ It focuses on:
 ## Runtime Movement Assumptions
 
 Runtime boot config includes:
+
 - `number_pad:1`
 - `pickup_types:$`
 
@@ -61,7 +63,7 @@ directional input using numpad semantics.
 9. Runtime converts key with `processKey` and returns one keycode to NetHack.
 10. NetHack advances state and emits updates (`shim_cliparound`,
     `shim_print_glyph`, status/menu/text callbacks).
-11. Runtime emits worker events (`player_position`, `force_player_redraw`,
+11. Runtime emits worker events (`player_position`,
     `map_glyph_batch`, etc.).
 12. Engine consumes runtime events in `handleRuntimeEvent`.
 
@@ -115,23 +117,27 @@ directional input using numpad semantics.
 ## Far-Look Position FSM
 
 `farLookMode` values:
+
 - `none`
 - `armed`
 - `active`
 
 Transitions:
+
 1. `none -> armed` when `;` is consumed by `shim_get_nh_event`.
 2. `armed -> active` when next `shim_nh_poskey` begins.
 3. `active -> none` on far-look exit input (`Escape`/`Enter`) or when general
    event input resumes.
 
 Emitted events:
+
 - `position_input_state` when entering/exiting active position mode.
 - `position_cursor` from `shim_curs` and cliparound-in-position context.
 
 ## Menu Input Isolation
 
 Menu selection state is isolated from the general broker path:
+
 - `pendingMenuSelection` tracks only active menu completion wait.
 - `menuSelectionReadyCount` stores completion result until `shim_select_menu`
   consumes it.
@@ -160,9 +166,9 @@ waiting/resolution is centralized to menu-specific state.
 ## Position Updates And Player Tracking
 
 Player position update paths in engine are unchanged:
+
 1. `player_position` event
-2. `force_player_redraw` event
-3. player-glyph detection in tile update path
+2. player-glyph detection in tile update path
 
 Movement-dependent UX logic in engine (`recordPlayerMovement`) remains
 compatible with the new runtime consume model.
@@ -170,6 +176,7 @@ compatible with the new runtime consume model.
 ## Camera Follow Behavior
 
 Camera behavior is unchanged:
+
 - follows `playerPos` each frame with smoothing
 - pan offsets remain additive
 - far-look cursor does not retarget camera

@@ -3584,14 +3584,6 @@ class LocalNetHackRuntime {
             x: clipX,
             y: clipY,
           });
-
-          // Also send a map update to clear the old player position and show new one
-          // This helps when NetHack doesn't send explicit glyph updates
-          this.emit({
-            type: "force_player_redraw",
-            oldPosition: oldPlayerPos,
-            newPosition: { x: clipX, y: clipY },
-          });
         }
         return 0;
 
