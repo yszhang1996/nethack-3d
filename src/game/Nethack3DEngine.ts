@@ -606,10 +606,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
       case "cmap":
-      case "obj":
-      case "body":
-      case "statue":
         return true;
+      // "obj", "body", "statue" are effectively transient entities on top of terrain
+      // and should not overwrite the terrain cache (lastKnownTerrain).
       default:
         return false;
     }
@@ -3159,12 +3158,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private createTileTexture(
     tileIndex: number,
     darkenFactor: number = 1,
+    applyChromaKey: boolean = false,
   ): THREE.CanvasTexture {
     const size = this.tileSourceSize;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       throw new Error("Failed to create tile texture canvas context");
     }
@@ -3184,6 +3184,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       // Draw the specific tile from the atlas
       context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+
+      // Apply chroma key transparency (#466d6c -> R=70, G=109, B=108)
+      if (applyChromaKey) {
+        const imageData = context.getImageData(0, 0, size, size);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === 70 && data[i + 1] === 109 && data[i + 2] === 108) {
+            data[i + 3] = 0; // Set alpha to 0
+          }
+        }
+        context.putImageData(imageData, 0, 0);
+      }
     } else {
       // Fallback if texture not loaded yet
       context.fillStyle = "#ff00ff"; // Magenta debug color
@@ -3193,6 +3205,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Apply darkening if needed (for shadows/fog of war)
     if (darkenFactor < 1) {
       const alpha = THREE.MathUtils.clamp(1 - darkenFactor, 0, 1);
+      // Use source-atop to preserve transparency if chroma key was applied
+      context.globalCompositeOperation = applyChromaKey
+        ? "source-atop"
+        : "source-over";
       context.fillStyle = `rgba(0, 0, 0, ${alpha})`;
       context.fillRect(0, 0, size, size);
     }
@@ -4478,8 +4494,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.material.color.set("#ffffff");
 
       if (useTiles) {
-        overlay.texture = this.acquireGlyphTexture(textureKey, () =>
-          this.createTileTexture(tileIndex, clampedDarken),
+        overlay.texture = this.acquireGlyphTexture(
+          textureKey,
+          () => this.createTileTexture(tileIndex, clampedDarken, false), // Pass false: map tiles are opaque
         );
       } else {
         overlay.texture = this.acquireGlyphTexture(textureKey, () =>
@@ -5389,16 +5406,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
     y: number,
     glyphChar: string,
     textColor: string,
+    tileIndex: number = -1,
     entityType: "monster" | "loot" = "monster",
     isWall: boolean = false,
   ): void {
-    const textureKey = `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
+    const useTiles =
+      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+    const textureKey = useTiles
+      ? `tile-billboard:${tileIndex}`
+      : `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
+
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
     if (!sprite) {
-      const texture = this.acquireMonsterBillboardTexture(textureKey, () =>
-        this.createMonsterBillboardTexture(glyphChar, textColor),
-      );
+      const factory = useTiles
+        ? () => this.createTileTexture(tileIndex, 1, true) // Pass true: billboards use transparency
+        : () => this.createMonsterBillboardTexture(glyphChar, textColor);
+
+      const texture = this.acquireMonsterBillboardTexture(textureKey, factory);
       const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
@@ -5424,8 +5449,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
           } else if (material.map) {
             material.map.dispose();
           }
-          material.map = this.acquireMonsterBillboardTexture(textureKey, () =>
-            this.createMonsterBillboardTexture(glyphChar, textColor),
+          const factory = useTiles
+            ? () => this.createTileTexture(tileIndex, 1, true) // Pass true here as well
+            : () => this.createMonsterBillboardTexture(glyphChar, textColor);
+
+          material.map = this.acquireMonsterBillboardTexture(
+            textureKey,
+            factory,
           );
           material.needsUpdate = true;
           sprite.userData.textureKey = textureKey;
@@ -5540,6 +5570,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
+
+    // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
     if (shouldElevateEntityInFps) {
       const floorSnapshot = this.lastKnownTerrain.get(key);
       if (floorSnapshot) {
@@ -5625,6 +5657,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       drawFpsFloorGrid,
       renderBehavior.effective.tileIndex,
     );
+
+    // CREATE BILLBOARD FOR MONSTER/ITEM
     if (this.isFpsMode() && isMonsterLikeCharacter) {
       this.ensureMonsterBillboard(
         key,
@@ -5632,6 +5666,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         y,
         behavior.glyphChar,
         behavior.textColor,
+        behavior.effective.tileIndex, // Use the ORIGINAL behavior index (the monster)
         "monster",
         renderBehavior.isWall,
       );
@@ -5642,6 +5677,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         y,
         behavior.glyphChar,
         behavior.textColor,
+        behavior.effective.tileIndex, // Use the ORIGINAL behavior index (the loot)
         "loot",
         renderBehavior.isWall,
       );
