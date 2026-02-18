@@ -385,6 +385,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
   private tilesetTexture: THREE.Texture | null = null;
+  private readonly tileSourceSize = 32;
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -1446,6 +1447,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileShakeChanged =
       previous.tileShakeOnHit !== normalized.tileShakeOnHit;
     const bloodChanged = previous.blood !== normalized.blood;
+    const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
 
     this.clientOptions = normalized;
 
@@ -1467,6 +1469,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (bloodChanged && !normalized.blood) {
       this.clearBloodMistParticles();
+    }
+    if (tilesetModeChanged) {
+      this.refreshTilesFromStateCache();
     }
   }
 
@@ -2032,7 +2037,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
-    await setActiveGlyphCatalog(this.characterCreationConfig.runtimeVersion ?? "3.6.7");
+    await setActiveGlyphCatalog(
+      this.characterCreationConfig.runtimeVersion ?? "3.6.7",
+    );
 
     this.session = new WorkerRuntimeBridge(
       (payload: RuntimeEvent) => {
@@ -3147,6 +3154,60 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     return overlay!;
+  }
+
+  private createTileTexture(
+    tileIndex: number,
+    darkenFactor: number = 1,
+  ): THREE.CanvasTexture {
+    const size = this.tileSourceSize;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Failed to create tile texture canvas context");
+    }
+
+    context.clearRect(0, 0, size, size);
+
+    if (
+      this.tilesetTexture &&
+      this.tilesetTexture.image &&
+      this.tilesetTexture.image.complete &&
+      this.tilesetTexture.image.width > 0
+    ) {
+      const img = this.tilesetTexture.image;
+      const tilesPerRow = Math.floor(img.width / size);
+      const sx = (tileIndex % tilesPerRow) * size;
+      const sy = Math.floor(tileIndex / tilesPerRow) * size;
+
+      // Draw the specific tile from the atlas
+      context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+    } else {
+      // Fallback if texture not loaded yet
+      context.fillStyle = "#ff00ff"; // Magenta debug color
+      context.fillRect(0, 0, size, size);
+    }
+
+    // Apply darkening if needed (for shadows/fog of war)
+    if (darkenFactor < 1) {
+      const alpha = THREE.MathUtils.clamp(1 - darkenFactor, 0, 1);
+      context.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+      context.fillRect(0, 0, size, size);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.NearestFilter; // Keep pixel art sharp
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+
+    return texture;
   }
 
   private createGlyphTexture(
@@ -4392,11 +4453,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     isWall: boolean,
     darkenFactor: number = 1,
     drawFloorGrid: boolean = false,
+    tileIndex: number = -1,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
-    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
+
+    const useTiles =
+      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+
+    let textureKey: string;
+    if (useTiles) {
+      textureKey = `tile:${tileIndex}|${clampedDarken.toFixed(3)}`;
+    } else {
+      textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
+    }
 
     if (overlay.textureKey !== textureKey) {
       if (overlay.textureKey) {
@@ -4405,16 +4476,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       overlay.baseColorHex = baseColorHex;
       overlay.material.color.set("#ffffff");
-      overlay.texture = this.acquireGlyphTexture(textureKey, () =>
-        this.createGlyphTexture(
-          baseColorHex,
-          glyphChar,
-          textColor,
-          clampedDarken,
-          256,
-          drawFloorGrid,
-        ),
-      );
+
+      if (useTiles) {
+        overlay.texture = this.acquireGlyphTexture(textureKey, () =>
+          this.createTileTexture(tileIndex, clampedDarken),
+        );
+      } else {
+        overlay.texture = this.acquireGlyphTexture(textureKey, () =>
+          this.createGlyphTexture(
+            baseColorHex,
+            glyphChar,
+            textColor,
+            clampedDarken,
+            256,
+            drawFloorGrid,
+          ),
+        );
+      }
+
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
       overlay.textureKey = textureKey;
@@ -5544,6 +5623,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.isWall,
       renderBehavior.darkenFactor,
       drawFpsFloorGrid,
+      renderBehavior.effective.tileIndex,
     );
     if (this.isFpsMode() && isMonsterLikeCharacter) {
       this.ensureMonsterBillboard(
