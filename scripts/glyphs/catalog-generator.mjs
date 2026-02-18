@@ -247,6 +247,8 @@ function buildGlyphEntries(helpers, ranges, maxGlyph, tiles, offsets, counts) {
 
     if (kind === "mon") {
       tileIndex = glyph - offsets.mon;
+    } else if (kind === "pet") {
+      tileIndex = glyph - offsets.pet;
     } else if (kind === "obj") {
       tileIndex = counts["monsters.txt"] + glyph - offsets.obj;
     } else if (kind === "cmap") {
@@ -386,6 +388,12 @@ export async function generateGlyphCatalogSource(
     mon: glyphConstants.GLYPH_MON_OFF,
     obj: glyphConstants.GLYPH_OBJ_OFF,
     other: glyphConstants.GLYPH_CMAP_OFF, // Assuming 'other.txt' maps to cmap
+    pet: glyphConstants.GLYPH_PET_OFF,
+    detect: glyphConstants.GLYPH_DETECT_OFF,
+    ridden: glyphConstants.GLYPH_RIDDEN_OFF,
+    invis: glyphConstants.GLYPH_INVIS_OFF,
+    body: glyphConstants.GLYPH_BODY_OFF,
+    other: glyphConstants.GLYPH_CMAP_OFF,
   };
   const entries = buildGlyphEntries(
     nethackGlobal.helpers,
