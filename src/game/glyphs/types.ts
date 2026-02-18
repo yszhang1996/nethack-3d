@@ -20,8 +20,24 @@ export interface GlyphCatalogEntry {
   kind: GlyphKind;
   ch: number;
   color: number;
-  special: number;
+  /**
+   * For NetHack 3.6.7, the `special` flags (e.g. `SP_MON`, `SP_OBJ`, etc).
+   * @see `include/display.h` in the NetHack source for `struct display_how`.
+   */
+  special?: number;
   tileIndex: number;
+
+  // NetHack 3.7+ fields from `map_glyphinfo`
+  ttychar?: number;
+  framecolor?: number;
+  glyphflags?: number;
+  symidx?: number;
+  customcolor?: number;
+  color256idx?: number;
+  tileidx?: number;
+  x?: number;
+  y?: number;
+  mgflags?: number;
 }
 
 export interface GlyphCatalogRange {

@@ -47,7 +47,19 @@ const CATALOG_TARGETS = [
  *   kind: GlyphKind;
  *   ch: number;
  *   color: number;
- *   special: number;
+ *   tileIndex: number;
+ *
+ *   special?: number;
+ *   ttychar?: number;
+ *   framecolor?: number;
+ *   glyphflags?: number;
+ *   symidx?: number;
+ *   customcolor?: number;
+ *   color256idx?: number;
+ *   tileidx?: number;
+ *   x?: number;
+ *   y?: number;
+ *   mgflags?: number;
  * }} GlyphEntry
  */
 
@@ -122,7 +134,7 @@ function createRuntimeCallback() {
 
 /**
  * @param {string} projectRoot
- * @param {{ packageName: string; publicWasmPath: string }} target
+ * @param {{ version: "3.6.7" | "3.7"; packageName: string; publicWasmPath: string }} target
  */
 async function bootCatalogRuntime(projectRoot, target) {
   copyWasm();
@@ -168,13 +180,19 @@ async function bootCatalogRuntime(projectRoot, target) {
     // initialization that runs before the first async suspension point.
   }
 
+  const helpers = globalThis.nethackGlobal?.helpers;
+  const hasRequiredHelpers =
+    target.version === "3.7"
+      ? typeof helpers?.mapGlyphInfoHelper === "function"
+      : typeof helpers?.mapglyphHelper === "function";
+
   if (
     !globalThis.nethackGlobal ||
     !globalThis.nethackGlobal.constants?.GLYPH ||
-    typeof globalThis.nethackGlobal.helpers?.mapglyphHelper !== "function"
+    !hasRequiredHelpers
   ) {
     throw new Error(
-      "Runtime did not expose required glyph constants/helpers after _main()",
+      `Runtime did not expose required glyph constants/helpers for ${target.version} after _main()`,
     );
   }
 
@@ -234,17 +252,33 @@ function glyphKindForGlyph(ranges, glyph) {
 }
 
 /**
- * @param {{ mapglyphHelper: (glyph: number, x: number, y: number, mgflags: number) => any }} helpers
+ * @param {{
+ *   mapglyphHelper?: (glyph: number, x: number, y: number, mgflags: number) => any,
+ *   mapGlyphInfoHelper?: (glyph: number, x: number, y: number, mgflags: number) => any
+ * }} helpers
+ * @param {"3.6.7" | "3.7"} version
  * @param {GlyphRange[]} ranges
  * @param {number} maxGlyph
  */
-function buildGlyphEntries(helpers, ranges, maxGlyph, tiles, offsets, counts) {
+function buildGlyphEntries(
+  helpers,
+  version,
+  ranges,
+  maxGlyph,
+  tiles,
+  offsets,
+  counts,
+) {
   /** @type {GlyphEntry[]} */
   const entries = [];
   const CORPSE_TILE_INDEX = 636;
 
   for (let glyph = 0; glyph < maxGlyph; glyph++) {
-    const info = helpers.mapglyphHelper(glyph, 0, 0, 0);
+    const info =
+      version === "3.7"
+        ? helpers.mapGlyphInfoHelper?.(glyph, 0, 0, 0)
+        : helpers.mapglyphHelper?.(glyph, 0, 0, 0);
+
     const kind = glyphKindForGlyph(ranges, glyph);
     let tileIndex = -1;
 
@@ -263,16 +297,68 @@ function buildGlyphEntries(helpers, ranges, maxGlyph, tiles, offsets, counts) {
         counts["monsters.txt"] + counts["objects.txt"] + glyph - offsets.other;
     }
 
-    entries.push({
+    /** @type {GlyphEntry} */
+    const entry = {
       glyph,
       kind: kind,
       ch: normalizeNumber(info?.ch, 0),
       color: normalizeNumber(info?.color, 0),
-      special: normalizeNumber(info?.special, 0),
       tileIndex: tileIndex,
-    });
+    };
+
+    if (version === "3.7") {
+      entry.ttychar = normalizeNumber(info?.ttychar);
+      entry.framecolor = normalizeNumber(info?.framecolor);
+      entry.glyphflags = normalizeNumber(info?.glyphflags);
+      entry.symidx = normalizeNumber(info?.symidx);
+      entry.customcolor = normalizeNumber(info?.customcolor);
+      entry.color256idx = normalizeNumber(info?.color256idx);
+      entry.tileidx = normalizeNumber(info?.tileidx);
+      entry.x = normalizeNumber(info?.x);
+      entry.y = normalizeNumber(info?.y);
+      entry.mgflags = normalizeNumber(info?.mgflags);
+    } else {
+      entry.special = normalizeNumber(info?.special, 0);
+      entry.mgflags = normalizeNumber(info?.mgflags);
+    }
+
+    entries.push(entry);
   }
   return entries;
+}
+
+/**
+ * @param {GlyphEntry} entry
+ */
+function renderEntry(entry) {
+  const simpleFields = [
+    `glyph: ${entry.glyph}`,
+    `kind: "${entry.kind}"`,
+    `ch: ${entry.ch}`,
+    `color: ${entry.color}`,
+    `tileIndex: ${entry.tileIndex}`,
+  ];
+
+  /** @type {Record<string, number | undefined>} */
+  const optionalFields = {
+    special: entry.special,
+    ttychar: entry.ttychar,
+    framecolor: entry.framecolor,
+    glyphflags: entry.glyphflags,
+    symidx: entry.symidx,
+    customcolor: entry.customcolor,
+    color256idx: entry.color256idx,
+    tileidx: entry.tileidx,
+    x: entry.x,
+    y: entry.y,
+    mgflags: entry.mgflags,
+  };
+
+  const renderedOptionals = Object.entries(optionalFields)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return `  { ${[...simpleFields, ...renderedOptionals].join(", ")} },`;
 }
 
 /**
@@ -293,10 +379,7 @@ function renderGlyphCatalogModule(model) {
       `  { key: "${range.key}", kind: "${range.kind}", start: ${range.start}, endExclusive: ${range.endExclusive} },`,
   );
 
-  const entryLines = model.entries.map(
-    (entry) =>
-      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special}, tileIndex: ${entry.tileIndex} },`,
-  );
+  const entryLines = model.entries.map(renderEntry);
 
   return `// @ts-nocheck
 /* AUTO-GENERATED FILE. DO NOT EDIT. */
@@ -380,10 +463,8 @@ export async function generateGlyphCatalogSource(
   const { tiles, counts } = await getAllTiles(projectRoot);
 
   const glyphConstants = nethackGlobal.constants?.GLYPH;
-  const mapglyphHelper = nethackGlobal.helpers?.mapglyphHelper;
-
-  if (!glyphConstants || typeof mapglyphHelper !== "function") {
-    throw new Error("Runtime did not expose required glyph constants/helpers");
+  if (!glyphConstants) {
+    throw new Error("Runtime did not expose required glyph constants");
   }
 
   const noGlyph = normalizeNumber(
@@ -406,6 +487,7 @@ export async function generateGlyphCatalogSource(
   };
   const entries = buildGlyphEntries(
     nethackGlobal.helpers,
+    target.version,
     ranges,
     maxGlyph,
     tiles,

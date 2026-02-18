@@ -5157,7 +5157,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       throw new Error("Failed to create monster billboard texture context");
     }
@@ -5293,6 +5293,66 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.monsterBillboards.delete(key);
   }
 
+  private getLowestPixelOffset(
+    context: CanvasRenderingContext2D,
+    size: number,
+  ): number {
+    const imageData = context.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    let lowestPixelY = -1;
+
+    for (let y = size - 1; y >= 0; y--) {
+      for (let x = 0; x < size; x++) {
+        const alphaIndex = (y * size + x) * 4 + 3;
+        if (data[alphaIndex] > 0) {
+          lowestPixelY = y;
+          break;
+        }
+      }
+      if (lowestPixelY !== -1) {
+        break;
+      }
+    }
+
+    if (lowestPixelY === -1) {
+      return 1.0; // Texture is empty, align to bottom
+    }
+
+    // Add 1 to get the row *after* the last pixel for alignment.
+    return (lowestPixelY + 1) / size;
+  }
+
+  private getSpriteContentWidth(
+    context: CanvasRenderingContext2D,
+    size: number,
+  ): number {
+    const imageData = context.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    let minX = size;
+    let maxX = -1;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const alphaIndex = (y * size + x) * 4 + 3;
+        if (data[alphaIndex] > 0) {
+          if (x < minX) {
+            minX = x;
+          }
+          if (x > maxX) {
+            maxX = x;
+          }
+        }
+      }
+    }
+
+    if (maxX === -1) {
+      return 0; // Texture is empty
+    }
+
+    const widthInPixels = maxX - minX + 1;
+    return widthInPixels / size;
+  }
+
   private ensureEntityBlobShadow(
     key: string,
     x: number,
@@ -5391,17 +5451,45 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const elevatedZ =
-      entityType === "loot" ? this.elevatedLootZ : this.elevatedMonsterZ;
-    sprite.userData.elevatedZ = elevatedZ;
-    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, elevatedZ);
-    const scaleBase = this.isFpsMode()
+    // TO-DO: This is the wrong tile index for a boulder
+    const isBoulder = tileIndex === 450;
+
+    const overrideSize = (normalScale: number, fpsScale: number) => {
+      return this.isFpsMode() ? fpsScale : normalScale;
+    };
+
+    // Determine sprite scale based on mode
+    let scaleBase = this.isFpsMode()
       ? entityType === "loot"
-        ? 0.82
-        : 1.08
-      : 0.9;
+        ? 0.5
+        : 0.75
+      : entityType === "loot"
+        ? 1
+        : 1;
+
+    if (isBoulder) {
+      scaleBase = overrideSize(2, 3);
+    }
     sprite.scale.set(scaleBase, scaleBase, 1);
-    const shadowScale = entityType === "loot" ? 0.58 : 0.76;
+
+    const texture = sprite.material.map;
+    let verticalOffset = 1.0;
+    let contentWidth = 1.0;
+    if (texture && texture.image instanceof HTMLCanvasElement) {
+      const canvas = texture.image;
+      const context = canvas.getContext("2d");
+      if (context) {
+        verticalOffset = this.getLowestPixelOffset(context, canvas.height);
+        contentWidth = this.getSpriteContentWidth(context, canvas.width);
+      }
+    }
+
+    const floorZ = isWall ? WALL_HEIGHT + 0.03 : 0.028;
+    const newZ = (verticalOffset - 0.5) * scaleBase + floorZ;
+    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
+    sprite.userData.elevatedZ = newZ;
+
+    const shadowScale = (scaleBase * contentWidth * 1.25) / (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
   }
 
@@ -5420,10 +5508,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: typeof color === "number" ? color : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
+    const isPlayerCharacter = behavior.isPlayerGlyph;
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
-    const shouldElevateEntityInFps =
-      this.isFpsMode() && (isMonsterLikeCharacter || isLootLikeCharacter);
+    const isSink = behavior.effective.tileIndex === 30;
+    const isFountain = behavior.materialKind === "fountain";
+    const isStairsUp = behavior.materialKind === "stairs_up";
+
+    // Don't use a billboard for the player in FPS mode
+    const shouldElevateEntity =
+      (!this.isFpsMode() && isPlayerCharacter) ||
+      isMonsterLikeCharacter ||
+      isLootLikeCharacter ||
+      isSink ||
+      isFountain ||
+      isStairsUp;
+
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
     if (isUndiscovered) {
@@ -5500,25 +5600,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let tileTextColor = behavior.textColor;
 
     // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
-    if (shouldElevateEntityInFps) {
-      const floorSnapshot = this.lastKnownTerrain.get(key);
-      if (floorSnapshot) {
-        renderBehavior = classifyTileBehavior({
-          glyph: floorSnapshot.glyph,
-          runtimeChar: floorSnapshot.char ?? null,
-          runtimeColor:
-            typeof floorSnapshot.color === "number"
-              ? floorSnapshot.color
-              : null,
-          priorTerrain: floorSnapshot,
-        });
-      } else {
+    if (shouldElevateEntity) {
+      const isStairsUp = behavior.materialKind === "stairs_up";
+      const isFountain = behavior.materialKind === "fountain";
+      if (isStairsUp || isFountain) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,
         });
+      } else {
+        const floorSnapshot = this.lastKnownTerrain.get(key);
+        if (floorSnapshot) {
+          renderBehavior = classifyTileBehavior({
+            glyph: floorSnapshot.glyph,
+            runtimeChar: floorSnapshot.char ?? null,
+            runtimeColor:
+              typeof floorSnapshot.color === "number"
+                ? floorSnapshot.color
+                : null,
+            priorTerrain: floorSnapshot,
+          });
+        } else {
+          renderBehavior = classifyTileBehavior({
+            glyph: getDefaultFloorGlyph(),
+            runtimeChar: ".",
+            runtimeColor: null,
+            priorTerrain: null,
+          });
+        }
       }
       tileGlyphChar = " ";
       tileTextColor = renderBehavior.textColor;
@@ -5586,27 +5697,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.effective.tileIndex,
     );
 
-    // CREATE BILLBOARD FOR MONSTER/ITEM
-    if (this.isFpsMode() && isMonsterLikeCharacter) {
+    // Create or remove a billboard for any entity that should be elevated.
+    if (shouldElevateEntity) {
       this.ensureMonsterBillboard(
         key,
         x,
         y,
         behavior.glyphChar,
         behavior.textColor,
-        behavior.effective.tileIndex, // Use the ORIGINAL behavior index (the monster)
-        "monster",
-        renderBehavior.isWall,
-      );
-    } else if (this.isFpsMode() && isLootLikeCharacter) {
-      this.ensureMonsterBillboard(
-        key,
-        x,
-        y,
-        behavior.glyphChar,
-        behavior.textColor,
-        behavior.effective.tileIndex, // Use the ORIGINAL behavior index (the loot)
-        "loot",
+        behavior.effective.tileIndex,
+        isLootLikeCharacter ? "loot" : "monster",
         renderBehavior.isWall,
       );
     } else {
@@ -10620,6 +10720,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       addQuickAction("search", "Search");
       addQuickAction("pickup", "Pick Up");
       return actions;
+    }
+
+    if (materialKind === "water" || materialKind === "fountain") {
+      addQuickAction("quaff", "Quaff");
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
     }
 
     if (

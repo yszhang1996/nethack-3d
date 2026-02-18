@@ -9,6 +9,7 @@ const process =
 
 class LocalNetHackRuntime {
   constructor(eventHandler, startupOptions = null) {
+    this.runtimeVersion = "3.6.7";
     this.eventHandler = eventHandler;
     this.startupOptions =
       startupOptions && typeof startupOptions === "object"
@@ -61,7 +62,7 @@ class LocalNetHackRuntime {
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
-    this.travelSpeedDelayMs = 150; // Default to normal
+    this.travelSpeedDelayMs = 60; // Default to normal
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -2251,14 +2252,10 @@ class LocalNetHackRuntime {
 
     try {
       const selectedItems = Array.from(this.menuSelections.values());
-      const runtimeVersion = this.normalizeRuntimeVersion(
-        this.startupOptions?.runtimeVersion,
-      );
-
       // NetHack 3.7.0's menu_item layout is 12 bytes. 3.6.7 is 8 bytes.
       // 3.7.0: { anything item; long count; unsigned itemflags; }
       // 3.6.7: { anything item; long count; }
-      const bytesPerMenuItem = runtimeVersion === "3.7" ? 12 : 8;
+      const bytesPerMenuItem = this.runtimeVersion === "3.7" ? 12 : 8;
       const countOffsetPrimary = 4;
       const itemFlagsOffset = 8;
 
@@ -2389,6 +2386,10 @@ class LocalNetHackRuntime {
         return this.handleUICallback(name, args);
       };
 
+      this.runtimeVersion = this.normalizeRuntimeVersion(
+        this.startupOptions?.runtimeVersion,
+      );
+
       /** @type {NethackRuntimeVersion} */
       const runtimeVersion = this.normalizeRuntimeVersion(
         this.startupOptions?.runtimeVersion,
@@ -2480,6 +2481,7 @@ class LocalNetHackRuntime {
         "number_pad:1",
         "mouse_support",
         "clicklook",
+        "runmode:walk",
         // Status tracking fields consumed by the HUD.
         "time",
         "showexp",
@@ -3097,27 +3099,30 @@ class LocalNetHackRuntime {
         let glyphChar = "";
 
         // Convert glyph to visual character using mapglyphHelper
-        if (
-          menuGlyph &&
-          globalThis.nethackGlobal &&
-          globalThis.nethackGlobal.helpers &&
-          globalThis.nethackGlobal.helpers.mapglyphHelper
-        ) {
-          try {
-            const glyphInfo = globalThis.nethackGlobal.helpers.mapglyphHelper(
-              menuGlyph,
-              0,
-              0,
-              0, // x, y, and other params not needed for menu items
-            );
-            if (glyphInfo && glyphInfo.ch !== undefined) {
-              glyphChar = String.fromCharCode(glyphInfo.ch);
+        if (menuGlyph) {
+          const helpers = globalThis.nethackGlobal?.helpers;
+          const mapHelper =
+            this.runtimeVersion === "3.7"
+              ? helpers?.mapGlyphInfoHelper
+              : helpers?.mapglyphHelper;
+
+          if (mapHelper) {
+            try {
+              const glyphInfo = mapHelper(
+                menuGlyph,
+                0,
+                0,
+                0, // x, y, and other params not needed for menu items
+              );
+              if (glyphInfo && glyphInfo.ch !== undefined) {
+                glyphChar = String.fromCharCode(glyphInfo.ch);
+              }
+            } catch (error) {
+              console.log(
+                `⚠️ Error getting glyph info for menu glyph ${menuGlyph}:`,
+                error,
+              );
             }
-          } catch (error) {
-            console.log(
-              `⚠️ Error getting glyph info for menu glyph ${menuGlyph}:`,
-              error,
-            );
           }
         }
 
@@ -3222,18 +3227,16 @@ class LocalNetHackRuntime {
           // Use NetHack's mapglyph function to get the proper ASCII character
           let glyphChar = null;
           let glyphColor = null;
-          if (
-            globalThis.nethackGlobal &&
-            globalThis.nethackGlobal.helpers &&
-            globalThis.nethackGlobal.helpers.mapglyphHelper
-          ) {
+
+          const helpers = globalThis.nethackGlobal?.helpers;
+          const mapHelper =
+            this.runtimeVersion === "3.7"
+              ? helpers?.mapGlyphInfoHelper
+              : helpers?.mapglyphHelper;
+
+          if (mapHelper) {
             try {
-              const glyphInfo = globalThis.nethackGlobal.helpers.mapglyphHelper(
-                printGlyph,
-                x,
-                y,
-                0,
-              );
+              const glyphInfo = mapHelper(printGlyph, x, y, 0);
               console.log(
                 `🔍 Raw glyphInfo for glyph ${printGlyph}:`,
                 glyphInfo,
@@ -3257,7 +3260,7 @@ class LocalNetHackRuntime {
               );
             }
           } else {
-            console.log(`⚠️ mapglyphHelper not available`);
+            console.log(`⚠️ mapHelper not available`);
           }
 
           this.gameMap.set(key, {
