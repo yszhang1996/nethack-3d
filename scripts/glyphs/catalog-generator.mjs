@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { copyWasm } from "../wasm/copy-wasm.mjs";
 import { getAllTiles } from "./tile-parser.mjs";
+import { warn } from "node:console";
 
 export const GLYPH_CATALOG_VERSIONS = /** @type {const} */ (["3.6.7", "3.7"]);
 
@@ -240,17 +241,23 @@ function glyphKindForGlyph(ranges, glyph) {
 function buildGlyphEntries(helpers, ranges, maxGlyph, tiles, offsets, counts) {
   /** @type {GlyphEntry[]} */
   const entries = [];
+  const CORPSE_TILE_INDEX = 636;
+
   for (let glyph = 0; glyph < maxGlyph; glyph++) {
     const info = helpers.mapglyphHelper(glyph, 0, 0, 0);
     const kind = glyphKindForGlyph(ranges, glyph);
     let tileIndex = -1;
 
     if (kind === "mon") {
-      tileIndex = glyph - offsets.mon;
+      tileIndex = glyph - offsets.mon + 7;
     } else if (kind === "pet") {
-      tileIndex = glyph - offsets.pet;
+      tileIndex = glyph - offsets.pet + 2;
     } else if (kind === "obj") {
-      tileIndex = counts["monsters.txt"] + glyph - offsets.obj;
+      tileIndex = counts["monsters.txt"] + glyph - offsets.obj + 3;
+    } else if (kind === "body") {
+      tileIndex = CORPSE_TILE_INDEX;
+    } else if (kind === "statue") {
+      tileIndex = glyph - offsets.statue;
     } else if (kind === "cmap") {
       tileIndex =
         counts["monsters.txt"] + counts["objects.txt"] + glyph - offsets.other;
@@ -394,6 +401,8 @@ export async function generateGlyphCatalogSource(
     invis: glyphConstants.GLYPH_INVIS_OFF,
     body: glyphConstants.GLYPH_BODY_OFF,
     other: glyphConstants.GLYPH_CMAP_OFF,
+    statue: glyphConstants.GLYPH_STATUE_OFF,
+    warning: glyphConstants.GLYPH_WARNING_OFF,
   };
   const entries = buildGlyphEntries(
     nethackGlobal.helpers,
