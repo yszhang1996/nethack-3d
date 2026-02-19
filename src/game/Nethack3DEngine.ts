@@ -2161,10 +2161,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "question":
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
           const payload = this.toCharacterCreationQuestionPayload(data);
-          if (this.characterCreationMode === "random") {
-            this.autoAnswerCharacterCreationQuestion(payload);
-            return;
-          }
           this.isInQuestion = true;
           this.showQuestion(
             payload.text,
@@ -6361,9 +6357,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(`  ${item.accelerator || "?"}) ${item.text}`);
       }
     });
-
-    // TODO: If we add an inventory panel to the UI in the future, update it here
-    // For now, we just log the inventory and don't show any dialog
   }
 
   private isMultiSelectLootQuestion(question: string): boolean {
@@ -6466,29 +6459,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       defaultChoice: String(data.default || ""),
       menuItems: Array.isArray(data.menuItems) ? [...data.menuItems] : [],
     };
-  }
-
-  private autoAnswerCharacterCreationQuestion(
-    payload: CharacterCreationQuestionPayload,
-  ): void {
-    console.log("Auto-handling character creation:", payload.text);
-    const firstSelectableItem = payload.menuItems.find(
-      (item) => item && !item.isCategory,
-    );
-    if (firstSelectableItem) {
-      this.sendInput(
-        this.getMenuSelectionInput(
-          firstSelectableItem,
-          firstSelectableItem?.accelerator || "a",
-        ),
-      );
-      return;
-    }
-    if (payload.defaultChoice) {
-      this.sendInput(payload.defaultChoice);
-      return;
-    }
-    this.sendInput("a");
   }
 
   private isSelectableQuestionMenuItem(item: any): boolean {
