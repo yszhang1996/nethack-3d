@@ -990,7 +990,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.directionalLight.intensity = 1.25;
       if (!this.fpsPlayerLight) {
         this.fpsPlayerLight = new THREE.PointLight(0xfff4d8, 2.8, 14, 1.35);
-        this.fpsPlayerLight.castShadow = false;
+        this.fpsPlayerLight.castShadow = true;
         this.scene.add(this.fpsPlayerLight);
       }
       this.fpsPlayerLight.intensity = 2.8;
@@ -5510,13 +5510,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = behavior.effective.tileIndex === 30;
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
+    const useTiles = this.clientOptions.tilesetMode === "tiles";
 
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
       isLootLikeCharacter ||
-      isSink ||
-      isFountain ||
-      isStairsUp;
+      (useTiles && (isSink || isFountain || isStairsUp));
 
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
@@ -5558,7 +5557,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.removeMonsterBillboard(key);
       if (mesh && mesh.userData?.isPlayerGlyph) {
-        this.removeMonsterBillboard(key);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
         this.tileStateCache.delete(key);
@@ -5595,10 +5593,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let tileTextColor = behavior.textColor;
 
     // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
-    if (shouldElevateEntity) {
+    if (shouldElevateEntity && this.isFpsMode()) {
       const isStairsUp = behavior.materialKind === "stairs_up";
       const isFountain = behavior.materialKind === "fountain";
-      if (isStairsUp || isFountain) {
+      if ((isStairsUp || isFountain) && useTiles) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
@@ -5693,7 +5691,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
 
     // Create or remove a billboard for any entity that should be elevated.
-    if (shouldElevateEntity) {
+    if (shouldElevateEntity && this.isFpsMode()) {
       this.ensureMonsterBillboard(
         key,
         x,
