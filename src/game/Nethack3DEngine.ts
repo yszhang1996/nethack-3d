@@ -200,6 +200,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     { texture: THREE.CanvasTexture; refCount: number }
   > = new Map();
+  private doorAverageColorCache: Map<number, THREE.Color> = new Map();
+  private doorFloorMeshes: Map<string, THREE.Mesh> = new Map();
+  private openDoorSlabMeshes: Map<string, THREE.Mesh> = new Map();
   private pendingTileUpdates: Map<string, any> = new Map();
   private tileFlushScheduled: boolean = false;
   private playerPos = { x: 0, y: 0 };
@@ -386,6 +389,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly maxRendererPixelRatio: number = 2;
   private tilesetTexture: THREE.Texture | null = null;
   private readonly tileSourceSize = 32;
+  private readonly chromaKeyColor = { r: 70, g: 109, b: 108 }; // #466d6c
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -487,6 +491,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private wallGeometry = new THREE.BoxGeometry(
     TILE_SIZE,
     TILE_SIZE,
+    WALL_HEIGHT,
+  );
+  private doorGeometry = new THREE.BoxGeometry(
+    TILE_SIZE,
+    TILE_SIZE * 0.25,
     WALL_HEIGHT,
   );
 
@@ -3117,8 +3126,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (applyChromaKey) {
         const imageData = context.getImageData(0, 0, size, size);
         const data = imageData.data;
+        const { r, g, b } = this.chromaKeyColor;
         for (let i = 0; i < data.length; i += 4) {
-          if (data[i] === 70 && data[i + 1] === 109 && data[i + 2] === 108) {
+          if (data[i] === r && data[i + 1] === g && data[i + 2] === b) {
             data[i + 3] = 0; // Set alpha to 0
           }
         }
@@ -4469,14 +4479,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : baseMaterial;
       mesh.material = [overlay.material, baseMaterial, chamferMaterial];
     } else if (isWall) {
-      mesh.material = [
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        overlay.material,
-        baseMaterial,
-      ];
+      if (mesh.userData.materialKind === "door" && useTiles) {
+        mesh.material = [
+          baseMaterial, // right edge
+          baseMaterial, // left edge
+          overlay.material, // front
+          overlay.material, // back
+          baseMaterial, // top edge
+          baseMaterial, // bottom edge
+        ];
+      } else if (useTiles) {
+        mesh.material = [
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          baseMaterial,
+        ];
+      } else {
+        mesh.material = [
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          overlay.material,
+          baseMaterial,
+        ];
+      }
     } else {
       mesh.material = overlay.material;
     }
@@ -5501,6 +5531,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
     color?: number,
   ): void {
     const key = `${x},${y}`;
+
+    if (this.doorFloorMeshes.has(key)) {
+      const oldFloor = this.doorFloorMeshes.get(key)!;
+      this.scene.remove(oldFloor);
+      oldFloor.geometry.dispose();
+      const overlay = this.glyphOverlayMap.get(`${key}-floor`);
+      if (overlay) {
+        this.disposeGlyphOverlay(overlay);
+        this.glyphOverlayMap.delete(`${key}-floor`);
+      }
+      this.doorFloorMeshes.delete(key);
+    }
+    if (this.openDoorSlabMeshes.has(key)) {
+      const oldSlab = this.openDoorSlabMeshes.get(key)!;
+      this.scene.remove(oldSlab);
+      oldSlab.geometry.dispose();
+      (oldSlab.material as THREE.Material).dispose();
+      this.openDoorSlabMeshes.delete(key);
+    }
+
     let mesh = this.tileMap.get(key);
     const behavior = classifyTileBehavior({
       glyph,
@@ -5508,6 +5558,126 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: typeof color === "number" ? color : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
+
+    const isOpenDoor = !behavior.isWall && behavior.materialKind === "door";
+
+    if (isOpenDoor && this.clientOptions.tilesetMode === "tiles") {
+      const oldMesh = this.tileMap.get(key);
+      if (oldMesh) {
+        this.scene.remove(oldMesh);
+        this.tileMap.delete(key);
+        const overlay = this.glyphOverlayMap.get(key);
+        if (overlay) {
+          this.disposeGlyphOverlay(overlay);
+          this.glyphOverlayMap.delete(key);
+        }
+      }
+
+      // Add floor underneath
+      const floorMaterial = this.getMaterialByKind("floor");
+      const floorMesh = new THREE.Mesh(this.floorGeometry, floorMaterial);
+      floorMesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, 0);
+      floorMesh.receiveShadow = true;
+
+      const floorBehavior = classifyTileBehavior({
+        glyph: getDefaultFloorGlyph(),
+      });
+      this.applyGlyphMaterial(
+        `${key}-floor`,
+        floorMesh,
+        floorMaterial,
+        floorBehavior.glyphChar,
+        floorBehavior.textColor,
+        false, // isWall
+        floorBehavior.darkenFactor,
+        this.isFpsMode(),
+        floorBehavior.effective.tileIndex,
+      );
+      this.scene.add(floorMesh);
+      this.doorFloorMeshes.set(key, floorMesh);
+
+      // Add slab
+      let slabMaterial: THREE.MeshLambertMaterial;
+      const tileIndex = behavior.effective.tileIndex;
+      let avgColor = this.doorAverageColorCache.get(tileIndex);
+      if (!avgColor) {
+        const doorTexture = this.createTileTexture(
+          tileIndex,
+          behavior.darkenFactor,
+          false,
+        );
+        const canvas = doorTexture.image as HTMLCanvasElement;
+        const context = canvas.getContext("2d");
+        if (context) {
+          const imageData = context.getImageData(
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          ).data;
+          let r = 0,
+            g = 0,
+            b = 0,
+            count = 0;
+          for (let i = 0; i < imageData.length; i += 4) {
+            if (imageData[i + 3] > 200) {
+              r += imageData[i];
+              g += imageData[i + 1];
+              b += imageData[i + 2];
+              count++;
+            }
+          }
+          if (count > 0) {
+            avgColor = new THREE.Color(
+              r / count / 255,
+              g / count / 255,
+              b / count / 255,
+            );
+            this.doorAverageColorCache.set(tileIndex, avgColor);
+          }
+        }
+      }
+
+      if (avgColor) {
+        slabMaterial = new THREE.MeshLambertMaterial({ color: avgColor });
+      } else {
+        slabMaterial = this.getMaterialByKind("door");
+      }
+
+      const faceMaterial = slabMaterial.clone();
+      const texture = this.createTileTexture(
+        behavior.effective.tileIndex,
+        behavior.darkenFactor,
+        true, // applyChromaKey
+      );
+      faceMaterial.alphaMap = texture;
+      faceMaterial.transparent = true;
+      faceMaterial.alphaTest = 0.5;
+
+      const slabMesh = new THREE.Mesh(this.doorGeometry, [
+        slabMaterial, // right
+        slabMaterial, // left
+        faceMaterial, // front
+        faceMaterial, // back
+        slabMaterial, // top
+        slabMaterial, // bottom
+      ]);
+      slabMesh.castShadow = true;
+      slabMesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, WALL_HEIGHT / 2);
+
+      const cmap_start = getDefaultFloorGlyph() - 19;
+      const cmap_index = behavior.resolved.glyph - cmap_start;
+      if (cmap_index === 13) {
+        // vertical open door
+        slabMesh.rotation.z = Math.PI / 2;
+      }
+
+      this.scene.add(slabMesh);
+      this.openDoorSlabMeshes.set(key, slabMesh);
+
+      this.queueMinimapTileUpdate(x, y, behavior, false);
+      return;
+    }
     const isPlayerCharacter = behavior.isPlayerGlyph;
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
@@ -5635,7 +5805,58 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileTextColor = renderBehavior.textColor;
     }
 
-    const material = this.getMaterialByKind(renderBehavior.materialKind);
+    let material = this.getMaterialByKind(renderBehavior.materialKind);
+
+    if (renderBehavior.materialKind === "door") {
+      const useTiles =
+        this.clientOptions.tilesetMode === "tiles" &&
+        renderBehavior.effective.tileIndex >= 0;
+      if (useTiles) {
+        const tileIndex = renderBehavior.effective.tileIndex;
+        let avgColor = this.doorAverageColorCache.get(tileIndex);
+        if (!avgColor) {
+          const doorTexture = this.createTileTexture(
+            tileIndex,
+            renderBehavior.darkenFactor,
+            false,
+          );
+          const canvas = doorTexture.image as HTMLCanvasElement;
+          const context = canvas.getContext("2d");
+          if (context) {
+            const imageData = context.getImageData(
+              0,
+              0,
+              canvas.width,
+              canvas.height,
+            ).data;
+            let r = 0,
+              g = 0,
+              b = 0,
+              count = 0;
+            for (let i = 0; i < imageData.length; i += 4) {
+              if (imageData[i + 3] > 200) {
+                // Check alpha to ignore transparent parts
+                r += imageData[i];
+                g += imageData[i + 1];
+                b += imageData[i + 2];
+                count++;
+              }
+            }
+            if (count > 0) {
+              avgColor = new THREE.Color(
+                r / count / 255,
+                g / count / 255,
+                b / count / 255,
+              );
+              this.doorAverageColorCache.set(tileIndex, avgColor);
+            }
+          }
+        }
+        if (avgColor) {
+          material = new THREE.MeshLambertMaterial({ color: avgColor });
+        }
+      }
+    }
     const wallChamferMask =
       this.isFpsMode() &&
       renderBehavior.geometryKind === "wall" &&
@@ -5648,7 +5869,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     const geometry =
       renderBehavior.geometryKind === "wall"
-        ? this.getFpsWallGeometry(wallChamferMask)
+        ? renderBehavior.materialKind === "door"
+          ? this.doorGeometry
+          : this.getFpsWallGeometry(wallChamferMask)
         : this.floorGeometry;
     const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
 
@@ -5662,6 +5885,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       mesh.geometry = geometry;
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
+    }
+
+    mesh.rotation.z = 0;
+    if (renderBehavior.isWall && renderBehavior.materialKind === "door") {
+      const cmap_start = getDefaultFloorGlyph() - 19;
+      const glyph = renderBehavior.resolved.glyph;
+      if (glyph >= cmap_start) {
+        const cmap_index = glyph - cmap_start;
+        if (cmap_index === 15) {
+          // vertical closed door
+          mesh.rotation.z = Math.PI / 2;
+        }
+      }
+    }
+
+    if (renderBehavior.isWall && renderBehavior.materialKind === "door") {
+      const floorMaterial = this.getMaterialByKind("floor");
+      const floorMesh = new THREE.Mesh(this.floorGeometry, floorMaterial);
+      floorMesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, 0);
+      floorMesh.receiveShadow = true;
+
+      const floorBehavior = classifyTileBehavior({
+        glyph: getDefaultFloorGlyph(),
+      });
+      this.applyGlyphMaterial(
+        `${key}-floor`,
+        floorMesh,
+        floorMaterial,
+        floorBehavior.glyphChar,
+        floorBehavior.textColor,
+        false, // isWall
+        floorBehavior.darkenFactor,
+        this.isFpsMode(),
+        floorBehavior.effective.tileIndex,
+      );
+      this.scene.add(floorMesh);
+      this.doorFloorMeshes.set(key, floorMesh);
     }
 
     mesh.userData.tileX = x;
