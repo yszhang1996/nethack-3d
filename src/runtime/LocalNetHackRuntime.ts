@@ -2315,9 +2315,11 @@ class LocalNetHackRuntime {
         const item = selectedItems[i];
         const structOffset = outPtr + i * bytesPerMenuItem;
         let itemIdentifier =
-          typeof item.identifier === "number"
+          this.runtimeVersion === "3.7"
             ? item.identifier
-            : item.originalAccelerator;
+            : typeof item.identifier === "number"
+              ? item.identifier
+              : item.originalAccelerator;
         if (
           typeof itemIdentifier !== "number" &&
           typeof item.menuChar === "string" &&
@@ -3111,8 +3113,10 @@ class LocalNetHackRuntime {
           preselected,
         ] = args;
 
-        // Fix: menuStr is actually at index 6, not 5
-        const menuText = String(args[6] || "");
+        const is_37 = this.runtimeVersion === "3.7";
+
+        // NetHack 3.7's callback has an extra argument before the string.
+        const menuText = String((is_37 ? args[7] : args[6]) || "");
 
         // In this callback shape, category headers are identified by menuAttr=7.
         const isCategory = menuAttr === 7;
@@ -3121,16 +3125,38 @@ class LocalNetHackRuntime {
 
         // Convert glyph to visual character using mapglyphHelper
         if (menuGlyph) {
+          let finalGlyph = menuGlyph;
+          if (is_37) {
+            const mod: any = this.nethackModule;
+            const HEAPU8: Uint8Array | undefined = mod?.HEAPU8;
+            const HEAP32: Int32Array | undefined = mod?.HEAP32;
+            const ptr = menuGlyph;
+
+            if (HEAPU8 && HEAP32 && ptr > 0 && ptr + 4 <= HEAPU8.length) {
+              finalGlyph = HEAP32[ptr >> 2]; // glyph is at offset 0
+              console.log(
+                `Decoded 3.7 menu glyph: ptr=0x${ptr.toString(
+                  16,
+                )} -> glyph=${finalGlyph}`,
+              );
+            } else {
+              console.log(
+                `Could not decode 3.7 menu glyph from ptr=0x${ptr.toString(
+                  16,
+                )}`,
+              );
+            }
+          }
+
           const helpers = globalThis.nethackGlobal?.helpers;
-          const mapHelper =
-            this.runtimeVersion === "3.7"
-              ? helpers?.mapGlyphInfoHelper
-              : helpers?.mapglyphHelper;
+          const mapHelper = is_37
+            ? helpers?.mapGlyphInfoHelper
+            : helpers?.mapglyphHelper;
 
           if (mapHelper) {
             try {
               const glyphInfo = mapHelper(
-                menuGlyph,
+                finalGlyph,
                 0,
                 0,
                 0, // x, y, and other params not needed for menu items
@@ -3140,7 +3166,7 @@ class LocalNetHackRuntime {
               }
             } catch (error) {
               console.log(
-                `⚠️ Error getting glyph info for menu glyph ${menuGlyph}:`,
+                `⚠️ Error getting glyph info for menu glyph ${finalGlyph} (from ptr ${menuGlyph}):`,
                 error,
               );
             }
@@ -3182,7 +3208,10 @@ class LocalNetHackRuntime {
           );
         }
 
-        const identifierValue = this.nethackModule.getValue(identifier, "*");
+        // In 3.6.7, identifier is a pointer. In 3.7, it's a value.
+        const identifierValue = is_37
+          ? identifier
+          : this.nethackModule.getValue(identifier, "*");
 
         // Store menu item for current question (only store non-category items or all items for display)
         if (this.currentWindow === menuWinid && menuText) {
@@ -3402,22 +3431,8 @@ class LocalNetHackRuntime {
           }
         }
 
-        const isPlausiblePtr = (ptr) =>
-          Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
-
-        let menuListPtrPtr = 0;
-        let ptrMode = "invalid";
-
-        if (isPlausiblePtr(ptrArgValue)) {
-          menuListPtrPtr = ptrArgValue;
-          ptrMode = "arg";
-        } else if (isPlausiblePtr(ptrResolvedValue)) {
-          menuListPtrPtr = ptrResolvedValue;
-          ptrMode = "resolved_fallback";
-        } else if (isPlausiblePtr(menuPtrArg)) {
-          menuListPtrPtr = menuPtrArg;
-          ptrMode = "original_arg";
-        }
+        const ptrMode = "direct";
+        const menuListPtrPtr = menuPtrArg;
 
         console.log(
           `Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,

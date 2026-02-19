@@ -19,4 +19,7 @@ export default defineConfig({
   server: {
     allowedHosts: true,
   },
+  worker: {
+    format: "es",
+  },
 });
