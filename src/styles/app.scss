@@ -935,9 +935,6 @@ canvas {
 }
 
 #character-setup-dialog {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
   width: min(92vw, 680px);
   box-sizing: border-box;
   overflow-x: hidden;
@@ -1332,7 +1329,9 @@ canvas {
 }
 
 .nh3d-startup-config-grid {
-  width: min(100%, 320px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: 10px;
   margin-top: 8px;
 
   @media (max-width: 720px), (pointer: coarse) {
