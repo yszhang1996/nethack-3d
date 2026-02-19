@@ -5478,7 +5478,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (texture && texture.image instanceof HTMLCanvasElement) {
       const canvas = texture.image;
       const context = canvas.getContext("2d");
-      if (context) {
+      if (context && useTiles) {
         verticalOffset = this.getLowestPixelOffset(context, canvas.height);
         contentWidth = this.getSpriteContentWidth(context, canvas.width);
       }
@@ -5515,9 +5515,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
 
-    // Don't use a billboard for the player in FPS mode
     const shouldElevateEntity =
-      (!this.isFpsMode() && isPlayerCharacter) ||
       isMonsterLikeCharacter ||
       isLootLikeCharacter ||
       isSink ||
@@ -5564,6 +5562,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.removeMonsterBillboard(key);
       if (mesh && mesh.userData?.isPlayerGlyph) {
+        this.removeMonsterBillboard(key);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
         this.tileStateCache.delete(key);
