@@ -284,9 +284,6 @@ function buildGlyphEntries(
     const kind = glyphKindForGlyph(ranges, glyph);
     let tileIndex = -1;
 
-    tileIndex =
-      version === "3.7" ? info?.tileIndex : helpers.tileIndexForGlyph(glyph);
-
     /** @type {GlyphEntry} */
     const entry = {
       glyph,
@@ -303,13 +300,14 @@ function buildGlyphEntries(
       entry.symidx = normalizeNumber(info?.symidx);
       entry.customcolor = normalizeNumber(info?.customcolor);
       entry.color256idx = normalizeNumber(info?.color256idx);
-      entry.tileidx = normalizeNumber(info?.tileidx);
+      entry.tileIndex = normalizeNumber(info?.tileidx);
       entry.x = normalizeNumber(info?.x);
       entry.y = normalizeNumber(info?.y);
       entry.mgflags = normalizeNumber(info?.mgflags);
     } else {
       entry.special = normalizeNumber(info?.special, 0);
       entry.mgflags = normalizeNumber(info?.mgflags);
+      entry.tileIndex = helpers.tileIndexForGlyph(glyph);
     }
 
     entries.push(entry);

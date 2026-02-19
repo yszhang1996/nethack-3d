@@ -76,6 +76,27 @@ class LocalNetHackRuntime {
     return value === "3.7" ? "3.7" : "3.6.7";
   }
 
+  private unpackGlyphArgs(args: number[]) {
+    // Default (older runtimes): [win, x, y, glyph]
+    const [win, x, y, a, b] = args;
+
+    if (this.runtimeVersion !== "3.7") {
+      return { win, x, y, glyph: a, mgflags: 0, extra: b };
+    }
+
+    // 3.7: callback often comes as [win, x, y, packed, extra]
+    // packed: hi16 = flags, lo16 = glyph
+    let glyph = a;
+    let mgflags = 0;
+
+    if (glyph > 0xffff) {
+      mgflags = (glyph >>> 16) & 0xffff;
+      glyph = glyph & 0xffff;
+    }
+
+    return { win, x, y, glyph, mgflags, extra: b };
+  }
+
   async loadRuntimeFactory(version) {
     if (version === "3.7") {
       const { default: factory } = await import("@neth4ck/wasm-37");
@@ -3218,17 +3239,66 @@ class LocalNetHackRuntime {
           }
         }
         return 0;
-      case "shim_print_glyph":
-        const [printWin, x, y, printGlyph] = args;
-        console.log(`🎨 GLYPH [Win ${printWin}] at (${x},${y}): ${printGlyph}`);
+      case "shim_print_glyph": {
+        // 3.6.7: args = [win, x, y, glyph]
+        // 3.7:   args = [win, x, y, ptrToGlyphInfo, extra]
+        const [printWin, x, y, a, b] = args as number[];
+
+        let printGlyph = a;
+
+        // Use local names to avoid colliding with existing glyphChar/glyphColor in your file
+        let decodedChar: string | null = null;
+        let decodedColor: number | null = null;
+
+        // 3.7 ONLY: a is a pointer to a glyphinfo-like struct (your logs show +0x28 steps)
+        if (this.runtimeVersion === "3.7" && args.length === 5) {
+          const ptr = a;
+          const extra = b;
+
+          const mod: any = this.nethackModule; // you already set this.nethackModule = this.nethackInstance
+          const HEAPU8: Uint8Array | undefined = mod?.HEAPU8;
+          const HEAP32: Int32Array | undefined = mod?.HEAP32;
+          const HEAP16: Int16Array | undefined = mod?.HEAP16;
+
+          if (
+            HEAPU8 &&
+            HEAP32 &&
+            HEAP16 &&
+            ptr > 0 &&
+            ptr + 36 <= HEAPU8.length
+          ) {
+            // decode the REAL glyph from memory
+            printGlyph = HEAP32[ptr >> 2];
+
+            // optional: log a few fields for sanity
+            const ttychar = HEAP32[(ptr + 4) >> 2];
+            const color = HEAP32[(ptr + 16) >> 2];
+            const tileidx = HEAP16[(ptr + 28) >> 1];
+
+            console.log(
+              `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ptr=0x${ptr.toString(
+                16,
+              )} glyph=${printGlyph} ch=${String.fromCharCode(
+                ttychar & 0xff,
+              )} color=${color} tileidx=${tileidx} extra=0x${extra.toString(16)}`,
+            );
+          } else {
+            console.log(
+              `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ptr=${ptr} (0x${ptr.toString(
+                16,
+              )}) extra=${extra} (0x${extra.toString(16)}) [no HEAP access]`,
+            );
+          }
+        } else {
+          console.log(
+            `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ${printGlyph}`,
+          );
+        }
+
         if (printWin === 3) {
           const key = `${x},${y}`;
 
-          // Use NetHack's mapglyph function to get the proper ASCII character
-          let glyphChar = null;
-          let glyphColor = null;
-
-          const helpers = globalThis.nethackGlobal?.helpers;
+          const helpers = (globalThis as any).nethackGlobal?.helpers;
           const mapHelper =
             this.runtimeVersion === "3.7"
               ? helpers?.mapGlyphInfoHelper
@@ -3236,22 +3306,18 @@ class LocalNetHackRuntime {
 
           if (mapHelper) {
             try {
+              // IMPORTANT: for 3.7 we now pass the decoded glyph (not the pointer)
               const glyphInfo = mapHelper(printGlyph, x, y, 0);
-              console.log(
-                `🔍 Raw glyphInfo for glyph ${printGlyph}:`,
-                glyphInfo,
-              );
+
               if (glyphInfo && glyphInfo.ch !== undefined) {
-                glyphChar = String.fromCharCode(glyphInfo.ch);
-                glyphColor = glyphInfo.color;
-                console.log(
-                  `🔤 Glyph ${printGlyph} -> "${glyphChar}" (ASCII ${glyphInfo.ch}) color ${glyphColor}`,
-                );
-              } else {
-                console.log(
-                  `⚠️ No character info for glyph ${printGlyph}, glyphInfo:`,
-                  glyphInfo,
-                );
+                // Depending on build, glyphInfo.ch might already be a string char.
+                // Handle both.
+                if (typeof glyphInfo.ch === "number") {
+                  decodedChar = String.fromCharCode(glyphInfo.ch);
+                } else {
+                  decodedChar = String(glyphInfo.ch);
+                }
+                decodedColor = glyphInfo.color;
               }
             } catch (error) {
               console.log(
@@ -3259,40 +3325,37 @@ class LocalNetHackRuntime {
                 error,
               );
             }
-          } else {
-            console.log(`⚠️ mapHelper not available`);
           }
 
           this.gameMap.set(key, {
-            x: x,
-            y: y,
-            glyph: printGlyph,
-            char: glyphChar,
-            color: glyphColor,
+            x,
+            y,
+            glyph: printGlyph, // decoded glyph for 3.7
+            char: decodedChar,
+            color: decodedColor,
             timestamp: Date.now(),
           });
+
+          // keep your original repaint/event flow
           if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
-              x: x,
-              y: y,
-              glyph: printGlyph,
-              char: glyphChar,
-              color: glyphColor,
+              x,
+              y,
+              glyph: printGlyph, // decoded glyph for 3.7
+              char: decodedChar,
+              color: decodedColor,
               window: printWin,
             });
           }
-          // Comment out automatic character selection prompts for now
-          // if (!this.hasShownCharacterSelection) {
-          //   this.hasShownCharacterSelection = true;
-          //   console.log(
-          //     "🎯 Game started - showing interactive character selection"
-          //   );          // }
         }
+
         return 0;
+      }
+
       case "shim_player_selection":
         console.log("NetHack player selection started");
-        // Character selection UI is handled automatically in this port.
+        // TO-DO: Is it OK we ignore this?
         return 0;
       case "shim_raw_print":
         const [rawText] = args;
