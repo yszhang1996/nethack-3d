@@ -184,17 +184,19 @@ async function bootCatalogRuntime(projectRoot, target) {
   const hasRequiredHelpers =
     target.version === "3.7"
       ? typeof helpers?.mapGlyphInfoHelper === "function"
-      : typeof helpers?.mapglyphHelper === "function";
+      : typeof helpers?.mapglyphHelper === "function" &&
+        typeof helpers?.tileIndexForGlyph === "function";
 
-  if (
-    !globalThis.nethackGlobal ||
-    !globalThis.nethackGlobal.constants?.GLYPH ||
-    !hasRequiredHelpers
-  ) {
-    throw new Error(
-      `Runtime did not expose required glyph constants/helpers for ${target.version} after _main()`,
-    );
-  }
+  if (!globalThis.nethackGlobal || !hasRequiredHelpers)
+    if (
+      !globalThis.nethackGlobal ||
+      !globalThis.nethackGlobal.constants?.GLYPH ||
+      !hasRequiredHelpers
+    ) {
+      throw new Error(
+        `Runtime did not expose required glyph constants/helpers for ${target.version} after _main()`,
+      );
+    }
 
   return {
     nethackGlobal: globalThis.nethackGlobal,
@@ -282,20 +284,8 @@ function buildGlyphEntries(
     const kind = glyphKindForGlyph(ranges, glyph);
     let tileIndex = -1;
 
-    if (kind === "mon") {
-      tileIndex = glyph - offsets.mon + 7;
-    } else if (kind === "pet") {
-      tileIndex = glyph - offsets.pet + 2;
-    } else if (kind === "obj") {
-      tileIndex = counts["monsters.txt"] + glyph - offsets.obj + 3;
-    } else if (kind === "body") {
-      tileIndex = CORPSE_TILE_INDEX;
-    } else if (kind === "statue") {
-      tileIndex = glyph - offsets.statue;
-    } else if (kind === "cmap") {
-      tileIndex =
-        counts["monsters.txt"] + counts["objects.txt"] + glyph - offsets.other;
-    }
+    tileIndex =
+      version === "3.7" ? info?.tileIndex : helpers.tileIndexForGlyph(glyph);
 
     /** @type {GlyphEntry} */
     const entry = {
