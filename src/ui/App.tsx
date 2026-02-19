@@ -1243,7 +1243,7 @@ export default function App(): JSX.Element {
               <div className="nh3d-question-text">
                 Choose your character setup:
               </div>
-              <div className="nh3d-startup-config-grid">
+              <div className="nh3d-startup-config-grid centered">
                 <label className="nh3d-startup-config-field">
                   <span>NetHack Version</span>
                   <select
@@ -1632,9 +1632,7 @@ export default function App(): JSX.Element {
                     </div>
                     <button
                       aria-checked={enabled}
-                      className={`nh3d-option-switch${
-                        enabled ? " is-on" : ""
-                      }`}
+                      className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
                       onClick={() =>
                         updateClientOptionDraft(option.key, !enabled)
                       }

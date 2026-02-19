@@ -1334,6 +1334,11 @@ canvas {
   gap: 10px;
   margin-top: 8px;
 
+  &.centered {
+    display: inline-block;
+    width: min(100%, 320px);
+  }
+
   @media (max-width: 720px), (pointer: coarse) {
     grid-template-columns: 1fr;
   }
