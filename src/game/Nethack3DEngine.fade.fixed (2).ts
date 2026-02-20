@@ -196,7 +196,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private glyphOverlayMap: GlyphOverlayMap = new Map();
   // Fade-in animation state for newly discovered tiles.
   private tileRevealStartMs: Map<string, number> = new Map();
-  private tileRevealDurationMs: number = 225;
+  private tileRevealDurationMs: number = 180;
   private tileStateCache: Map<string, string> = new Map();
   private lastKnownTerrain: Map<string, TerrainSnapshot> = new Map();
   private glyphTextureCache: Map<
@@ -11895,6 +11895,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+
   private updateTileRevealFades(timeMs: number): void {
     if (this.tileRevealStartMs.size === 0) {
       return;
@@ -11909,11 +11910,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       const elapsedMs = timeMs - startedAtMs;
-      const t = THREE.MathUtils.clamp(
-        elapsedMs / this.tileRevealDurationMs,
-        0,
-        1,
-      );
+      const t = THREE.MathUtils.clamp(elapsedMs / this.tileRevealDurationMs, 0, 1);
       // Ease-out cubic: fast start, gentle finish.
       const eased = 1 - Math.pow(1 - t, 3);
 
