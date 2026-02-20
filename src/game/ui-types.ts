@@ -102,17 +102,22 @@ export type Nh3dClientOptions = {
 export const nh3dFpsLookSensitivityMin = 0.4;
 export const nh3dFpsLookSensitivityMax = 2.6;
 
+const isMobilePortrait = window.matchMedia(
+  "(orientation: portrait) and (pointer: coarse)",
+);
+const isMobile = window.matchMedia("(pointer: coarse)");
+
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
-  fpsFov: 62,
-  fpsLookSensitivityX: 1,
-  fpsLookSensitivityY: 1,
+  fpsFov: isMobilePortrait ? 95 : 62,
+  fpsLookSensitivityX: isMobile ? 1.5 : 1,
+  fpsLookSensitivityY: isMobile ? 1.5 : 1,
   minimap: true,
   damageNumbers: true,
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
-  tilesetMode: "ascii",
+  tilesetMode: "tiles",
 };
 
 export function normalizeNh3dClientOptions(

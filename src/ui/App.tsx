@@ -1256,7 +1256,7 @@ export default function App(): JSX.Element {
                     value={runtimeVersion}
                   >
                     <option value="3.6.7">3.6.x (3.6.7)</option>
-                    <option value="3.7">3.7</option>
+                    {import.meta.env.DEV && <option value="3.7">3.7</option>}
                   </select>
                 </label>
               </div>
@@ -1287,22 +1287,7 @@ export default function App(): JSX.Element {
           ) : startupFlowStep === "random-name" ? (
             <>
               <div className="nh3d-question-text">Random character name:</div>
-              <div className="nh3d-startup-config-grid">
-                <label className="nh3d-startup-config-field">
-                  <span>NetHack Version</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) =>
-                      setRuntimeVersion(
-                        event.target.value as NethackRuntimeVersion,
-                      )
-                    }
-                    value={runtimeVersion}
-                  >
-                    <option value="3.6.7">3.6.x (3.6.7)</option>
-                    <option value="3.7">3.7</option>
-                  </select>
-                </label>
+              <div className="nh3d-startup-config-grid centered">
                 <label className="nh3d-startup-config-field">
                   <span>Name</span>
                   <input
@@ -1350,21 +1335,6 @@ export default function App(): JSX.Element {
             <>
               <div className="nh3d-question-text">Create your character:</div>
               <div className="nh3d-startup-config-grid">
-                <label className="nh3d-startup-config-field">
-                  <span>NetHack Version</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) =>
-                      setRuntimeVersion(
-                        event.target.value as NethackRuntimeVersion,
-                      )
-                    }
-                    value={runtimeVersion}
-                  >
-                    <option value="3.6.7">3.6.x (3.6.7)</option>
-                    <option value="3.7">3.7</option>
-                  </select>
-                </label>
                 <label className="nh3d-startup-config-field">
                   <span>Name</span>
                   <input
