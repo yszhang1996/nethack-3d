@@ -681,6 +681,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateLightingCenter(deltaSeconds: number): void {
     if (this.isFpsMode()) {
+      // In FPS mode, keep the vignette centered on the camera/player position in world space.
+      // (World space in this renderer uses X/Y as the horizontal plane.)
+      this.vignetteUniforms.uLightingCenter.value.set(
+        this.camera.position.x,
+        this.camera.position.y,
+        0,
+      );
       this.vignetteUniforms.uIsFpsMode.value = true;
       return;
     }
@@ -810,7 +817,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // --- Shader Uniforms for Vignette ---
   private vignetteUniforms = {
     uLightingCenter: { value: new THREE.Vector3(0, 0, 0) },
-    uLightingRadius: { value: 14.0 * TILE_SIZE }, // matches this.lightingRadiusTiles
+    uLightingRadius: { value: 17.0 * TILE_SIZE }, // matches this.lightingRadiusTiles
     uFalloffPower: { value: 1.08 }, // matches this.lightingFloorFalloffPower
     uMaxDarkAlpha: { value: 0.82 }, // matches this.lightingMaxDarkAlpha
     uIsFpsMode: { value: false },
@@ -868,13 +875,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       `.replace(
         "#include <fog_fragment>",
         `#include <fog_fragment>
-        if (!uIsFpsMode) {
-          float dist = distance(vWorldPos.xy, uLightingCenter.xy);
-          float t = clamp(dist / uLightingRadius, 0.0, 1.0);
-          float alpha = pow(t, uFalloffPower) * uMaxDarkAlpha;
-          // Mix the final color toward black based on the alpha curve
-          gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.0), alpha);
-        }`,
+        // Apply vignette in both normal and FPS modes.
+        // FPS mode uses the camera-centered uLightingCenter (set each frame).
+        float radius = uIsFpsMode ? (uLightingRadius) : uLightingRadius;
+        float dist = distance(vWorldPos.xy, uLightingCenter.xy);
+        float t = clamp(dist / radius, 0.0, 1.0);
+        float effectiveFalloff = uIsFpsMode ? (uFalloffPower / 1.25) : uFalloffPower;
+        float alpha = pow(t, effectiveFalloff) * uMaxDarkAlpha;
+        gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.0), alpha);`,
       );
     };
 
@@ -5345,7 +5353,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     // TO-DO: This is the wrong tile index for a boulder
-    const isBoulder = tileIndex === 450;
+    // const isBoulder = tileIndex === 450;
 
     const overrideSize = (normalScale: number, fpsScale: number) => {
       return this.isFpsMode() ? fpsScale : normalScale;
@@ -5360,9 +5368,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? 1
         : 1;
 
-    if (isBoulder) {
-      scaleBase = overrideSize(2, 3);
-    }
+    // if (isBoulder) {
+    //   scaleBase = overrideSize(2, 3);
+    // }
     sprite.scale.set(scaleBase, scaleBase, 1);
 
     const texture = sprite.material.map;
