@@ -990,7 +990,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.directionalLight.intensity = 1.25;
       if (!this.fpsPlayerLight) {
         this.fpsPlayerLight = new THREE.PointLight(0xfff4d8, 2.8, 14, 1.35);
-        this.fpsPlayerLight.castShadow = true;
+        this.fpsPlayerLight.castShadow = false;
         this.scene.add(this.fpsPlayerLight);
       }
       this.fpsPlayerLight.intensity = 2.8;
@@ -1105,7 +1105,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     this.directionalLight.position.set(10, 10, 5);
-    this.directionalLight.castShadow = true;
+    this.directionalLight.castShadow = false;
     this.directionalLight.shadow.mapSize.width = 2048;
     this.directionalLight.shadow.mapSize.height = 2048;
     this.scene.add(this.directionalLight);
@@ -4465,14 +4465,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : baseMaterial;
       mesh.material = [overlay.material, baseMaterial, chamferMaterial];
     } else if (isWall) {
-      mesh.material = [
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        overlay.material,
-        baseMaterial,
-      ];
+      if (mesh.userData.materialKind === "door" && useTiles) {
+        mesh.material = [
+          overlay.material, // right edge
+          overlay.material, // left edge
+          overlay.material, // front
+          overlay.material, // back
+          overlay.material, // top edge
+          baseMaterial, // bottom edge
+        ];
+      } else if (useTiles) {
+        mesh.material = [
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          baseMaterial,
+        ];
+      } else {
+        mesh.material = [
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          overlay.material,
+          baseMaterial,
+        ];
+      }
     } else {
       mesh.material = overlay.material;
     }
@@ -5510,12 +5530,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = behavior.effective.tileIndex === 30;
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
+    const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
 
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
       isLootLikeCharacter ||
-      (useTiles && (isSink || isFountain || isStairsUp));
+      (useTiles &&
+        (isSink || isFountain || isStairsUp || isPlayerCharacter || isStatue));
 
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
@@ -5593,10 +5615,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let tileTextColor = behavior.textColor;
 
     // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
-    if (shouldElevateEntity && this.isFpsMode()) {
+    if (shouldElevateEntity && useTiles) {
       const isStairsUp = behavior.materialKind === "stairs_up";
       const isFountain = behavior.materialKind === "fountain";
-      if ((isStairsUp || isFountain) && useTiles) {
+      if (isStairsUp || isFountain) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
@@ -5648,8 +5670,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
       this.scene.add(mesh);
       this.tileMap.set(key, mesh);
     } else {
@@ -5691,7 +5713,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
 
     // Create or remove a billboard for any entity that should be elevated.
-    if (shouldElevateEntity && this.isFpsMode()) {
+    if (shouldElevateEntity && useTiles) {
       this.ensureMonsterBillboard(
         key,
         x,

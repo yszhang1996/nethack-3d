@@ -160,7 +160,7 @@ async function bootCatalogRuntime(projectRoot, target) {
     preRun: [
       (mod) => {
         mod.ENV = mod.ENV || {};
-        mod.ENV.NETHACKOPTIONS = `autoquiver,name:${SAFE_NAME}`;
+        mod.ENV.NETHACKOPTIONS = `autoquiver,name:${SAFE_NAME},map_mode:tiles`;
       },
     ],
   });
@@ -273,12 +273,12 @@ function buildGlyphEntries(
 ) {
   /** @type {GlyphEntry[]} */
   const entries = [];
-  const CORPSE_TILE_INDEX = 636;
+  const MG_FLAG_RETURNIDX = 0x02;
 
   for (let glyph = 0; glyph < maxGlyph; glyph++) {
     const info =
       version === "3.7"
-        ? helpers.mapGlyphInfoHelper?.(glyph, 0, 0, 0)
+        ? helpers.mapGlyphInfoHelper?.(glyph, 0, 0, MG_FLAG_RETURNIDX)
         : helpers.mapglyphHelper?.(glyph, 0, 0, 0);
 
     const kind = glyphKindForGlyph(ranges, glyph);
