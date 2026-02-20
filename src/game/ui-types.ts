@@ -178,10 +178,7 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
-    tilesetMode:
-      overrides?.tilesetMode === "tiles"
-        ? "tiles"
-        : defaultNh3dClientOptions.tilesetMode,
+    tilesetMode: overrides?.tilesetMode === "tiles" ? "tiles" : "ascii",
   };
 }
 
