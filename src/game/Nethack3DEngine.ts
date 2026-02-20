@@ -681,6 +681,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateLightingCenter(deltaSeconds: number): void {
     if (this.isFpsMode()) {
+      this.vignetteUniforms.uIsFpsMode.value = true;
       return;
     }
 
@@ -688,25 +689,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.lightingCenterInitialized) {
       this.lightingCenterCurrent.copy(this.lightingCenterTarget);
       this.lightingCenterInitialized = true;
+      // Initialize uniforms right away
+      this.vignetteUniforms.uLightingCenter.value.set(
+        this.lightingCenterCurrent.x * TILE_SIZE,
+        -this.lightingCenterCurrent.y * TILE_SIZE,
+        0,
+      );
+      this.vignetteUniforms.uIsFpsMode.value = false;
       return;
     }
 
     const deltaMs = Math.max(0, deltaSeconds * 1000);
-    if (deltaMs <= 0) {
-      return;
+    if (deltaMs > 0) {
+      const lerpAlpha =
+        1 - Math.exp((-Math.LN2 * deltaMs) / this.lightingCenterHalfLifeMs);
+      this.lightingCenterCurrent.lerp(this.lightingCenterTarget, lerpAlpha);
     }
-    const lerpAlpha =
-      1 - Math.exp((-Math.LN2 * deltaMs) / this.lightingCenterHalfLifeMs);
-    this.lightingCenterCurrent.lerp(this.lightingCenterTarget, lerpAlpha);
 
     if (
-      this.lightingCenterCurrent.distanceToSquared(this.lightingCenterTarget) >
+      this.lightingCenterCurrent.distanceToSquared(this.lightingCenterTarget) <=
       this.lightingCenterEpsilonTiles * this.lightingCenterEpsilonTiles
     ) {
-      this.markLightingDirty();
-    } else {
       this.lightingCenterCurrent.copy(this.lightingCenterTarget);
     }
+
+    // --- NEW: Update the globally shared uniforms for the shaders ---
+    this.vignetteUniforms.uLightingCenter.value.set(
+      this.lightingCenterCurrent.x * TILE_SIZE,
+      -this.lightingCenterCurrent.y * TILE_SIZE,
+      0,
+    );
+    this.vignetteUniforms.uIsFpsMode.value = false;
   }
 
   private disposeLightingOverlay(): void {
@@ -747,237 +760,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lightingWallOverlayCanvas = null;
     this.lightingWallOverlayContext = null;
     this.lightingOverlayGridMeta = null;
-  }
-
-  private ensureLightingOverlayResources(grid: LightingGrid): boolean {
-    const tilePixels = this.lightingTilePixels;
-    const widthPixels = Math.max(1, grid.width * tilePixels);
-    const heightPixels = Math.max(1, grid.height * tilePixels);
-
-    const shouldRebuild =
-      !this.lightingOverlayMesh ||
-      !this.lightingOverlayTexture ||
-      !this.lightingOverlayCanvas ||
-      !this.lightingOverlayContext ||
-      !this.lightingWallOverlayMesh ||
-      !this.lightingWallOverlayTexture ||
-      !this.lightingWallOverlayCanvas ||
-      !this.lightingWallOverlayContext ||
-      !this.lightingOverlayGridMeta ||
-      this.lightingOverlayGridMeta.minX !== grid.minX ||
-      this.lightingOverlayGridMeta.maxX !== grid.maxX ||
-      this.lightingOverlayGridMeta.minY !== grid.minY ||
-      this.lightingOverlayGridMeta.maxY !== grid.maxY ||
-      this.lightingOverlayGridMeta.width !== grid.width ||
-      this.lightingOverlayGridMeta.height !== grid.height ||
-      this.lightingOverlayGridMeta.tilePixels !== tilePixels;
-
-    if (shouldRebuild) {
-      this.disposeLightingOverlay();
-
-      const canvas = document.createElement("canvas");
-      canvas.width = widthPixels;
-      canvas.height = heightPixels;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return false;
-      }
-      const wallCanvas = document.createElement("canvas");
-      wallCanvas.width = widthPixels;
-      wallCanvas.height = heightPixels;
-      const wallContext = wallCanvas.getContext("2d");
-      if (!wallContext) {
-        return false;
-      }
-
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.generateMipmaps = false;
-      texture.magFilter = THREE.NearestFilter;
-      texture.minFilter = THREE.NearestFilter;
-      texture.wrapS = THREE.ClampToEdgeWrapping;
-      texture.wrapT = THREE.ClampToEdgeWrapping;
-      texture.needsUpdate = true;
-      const wallTexture = new THREE.CanvasTexture(wallCanvas);
-      wallTexture.generateMipmaps = false;
-      wallTexture.magFilter = THREE.NearestFilter;
-      wallTexture.minFilter = THREE.NearestFilter;
-      wallTexture.wrapS = THREE.ClampToEdgeWrapping;
-      wallTexture.wrapT = THREE.ClampToEdgeWrapping;
-      wallTexture.needsUpdate = true;
-
-      const geometry = new THREE.PlaneGeometry(
-        grid.width * TILE_SIZE,
-        grid.height * TILE_SIZE,
-      );
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        transparent: true,
-        depthTest: true,
-        depthWrite: false,
-        toneMapped: false,
-      });
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(
-        ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
-        ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
-        this.lightingFloorOverlayZ,
-      );
-      mesh.renderOrder = 850;
-      const wallMaterial = new THREE.MeshBasicMaterial({
-        map: wallTexture,
-        transparent: true,
-        depthTest: false,
-        depthWrite: false,
-        toneMapped: false,
-      });
-      const wallMesh = new THREE.Mesh(geometry.clone(), wallMaterial);
-      wallMesh.position.set(
-        ((grid.minX + grid.maxX) * TILE_SIZE) / 2,
-        ((-grid.minY - grid.maxY) * TILE_SIZE) / 2,
-        this.lightingWallOverlayZ,
-      );
-      wallMesh.renderOrder = 900;
-      this.scene.add(mesh);
-      this.scene.add(wallMesh);
-
-      this.lightingOverlayMesh = mesh;
-      this.lightingOverlayTexture = texture;
-      this.lightingOverlayCanvas = canvas;
-      this.lightingOverlayContext = context;
-      this.lightingWallOverlayMesh = wallMesh;
-      this.lightingWallOverlayTexture = wallTexture;
-      this.lightingWallOverlayCanvas = wallCanvas;
-      this.lightingWallOverlayContext = wallContext;
-      this.lightingOverlayGridMeta = {
-        minX: grid.minX,
-        maxX: grid.maxX,
-        minY: grid.minY,
-        maxY: grid.maxY,
-        width: grid.width,
-        height: grid.height,
-        tilePixels,
-      };
-    }
-
-    return Boolean(
-      this.lightingOverlayTexture &&
-      this.lightingOverlayCanvas &&
-      this.lightingOverlayContext &&
-      this.lightingWallOverlayTexture &&
-      this.lightingWallOverlayCanvas &&
-      this.lightingWallOverlayContext,
-    );
-  }
-
-  private renderLightingOverlay(grid: LightingGrid): void {
-    if (
-      !this.lightingOverlayTexture ||
-      !this.lightingOverlayCanvas ||
-      !this.lightingOverlayContext ||
-      !this.lightingWallOverlayTexture ||
-      !this.lightingWallOverlayCanvas ||
-      !this.lightingWallOverlayContext
-    ) {
-      return;
-    }
-
-    const playerPixel = this.worldToLightingPixel(
-      grid,
-      this.lightingCenterCurrent.x,
-      this.lightingCenterCurrent.y,
-    );
-    const radiusPixels = this.lightingRadiusTiles * this.lightingTilePixels;
-    const tilePixels = this.lightingTilePixels;
-    const renderLayer = (
-      context: CanvasRenderingContext2D,
-      canvas: HTMLCanvasElement,
-      coverageMask: Uint8Array,
-    ): void => {
-      const widthPixels = canvas.width;
-      const heightPixels = canvas.height;
-      context.clearRect(0, 0, widthPixels, heightPixels);
-
-      context.globalCompositeOperation = "source-over";
-      context.fillStyle = `rgba(0, 0, 0, ${this.lightingMaxDarkAlpha})`;
-      context.fillRect(0, 0, widthPixels, heightPixels);
-
-      const radial = context.createRadialGradient(
-        playerPixel.x,
-        playerPixel.y,
-        0,
-        playerPixel.x,
-        playerPixel.y,
-        radiusPixels,
-      );
-      const stops = 16;
-      for (let i = 0; i <= stops; i++) {
-        const t = i / stops;
-        const alpha = Math.pow(
-          Math.max(0, 1 - t),
-          this.lightingFloorFalloffPower,
-        );
-        radial.addColorStop(t, `rgba(0, 0, 0, ${alpha})`);
-      }
-      context.globalCompositeOperation = "destination-out";
-      context.fillStyle = radial;
-      context.beginPath();
-      context.arc(playerPixel.x, playerPixel.y, radiusPixels, 0, Math.PI * 2);
-      context.fill();
-
-      context.globalCompositeOperation = "source-over";
-      for (let cellY = 0; cellY < grid.height; cellY++) {
-        const pixelY = cellY * tilePixels;
-        for (let cellX = 0; cellX < grid.width; cellX++) {
-          const cellIndex = cellY * grid.width + cellX;
-          if (coverageMask[cellIndex]) {
-            continue;
-          }
-          context.clearRect(cellX * tilePixels, pixelY, tilePixels, tilePixels);
-        }
-      }
-      context.globalCompositeOperation = "source-over";
-    };
-
-    // Floor layer: cover known cells only (anti-mask is non-level floor cells).
-    renderLayer(
-      this.lightingOverlayContext,
-      this.lightingOverlayCanvas,
-      grid.knownMask,
-    );
-    // Wall-top layer: cover wall cells only.
-    renderLayer(
-      this.lightingWallOverlayContext,
-      this.lightingWallOverlayCanvas,
-      grid.wallMask,
-    );
-
-    this.lightingOverlayTexture.needsUpdate = true;
-    this.lightingWallOverlayTexture.needsUpdate = true;
-  }
-
-  private updateLightingOverlay(): void {
-    if (this.isFpsMode()) {
-      this.disposeLightingOverlay();
-      return;
-    }
-
-    if (!this.lightingDirty) {
-      return;
-    }
-    this.lightingDirty = false;
-
-    const grid = this.buildLightingGrid();
-    if (!grid) {
-      this.disposeLightingOverlay();
-      return;
-    }
-
-    if (!this.ensureLightingOverlayResources(grid)) {
-      this.lightingDirty = true;
-      return;
-    }
-
-    this.renderLightingOverlay(grid);
   }
 
   private configureBaseLightingForPlayMode(): void {
@@ -1023,6 +805,67 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? this.clientOptions.fpsFov
         : this.defaultFpsCameraFov;
     return THREE.MathUtils.clamp(candidate, 45, 110);
+  }
+
+  // --- Shader Uniforms for Vignette ---
+  private vignetteUniforms = {
+    uLightingCenter: { value: new THREE.Vector3(0, 0, 0) },
+    uLightingRadius: { value: 14.0 * TILE_SIZE }, // matches this.lightingRadiusTiles
+    uFalloffPower: { value: 1.08 }, // matches this.lightingFloorFalloffPower
+    uMaxDarkAlpha: { value: 0.82 }, // matches this.lightingMaxDarkAlpha
+    uIsFpsMode: { value: false },
+  };
+
+  private patchMaterialForVignette(material: THREE.Material): void {
+    // Force Three.js to compile a unique shader for this patch
+    material.customProgramCacheKey = () => "vignette_patch_v2";
+
+    material.onBeforeCompile = (shader) => {
+      // Bind our class-level uniforms to this specific shader
+      shader.uniforms.uLightingCenter = this.vignetteUniforms.uLightingCenter;
+      shader.uniforms.uLightingRadius = this.vignetteUniforms.uLightingRadius;
+      shader.uniforms.uFalloffPower = this.vignetteUniforms.uFalloffPower;
+      shader.uniforms.uMaxDarkAlpha = this.vignetteUniforms.uMaxDarkAlpha;
+      shader.uniforms.uIsFpsMode = this.vignetteUniforms.uIsFpsMode;
+
+      // Safely calculate world position ourselves after local transforms are applied
+      shader.vertexShader = `
+        varying vec3 vWorldPos;
+        ${shader.vertexShader}
+      `.replace(
+        "#include <project_vertex>",
+        `#include <project_vertex>
+        vec4 tempWorldPosition = vec4( transformed, 1.0 );
+        #ifdef USE_INSTANCING
+          tempWorldPosition = instanceMatrix * tempWorldPosition;
+        #endif
+        vWorldPos = (modelMatrix * tempWorldPosition).xyz;`,
+      );
+
+      // Inject per-pixel logic into Fragment Shader right before output
+      shader.fragmentShader = `
+        uniform vec3 uLightingCenter;
+        uniform float uLightingRadius;
+        uniform float uFalloffPower;
+        uniform float uMaxDarkAlpha;
+        uniform bool uIsFpsMode;
+        varying vec3 vWorldPos;
+        ${shader.fragmentShader}
+      `.replace(
+        "#include <dithering_fragment>",
+        `#include <dithering_fragment>
+        if (!uIsFpsMode) {
+          float dist = distance(vWorldPos.xy, uLightingCenter.xy);
+          float t = clamp(dist / uLightingRadius, 0.0, 1.0);
+          float alpha = pow(t, uFalloffPower) * uMaxDarkAlpha;
+          // Mix the final color toward black based on the alpha curve
+          gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.0), alpha);
+        }`,
+      );
+    };
+
+    // Flag the material so Three.js knows it needs to recompile the first frame
+    material.needsUpdate = true;
   }
 
   constructor(options: Nethack3DEngineOptions = {}) {
@@ -1094,6 +937,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.tilesetTexture = textureLoader.load("assets/nevanda-360.png");
     this.tilesetTexture.magFilter = THREE.NearestFilter;
     this.tilesetTexture.minFilter = THREE.NearestFilter;
+
+    Object.values(this.materials).forEach((material) => {
+      this.patchMaterialForVignette(material);
+    });
 
     const host = this.mountElement ?? document.body;
     host.appendChild(this.renderer.domElement);
@@ -3067,6 +2914,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         transparent: true,
         opacity: 1,
       });
+
+      // Patch the newly created overlay material
+      this.patchMaterialForVignette(materialClone);
+
       overlay = {
         texture: null,
         material: materialClone,
@@ -4613,6 +4464,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const material = new THREE.MeshBasicMaterial({
       color: Number.parseInt(displayHex, 16),
     });
+
+    // Patch the dynamically created wall face material
+    this.patchMaterialForVignette(material);
+
     this.fpsWallChamferFaceMaterialCache.set(materialKind, material);
     return material;
   }
@@ -4643,6 +4498,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       material,
       texture,
     });
+
+    // Patch the dynamically created floor material
+    this.patchMaterialForVignette(material);
+
     return material;
   }
 
@@ -12018,7 +11877,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.renderMinimapViewportOverlay();
     }
     this.updateMetaCommandModalPosition();
-    this.updateLightingOverlay();
+    this.disposeLightingOverlay();
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
     this.renderer.render(this.scene, this.camera);
