@@ -1,8 +1,9 @@
+import type { NethackRuntimeVersion } from "../../runtime/types";
 import {
-  GLYPH_CATALOG,
-  GLYPH_CATALOG_META,
-  GLYPH_CATALOG_RANGES,
-} from "./glyph-catalog.generated";
+  GLYPH_CATALOG as GLYPH_CATALOG_367,
+  GLYPH_CATALOG_META as GLYPH_CATALOG_META_367,
+  GLYPH_CATALOG_RANGES as GLYPH_CATALOG_RANGES_367,
+} from "./glyph-catalog.367.generated";
 import type {
   GlyphCatalogEntry,
   GlyphCatalogMeta,
@@ -10,6 +11,55 @@ import type {
   GlyphKind,
   ResolvedGlyph,
 } from "./types";
+
+type GlyphCatalogModule = {
+  GLYPH_CATALOG: readonly GlyphCatalogEntry[];
+  GLYPH_CATALOG_META: GlyphCatalogMeta;
+  GLYPH_CATALOG_RANGES: readonly GlyphCatalogRange[];
+};
+
+const GLYPH_CATALOG_BY_VERSION: Record<
+  NethackRuntimeVersion,
+  GlyphCatalogModule
+> = {
+  "3.6.7": {
+    GLYPH_CATALOG: GLYPH_CATALOG_367,
+    GLYPH_CATALOG_META: GLYPH_CATALOG_META_367,
+    GLYPH_CATALOG_RANGES: GLYPH_CATALOG_RANGES_367,
+  },
+  "3.7": {
+    GLYPH_CATALOG: GLYPH_CATALOG_367,
+    GLYPH_CATALOG_META: GLYPH_CATALOG_META_367,
+    GLYPH_CATALOG_RANGES: GLYPH_CATALOG_RANGES_367,
+  },
+};
+
+let activeGlyphCatalogVersion: NethackRuntimeVersion = "3.6.7";
+let activeGlyphCatalog: GlyphCatalogModule = GLYPH_CATALOG_BY_VERSION["3.6.7"];
+
+export async function setActiveGlyphCatalog(
+  version: NethackRuntimeVersion,
+): Promise<void> {
+  if (version === activeGlyphCatalogVersion) {
+    return;
+  }
+
+  if (version === "3.7") {
+    const mod =
+      (await import("./glyph-catalog.37.generated")) as GlyphCatalogModule;
+    GLYPH_CATALOG_BY_VERSION["3.7"] = mod;
+    activeGlyphCatalog = mod;
+    activeGlyphCatalogVersion = version;
+    return;
+  }
+
+  activeGlyphCatalogVersion = "3.6.7";
+  activeGlyphCatalog = GLYPH_CATALOG_BY_VERSION["3.6.7"];
+}
+
+export function getActiveGlyphCatalogVersion(): NethackRuntimeVersion {
+  return activeGlyphCatalogVersion;
+}
 
 function normalizeRuntimeChar(runtimeChar?: string | null): string | null {
   if (typeof runtimeChar !== "string" || runtimeChar.length === 0) {
@@ -32,18 +82,19 @@ function codePointToChar(codePoint: number): string | null {
 }
 
 export function getGlyphCatalogMeta(): GlyphCatalogMeta {
-  return GLYPH_CATALOG_META;
+  return activeGlyphCatalog.GLYPH_CATALOG_META;
 }
 
 export function getGlyphCatalogRanges(): readonly GlyphCatalogRange[] {
-  return GLYPH_CATALOG_RANGES;
+  return activeGlyphCatalog.GLYPH_CATALOG_RANGES;
 }
 
 export function getGlyphCatalogEntry(glyph: number): GlyphCatalogEntry | null {
-  if (!Number.isInteger(glyph) || glyph < 0 || glyph >= GLYPH_CATALOG.length) {
+  const catalog = activeGlyphCatalog.GLYPH_CATALOG;
+  if (!Number.isInteger(glyph) || glyph < 0 || glyph >= catalog.length) {
     return null;
   }
-  return GLYPH_CATALOG[glyph] || null;
+  return catalog[glyph] || null;
 }
 
 export function getGlyphKind(glyph: number): GlyphKind | "unknown" {
@@ -54,7 +105,7 @@ export function getGlyphKind(glyph: number): GlyphKind | "unknown" {
 export function resolveGlyph(
   glyph: number,
   runtimeChar?: string | null,
-  runtimeColor?: number | null
+  runtimeColor?: number | null,
 ): ResolvedGlyph {
   const entry = getGlyphCatalogEntry(glyph);
   const normalizedRuntimeChar = normalizeRuntimeChar(runtimeChar);
@@ -68,6 +119,7 @@ export function resolveGlyph(
       color: normalizedRuntimeColor,
       special: null,
       isKnown: false,
+      tileIndex: -1,
     };
   }
 
@@ -76,8 +128,10 @@ export function resolveGlyph(
     glyph,
     kind: entry.kind,
     char: normalizedRuntimeChar ?? catalogChar,
-    color: typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
+    color:
+      typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
     special: typeof entry.special === "number" ? entry.special : null,
     isKnown: true,
+    tileIndex: entry.tileIndex,
   };
 }

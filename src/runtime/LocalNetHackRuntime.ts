@@ -1,7 +1,6 @@
 // @ts-nocheck
-import { loadNethackFactory } from "./factory-loader";
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
-import { resolveRuntimeAssetUrl } from "./runtime-assets";
+import type { NethackRuntimeVersion } from "./types";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
@@ -10,6 +9,7 @@ const process =
 
 class LocalNetHackRuntime {
   constructor(eventHandler, startupOptions = null) {
+    this.runtimeVersion = "3.6.7";
     this.eventHandler = eventHandler;
     this.startupOptions =
       startupOptions && typeof startupOptions === "object"
@@ -62,6 +62,7 @@ class LocalNetHackRuntime {
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
+    this.travelSpeedDelayMs = 60; // Default to normal
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -69,6 +70,40 @@ class LocalNetHackRuntime {
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
 
     this.ready = this.initializeNetHack();
+  }
+
+  normalizeRuntimeVersion(value) {
+    return value === "3.7" ? "3.7" : "3.6.7";
+  }
+
+  private unpackGlyphArgs(args: number[]) {
+    // Default (older runtimes): [win, x, y, glyph]
+    const [win, x, y, a, b] = args;
+
+    if (this.runtimeVersion !== "3.7") {
+      return { win, x, y, glyph: a, mgflags: 0, extra: b };
+    }
+
+    // 3.7: callback often comes as [win, x, y, packed, extra]
+    // packed: hi16 = flags, lo16 = glyph
+    let glyph = a;
+    let mgflags = 0;
+
+    if (glyph > 0xffff) {
+      mgflags = (glyph >>> 16) & 0xffff;
+      glyph = glyph & 0xffff;
+    }
+
+    return { win, x, y, glyph, mgflags, extra: b };
+  }
+
+  async loadRuntimeFactory(version) {
+    if (version === "3.7") {
+      const { default: factory } = await import("@neth4ck/wasm-37");
+      return factory;
+    }
+    const { default: factory } = await import("@neth4ck/wasm-367");
+    return factory;
   }
 
   normalizeCharacterOptionValue(value) {
@@ -838,9 +873,7 @@ class LocalNetHackRuntime {
   }
 
   isTextInputCommand(input) {
-    return (
-      typeof input === "string" && input.startsWith(this.textInputPrefix)
-    );
+    return typeof input === "string" && input.startsWith(this.textInputPrefix);
   }
 
   isInventoryContextSelectionInput(input) {
@@ -2158,56 +2191,39 @@ class LocalNetHackRuntime {
   }
 
   decodeStatusValue(fieldName, ptrToArg) {
-    const rawPointerFields = new Set([
-      "BL_CONDITION",
+    // These are signals, ptrToArg value is not used.
+    const signalFields = new Set([
       "BL_RESET",
       "BL_FLUSH",
       "BL_CHARACTERISTICS",
     ]);
-    const primaryType = rawPointerFields.has(fieldName) ? "p" : "s";
-    const fallbackType = primaryType === "s" ? "p" : "s";
-
-    try {
-      const primary = this.decodeShimArgValue(
-        "shim_status_update",
-        ptrToArg,
-        primaryType,
-      );
-      if (primary !== null && primary !== undefined) {
-        return {
-          value: primary,
-          valueType: primaryType,
-          usedFallback: false,
-        };
-      }
-    } catch (error) {
-      console.log(
-        `Status decode failed (${fieldName}, ${primaryType})`,
-        error && error.message ? error.message : error,
-      );
+    if (signalFields.has(fieldName)) {
+      return { value: 0, valueType: "i" };
     }
 
-    try {
-      const fallback = this.decodeShimArgValue(
-        "shim_status_update",
-        ptrToArg,
-        fallbackType,
-      );
-      if (fallback !== null && fallback !== undefined) {
-        return {
-          value: fallback,
-          valueType: fallbackType,
-          usedFallback: true,
-        };
+    if (fieldName === "BL_CONDITION") {
+      // This is a pointer to the bitmask value
+      try {
+        const value = this.nethackModule.getValue(ptrToArg, "i32");
+        return { value: value, valueType: "i" };
+      } catch (e) {
+        console.log(
+          `Status int decode failed for ${fieldName} at ptr ${ptrToArg}`,
+          e,
+        );
+        return { value: 0, valueType: "i" };
       }
-    } catch (error) {
-      console.log(
-        `Status decode fallback failed (${fieldName}, ${fallbackType})`,
-        error && error.message ? error.message : error,
-      );
     }
 
-    return { value: null, valueType: "unknown", usedFallback: false };
+    // For all other fields, NetHack provides a pre-formatted string.
+    try {
+      return {
+        value: this.nethackModule.UTF8ToString(ptrToArg),
+        valueType: "s",
+      };
+    } catch (e) {
+      return { value: "", valueType: "s" };
+    }
   }
 
   shouldUseAllCountForMenuItem(item) {
@@ -2257,20 +2273,13 @@ class LocalNetHackRuntime {
 
     try {
       const selectedItems = Array.from(this.menuSelections.values());
-      // This build's menu_item layout is:
-      //   anything item;      // +0 (4 bytes on wasm32)
-      //   long count;         // +4
-      //   unsigned itemflags; // +8
-      // Use 12-byte stride by default, allow overrides for diagnostics.
-      const bytesPerMenuItem = Number(process.env.NH_MENU_ITEM_STRIDE || 12);
-      const configuredCountOffset = process.env.NH_MENU_COUNT_OFFSET;
-      const countOffsetPrimary =
-        configuredCountOffset !== undefined ? Number(configuredCountOffset) : 4;
-      const configuredItemFlagsOffset = process.env.NH_MENU_ITEMFLAGS_OFFSET;
-      const itemFlagsOffset =
-        configuredItemFlagsOffset !== undefined
-          ? Number(configuredItemFlagsOffset)
-          : 8;
+      // NetHack 3.7.0's menu_item layout is 12 bytes. 3.6.7 is 8 bytes.
+      // 3.7.0: { anything item; long count; unsigned itemflags; }
+      // 3.6.7: { anything item; long count; }
+      const bytesPerMenuItem = this.runtimeVersion === "3.7" ? 12 : 8;
+      const countOffsetPrimary = 4;
+      const itemFlagsOffset = 8;
+
       const canWriteCountAt = (offset) =>
         Number.isInteger(offset) &&
         offset >= 0 &&
@@ -2306,9 +2315,11 @@ class LocalNetHackRuntime {
         const item = selectedItems[i];
         const structOffset = outPtr + i * bytesPerMenuItem;
         let itemIdentifier =
-          typeof item.identifier === "number"
+          this.runtimeVersion === "3.7"
             ? item.identifier
-            : item.originalAccelerator;
+            : typeof item.identifier === "number"
+              ? item.identifier
+              : item.originalAccelerator;
         if (
           typeof itemIdentifier !== "number" &&
           typeof item.menuChar === "string" &&
@@ -2329,14 +2340,11 @@ class LocalNetHackRuntime {
         // Some ports use -1 for "all" stack count semantics, others accept 1.
         // Default behavior is "auto": stacked items select all by default.
         const countMode = process.env.NH_MENU_COUNT_MODE || "auto";
-        const countValue =
-          countMode === "all"
-            ? -1
-            : countMode === "one"
-              ? 1
-              : this.shouldUseAllCountForMenuItem(item)
-                ? -1
-                : 1;
+        const useAllCount =
+          countMode === "all" ||
+          (countMode === "auto" && this.shouldUseAllCountForMenuItem(item));
+        const countValue = useAllCount ? -1 : 1;
+
         // Write count in both likely offsets for compatibility across layouts.
         if (canWriteCountAt(countOffsetPrimary)) {
           this.nethackModule.setValue(
@@ -2364,7 +2372,7 @@ class LocalNetHackRuntime {
             ? this.nethackModule.getValue(structOffset + itemFlagsOffset, "i32")
             : null;
         console.log(
-          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}`,
+          `Wrote menu_item[${i}] => item=${debugItem}, countPrimary=${debugCountPrimary}, itemFlags=${debugItemFlags}, countMode=${countMode}, countValue=${countValue}`,
         );
       }
       const dumpBytes = Math.min(selectionCount * bytesPerMenuItem, 64);
@@ -2381,14 +2389,36 @@ class LocalNetHackRuntime {
     }
   }
 
+  resolveWasmAssetUrl(assetPath) {
+    const normalizedAsset = String(assetPath || "").replace(/^\/+/, "");
+    const baseUrl =
+      typeof import.meta !== "undefined" &&
+      import.meta.env &&
+      typeof import.meta.env.BASE_URL === "string"
+        ? import.meta.env.BASE_URL
+        : "/";
+    const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    return `${normalizedBase}${normalizedAsset}`;
+  }
+
   async initializeNetHack() {
     try {
       console.log("Starting local NetHack session...");
-      const factory = await loadNethackFactory();
 
-      globalThis.nethackCallback = (name, ...args) => {
+      globalThis.nethackCallback = async (name, ...args) => {
         return this.handleUICallback(name, args);
       };
+
+      this.runtimeVersion = this.normalizeRuntimeVersion(
+        this.startupOptions?.runtimeVersion,
+      );
+
+      /** @type {NethackRuntimeVersion} */
+      const runtimeVersion = this.normalizeRuntimeVersion(
+        this.startupOptions?.runtimeVersion,
+      );
+      const wasmAssetPath =
+        runtimeVersion === "3.7" ? "nethack-37.wasm" : "nethack-367.wasm";
 
       if (!globalThis.nethackGlobal) {
         globalThis.nethackGlobal = {
@@ -2468,77 +2498,70 @@ class LocalNetHackRuntime {
         };
       }
 
-      let moduleConfig = null;
-      moduleConfig = {
+      const runtimeOptions = [
+        // Input/menu behavior expected by the browser port.
+        "pickup_types:$",
+        "number_pad:1",
+        "mouse_support",
+        "clicklook",
+        "runmode:walk",
+        // Status tracking fields consumed by the HUD.
+        "time",
+        "showexp",
+        "showscore",
+        // Enable status highlight metadata in status callbacks.
+        "statushilites",
+        "force_invmenu",
+        "boulder:0",
+      ];
+      const characterRuntimeOptions =
+        this.buildCharacterCreationRuntimeOptions();
+      if (characterRuntimeOptions.length > 0) {
+        runtimeOptions.push(...characterRuntimeOptions);
+      }
+
+      const createModule = await this.loadRuntimeFactory(runtimeVersion);
+
+      this.nethackInstance = await createModule({
+        noInitialRun: true,
         locateFile: (assetPath) => {
           if (assetPath.endsWith(".wasm")) {
-            return resolveRuntimeAssetUrl("nethack.wasm");
+            return this.resolveWasmAssetUrl(wasmAssetPath);
           }
-          return resolveRuntimeAssetUrl(assetPath);
+          return this.resolveWasmAssetUrl(assetPath);
         },
         preRun: [
-          () => {
-            if (!moduleConfig.ENV) {
-              moduleConfig.ENV = {};
-            }
-            const runtimeOptions = [
-              // Input/menu behavior expected by the browser port.
-              "pickup_types:$",
-              "number_pad:1",
-              "mouse_support:1",
-              "clicklook:1",
-              // Status tracking fields consumed by the HUD.
-              "time",
-              "showexp",
-              "showscore",
-              // Enable status highlight metadata in status callbacks.
-              "statushilites",
-              "force_invmenu",
-              "boulder:0",
-            ];
-            const characterRuntimeOptions =
-              this.buildCharacterCreationRuntimeOptions();
-            if (characterRuntimeOptions.length > 0) {
-              runtimeOptions.push(...characterRuntimeOptions);
-            }
+          (mod) => {
+            mod.ENV = mod.ENV || {};
             const existingOptions =
-              typeof moduleConfig.ENV.NETHACKOPTIONS === "string"
-                ? moduleConfig.ENV.NETHACKOPTIONS.trim()
+              typeof mod.ENV.NETHACKOPTIONS === "string"
+                ? mod.ENV.NETHACKOPTIONS.trim()
                 : "";
-            moduleConfig.ENV.NETHACKOPTIONS = existingOptions
+            mod.ENV.NETHACKOPTIONS = existingOptions
               ? `${existingOptions},${runtimeOptions.join(",")}`
               : runtimeOptions.join(",");
-            console.log(
-              `Configured NETHACKOPTIONS: ${moduleConfig.ENV.NETHACKOPTIONS}`,
-            );
+            console.log(`Configured NETHACKOPTIONS: ${mod.ENV.NETHACKOPTIONS}`);
           },
         ],
-        onRuntimeInitialized: async () => {
-          this.nethackModule = moduleConfig;
-          try {
-            await moduleConfig.ccall(
-              "shim_graphics_set_callback",
-              null,
-              ["string"],
-              ["nethackCallback"],
-              { async: true },
-            );
+      });
 
-            if (moduleConfig.js_helpers_init) {
-              moduleConfig.js_helpers_init();
-            }
+      this.nethackModule = this.nethackInstance;
 
-            // NetHack's generated helper may reject "v" (void) arg types in
-            // local_callback argument decoding (observed in shim_get_ext_cmd).
-            // Treat those as a no-op value to avoid worker crashes.
-            this.installHelperCompatibilityShims();
-          } catch (error) {
-            console.error("Error setting up local NetHack runtime:", error);
-          }
-        },
-      };
+      // Register the UI callback and start the game loop
+      const setCallback = this.nethackInstance.cwrap(
+        "shim_graphics_set_callback",
+        null,
+        ["string"],
+      );
+      setCallback("nethackCallback");
 
-      this.nethackInstance = await factory(moduleConfig);
+      // NetHack's generated helper may reject "v" (void) arg types in
+      // local_callback argument decoding (observed in shim_get_ext_cmd).
+      // Treat those as a no-op value to avoid worker crashes.
+      this.installHelperCompatibilityShims();
+
+      // Start the game — ASYNCIFY pauses/resumes at each async callback boundary
+      this.nethackInstance._main(0, 0);
     } catch (error) {
       console.error("Error initializing local NetHack:", error);
       throw error;
@@ -2894,8 +2917,9 @@ class LocalNetHackRuntime {
           const directInventorySelection =
             this.consumePendingInventoryContextSelection(this.currentMenuItems);
           if (directInventorySelection) {
-            const selectionEntry =
-              this.createSelectionEntryFromMenuItem(directInventorySelection);
+            const selectionEntry = this.createSelectionEntryFromMenuItem(
+              directInventorySelection,
+            );
             if (selectionEntry) {
               this.menuSelections.clear();
               const selectionKey = this.getMenuSelectionKey(selectionEntry);
@@ -3089,8 +3113,10 @@ class LocalNetHackRuntime {
           preselected,
         ] = args;
 
-        // Fix: menuStr is actually at index 6, not 5
-        const menuText = String(args[6] || "");
+        const is_37 = this.runtimeVersion === "3.7";
+
+        // NetHack 3.7's callback has an extra argument before the string.
+        const menuText = String((is_37 ? args[7] : args[6]) || "");
 
         // In this callback shape, category headers are identified by menuAttr=7.
         const isCategory = menuAttr === 7;
@@ -3098,27 +3124,52 @@ class LocalNetHackRuntime {
         let glyphChar = "";
 
         // Convert glyph to visual character using mapglyphHelper
-        if (
-          menuGlyph &&
-          globalThis.nethackGlobal &&
-          globalThis.nethackGlobal.helpers &&
-          globalThis.nethackGlobal.helpers.mapglyphHelper
-        ) {
-          try {
-            const glyphInfo = globalThis.nethackGlobal.helpers.mapglyphHelper(
-              menuGlyph,
-              0,
-              0,
-              0, // x, y, and other params not needed for menu items
-            );
-            if (glyphInfo && glyphInfo.ch !== undefined) {
-              glyphChar = String.fromCharCode(glyphInfo.ch);
+        if (menuGlyph) {
+          let finalGlyph = menuGlyph;
+          if (is_37) {
+            const mod: any = this.nethackModule;
+            const HEAPU8: Uint8Array | undefined = mod?.HEAPU8;
+            const HEAP32: Int32Array | undefined = mod?.HEAP32;
+            const ptr = menuGlyph;
+
+            if (HEAPU8 && HEAP32 && ptr > 0 && ptr + 4 <= HEAPU8.length) {
+              finalGlyph = HEAP32[ptr >> 2]; // glyph is at offset 0
+              console.log(
+                `Decoded 3.7 menu glyph: ptr=0x${ptr.toString(
+                  16,
+                )} -> glyph=${finalGlyph}`,
+              );
+            } else {
+              console.log(
+                `Could not decode 3.7 menu glyph from ptr=0x${ptr.toString(
+                  16,
+                )}`,
+              );
             }
-          } catch (error) {
-            console.log(
-              `⚠️ Error getting glyph info for menu glyph ${menuGlyph}:`,
-              error,
-            );
+          }
+
+          const helpers = globalThis.nethackGlobal?.helpers;
+          const mapHelper = is_37
+            ? helpers?.mapGlyphInfoHelper
+            : helpers?.mapglyphHelper;
+
+          if (mapHelper) {
+            try {
+              const glyphInfo = mapHelper(
+                finalGlyph,
+                0,
+                0,
+                0, // x, y, and other params not needed for menu items
+              );
+              if (glyphInfo && glyphInfo.ch !== undefined) {
+                glyphChar = String.fromCharCode(glyphInfo.ch);
+              }
+            } catch (error) {
+              console.log(
+                `⚠️ Error getting glyph info for menu glyph ${finalGlyph} (from ptr ${menuGlyph}):`,
+                error,
+              );
+            }
           }
         }
 
@@ -3157,13 +3208,18 @@ class LocalNetHackRuntime {
           );
         }
 
+        // In 3.6.7, identifier is a pointer. In 3.7, it's a value.
+        const identifierValue = is_37
+          ? identifier
+          : this.nethackModule.getValue(identifier, "*");
+
         // Store menu item for current question (only store non-category items or all items for display)
         if (this.currentWindow === menuWinid && menuText) {
           this.currentMenuItems.push({
             text: menuText,
             accelerator: menuChar,
             originalAccelerator: accelerator, // Store the original accelerator code
-            identifier: identifier, // NetHack menu identifier used by shim_select_menu
+            identifier: identifierValue, // NetHack menu identifier used by shim_select_menu
             window: menuWinid,
             glyph: menuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
@@ -3212,42 +3268,85 @@ class LocalNetHackRuntime {
           }
         }
         return 0;
-      case "shim_print_glyph":
-        const [printWin, x, y, printGlyph] = args;
-        console.log(`🎨 GLYPH [Win ${printWin}] at (${x},${y}): ${printGlyph}`);
+      case "shim_print_glyph": {
+        // 3.6.7: args = [win, x, y, glyph]
+        // 3.7:   args = [win, x, y, ptrToGlyphInfo, extra]
+        const [printWin, x, y, a, b] = args as number[];
+
+        let printGlyph = a;
+
+        // Use local names to avoid colliding with existing glyphChar/glyphColor in your file
+        let decodedChar: string | null = null;
+        let decodedColor: number | null = null;
+
+        // 3.7 ONLY: a is a pointer to a glyphinfo-like struct (your logs show +0x28 steps)
+        if (this.runtimeVersion === "3.7" && args.length === 5) {
+          const ptr = a;
+          const extra = b;
+
+          const mod: any = this.nethackModule; // you already set this.nethackModule = this.nethackInstance
+          const HEAPU8: Uint8Array | undefined = mod?.HEAPU8;
+          const HEAP32: Int32Array | undefined = mod?.HEAP32;
+          const HEAP16: Int16Array | undefined = mod?.HEAP16;
+
+          if (
+            HEAPU8 &&
+            HEAP32 &&
+            HEAP16 &&
+            ptr > 0 &&
+            ptr + 36 <= HEAPU8.length
+          ) {
+            // decode the REAL glyph from memory
+            printGlyph = HEAP32[ptr >> 2];
+
+            // optional: log a few fields for sanity
+            const ttychar = HEAP32[(ptr + 4) >> 2];
+            const color = HEAP32[(ptr + 16) >> 2];
+            const tileidx = HEAP16[(ptr + 28) >> 1];
+
+            console.log(
+              `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ptr=0x${ptr.toString(
+                16,
+              )} glyph=${printGlyph} ch=${String.fromCharCode(
+                ttychar & 0xff,
+              )} color=${color} tileidx=${tileidx} extra=0x${extra.toString(16)}`,
+            );
+          } else {
+            console.log(
+              `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ptr=${ptr} (0x${ptr.toString(
+                16,
+              )}) extra=${extra} (0x${extra.toString(16)}) [no HEAP access]`,
+            );
+          }
+        } else {
+          console.log(
+            `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ${printGlyph}`,
+          );
+        }
+
         if (printWin === 3) {
           const key = `${x},${y}`;
 
-          // Use NetHack's mapglyph function to get the proper ASCII character
-          let glyphChar = null;
-          let glyphColor = null;
-          if (
-            globalThis.nethackGlobal &&
-            globalThis.nethackGlobal.helpers &&
-            globalThis.nethackGlobal.helpers.mapglyphHelper
-          ) {
+          const helpers = (globalThis as any).nethackGlobal?.helpers;
+          const mapHelper =
+            this.runtimeVersion === "3.7"
+              ? helpers?.mapGlyphInfoHelper
+              : helpers?.mapglyphHelper;
+
+          if (mapHelper) {
             try {
-              const glyphInfo = globalThis.nethackGlobal.helpers.mapglyphHelper(
-                printGlyph,
-                x,
-                y,
-                0,
-              );
-              console.log(
-                `🔍 Raw glyphInfo for glyph ${printGlyph}:`,
-                glyphInfo,
-              );
+              // IMPORTANT: for 3.7 we now pass the decoded glyph (not the pointer)
+              const glyphInfo = mapHelper(printGlyph, x, y, 0);
+
               if (glyphInfo && glyphInfo.ch !== undefined) {
-                glyphChar = String.fromCharCode(glyphInfo.ch);
-                glyphColor = glyphInfo.color;
-                console.log(
-                  `🔤 Glyph ${printGlyph} -> "${glyphChar}" (ASCII ${glyphInfo.ch}) color ${glyphColor}`,
-                );
-              } else {
-                console.log(
-                  `⚠️ No character info for glyph ${printGlyph}, glyphInfo:`,
-                  glyphInfo,
-                );
+                // Depending on build, glyphInfo.ch might already be a string char.
+                // Handle both.
+                if (typeof glyphInfo.ch === "number") {
+                  decodedChar = String.fromCharCode(glyphInfo.ch);
+                } else {
+                  decodedChar = String(glyphInfo.ch);
+                }
+                decodedColor = glyphInfo.color;
               }
             } catch (error) {
               console.log(
@@ -3255,40 +3354,37 @@ class LocalNetHackRuntime {
                 error,
               );
             }
-          } else {
-            console.log(`⚠️ mapglyphHelper not available`);
           }
 
           this.gameMap.set(key, {
-            x: x,
-            y: y,
-            glyph: printGlyph,
-            char: glyphChar,
-            color: glyphColor,
+            x,
+            y,
+            glyph: printGlyph, // decoded glyph for 3.7
+            char: decodedChar,
+            color: decodedColor,
             timestamp: Date.now(),
           });
+
+          // keep your original repaint/event flow
           if (this.eventHandler) {
             this.queueMapGlyphUpdate({
               type: "map_glyph",
-              x: x,
-              y: y,
-              glyph: printGlyph,
-              char: glyphChar,
-              color: glyphColor,
+              x,
+              y,
+              glyph: printGlyph, // decoded glyph for 3.7
+              char: decodedChar,
+              color: decodedColor,
               window: printWin,
             });
           }
-          // Comment out automatic character selection prompts for now
-          // if (!this.hasShownCharacterSelection) {
-          //   this.hasShownCharacterSelection = true;
-          //   console.log(
-          //     "🎯 Game started - showing interactive character selection"
-          //   );          // }
         }
+
         return 0;
+      }
+
       case "shim_player_selection":
         console.log("NetHack player selection started");
-        // Character selection UI is handled automatically in this port.
+        // TO-DO: Is it OK we ignore this?
         return 0;
       case "shim_raw_print":
         const [rawText] = args;
@@ -3299,6 +3395,16 @@ class LocalNetHackRuntime {
           this.emit({
             type: "raw_print",
             text: rawText.trim(),
+          });
+        }
+        return 0;
+      case "shim_update_inventory":
+        console.log("NetHack update inventory callback received");
+        // This callback is usually triggered after inventory changes.
+        // We can use it to signal the UI to refresh its inventory display if needed.
+        if (this.eventHandler) {
+          this.emit({
+            type: "inventory_updated_signal",
           });
         }
         return 0;
@@ -3325,18 +3431,9 @@ class LocalNetHackRuntime {
           }
         }
 
-        const isPlausiblePtr = (ptr) =>
-          Number.isInteger(ptr) && ptr > 0 && (ptr & 3) === 0;
-        const ptrMode = isPlausiblePtr(ptrArgValue)
-          ? "arg"
-          : isPlausiblePtr(ptrResolvedValue)
-            ? "resolved_fallback"
-            : "invalid";
-        const menuListPtrPtr = isPlausiblePtr(ptrArgValue)
-          ? ptrArgValue
-          : isPlausiblePtr(ptrResolvedValue)
-            ? ptrResolvedValue
-            : 0;
+        const ptrMode = "direct";
+        const menuListPtrPtr = menuPtrArg;
+
         console.log(
           `Menu selection request for window ${menuSelectWinid}, how: ${menuSelectHow}, argPtr: ${menuPtrArg}, ptrArgSlot=${ptrArgSlot}, ptrArgValue=${ptrArgValue}, ptrResolvedValue=${ptrResolvedValue}, ptrMode=${ptrMode}, menuListPtrPtr=${menuListPtrPtr}`,
         );
@@ -3532,9 +3629,12 @@ class LocalNetHackRuntime {
           return configuredName;
         }
 
-        console.log("[NAME_DEBUG] shim_askname falling back to default Web_user", {
-          callId: askNameCallId,
-        });
+        console.log(
+          "[NAME_DEBUG] shim_askname falling back to default Web_user",
+          {
+            callId: askNameCallId,
+          },
+        );
         return "Web_user";
       case "shim_mark_synch":
         console.log("NetHack marking synchronization");
@@ -3564,14 +3664,6 @@ class LocalNetHackRuntime {
             type: "player_position",
             x: clipX,
             y: clipY,
-          });
-
-          // Also send a map update to clear the old player position and show new one
-          // This helps when NetHack doesn't send explicit glyph updates
-          this.emit({
-            type: "force_player_redraw",
-            oldPosition: oldPlayerPos,
-            newPosition: { x: clipX, y: clipY },
           });
         }
         return 0;
@@ -3670,6 +3762,36 @@ class LocalNetHackRuntime {
           });
         }
         return 0;
+
+      case "shim_delay_output":
+        if (this.travelSpeedDelayMs <= 0) {
+          return 0; // No delay for instant
+        }
+        console.log(
+          `NetHack requesting output delay for travel (${this.travelSpeedDelayMs}ms).`,
+        );
+        return new Promise((resolve) =>
+          setTimeout(resolve, this.travelSpeedDelayMs),
+        );
+
+      case "shim_start_screen":
+        console.log("NetHack start_screen (no-op)");
+        return 0;
+      case "shim_end_screen":
+        console.log("NetHack end_screen (no-op)");
+        return 0;
+      case "shim_outrip":
+        console.log("NetHack outrip (tombstone)", args);
+        if (this.eventHandler) {
+          this.emit({
+            type: "outrip",
+            args: args,
+          });
+        }
+        return 0;
+
+      case "shim_player_selection_cb":
+        return true;
 
       default:
         console.log(`Unknown callback: ${name}`, args);

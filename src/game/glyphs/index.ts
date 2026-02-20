@@ -2,7 +2,7 @@ export {
   GLYPH_CATALOG,
   GLYPH_CATALOG_META,
   GLYPH_CATALOG_RANGES,
-} from "./glyph-catalog.generated";
+} from "./glyph-catalog.367.generated";
 export { classifyTileBehavior } from "./behavior";
 export {
   clearAllGlyphOverrides,

@@ -1,14 +1,24 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { generateGlyphCatalogSource, getGeneratedCatalogPath, resolveProjectRoot } from "./catalog-generator.mjs";
+import {
+  generateGlyphCatalogSource,
+  getGeneratedCatalogPathForVersion,
+  getGlyphCatalogTargets,
+  resolveProjectRoot,
+} from "./catalog-generator.mjs";
 
 async function main() {
   const projectRoot = resolveProjectRoot();
-  const outputPath = getGeneratedCatalogPath(projectRoot);
-  const source = await generateGlyphCatalogSource(projectRoot);
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-  await fs.writeFile(outputPath, source, "utf8");
-  console.log(`Generated glyph catalog: ${outputPath}`);
+  for (const target of getGlyphCatalogTargets()) {
+    const outputPath = getGeneratedCatalogPathForVersion(
+      projectRoot,
+      target.version,
+    );
+    const source = await generateGlyphCatalogSource(projectRoot, target.version);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await fs.writeFile(outputPath, source, "utf8");
+    console.log(`Generated glyph catalog (${target.version}): ${outputPath}`);
+  }
   process.exit(0);
 }
 

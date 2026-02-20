@@ -1,14 +1,29 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { copyWasm } from "../wasm/copy-wasm.mjs";
+import { getAllTiles } from "./tile-parser.mjs";
+import { warn } from "node:console";
 
-const require = createRequire(import.meta.url);
+export const GLYPH_CATALOG_VERSIONS = /** @type {const} */ (["3.6.7", "3.7"]);
 
-const SOURCE_JS_RELATIVE_PATH = "public/nethack.js";
-const SOURCE_WASM_RELATIVE_PATH = "public/nethack.wasm";
-const GENERATED_RELATIVE_PATH = "src/game/glyphs/glyph-catalog.generated.ts";
+const CATALOG_TARGETS = [
+  {
+    version: "3.6.7",
+    packageName: "@neth4ck/wasm-367",
+    packageJsPath: "node_modules/@neth4ck/wasm-367/build/nethack.js",
+    publicWasmPath: "public/nethack-367.wasm",
+    generatedCatalogPath: "src/game/glyphs/glyph-catalog.367.generated.ts",
+  },
+  {
+    version: "3.7",
+    packageName: "@neth4ck/wasm-37",
+    packageJsPath: "node_modules/@neth4ck/wasm-37/build/nethack.js",
+    publicWasmPath: "public/nethack-37.wasm",
+    generatedCatalogPath: "src/game/glyphs/glyph-catalog.37.generated.ts",
+  },
+];
 
 /**
  * @typedef {(
@@ -32,7 +47,19 @@ const GENERATED_RELATIVE_PATH = "src/game/glyphs/glyph-catalog.generated.ts";
  *   kind: GlyphKind;
  *   ch: number;
  *   color: number;
- *   special: number;
+ *   tileIndex: number;
+ *
+ *   special?: number;
+ *   ttychar?: number;
+ *   framecolor?: number;
+ *   glyphflags?: number;
+ *   symidx?: number;
+ *   customcolor?: number;
+ *   color256idx?: number;
+ *   tileidx?: number;
+ *   x?: number;
+ *   y?: number;
+ *   mgflags?: number;
  * }} GlyphEntry
  */
 
@@ -65,7 +92,10 @@ function toPosixPath(inputPath) {
 }
 
 function glyphKindFromOffsetKey(key) {
-  const rawKind = key.replace(/^GLYPH_/, "").replace(/_OFF$/, "").toLowerCase();
+  const rawKind = key
+    .replace(/^GLYPH_/, "")
+    .replace(/_OFF$/, "")
+    .toLowerCase();
   if (!KNOWN_GLYPH_KINDS.has(rawKind)) {
     throw new Error(`Unsupported glyph kind '${rawKind}' from key '${key}'`);
   }
@@ -77,6 +107,9 @@ function normalizeNumber(value, fallback = 0) {
 }
 
 function createRuntimeCallback() {
+  // Intentionally synchronous: _main() will throw at the ASYNCIFY boundary,
+  // but js_helpers_init / js_constants_init / js_globals_init have already run
+  // by that point, giving us access to mapglyphHelper and glyph constants.
   return function glyphCatalogCallback(name) {
     switch (name) {
       case "shim_get_nh_event":
@@ -91,96 +124,79 @@ function createRuntimeCallback() {
       case "shim_askname":
       case "shim_getlin":
         return SAFE_NAME;
+      case "shim_create_nhwindow":
+        return 1;
       default:
         return 0;
     }
   };
 }
 
-async function waitFor(predicate, timeoutMs, intervalMs = 20) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (predicate()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
-  }
-  throw new Error(`Timed out waiting for runtime bootstrap after ${timeoutMs}ms`);
-}
-
 /**
  * @param {string} projectRoot
+ * @param {{ version: "3.6.7" | "3.7"; packageName: string; publicWasmPath: string }} target
  */
-async function bootCatalogRuntime(projectRoot) {
-  const jsPath = path.join(projectRoot, SOURCE_JS_RELATIVE_PATH);
-  const wasmPath = path.join(projectRoot, SOURCE_WASM_RELATIVE_PATH);
+async function bootCatalogRuntime(projectRoot, target) {
+  copyWasm();
+  const wasmPath = path.join(projectRoot, target.publicWasmPath);
   const wasmBinary = await fs.readFile(wasmPath);
 
-  const factory = require(jsPath);
+  const { default: factory } = await import(target.packageName);
   if (typeof factory !== "function") {
-    throw new Error(`NetHack factory not found in ${jsPath}`);
+    throw new Error(`NetHack factory not found in ${target.packageName}`);
   }
+
+  delete globalThis.nethackGlobal;
 
   globalThis.nethackCallback = createRuntimeCallback();
 
   /** @type {any} */
-  const moduleConfig = {
+  const Module = await factory({
+    noInitialRun: true,
     wasmBinary,
     locateFile: (assetPath) => assetPath,
     print: () => {},
     printErr: () => {},
     preRun: [
-      () => {
-        moduleConfig.ENV = moduleConfig.ENV || {};
-        moduleConfig.ENV.NETHACKOPTIONS = `autoquiver,name:${SAFE_NAME}`;
+      (mod) => {
+        mod.ENV = mod.ENV || {};
+        mod.ENV.NETHACKOPTIONS = `autoquiver,name:${SAFE_NAME},map_mode:tiles`;
       },
     ],
-    onRuntimeInitialized: () => {
-      try {
-        moduleConfig.ccall(
-          "shim_graphics_set_callback",
-          null,
-          ["string"],
-          ["nethackCallback"],
-          { async: true }
-        );
-      } catch (error) {
-        throw new Error(
-          `Failed calling shim_graphics_set_callback: ${
-            error instanceof Error ? error.message : String(error)
-          }`
-        );
-      }
-    },
-  };
-  let bootError = null;
+  });
+
+  const setCallback = Module.cwrap("shim_graphics_set_callback", null, [
+    "string",
+  ]);
+  setCallback("nethackCallback");
+
+  // Start main() — with a synchronous callback, _main() will throw at the first
+  // ASYNCIFY boundary. By then, js_helpers_init / js_constants_init / js_globals_init
+  // have already run, giving us access to mapglyphHelper and glyph constants.
   try {
-    const maybePromise = factory(moduleConfig);
-    if (maybePromise && typeof maybePromise.then === "function") {
-      maybePromise.catch((error) => {
-        bootError = error;
-      });
+    Module._main(0, 0);
+  } catch {
+    // Expected: ASYNCIFY requires async callbacks, but we only need the
+    // initialization that runs before the first async suspension point.
+  }
+
+  const helpers = globalThis.nethackGlobal?.helpers;
+  const hasRequiredHelpers =
+    target.version === "3.7"
+      ? typeof helpers?.mapGlyphInfoHelper === "function"
+      : typeof helpers?.mapglyphHelper === "function" &&
+        typeof helpers?.tileIndexForGlyph === "function";
+
+  if (!globalThis.nethackGlobal || !hasRequiredHelpers)
+    if (
+      !globalThis.nethackGlobal ||
+      !globalThis.nethackGlobal.constants?.GLYPH ||
+      !hasRequiredHelpers
+    ) {
+      throw new Error(
+        `Runtime did not expose required glyph constants/helpers for ${target.version} after _main()`,
+      );
     }
-  } catch (error) {
-    bootError = error;
-  }
-
-  await waitFor(
-    () =>
-      Boolean(
-        !bootError &&
-        globalThis.nethackGlobal &&
-          globalThis.nethackGlobal.constants &&
-          globalThis.nethackGlobal.constants.GLYPH &&
-          globalThis.nethackGlobal.helpers &&
-          typeof globalThis.nethackGlobal.helpers.mapglyphHelper === "function"
-      ),
-    15000
-  );
-
-  if (bootError) {
-    throw bootError;
-  }
 
   return {
     nethackGlobal: globalThis.nethackGlobal,
@@ -195,7 +211,8 @@ function deriveGlyphRanges(glyphConstants) {
   const maxGlyph = normalizeNumber(glyphConstants.MAX_GLYPH, 0);
   const offsetEntries = Object.entries(glyphConstants)
     .filter(
-      ([key, value]) => /^GLYPH_[A-Z_]+_OFF$/.test(key) && Number.isFinite(value)
+      ([key, value]) =>
+        /^GLYPH_[A-Z_]+_OFF$/.test(key) && Number.isFinite(value),
     )
     .map(([key, value]) => ({ key, start: Number(value) }))
     .sort((a, b) => a.start - b.start);
@@ -209,7 +226,9 @@ function deriveGlyphRanges(glyphConstants) {
   for (let index = 0; index < offsetEntries.length; index++) {
     const current = offsetEntries[index];
     const nextStart =
-      index + 1 < offsetEntries.length ? offsetEntries[index + 1].start : maxGlyph;
+      index + 1 < offsetEntries.length
+        ? offsetEntries[index + 1].start
+        : maxGlyph;
     ranges.push({
       key: current.key,
       kind: glyphKindFromOffsetKey(current.key),
@@ -235,24 +254,99 @@ function glyphKindForGlyph(ranges, glyph) {
 }
 
 /**
- * @param {{ mapglyphHelper: (glyph: number, x: number, y: number, mgflags: number) => any }} helpers
+ * @param {{
+ *   mapglyphHelper?: (glyph: number, x: number, y: number, mgflags: number) => any,
+ *   mapGlyphInfoHelper?: (glyph: number, x: number, y: number, mgflags: number) => any
+ * }} helpers
+ * @param {"3.6.7" | "3.7"} version
  * @param {GlyphRange[]} ranges
  * @param {number} maxGlyph
  */
-function buildGlyphEntries(helpers, ranges, maxGlyph) {
+function buildGlyphEntries(
+  helpers,
+  version,
+  ranges,
+  maxGlyph,
+  tiles,
+  offsets,
+  counts,
+) {
   /** @type {GlyphEntry[]} */
   const entries = [];
+  const MG_FLAG_RETURNIDX = 0x02;
+
   for (let glyph = 0; glyph < maxGlyph; glyph++) {
-    const info = helpers.mapglyphHelper(glyph, 0, 0, 0);
-    entries.push({
+    const info =
+      version === "3.7"
+        ? helpers.mapGlyphInfoHelper?.(glyph, 0, 0, MG_FLAG_RETURNIDX)
+        : helpers.mapglyphHelper?.(glyph, 0, 0, 0);
+
+    const kind = glyphKindForGlyph(ranges, glyph);
+    let tileIndex = -1;
+
+    /** @type {GlyphEntry} */
+    const entry = {
       glyph,
-      kind: glyphKindForGlyph(ranges, glyph),
+      kind: kind,
       ch: normalizeNumber(info?.ch, 0),
       color: normalizeNumber(info?.color, 0),
-      special: normalizeNumber(info?.special, 0),
-    });
+      tileIndex: tileIndex,
+    };
+
+    if (version === "3.7") {
+      entry.ttychar = normalizeNumber(info?.ttychar);
+      entry.framecolor = normalizeNumber(info?.framecolor);
+      entry.glyphflags = normalizeNumber(info?.glyphflags);
+      entry.symidx = normalizeNumber(info?.symidx);
+      entry.customcolor = normalizeNumber(info?.customcolor);
+      entry.color256idx = normalizeNumber(info?.color256idx);
+      entry.tileIndex = normalizeNumber(info?.tileidx);
+      entry.x = normalizeNumber(info?.x);
+      entry.y = normalizeNumber(info?.y);
+      entry.mgflags = normalizeNumber(info?.mgflags);
+    } else {
+      entry.special = normalizeNumber(info?.special, 0);
+      entry.mgflags = normalizeNumber(info?.mgflags);
+      entry.tileIndex = helpers.tileIndexForGlyph(glyph);
+    }
+
+    entries.push(entry);
   }
   return entries;
+}
+
+/**
+ * @param {GlyphEntry} entry
+ */
+function renderEntry(entry) {
+  const simpleFields = [
+    `glyph: ${entry.glyph}`,
+    `kind: "${entry.kind}"`,
+    `ch: ${entry.ch}`,
+    `color: ${entry.color}`,
+    `tileIndex: ${entry.tileIndex}`,
+  ];
+
+  /** @type {Record<string, number | undefined>} */
+  const optionalFields = {
+    special: entry.special,
+    ttychar: entry.ttychar,
+    framecolor: entry.framecolor,
+    glyphflags: entry.glyphflags,
+    symidx: entry.symidx,
+    customcolor: entry.customcolor,
+    color256idx: entry.color256idx,
+    tileidx: entry.tileidx,
+    x: entry.x,
+    y: entry.y,
+    mgflags: entry.mgflags,
+  };
+
+  const renderedOptionals = Object.entries(optionalFields)
+    .filter(([, value]) => Number.isFinite(value))
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return `  { ${[...simpleFields, ...renderedOptionals].join(", ")} },`;
 }
 
 /**
@@ -270,13 +364,10 @@ function buildGlyphEntries(helpers, ranges, maxGlyph) {
 function renderGlyphCatalogModule(model) {
   const rangeLines = model.ranges.map(
     (range) =>
-      `  { key: "${range.key}", kind: "${range.kind}", start: ${range.start}, endExclusive: ${range.endExclusive} },`
+      `  { key: "${range.key}", kind: "${range.kind}", start: ${range.start}, endExclusive: ${range.endExclusive} },`,
   );
 
-  const entryLines = model.entries.map(
-    (entry) =>
-      `  { glyph: ${entry.glyph}, kind: "${entry.kind}", ch: ${entry.ch}, color: ${entry.color}, special: ${entry.special} },`
-  );
+  const entryLines = model.entries.map(renderEntry);
 
   return `// @ts-nocheck
 /* AUTO-GENERATED FILE. DO NOT EDIT. */
@@ -307,36 +398,94 @@ ${entryLines.join("\n")}
  * @param {string} projectRoot
  */
 export function getGeneratedCatalogPath(projectRoot) {
-  return path.join(projectRoot, GENERATED_RELATIVE_PATH);
+  const target = CATALOG_TARGETS[0];
+  return path.join(projectRoot, target.generatedCatalogPath);
 }
 
 /**
  * @param {string} projectRoot
  */
-export async function generateGlyphCatalogSource(projectRoot) {
-  const jsPath = path.join(projectRoot, SOURCE_JS_RELATIVE_PATH);
-  const wasmPath = path.join(projectRoot, SOURCE_WASM_RELATIVE_PATH);
+function resolvePackageJsPath(projectRoot, target) {
+  return path.join(projectRoot, target.packageJsPath);
+}
+
+function normalizeCatalogVersion(version) {
+  if (version === "3.7") {
+    return "3.7";
+  }
+  return "3.6.7";
+}
+
+function resolveCatalogTarget(version) {
+  const normalized = normalizeCatalogVersion(version);
+  const target = CATALOG_TARGETS.find((entry) => entry.version === normalized);
+  if (!target) {
+    throw new Error(`Unsupported glyph catalog version: ${String(version)}`);
+  }
+  return target;
+}
+
+export function getGlyphCatalogTargets() {
+  return CATALOG_TARGETS.map((target) => ({ ...target }));
+}
+
+export function getGeneratedCatalogPathForVersion(projectRoot, version) {
+  const target = resolveCatalogTarget(version);
+  return path.join(projectRoot, target.generatedCatalogPath);
+}
+
+export async function generateGlyphCatalogSource(
+  projectRoot,
+  version = "3.6.7",
+) {
+  const target = resolveCatalogTarget(version);
+  const jsPath = resolvePackageJsPath(projectRoot, target);
+  const wasmPath = path.join(projectRoot, target.publicWasmPath);
 
   const [jsBuffer, runtimeInfo] = await Promise.all([
     fs.readFile(jsPath),
-    bootCatalogRuntime(projectRoot),
+    bootCatalogRuntime(projectRoot, target),
   ]);
 
   const { nethackGlobal, wasmBinary } = runtimeInfo;
-  const glyphConstants = nethackGlobal.constants?.GLYPH;
-  const mapglyphHelper = nethackGlobal.helpers?.mapglyphHelper;
+  const { tiles, counts } = await getAllTiles(projectRoot);
 
-  if (!glyphConstants || typeof mapglyphHelper !== "function") {
-    throw new Error("Runtime did not expose required glyph constants/helpers");
+  const glyphConstants = nethackGlobal.constants?.GLYPH;
+  if (!glyphConstants) {
+    throw new Error("Runtime did not expose required glyph constants");
   }
 
-  const noGlyph = normalizeNumber(glyphConstants.NO_GLYPH, normalizeNumber(glyphConstants.MAX_GLYPH, 0));
+  const noGlyph = normalizeNumber(
+    glyphConstants.NO_GLYPH,
+    normalizeNumber(glyphConstants.MAX_GLYPH, 0),
+  );
   const { maxGlyph, ranges } = deriveGlyphRanges(glyphConstants);
-  const entries = buildGlyphEntries(nethackGlobal.helpers, ranges, maxGlyph);
+  const offsets = {
+    mon: glyphConstants.GLYPH_MON_OFF,
+    obj: glyphConstants.GLYPH_OBJ_OFF,
+    other: glyphConstants.GLYPH_CMAP_OFF, // Assuming 'other.txt' maps to cmap
+    pet: glyphConstants.GLYPH_PET_OFF,
+    detect: glyphConstants.GLYPH_DETECT_OFF,
+    ridden: glyphConstants.GLYPH_RIDDEN_OFF,
+    invis: glyphConstants.GLYPH_INVIS_OFF,
+    body: glyphConstants.GLYPH_BODY_OFF,
+    other: glyphConstants.GLYPH_CMAP_OFF,
+    statue: glyphConstants.GLYPH_STATUE_OFF,
+    warning: glyphConstants.GLYPH_WARNING_OFF,
+  };
+  const entries = buildGlyphEntries(
+    nethackGlobal.helpers,
+    target.version,
+    ranges,
+    maxGlyph,
+    tiles,
+    offsets,
+    counts,
+  );
 
   return renderGlyphCatalogModule({
-    sourceJsPath: toPosixPath(SOURCE_JS_RELATIVE_PATH),
-    sourceWasmPath: toPosixPath(SOURCE_WASM_RELATIVE_PATH),
+    sourceJsPath: `${target.packageName}/build/nethack.js`,
+    sourceWasmPath: toPosixPath(target.publicWasmPath),
     sourceJsSha256: hashBuffer(jsBuffer),
     sourceWasmSha256: hashBuffer(wasmBinary),
     maxGlyph,

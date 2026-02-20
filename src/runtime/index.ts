@@ -5,5 +5,7 @@ export type {
   RuntimeCommand,
   RuntimeEvent,
   RuntimeEventHandler,
+  RuntimeStartupOptions,
   RuntimeWorkerEnvelope,
+  NethackRuntimeVersion,
 } from "./types";

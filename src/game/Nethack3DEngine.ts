@@ -13,7 +13,8 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import { classifyTileBehavior } from "./glyphs/behavior";
+import { classifyTileBehavior, getDefaultFloorGlyph } from "./glyphs/behavior";
+import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
   TileEffectKind,
@@ -383,6 +384,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
+  private tilesetTexture: THREE.Texture | null = null;
+  private readonly tileSourceSize = 32;
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -603,10 +606,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isPersistentTerrainKind(kind: string): boolean {
     switch (kind) {
       case "cmap":
-      case "obj":
-      case "body":
-      case "statue":
         return true;
+      // "obj", "body", "statue" are effectively transient entities on top of terrain
+      // and should not overwrite the terrain cache (lastKnownTerrain).
       default:
         return false;
     }
@@ -1029,6 +1031,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
       playMode: "normal",
+      runtimeVersion: "3.6.7",
     };
     this.clientOptions = normalizeNh3dClientOptions(options.clientOptions);
     const explicitFpsMode = options.clientOptions?.fpsMode;
@@ -1087,6 +1090,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
+    const textureLoader = new THREE.TextureLoader();
+    this.tilesetTexture = textureLoader.load("assets/nevanda-360.png");
+    this.tilesetTexture.magFilter = THREE.NearestFilter;
+    this.tilesetTexture.minFilter = THREE.NearestFilter;
+
     const host = this.mountElement ?? document.body;
     host.appendChild(this.renderer.domElement);
     this.loadCameraSmoothingFromCSS();
@@ -1097,7 +1105,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     this.directionalLight.position.set(10, 10, 5);
-    this.directionalLight.castShadow = true;
+    this.directionalLight.castShadow = false;
     this.directionalLight.shadow.mapSize.width = 2048;
     this.directionalLight.shadow.mapSize.height = 2048;
     this.scene.add(this.directionalLight);
@@ -1438,6 +1446,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileShakeChanged =
       previous.tileShakeOnHit !== normalized.tileShakeOnHit;
     const bloodChanged = previous.blood !== normalized.blood;
+    const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
 
     this.clientOptions = normalized;
 
@@ -1459,6 +1468,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (bloodChanged && !normalized.blood) {
       this.clearBloodMistParticles();
+    }
+    if (tilesetModeChanged) {
+      this.refreshTilesFromStateCache();
     }
   }
 
@@ -2024,11 +2036,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
+    await setActiveGlyphCatalog(
+      this.characterCreationConfig.runtimeVersion ?? "3.6.7",
+    );
+
     this.session = new WorkerRuntimeBridge(
       (payload: RuntimeEvent) => {
         this.handleRuntimeEvent(payload);
       },
       {
+        runtimeVersion: this.characterCreationConfig.runtimeVersion ?? "3.6.7",
         characterCreation: {
           mode: this.characterCreationConfig.mode,
           name: this.characterCreationConfig.name,
@@ -2049,7 +2066,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // this.addGameMessage("Local NetHack runtime started");
       if (this.isFpsMode()) {
         this.addGameMessage(
-          "FPS mode active: WASD move, F search, left-click fire, right-click mouselook.",
+          "FPS mode active: WASD move, F search, left-click fire, right-click look/interact.",
         );
       }
       this.setLoadingVisible(false);
@@ -2103,78 +2120,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         break;
 
-      case "force_player_redraw":
-        if (this.positionInputModeActive) {
-          console.log(
-            `🎯 Ignoring force_player_redraw while position-input mode is active`,
-          );
-          break;
-        }
-        // Force update player visual position when NetHack doesn't send map updates
-        console.log(
-          `🎯 Force redraw player from (${data.oldPosition.x}, ${data.oldPosition.y}) to (${data.newPosition.x}, ${data.newPosition.y})`,
-        );
-
-        // Update the player position first
-        this.recordPlayerMovement(
-          data.oldPosition.x,
-          data.oldPosition.y,
-          data.newPosition.x,
-          data.newPosition.y,
-        );
-        this.playerPos = { x: data.newPosition.x, y: data.newPosition.y };
-        this.markLightingDirty();
-
-        // Clear the old player visual position by redrawing it as floor
-        const oldKey = `${data.oldPosition.x},${data.oldPosition.y}`;
-        const oldOverlay = this.glyphOverlayMap.get(oldKey);
-        if (oldOverlay) {
-          console.log(
-            `🎯 Clearing old player overlay at (${data.oldPosition.x}, ${data.oldPosition.y})`,
-          );
-          this.disposeGlyphOverlay(oldOverlay);
-          this.glyphOverlayMap.delete(oldKey);
-        }
-
-        // Redraw the old player position using last known terrain to avoid color flicker.
-        const oldTerrain = this.lastKnownTerrain.get(oldKey);
-        if (oldTerrain) {
-          this.updateTile(
-            data.oldPosition.x,
-            data.oldPosition.y,
-            oldTerrain.glyph,
-            oldTerrain.char,
-            oldTerrain.color,
-          );
-        } else {
-          // Don't guess terrain when cache is missing; request authoritative tile data.
-          this.requestTileUpdate(data.oldPosition.x, data.oldPosition.y);
-        }
-
-        if (this.isFpsMode()) {
-          const newKey = `${data.newPosition.x},${data.newPosition.y}`;
-          const newTerrain = this.lastKnownTerrain.get(newKey);
-          if (newTerrain) {
-            this.updateTile(
-              data.newPosition.x,
-              data.newPosition.y,
-              newTerrain.glyph,
-              newTerrain.char,
-              newTerrain.color,
-            );
-          } else {
-            this.requestTileUpdate(data.newPosition.x, data.newPosition.y);
-          }
-        } else {
-          // Create a fake player glyph at the new position to ensure visual update
-          // Use a typical player glyph number (runtime commonly reports 330 for @).
-          this.updateTile(data.newPosition.x, data.newPosition.y, 330, "@", 0);
-        }
-        console.log(
-          `🎯 Player visual updated to position (${data.newPosition.x}, ${data.newPosition.y})`,
-        );
-        break;
-
       case "position_input_state":
         this.setPositionInputMode(Boolean(data.active));
         break;
@@ -2216,10 +2161,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "question":
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
           const payload = this.toCharacterCreationQuestionPayload(data);
-          if (this.characterCreationMode === "random") {
-            this.autoAnswerCharacterCreationQuestion(payload);
-            return;
-          }
           this.isInQuestion = true;
           this.showQuestion(
             payload.text,
@@ -3136,6 +3077,77 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     return overlay!;
+  }
+
+  private createTileTexture(
+    tileIndex: number,
+    darkenFactor: number = 1,
+    applyChromaKey: boolean = false,
+  ): THREE.CanvasTexture {
+    const size = this.tileSourceSize;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      throw new Error("Failed to create tile texture canvas context");
+    }
+
+    context.clearRect(0, 0, size, size);
+
+    if (
+      this.tilesetTexture &&
+      this.tilesetTexture.image &&
+      this.tilesetTexture.image.complete &&
+      this.tilesetTexture.image.width > 0
+    ) {
+      const img = this.tilesetTexture.image;
+      const tilesPerRow = Math.floor(img.width / size);
+      const sx = (tileIndex % tilesPerRow) * size;
+      const sy = Math.floor(tileIndex / tilesPerRow) * size;
+
+      // Draw the specific tile from the atlas
+      context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+
+      // Apply chroma key transparency (#466d6c -> R=70, G=109, B=108)
+      if (applyChromaKey) {
+        const imageData = context.getImageData(0, 0, size, size);
+        const data = imageData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i] === 70 && data[i + 1] === 109 && data[i + 2] === 108) {
+            data[i + 3] = 0; // Set alpha to 0
+          }
+        }
+        context.putImageData(imageData, 0, 0);
+      }
+    } else {
+      // Fallback if texture not loaded yet
+      context.fillStyle = "#ff00ff"; // Magenta debug color
+      context.fillRect(0, 0, size, size);
+    }
+
+    // Apply darkening if needed (for shadows/fog of war)
+    if (darkenFactor < 1) {
+      const alpha = THREE.MathUtils.clamp(1 - darkenFactor, 0, 1);
+      // Use source-atop to preserve transparency if chroma key was applied
+      context.globalCompositeOperation = applyChromaKey
+        ? "source-atop"
+        : "source-over";
+      context.fillStyle = `rgba(0, 0, 0, ${alpha})`;
+      context.fillRect(0, 0, size, size);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    texture.magFilter = THREE.NearestFilter; // Keep pixel art sharp
+    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.anisotropy = Math.min(
+      4,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+
+    return texture;
   }
 
   private createGlyphTexture(
@@ -4381,11 +4393,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     isWall: boolean,
     darkenFactor: number = 1,
     drawFloorGrid: boolean = false,
+    tileIndex: number = -1,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
-    const textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
+
+    const useTiles =
+      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+
+    let textureKey: string;
+    if (useTiles) {
+      textureKey = `tile:${tileIndex}|${clampedDarken.toFixed(3)}`;
+    } else {
+      textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
+    }
 
     if (overlay.textureKey !== textureKey) {
       if (overlay.textureKey) {
@@ -4394,16 +4416,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       overlay.baseColorHex = baseColorHex;
       overlay.material.color.set("#ffffff");
-      overlay.texture = this.acquireGlyphTexture(textureKey, () =>
-        this.createGlyphTexture(
-          baseColorHex,
-          glyphChar,
-          textColor,
-          clampedDarken,
-          256,
-          drawFloorGrid,
-        ),
-      );
+
+      if (useTiles) {
+        overlay.texture = this.acquireGlyphTexture(
+          textureKey,
+          () => this.createTileTexture(tileIndex, clampedDarken, false), // Pass false: map tiles are opaque
+        );
+      } else {
+        overlay.texture = this.acquireGlyphTexture(textureKey, () =>
+          this.createGlyphTexture(
+            baseColorHex,
+            glyphChar,
+            textColor,
+            clampedDarken,
+            256,
+            drawFloorGrid,
+          ),
+        );
+      }
+
       overlay.material.map = overlay.texture;
       overlay.material.needsUpdate = true;
       overlay.textureKey = textureKey;
@@ -4434,14 +4465,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : baseMaterial;
       mesh.material = [overlay.material, baseMaterial, chamferMaterial];
     } else if (isWall) {
-      mesh.material = [
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        baseMaterial,
-        overlay.material,
-        baseMaterial,
-      ];
+      if (mesh.userData.materialKind === "door" && useTiles) {
+        mesh.material = [
+          overlay.material, // right edge
+          overlay.material, // left edge
+          overlay.material, // front
+          overlay.material, // back
+          overlay.material, // top edge
+          baseMaterial, // bottom edge
+        ];
+      } else if (useTiles) {
+        mesh.material = [
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          overlay.material,
+          baseMaterial,
+        ];
+      } else {
+        mesh.material = [
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          baseMaterial,
+          overlay.material,
+          baseMaterial,
+        ];
+      }
     } else {
       mesh.material = overlay.material;
     }
@@ -5122,7 +5173,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       throw new Error("Failed to create monster billboard texture context");
     }
@@ -5258,6 +5309,66 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.monsterBillboards.delete(key);
   }
 
+  private getLowestPixelOffset(
+    context: CanvasRenderingContext2D,
+    size: number,
+  ): number {
+    const imageData = context.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    let lowestPixelY = -1;
+
+    for (let y = size - 1; y >= 0; y--) {
+      for (let x = 0; x < size; x++) {
+        const alphaIndex = (y * size + x) * 4 + 3;
+        if (data[alphaIndex] > 0) {
+          lowestPixelY = y;
+          break;
+        }
+      }
+      if (lowestPixelY !== -1) {
+        break;
+      }
+    }
+
+    if (lowestPixelY === -1) {
+      return 1.0; // Texture is empty, align to bottom
+    }
+
+    // Add 1 to get the row *after* the last pixel for alignment.
+    return (lowestPixelY + 1) / size;
+  }
+
+  private getSpriteContentWidth(
+    context: CanvasRenderingContext2D,
+    size: number,
+  ): number {
+    const imageData = context.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    let minX = size;
+    let maxX = -1;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const alphaIndex = (y * size + x) * 4 + 3;
+        if (data[alphaIndex] > 0) {
+          if (x < minX) {
+            minX = x;
+          }
+          if (x > maxX) {
+            maxX = x;
+          }
+        }
+      }
+    }
+
+    if (maxX === -1) {
+      return 0; // Texture is empty
+    }
+
+    const widthInPixels = maxX - minX + 1;
+    return widthInPixels / size;
+  }
+
   private ensureEntityBlobShadow(
     key: string,
     x: number,
@@ -5299,16 +5410,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
     y: number,
     glyphChar: string,
     textColor: string,
+    tileIndex: number = -1,
     entityType: "monster" | "loot" = "monster",
     isWall: boolean = false,
   ): void {
-    const textureKey = `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
+    const useTiles =
+      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+    const textureKey = useTiles
+      ? `tile-billboard:${tileIndex}`
+      : `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
+
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
     if (!sprite) {
-      const texture = this.acquireMonsterBillboardTexture(textureKey, () =>
-        this.createMonsterBillboardTexture(glyphChar, textColor),
-      );
+      const factory = useTiles
+        ? () => this.createTileTexture(tileIndex, 1, true) // Pass true: billboards use transparency
+        : () => this.createMonsterBillboardTexture(glyphChar, textColor);
+
+      const texture = this.acquireMonsterBillboardTexture(textureKey, factory);
       const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
@@ -5334,8 +5453,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
           } else if (material.map) {
             material.map.dispose();
           }
-          material.map = this.acquireMonsterBillboardTexture(textureKey, () =>
-            this.createMonsterBillboardTexture(glyphChar, textColor),
+          const factory = useTiles
+            ? () => this.createTileTexture(tileIndex, 1, true) // Pass true here as well
+            : () => this.createMonsterBillboardTexture(glyphChar, textColor);
+
+          material.map = this.acquireMonsterBillboardTexture(
+            textureKey,
+            factory,
           );
           material.needsUpdate = true;
           sprite.userData.textureKey = textureKey;
@@ -5343,17 +5467,45 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const elevatedZ =
-      entityType === "loot" ? this.elevatedLootZ : this.elevatedMonsterZ;
-    sprite.userData.elevatedZ = elevatedZ;
-    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, elevatedZ);
-    const scaleBase = this.isFpsMode()
+    // TO-DO: This is the wrong tile index for a boulder
+    const isBoulder = tileIndex === 450;
+
+    const overrideSize = (normalScale: number, fpsScale: number) => {
+      return this.isFpsMode() ? fpsScale : normalScale;
+    };
+
+    // Determine sprite scale based on mode
+    let scaleBase = this.isFpsMode()
       ? entityType === "loot"
-        ? 0.82
-        : 1.08
-      : 0.9;
+        ? 0.5
+        : 0.75
+      : entityType === "loot"
+        ? 1
+        : 1;
+
+    if (isBoulder) {
+      scaleBase = overrideSize(2, 3);
+    }
     sprite.scale.set(scaleBase, scaleBase, 1);
-    const shadowScale = entityType === "loot" ? 0.58 : 0.76;
+
+    const texture = sprite.material.map;
+    let verticalOffset = 1.0;
+    let contentWidth = 1.0;
+    if (texture && texture.image instanceof HTMLCanvasElement) {
+      const canvas = texture.image;
+      const context = canvas.getContext("2d");
+      if (context && useTiles) {
+        verticalOffset = this.getLowestPixelOffset(context, canvas.height);
+        contentWidth = this.getSpriteContentWidth(context, canvas.width);
+      }
+    }
+
+    const floorZ = isWall ? WALL_HEIGHT + 0.03 : 0.028;
+    const newZ = (verticalOffset - 0.5) * scaleBase + floorZ;
+    sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
+    sprite.userData.elevatedZ = newZ;
+
+    const shadowScale = (scaleBase * contentWidth * 1.25) / (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
   }
 
@@ -5372,10 +5524,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: typeof color === "number" ? color : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
+    const isPlayerCharacter = behavior.isPlayerGlyph;
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
-    const shouldElevateEntityInFps =
-      this.isFpsMode() && (isMonsterLikeCharacter || isLootLikeCharacter);
+    const isSink = behavior.effective.tileIndex === 30;
+    const isFountain = behavior.materialKind === "fountain";
+    const isStairsUp = behavior.materialKind === "stairs_up";
+    const isStatue = behavior.effective.kind === "statue";
+    const useTiles = this.clientOptions.tilesetMode === "tiles";
+
+    const shouldElevateEntity =
+      isMonsterLikeCharacter ||
+      isLootLikeCharacter ||
+      (useTiles &&
+        (isSink || isFountain || isStairsUp || isPlayerCharacter || isStatue));
+
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
     if (isUndiscovered) {
@@ -5450,25 +5613,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
-    if (shouldElevateEntityInFps) {
-      const floorSnapshot = this.lastKnownTerrain.get(key);
-      if (floorSnapshot) {
+
+    // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
+    if (shouldElevateEntity && useTiles) {
+      const isStairsUp = behavior.materialKind === "stairs_up";
+      const isFountain = behavior.materialKind === "fountain";
+      if (isStairsUp || isFountain) {
         renderBehavior = classifyTileBehavior({
-          glyph: floorSnapshot.glyph,
-          runtimeChar: floorSnapshot.char ?? null,
-          runtimeColor:
-            typeof floorSnapshot.color === "number"
-              ? floorSnapshot.color
-              : null,
-          priorTerrain: floorSnapshot,
-        });
-      } else {
-        renderBehavior = classifyTileBehavior({
-          glyph: 2396,
+          glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,
         });
+      } else {
+        const floorSnapshot = this.lastKnownTerrain.get(key);
+        if (floorSnapshot) {
+          renderBehavior = classifyTileBehavior({
+            glyph: floorSnapshot.glyph,
+            runtimeChar: floorSnapshot.char ?? null,
+            runtimeColor:
+              typeof floorSnapshot.color === "number"
+                ? floorSnapshot.color
+                : null,
+            priorTerrain: floorSnapshot,
+          });
+        } else {
+          renderBehavior = classifyTileBehavior({
+            glyph: getDefaultFloorGlyph(),
+            runtimeChar: ".",
+            runtimeColor: null,
+            priorTerrain: null,
+          });
+        }
       }
       tileGlyphChar = " ";
       tileTextColor = renderBehavior.textColor;
@@ -5494,8 +5670,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!mesh) {
       mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
       this.scene.add(mesh);
       this.tileMap.set(key, mesh);
     } else {
@@ -5533,25 +5709,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.isWall,
       renderBehavior.darkenFactor,
       drawFpsFloorGrid,
+      renderBehavior.effective.tileIndex,
     );
-    if (this.isFpsMode() && isMonsterLikeCharacter) {
+
+    // Create or remove a billboard for any entity that should be elevated.
+    if (shouldElevateEntity && useTiles) {
       this.ensureMonsterBillboard(
         key,
         x,
         y,
         behavior.glyphChar,
         behavior.textColor,
-        "monster",
-        renderBehavior.isWall,
-      );
-    } else if (this.isFpsMode() && isLootLikeCharacter) {
-      this.ensureMonsterBillboard(
-        key,
-        x,
-        y,
-        behavior.glyphChar,
-        behavior.textColor,
-        "loot",
+        behavior.effective.tileIndex,
+        isLootLikeCharacter ? "loot" : "monster",
         renderBehavior.isWall,
       );
     } else {
@@ -6207,9 +6377,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(`  ${item.accelerator || "?"}) ${item.text}`);
       }
     });
-
-    // TODO: If we add an inventory panel to the UI in the future, update it here
-    // For now, we just log the inventory and don't show any dialog
   }
 
   private isMultiSelectLootQuestion(question: string): boolean {
@@ -6312,29 +6479,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       defaultChoice: String(data.default || ""),
       menuItems: Array.isArray(data.menuItems) ? [...data.menuItems] : [],
     };
-  }
-
-  private autoAnswerCharacterCreationQuestion(
-    payload: CharacterCreationQuestionPayload,
-  ): void {
-    console.log("Auto-handling character creation:", payload.text);
-    const firstSelectableItem = payload.menuItems.find(
-      (item) => item && !item.isCategory,
-    );
-    if (firstSelectableItem) {
-      this.sendInput(
-        this.getMenuSelectionInput(
-          firstSelectableItem,
-          firstSelectableItem?.accelerator || "a",
-        ),
-      );
-      return;
-    }
-    if (payload.defaultChoice) {
-      this.sendInput(payload.defaultChoice);
-      return;
-    }
-    this.sendInput("a");
   }
 
   private isSelectableQuestionMenuItem(item: any): boolean {
@@ -10565,6 +10709,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       addQuickAction("search", "Search");
       addQuickAction("pickup", "Pick Up");
       return actions;
+    }
+
+    if (materialKind === "water" || materialKind === "fountain") {
+      addQuickAction("quaff", "Quaff");
+      addQuickAction("look", "Look");
+      addQuickAction("search", "Search");
     }
 
     if (

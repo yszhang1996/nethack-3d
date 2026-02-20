@@ -1,5 +1,10 @@
 import fs from "node:fs/promises";
-import { generateGlyphCatalogSource, getGeneratedCatalogPath, resolveProjectRoot } from "./catalog-generator.mjs";
+import {
+  generateGlyphCatalogSource,
+  getGeneratedCatalogPathForVersion,
+  getGlyphCatalogTargets,
+  resolveProjectRoot,
+} from "./catalog-generator.mjs";
 
 function validateGeneratedSource(source) {
   const maxGlyphMatch = source.match(/maxGlyph:\s*(\d+),/);
@@ -30,8 +35,6 @@ function validateGeneratedSource(source) {
     "swallow",
     "warning",
     "statue",
-    "unexplored",
-    "nothing",
   ]);
   for (const kind of expectedKinds) {
     if (!seenKinds.has(kind)) {
@@ -66,21 +69,29 @@ function validateGeneratedSource(source) {
 
 async function main() {
   const projectRoot = resolveProjectRoot();
-  const outputPath = getGeneratedCatalogPath(projectRoot);
-  const [expectedSource, currentSource] = await Promise.all([
-    generateGlyphCatalogSource(projectRoot),
-    fs.readFile(outputPath, "utf8"),
-  ]);
+  const targets = getGlyphCatalogTargets();
 
-  if (currentSource !== expectedSource) {
-    console.error(
-      `Glyph catalog is stale: ${outputPath}\nRun: npm run glyphs:generate`
+  for (const target of targets) {
+    const outputPath = getGeneratedCatalogPathForVersion(
+      projectRoot,
+      target.version,
     );
-    process.exit(1);
+    const [expectedSource, currentSource] = await Promise.all([
+      generateGlyphCatalogSource(projectRoot, target.version),
+      fs.readFile(outputPath, "utf8"),
+    ]);
+
+    if (currentSource !== expectedSource) {
+      console.error(
+        `Glyph catalog is stale (${target.version}): ${outputPath}\nRun: npm run glyphs:generate`,
+      );
+      process.exit(1);
+    }
+
+    validateGeneratedSource(currentSource);
   }
 
-  validateGeneratedSource(currentSource);
-  console.log("Glyph catalog is up to date.");
+  console.log("Glyph catalogs are up to date.");
   process.exit(0);
 }
 

@@ -1,3 +1,5 @@
+import type { NethackRuntimeVersion } from "../runtime/types";
+
 export type NethackConnectionState =
   | "disconnected"
   | "starting"
@@ -94,21 +96,28 @@ export type Nh3dClientOptions = {
   tileShakeOnHit: boolean;
   blood: boolean;
   liveMessageLog: boolean;
+  tilesetMode: "ascii" | "tiles";
 };
 
 export const nh3dFpsLookSensitivityMin = 0.4;
 export const nh3dFpsLookSensitivityMax = 2.6;
 
+const isMobilePortrait = window.matchMedia(
+  "(orientation: portrait) and (pointer: coarse)",
+);
+const isMobile = window.matchMedia("(pointer: coarse)");
+
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
-  fpsFov: 62,
-  fpsLookSensitivityX: 1,
-  fpsLookSensitivityY: 1,
+  fpsFov: isMobilePortrait ? 95 : 62,
+  fpsLookSensitivityX: isMobile ? 1.5 : 1,
+  fpsLookSensitivityY: isMobile ? 1.5 : 1,
   minimap: true,
   damageNumbers: true,
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
+  tilesetMode: "tiles",
 };
 
 export function normalizeNh3dClientOptions(
@@ -169,12 +178,17 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
+    tilesetMode:
+      overrides?.tilesetMode === "tiles"
+        ? "tiles"
+        : defaultNh3dClientOptions.tilesetMode,
   };
 }
 
 export type CharacterCreationConfig = {
   mode: "random" | "create";
   playMode?: PlayMode;
+  runtimeVersion?: NethackRuntimeVersion;
   name?: string;
   role?: string;
   race?: string;

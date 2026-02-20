@@ -15,6 +15,7 @@ import {
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
+import type { NethackRuntimeVersion } from "../runtime/types";
 
 type DirectionChoice = {
   key?: string;
@@ -248,15 +249,23 @@ type InventoryContextMenuState = {
   x: number;
   y: number;
 };
-type ClientOptionToggleKey = keyof Omit<
-  Nh3dClientOptions,
-  "fpsFov" | "fpsLookSensitivityX" | "fpsLookSensitivityY"
->;
 type ClientOptionToggle = {
   key: ClientOptionToggleKey;
   label: string;
   description: string;
+  type: "boolean";
 };
+
+type ClientOptionSelect = {
+  key: "tilesetMode";
+  label: string;
+  description: string;
+  type: "select";
+  options: { value: "ascii" | "tiles"; label: string }[];
+};
+
+type ClientOption = ClientOptionToggle | ClientOptionSelect;
+
 type ClientOptionLookSensitivityKey =
   | "fpsLookSensitivityX"
   | "fpsLookSensitivityY";
@@ -264,36 +273,52 @@ type ClientOptionLookSensitivityKey =
 const mobileDefaultFpsLookSensitivity = 1.35;
 const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
 
-const clientOptionToggles: ClientOptionToggle[] = [
+const clientOptionsConfig: ClientOption[] = [
   {
     key: "fpsMode",
     label: "FPS mode",
     description: "Use first-person controls and mouselook.",
+    type: "boolean",
+  },
+  {
+    key: "tilesetMode",
+    label: "Display",
+    description: "Use graphical tiles instead of ASCII.",
+    type: "select",
+    options: [
+      { value: "ascii", label: "ASCII" },
+      { value: "tiles", label: "Tiles (Nevanda)" },
+    ],
   },
   {
     key: "minimap",
     label: "Minimap",
     description: "Show or hide the dungeon minimap.",
+    type: "boolean",
   },
   {
     key: "damageNumbers",
     label: "Damage numbers",
     description: "Show floating damage and healing numbers.",
+    type: "boolean",
   },
   {
     key: "tileShakeOnHit",
     label: "Tile shake on hit",
     description: "Shake impact tiles when combat lands.",
+    type: "boolean",
   },
   {
     key: "blood",
     label: "Blood",
     description: "Render blood mist particle effects on hits.",
+    type: "boolean",
   },
   {
     key: "liveMessageLog",
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
+    type: "boolean",
   },
 ];
 
@@ -506,6 +531,8 @@ export default function App(): JSX.Element {
     useState<CharacterCreationConfig | null>(null);
   const [startupFlowStep, setStartupFlowStep] =
     useState<StartupFlowStep>("choose");
+  const [runtimeVersion, setRuntimeVersion] =
+    useState<NethackRuntimeVersion>("3.6.7");
   const [createRole, setCreateRole] = useState(startupRoleOptions[0]);
   const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
@@ -974,12 +1001,12 @@ export default function App(): JSX.Element {
   };
 
   const updateClientOptionDraft = (
-    optionKey: ClientOptionToggleKey,
-    enabled: boolean,
+    optionKey: ClientOptionToggleKey | "tilesetMode",
+    value: boolean | "ascii" | "tiles",
   ): void => {
     setClientOptionsDraft((previous) => ({
       ...previous,
-      [optionKey]: enabled,
+      [optionKey]: value,
     }));
   };
 
@@ -1216,6 +1243,23 @@ export default function App(): JSX.Element {
               <div className="nh3d-question-text">
                 Choose your character setup:
               </div>
+              <div className="nh3d-startup-config-grid centered">
+                <label className="nh3d-startup-config-field">
+                  <span>NetHack Version</span>
+                  <select
+                    className="nh3d-startup-config-select"
+                    onChange={(event) =>
+                      setRuntimeVersion(
+                        event.target.value as NethackRuntimeVersion,
+                      )
+                    }
+                    value={runtimeVersion}
+                  >
+                    <option value="3.6.7">3.6.x (3.6.7)</option>
+                    {import.meta.env.DEV && <option value="3.7">3.7</option>}
+                  </select>
+                </label>
+              </div>
               <div className="nh3d-choice-list">
                 <button
                   className="nh3d-choice-button nh3d-character-setup-choice-button"
@@ -1243,7 +1287,7 @@ export default function App(): JSX.Element {
           ) : startupFlowStep === "random-name" ? (
             <>
               <div className="nh3d-question-text">Random character name:</div>
-              <div className="nh3d-startup-config-grid">
+              <div className="nh3d-startup-config-grid centered">
                 <label className="nh3d-startup-config-field">
                   <span>Name</span>
                   <input
@@ -1263,6 +1307,7 @@ export default function App(): JSX.Element {
                     setCharacterCreationConfig({
                       mode: "random",
                       playMode: clientOptions.fpsMode ? "fps" : "normal",
+                      runtimeVersion,
                       name: normalizeStartupCharacterName(createName),
                     })
                   }
@@ -1365,6 +1410,7 @@ export default function App(): JSX.Element {
                     setCharacterCreationConfig({
                       mode: "create",
                       playMode: clientOptions.fpsMode ? "fps" : "normal",
+                      runtimeVersion,
                       name: normalizeStartupCharacterName(createName),
                       role: createRole,
                       race: createRace,
@@ -1543,29 +1589,60 @@ export default function App(): JSX.Element {
           )}
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
           <div className="nh3d-options-list">
-            {clientOptionToggles.map((toggle) => {
-              const enabled = Boolean(clientOptionsDraft[toggle.key]);
-              return (
-                <div className="nh3d-option-row" key={toggle.key}>
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">{toggle.label}</div>
-                    <div className="nh3d-option-description">
-                      {toggle.description}
+            {clientOptionsConfig.map((option) => {
+              if (option.type === "boolean") {
+                const enabled = Boolean(clientOptionsDraft[option.key]);
+                return (
+                  <div className="nh3d-option-row" key={option.key}>
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">{option.label}</div>
+                      <div className="nh3d-option-description">
+                        {option.description}
+                      </div>
                     </div>
+                    <button
+                      aria-checked={enabled}
+                      className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
+                      onClick={() =>
+                        updateClientOptionDraft(option.key, !enabled)
+                      }
+                      role="switch"
+                      type="button"
+                    >
+                      <span className="nh3d-option-switch-thumb" />
+                    </button>
                   </div>
-                  <button
-                    aria-checked={enabled}
-                    className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
-                    onClick={() =>
-                      updateClientOptionDraft(toggle.key, !enabled)
-                    }
-                    role="switch"
-                    type="button"
-                  >
-                    <span className="nh3d-option-switch-thumb" />
-                  </button>
-                </div>
-              );
+                );
+              }
+              if (option.type === "select") {
+                return (
+                  <div className="nh3d-option-row" key={option.key}>
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">{option.label}</div>
+                      <div className="nh3d-option-description">
+                        {option.description}
+                      </div>
+                    </div>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) =>
+                        updateClientOptionDraft(
+                          option.key,
+                          event.target.value as "ascii" | "tiles",
+                        )
+                      }
+                      value={clientOptionsDraft[option.key]}
+                    >
+                      {option.options.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                );
+              }
+              return null;
             })}
             {clientOptionsDraft.fpsMode ? (
               <>
