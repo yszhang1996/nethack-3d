@@ -818,7 +818,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private patchMaterialForVignette(material: THREE.Material): void {
     // Force Three.js to compile a unique shader for this patch
-    material.customProgramCacheKey = () => "vignette_patch_v2";
+    material.customProgramCacheKey = () => "vignette_patch_v6";
 
     material.onBeforeCompile = (shader) => {
       // Bind our class-level uniforms to this specific shader
@@ -828,21 +828,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
       shader.uniforms.uMaxDarkAlpha = this.vignetteUniforms.uMaxDarkAlpha;
       shader.uniforms.uIsFpsMode = this.vignetteUniforms.uIsFpsMode;
 
-      // Safely calculate world position ourselves after local transforms are applied
+      // Inject varying into Vertex Shader
       shader.vertexShader = `
         varying vec3 vWorldPos;
         ${shader.vertexShader}
-      `.replace(
-        "#include <project_vertex>",
-        `#include <project_vertex>
-        vec4 tempWorldPosition = vec4( transformed, 1.0 );
-        #ifdef USE_INSTANCING
-          tempWorldPosition = instanceMatrix * tempWorldPosition;
-        #endif
-        vWorldPos = (modelMatrix * tempWorldPosition).xyz;`,
-      );
+      `;
 
-      // Inject per-pixel logic into Fragment Shader right before output
+      // Branch based on material type (Standard Meshes vs Sprites)
+      if (shader.vertexShader.includes("#include <project_vertex>")) {
+        // --- 3D MESHES ---
+        shader.vertexShader = shader.vertexShader.replace(
+          "#include <project_vertex>",
+          `#include <project_vertex>
+          vec4 tempWorldPosition = vec4( transformed, 1.0 );
+          #ifdef USE_INSTANCING
+            tempWorldPosition = instanceMatrix * tempWorldPosition;
+          #endif
+          vWorldPos = (modelMatrix * tempWorldPosition).xyz;`,
+        );
+      } else if (shader.vertexShader.includes("#include <fog_vertex>")) {
+        // --- 2D SPRITES / BILLBOARDS ---
+        shader.vertexShader = shader.vertexShader.replace(
+          "#include <fog_vertex>",
+          `#include <fog_vertex>
+          // modelMatrix[3] is the translation column (vec4). Extract xyz for world position.
+          vWorldPos = modelMatrix[3].xyz;`,
+        );
+      }
+
+      // Inject logic into Fragment Shader right at the end (before fog)
       shader.fragmentShader = `
         uniform vec3 uLightingCenter;
         uniform float uLightingRadius;
@@ -852,8 +866,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         varying vec3 vWorldPos;
         ${shader.fragmentShader}
       `.replace(
-        "#include <dithering_fragment>",
-        `#include <dithering_fragment>
+        "#include <fog_fragment>",
+        `#include <fog_fragment>
         if (!uIsFpsMode) {
           float dist = distance(vWorldPos.xy, uLightingCenter.xy);
           float t = clamp(dist / uLightingRadius, 0.0, 1.0);
@@ -864,7 +878,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
     };
 
-    // Flag the material so Three.js knows it needs to recompile the first frame
     material.needsUpdate = true;
   }
 
@@ -5249,6 +5262,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         depthTest: true,
         toneMapped: false,
       });
+      this.patchMaterialForVignette(material);
       shadow = new THREE.Mesh(geometry, material);
       shadow.renderOrder = 905;
       this.entityBlobShadows.set(key, shadow);
@@ -5294,6 +5308,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         depthTest: true,
         toneMapped: false,
       });
+
+      // Patch the monster/loot billboard to add vignette lighting
+      this.patchMaterialForVignette(material);
+
       sprite = new THREE.Sprite(material);
       sprite.renderOrder = 910;
       sprite.userData.textureKey = textureKey;
