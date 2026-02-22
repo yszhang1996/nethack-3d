@@ -753,7 +753,7 @@ canvas {
     top: 57%;
 
     @media (pointer: coarse) {
-      top: calc(50% + var(--nh3d-safe-area-top)) !important;
+      top: calc(55% + var(--nh3d-safe-area-top)) !important;
     }
 
     @media (max-width: 515px) {
