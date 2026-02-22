@@ -374,9 +374,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
   private touchSwipeStart: {
+    touchId: number;
     x: number;
     y: number;
+    lastX: number;
+    lastY: number;
     startedAtMs: number;
+    panningActive: boolean;
   } | null = null;
   private pinchZoomStart: { distance: number; cameraDistance: number } | null =
     null;
@@ -387,6 +391,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsTouchTapMaxDurationMs: number = 280;
   private readonly touchSwipeMinDistancePx: number = 26;
   private readonly touchSwipeMaxDurationMs: number = 720;
+  private readonly touchSwipePanHoldMs: number = 500;
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
@@ -11611,9 +11616,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const touch = event.touches[0];
     this.touchSwipeStart = {
+      touchId: touch.identifier,
       x: touch.clientX,
       y: touch.clientY,
+      lastX: touch.clientX,
+      lastY: touch.clientY,
       startedAtMs: Date.now(),
+      panningActive: false,
     };
     this.pinchZoomStart = null;
     if (event.cancelable) {
@@ -11763,6 +11772,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.touchSwipeStart) {
       return;
     }
+
+    const touch =
+      this.findTouchById(event.touches, this.touchSwipeStart.touchId) ||
+      this.findTouchById(event.changedTouches, this.touchSwipeStart.touchId);
+    if (!touch) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    const elapsedMs = nowMs - this.touchSwipeStart.startedAtMs;
+    if (!this.touchSwipeStart.panningActive) {
+      const travelX = touch.clientX - this.touchSwipeStart.x;
+      const travelY = touch.clientY - this.touchSwipeStart.y;
+      const traveled = Math.hypot(travelX, travelY);
+      if (
+        elapsedMs >= this.touchSwipePanHoldMs &&
+        traveled >= this.touchSwipeMinDistancePx
+      ) {
+        this.touchSwipeStart.panningActive = true;
+        this.isCameraCenteredOnPlayer = false;
+      }
+    }
+
+    if (this.touchSwipeStart.panningActive) {
+      const deltaX = touch.clientX - this.touchSwipeStart.lastX;
+      const deltaY = touch.clientY - this.touchSwipeStart.lastY;
+      const panSpeed = 0.05;
+      this.cameraPanX -= deltaX * panSpeed;
+      this.cameraPanY += deltaY * panSpeed;
+      this.cameraPanTargetX = this.cameraPanX;
+      this.cameraPanTargetY = this.cameraPanY;
+      this.isCameraCenteredOnPlayer = false;
+      this.touchSwipeStart.lastX = touch.clientX;
+      this.touchSwipeStart.lastY = touch.clientY;
+    }
+
     if (event.cancelable) {
       event.preventDefault();
     }
@@ -11911,7 +11956,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const touch = event.changedTouches[0];
+    const touch =
+      this.findTouchById(event.changedTouches, start.touchId) ||
+      event.changedTouches[0];
+    if (!touch) {
+      return;
+    }
+
+    if (start.panningActive) {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     const dx = touch.clientX - start.x;
     const dy = touch.clientY - start.y;
     const distance = Math.hypot(dx, dy);
