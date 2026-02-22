@@ -2,6 +2,7 @@
 :root {
   --camera-follow-half-life-ms: 85;
   --nh3d-safe-area-top: env(safe-area-inset-top, 0px);
+  --nh3d-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --nh3d-mobile-visible-height: 100vh;
   --nh3d-mobile-visible-top-offset: 0px;
   --nh3d-mobile-visible-bottom-offset: 0px;
@@ -2153,7 +2154,7 @@ canvas {
   @media (pointer: coarse) {
     left: 8px;
     right: 8px;
-    bottom: calc(57px);
+    bottom: calc(57px - var(--nh3d-safe-area-bottom));
     max-height: min(44vh, 320px);
     overflow-y: hidden;
   }
