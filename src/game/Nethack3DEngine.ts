@@ -9041,44 +9041,89 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private rotateAimDirectionLeft(aim: AimDirection): AimDirection {
-    const dx = aim.dy;
-    const dy = -aim.dx;
-    return {
-      dx,
-      dy,
-      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
-    };
+  private resolveFpsRelativeMovementInput(
+    aim: AimDirection,
+    localRight: -1 | 0 | 1,
+    localForward: -1 | 0 | 1,
+  ): string | null {
+    if (localRight === 0 && localForward === 0) {
+      return null;
+    }
+
+    // Basis vectors in map-space derived from current FPS aim.
+    // forward = aim delta, right = 90deg clockwise from forward.
+    const rightX = -aim.dy;
+    const rightY = aim.dx;
+    const rawDx = aim.dx * localForward + rightX * localRight;
+    const rawDy = aim.dy * localForward + rightY * localRight;
+    const stepDx = THREE.MathUtils.clamp(Math.sign(rawDx), -1, 1);
+    const stepDy = THREE.MathUtils.clamp(Math.sign(rawDy), -1, 1);
+    return this.getDirectionInputFromMapDelta(stepDx, stepDy);
   }
 
-  private rotateAimDirectionRight(aim: AimDirection): AimDirection {
-    const dx = -aim.dy;
-    const dy = aim.dx;
-    return {
-      dx,
-      dy,
-      input: this.getDirectionInputFromMapDelta(dx, dy) ?? aim.input,
-    };
-  }
-
-  private tryResolveFpsMovementInput(key: string): string | null {
+  private tryResolveFpsMovementInput(key: string, code: string = ""): string | null {
     const lower = key.toLowerCase();
     const aim = this.getFpsAimDirectionFromCamera();
     if (!aim) {
       return null;
     }
 
+    if (code.startsWith("Numpad")) {
+      switch (code) {
+        case "Numpad8":
+          return this.resolveFpsRelativeMovementInput(aim, 0, 1);
+        case "Numpad2":
+          return this.resolveFpsRelativeMovementInput(aim, 0, -1);
+        case "Numpad4":
+          return this.resolveFpsRelativeMovementInput(aim, -1, 0);
+        case "Numpad6":
+          return this.resolveFpsRelativeMovementInput(aim, 1, 0);
+        case "Numpad7":
+          return this.resolveFpsRelativeMovementInput(aim, -1, 1);
+        case "Numpad9":
+          return this.resolveFpsRelativeMovementInput(aim, 1, 1);
+        case "Numpad1":
+          return this.resolveFpsRelativeMovementInput(aim, -1, -1);
+        case "Numpad3":
+          return this.resolveFpsRelativeMovementInput(aim, 1, -1);
+        default:
+          break;
+      }
+    }
+
     switch (lower) {
       case "w":
-        return aim.input;
-      case "s": {
-        const backward = this.getDirectionInputFromMapDelta(-aim.dx, -aim.dy);
-        return backward;
-      }
+      case "arrowup":
+      case "k":
+        return this.resolveFpsRelativeMovementInput(aim, 0, 1);
+      case "s":
+      case "arrowdown":
+      case "j":
+        return this.resolveFpsRelativeMovementInput(aim, 0, -1);
       case "a":
-        return this.rotateAimDirectionLeft(aim).input;
+      case "arrowleft":
+      case "h":
+        return this.resolveFpsRelativeMovementInput(aim, -1, 0);
       case "d":
-        return this.rotateAimDirectionRight(aim).input;
+      case "arrowright":
+      case "l":
+        return this.resolveFpsRelativeMovementInput(aim, 1, 0);
+      case "q":
+      case "y":
+      case "home":
+        return this.resolveFpsRelativeMovementInput(aim, -1, 1);
+      case "e":
+      case "u":
+      case "pageup":
+        return this.resolveFpsRelativeMovementInput(aim, 1, 1);
+      case "z":
+      case "b":
+      case "end":
+        return this.resolveFpsRelativeMovementInput(aim, -1, -1);
+      case "c":
+      case "n":
+      case "pagedown":
+        return this.resolveFpsRelativeMovementInput(aim, 1, -1);
       default:
         return null;
     }
@@ -9498,7 +9543,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !event.ctrlKey &&
       !event.metaKey
     ) {
-      const fpsMoveInput = this.tryResolveFpsMovementInput(event.key);
+      const fpsMoveInput = this.tryResolveFpsMovementInput(
+        event.key,
+        event.code,
+      );
       if (fpsMoveInput) {
         event.preventDefault();
         if (event.shiftKey) {
