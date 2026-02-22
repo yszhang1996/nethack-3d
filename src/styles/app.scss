@@ -718,12 +718,7 @@ canvas {
     text-shadow: 0 0 8px rgba(255, 0, 119, 0.479);
     z-index: 1999;
 
-    @media (pointer: coarse) {
-      top: calc(var(--nh3d-safe-area-top) + 3vh);
-      font-size: 5px;
-    }
-
-    @media screen and (max-width: 515px) {
+    @media (max-width: 515px), (pointer: coarse) {
       top: calc(var(--nh3d-safe-area-top) + 3vh);
       font-size: 5px;
     }
@@ -751,11 +746,7 @@ canvas {
   &.startup {
     top: 490px;
 
-    @media screen and (max-width: 515px) {
-      top: 50%;
-    }
-
-    @media (pointer: coarse) {
+    @media (max-width: 515px), (pointer: coarse) {
       top: 50%;
     }
   }
@@ -1380,7 +1371,11 @@ canvas {
 
   &.centered {
     display: inline-block;
-    width: min(100%, 320px);
+    width: 320px;
+
+    @media (max-width: 720px), (pointer: coarse) {
+      width: 100%;
+    }
   }
 
   @media (max-width: 720px), (pointer: coarse) {
