@@ -2142,21 +2142,13 @@ canvas {
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: 72px;
+  bottom: calc(var(--nh3d-safe-area-bottom) + 60px);
   z-index: 1910;
   border: 2px solid var(--nh3d-ui-border-strong);
   border-radius: 10px;
   background: var(--nh3d-ui-panel-bg-strong);
   padding: 10px;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.55);
-
-  @media (pointer: coarse) {
-    left: 8px;
-    right: 8px;
-    bottom: calc(57px + var(--nh3d-safe-area-bottom));
-    max-height: min(44vh, 320px);
-    overflow-y: hidden;
-  }
 
   @media (orientation: landscape) and (pointer: coarse) {
     left: calc(8px + env(safe-area-inset-left));
