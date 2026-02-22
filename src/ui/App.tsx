@@ -692,6 +692,7 @@ export default function App(): JSX.Element {
     }
     const statsBar = document.getElementById("stats-bar");
     if (!statsBar) {
+      setStatsBarHeight(0);
       return;
     }
 
@@ -714,7 +715,12 @@ export default function App(): JSX.Element {
         resizeObserver.disconnect();
       }
     };
-  }, []);
+  }, [
+    characterCreationConfig,
+    connectionState,
+    loadingVisible,
+    isMobileViewport,
+  ]);
 
   useEffect(() => {
     if (
