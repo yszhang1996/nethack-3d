@@ -751,7 +751,11 @@ canvas {
   &.startup {
     top: 490px;
 
-    @media (max-width: 515px), (pointer: coarse) {
+    @media (pointer: coarse) {
+      top: 50%;
+    }
+
+    @media (max-width: 515px) {
       top: 50%;
     }
   }
