@@ -2153,7 +2153,7 @@ canvas {
   @media (pointer: coarse) {
     left: 8px;
     right: 8px;
-    bottom: calc(57px - var(--nh3d-safe-area-bottom));
+    bottom: calc(57px + var(--nh3d-safe-area-bottom));
     max-height: min(44vh, 320px);
     overflow-y: hidden;
   }

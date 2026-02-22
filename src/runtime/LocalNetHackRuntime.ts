@@ -206,13 +206,11 @@ class LocalNetHackRuntime {
       this.emit(payload);
     }
 
-    if (this.latestInventoryItems.length > 0) {
-      this.emit({
-        type: "inventory_update",
-        items: this.latestInventoryItems,
-        window: 4,
-      });
-    }
+    this.emit({
+      type: "inventory_update",
+      items: this.latestInventoryItems.map((item) => ({ ...item })),
+      window: 4,
+    });
 
     const recentMessages = this.gameMessages.slice(-30);
     for (const msg of recentMessages) {
@@ -2886,10 +2884,12 @@ class LocalNetHackRuntime {
 
           if (this.eventHandler) {
             if (classification.kind === "inventory") {
-              this.latestInventoryItems = [...this.currentMenuItems];
+              this.latestInventoryItems = this.currentMenuItems.map((item) => ({
+                ...item,
+              }));
               this.emit({
                 type: "inventory_update",
-                items: this.currentMenuItems,
+                items: this.latestInventoryItems.map((item) => ({ ...item })),
                 window: endMenuWinid,
               });
             } else {

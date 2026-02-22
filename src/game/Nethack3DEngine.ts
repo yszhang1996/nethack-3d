@@ -223,6 +223,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
+  private inventoryRefreshInFlight: boolean = false;
+  private lastInventoryRefreshRequestedAtMs: number = 0;
+  private readonly inventoryRefreshDebounceMs: number = 250;
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
   private isInventoryDialogVisible: boolean = false;
   private isInfoDialogVisible: boolean = false;
@@ -2061,16 +2064,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       case "inventory_update":
         // Handle inventory updates without showing dialog
-        const itemCount = data.items ? data.items.length : 0;
-        const actualItems = data.items
-          ? data.items.filter((item: any) => !item.isCategory)
+        const nextInventory = Array.isArray(data.items)
+          ? data.items.map((item: any) => ({ ...item }))
           : [];
+        this.inventoryRefreshInFlight = false;
+        const itemCount = nextInventory.length;
+        const actualItems = nextInventory.filter((item: any) => !item.isCategory);
         console.log(
           `📦 Received inventory update with ${itemCount} total items (${actualItems.length} actual items)`,
         );
 
-        // Store the current inventory for later display
-        this.currentInventory = data.items || [];
+        // Replace current inventory state with latest snapshot.
+        this.currentInventory = nextInventory;
 
         // If we have a pending inventory dialog request, show it now
         if (this.pendingInventoryDialog) {
@@ -2080,8 +2085,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
 
         // Update inventory display if we have an inventory UI element
-        this.updateInventoryDisplay(data.items);
+        this.updateInventoryDisplay(nextInventory);
 
+        break;
+
+      case "inventory_updated_signal":
+        if (!this.session) {
+          break;
+        }
+        {
+          const nowMs = Date.now();
+          if (
+            this.inventoryRefreshInFlight ||
+            nowMs - this.lastInventoryRefreshRequestedAtMs <
+              this.inventoryRefreshDebounceMs
+          ) {
+            break;
+          }
+          this.inventoryRefreshInFlight = true;
+          this.lastInventoryRefreshRequestedAtMs = nowMs;
+          console.log("📦 Inventory changed; requesting latest snapshot");
+          this.sendInput("i");
+        }
         break;
 
       case "info_menu":
@@ -6245,12 +6270,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateInventoryDisplay(items: any[]): void {
+    const nextInventory = Array.isArray(items)
+      ? items.map((item) => ({ ...item }))
+      : [];
+    this.currentInventory = nextInventory;
+
     if (this.uiAdapter) {
       this.uiAdapter.setInventory({
         visible: this.isInventoryDialogVisible,
-        items: Array.isArray(this.currentInventory)
-          ? [...this.currentInventory]
-          : [],
+        items: [...nextInventory],
       });
       return;
     }
@@ -6258,14 +6286,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Update inventory display without showing a dialog
     // This is for informational inventory updates from NetHack
 
-    if (!items || items.length === 0) {
+    if (nextInventory.length === 0) {
       console.log("📦 Inventory is empty");
       return;
     }
 
     // Log inventory items for debugging
     console.log("📦 Current inventory:");
-    items.forEach((item, index) => {
+    nextInventory.forEach((item, index) => {
       if (item.isCategory) {
         console.log(`  📁 ${item.text}`);
       } else {
@@ -7792,6 +7820,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     console.log("📦 Requesting current inventory from NetHack...");
+    this.inventoryRefreshInFlight = true;
+    this.lastInventoryRefreshRequestedAtMs = Date.now();
     this.sendInput("i");
     this.pendingInventoryDialog = true;
   }
