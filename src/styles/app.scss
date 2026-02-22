@@ -841,7 +841,7 @@ canvas {
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      padding-bottom: max(8px);
     }
   }
 
@@ -1003,10 +1003,6 @@ canvas {
     justify-content: center;
   }
 
-  .nh3d-menu-actions {
-    margin-top: 12px;
-  }
-
   @media (pointer: coarse) {
     top: 50%;
     left: 50%;
@@ -1035,10 +1031,6 @@ canvas {
       margin-top: 10px;
       width: 100%;
       max-width: 100%;
-    }
-
-    .nh3d-menu-actions {
-      margin-top: 14px;
     }
 
     .nh3d-character-setup-choice-button {
@@ -1969,7 +1961,7 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    flex: 1 1 40%;
+    flex: 1 1;
     min-width: 120px;
   }
 }
@@ -2150,7 +2142,7 @@ canvas {
   position: fixed;
   left: 12px;
   right: 12px;
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  bottom: calc(72px);
   z-index: 1910;
   border: 2px solid var(--nh3d-ui-border-strong);
   border-radius: 10px;
@@ -2161,7 +2153,7 @@ canvas {
   @media (pointer: coarse) {
     left: 8px;
     right: 8px;
-    bottom: calc(57px + env(safe-area-inset-bottom));
+    bottom: calc(57px);
     max-height: min(44vh, 320px);
     overflow-y: hidden;
   }
@@ -2178,7 +2170,7 @@ canvas {
     max-width: calc(
       100vw - 122px - env(safe-area-inset-left) - env(safe-area-inset-right)
     );
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: calc(8px);
     max-height: min(66vh, 408px);
   }
 }
