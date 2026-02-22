@@ -749,10 +749,10 @@ canvas {
   display: none;
 
   &.startup {
-    top: 490px;
+    top: 57%;
 
     @media (pointer: coarse) {
-      top: 50%;
+      top: calc (50% + var(--nh3d-safe-area-top));
     }
 
     @media (max-width: 515px) {
