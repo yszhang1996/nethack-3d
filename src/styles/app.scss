@@ -699,6 +699,38 @@ canvas {
 }
 
 // -----------------------------------------------------------------------------
+// ASCII Logo
+// -----------------------------------------------------------------------------
+
+.logo-container {
+  position: fixed;
+  left: 50%;
+
+  .nethack-ascii-logo {
+    position: absolute;
+    top: calc(1vh + var(--nh3d-stats-bar-height, 0px));
+    transform: translateX(-40%);
+    font-family: "Consolas", "Courier New", monospace;
+    white-space: pre;
+    font-size: 9px;
+    font-weight: 700;
+    color: rgb(255, 0, 0);
+    text-shadow: 0 0 8px rgba(255, 0, 119, 0.479);
+    z-index: 1999;
+
+    @media (pointer: coarse) {
+      top: calc(var(--nh3d-safe-area-top) + 3vh);
+      font-size: 6px;
+    }
+
+    @media screen and (max-width: 515px) {
+      top: calc(var(--nh3d-safe-area-top) + 3vh);
+      font-size: 6px;
+    }
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Dialogs
 // -----------------------------------------------------------------------------
 
@@ -715,6 +747,18 @@ canvas {
   z-index: 2000;
   font-family: "Courier New", monospace;
   display: none;
+
+  &.startup {
+    top: 490px;
+
+    @media screen and (max-width: 515px) {
+      top: 50%;
+    }
+
+    @media (pointer: coarse) {
+      top: 50%;
+    }
+  }
 
   &.is-visible {
     display: block;

@@ -877,11 +877,15 @@ export default function App(): JSX.Element {
     characterCreationConfig !== null &&
     connectionState === "running" &&
     !loadingVisible;
+
   const isDesktopGameRunning =
     !isMobileViewport &&
     characterCreationConfig !== null &&
     connectionState === "running" &&
     !loadingVisible;
+
+  const startup = !isMobileGameRunning && !isDesktopGameRunning;
+
   const hasGameplayOverlayOpen =
     Boolean(question) ||
     Boolean(directionQuestion) ||
@@ -1232,214 +1236,286 @@ export default function App(): JSX.Element {
   return (
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
+      {startup && (
+        <div className="logo-container">
+          <pre className="nethack-ascii-logo">
+            {`                
+  +$$&&&&&$;         :X$&&&&$X:                       :X$&&&&&$X;     :X&&&&&&&$+                               .;;+X$;                                               
+    +X&&&&&$X          X&&&$+                           +X&&&$+:        xX&&&&+:                              .$&&&&&+:                                               
+    :x&&&&&&&$:        X$&&X;                           ;X&&&$x.        +X&&&$x.                                X$&&$+:                                               
+    :x&&&&&&&&$x       X&&&X;                   x&:     ;X&&&$X.        +X&&&$x.                                X$&&&x:                                               
+    :x&&x&&&&&&&$      X&&&X:        _       .$&&+:     ;X&&&$x.        +X&&&$x.                                X$&&&x.                                               
+    :X&&x;X&&&&&&&:    X&&&X:   :+$&&&&&+   :&&&&$Xxxx; ;X&&&$X;.:;::::.xX&&&$x.   ;+$&&&&$+        :;+XXXXx;:  X$&&$x.   .XXXX+                                      
+    :X&&x::+&&&&&&&x   X$&&x:  X&&$;;X&&&$ ;$&&&&XXXX;  ;x$$$$&&&&&&&&&&&&$$$$x  +&$X+;+$&&&$.    :$&&$x++$&&$+ X$$$$+.   +$$+:                                       
+    :X&$x:  ;$&$&&$&&  +$&&x: $&&x:  :X&&x+  $&&&;.     ;+XXXXXXXXXXXXXXXX$$$X+  :+:    ;$$$Xx   X&&$;:   .++:  xX$$X+. ;&$+:                                         
+    :X$$x:   ;+$$$$$&&:;X$$+.;X&&x  +$$&&xx  $&&&+.     ;+XXX+;. .. .   ;xXXXX+        :$$$$X+  x$$$;;          xXXXX+:$$Xx;                                          
+    :X$Xx:    .;$XXXX$&$XX$+.;X&&&$Xx;:      $&$$;.     :+Xxx+;.        ;xXXxx+    ;XXX++XXXX+  xXXX;:          +XxxxxX$XXxx;                                         
+    :+Xx+:      ;XXXXXX&&xX+ ;;$$Xx:         $$XX;.     :+x+++;.        ;+x+++;  ;XX+:. ;xxxx+  +xxX++          +x+++::+XxX++:                                        
+    :+X++:       :+xxxxxX+x; .;xXX$$:     ,  XXxX+:     :;x+++;.        ;+++++; ;xx++   ;x++++  ;+x+x++         +x+++:.:;++x++:                                       
+    :;x++:        :;x+++++x;  :;+XX$&&$XXX;  ++xx&&X+x; :;+++;;.        ;+++++; ;;++xX;;xx++++: .;;++xXXx;:;;+: ;x+++:. :;+++++;                                      
+    X$++X&+         :x++++x;   .::+X$$$+::   .;;XX$+::  xX;;;;+;        xx;;;;+: ::+++;:: ++;;;.  ::;++++x+::.  Xx;;;+:  .:++++++.                                    
+  :+;;:::::;x+        ;++X+:       :;;;:        ::;:.  ;::::::::::;   .;::::::::::: ...    ::.       .:::::.  .;::::::::::  ::::::::                                   
+                                                                                                                                                                      
+                                                                                                                                                                      
+                                            ;&&&&&&&&&&&&&&&&&&x   x&&&&&&&&&&&&&$X+:.                                                                                
+                                            :;&&&&&&&&&&&&&&&&+:   :;&&&&&$&&&&&&&&&&&&+                                                                              
+                                            ;+:::::::::$&&&&$:.    :+&&&&&:.    ::&&&&&&$;                                                                            
+                                                      $&&&&X:.      ;X&&&&&:.     :;$&&&&&&                                                                           
+                                                    $&&&&X;:;+;:    +$&&&&&:.      ++&&&&&XX                                                                           
+                                                  :X$$$$&&&&&&&&&+  ;x&&&&&:.      +X&&&&&+x                                                                           
+                                                        .:X&&&&&&$; :+$$$$$:.      +X&$$$&++                                                                           
+                                                          :+$$$$$:: :;XxxxX..      xxXXxxX;+                                                                           
+                                                          :;XxxxX.. .:x+++x..     :+X++++::                                                                            
+                                            x&+         :XX;;;;;.   :+;;;+.     XXx;;;+::                                                                             
+                                            :;xx$&&$$XXX$X;:::;:.   .;+;;;++&$&&&x;;;+;:.                                                                              
+                                             ::::::;;;;;::::::      x+;:::;;;;:::::::                                                                                  
+                                                                      `}
+          </pre>
+          <pre className="nethack-ascii-logo">
+            {`                
+  +$$&&&&&$;         :X$&&&&$X:                       :X$&&&&&$X;     :X&&&&&&&$+                               .;;+X$;                                               
+    +X&&&&&$X          X&&&$+                           +X&&&$+:        xX&&&&+:                              .$&&&&&+:                                               
+    :x&&&&&&&$:        X$&&X;                           ;X&&&$x.        +X&&&$x.                                X$&&$+:                                               
+    :x&&&&&&&&$x       X&&&X;                   x&:     ;X&&&$X.        +X&&&$x.                                X$&&&x:                                               
+    :x&&x&&&&&&&$      X&&&X:        _       .$&&+:     ;X&&&$x.        +X&&&$x.                                X$&&&x.                                               
+    :X&&x;X&&&&&&&:    X&&&X:   :+$&&&&&+   :&&&&$Xxxx; ;X&&&$X;.:;::::.xX&&&$x.   ;+$&&&&$+        :;+XXXXx;:  X$&&$x.   .XXXX+                                      
+    :X&&x::+&&&&&&&x   X$&&x:  X&&$;;X&&&$ ;$&&&&XXXX;  ;x$$$$&&&&&&&&&&&&$$$$x  +&$X+;+$&&&$.    :$&&$x++$&&$+ X$$$$+.   +$$+:                                       
+    :X&$x:  ;$&$&&$&&  +$&&x: $&&x:  :X&&x+  $&&&;.     ;+XXXXXXXXXXXXXXXX$$$X+  :+:    ;$$$Xx   X&&$;:   .++:  xX$$X+. ;&$+:                                         
+    :X$$x:   ;+$$$$$&&:;X$$+.;X&&x  +$$&&xx  $&&&+.     ;+XXX+;. .. .   ;xXXXX+        :$$$$X+  x$$$;;          xXXXX+:$$Xx;                                          
+    :X$Xx:    .;$XXXX$&$XX$+.;X&&&$Xx;:      $&$$;.     :+Xxx+;.        ;xXXxx+    ;XXX++XXXX+  xXXX;:          +XxxxxX$XXxx;                                         
+    :+Xx+:      ;XXXXXX&&xX+ ;;$$Xx:         $$XX;.     :+x+++;.        ;+x+++;  ;XX+:. ;xxxx+  +xxX++          +x+++::+XxX++:                                        
+    :+X++:       :+xxxxxX+x; .;xXX$$:     ,  XXxX+:     :;x+++;.        ;+++++; ;xx++   ;x++++  ;+x+x++         +x+++:.:;++x++:                                       
+    :;x++:        :;x+++++x;  :;+XX$&&$XXX;  ++xx&&X+x; :;+++;;.        ;+++++; ;;++xX;;xx++++: .;;++xXXx;:;;+: ;x+++:. :;+++++;                                      
+    X$++X&+         :x++++x;   .::+X$$$+::   .;;XX$+::  xX;;;;+;        xx;;;;+: ::+++;:: ++;;;.  ::;++++x+::.  Xx;;;+:  .:++++++.                                    
+  :+;;:::::;x+        ;++X+:       :;;;:        ::;:.  ;::::::::::;   .;::::::::::: ...    ::.       .:::::.  .;::::::::::  ::::::::                                   
+                                                                                                                                                                      
+                                                                                                                                                                      
+                                            ;&&&&&&&&&&&&&&&&&&x   x&&&&&&&&&&&&&$X+:.                                                                                
+                                            :;&&&&&&&&&&&&&&&&+:   :;&&&&&$&&&&&&&&&&&&+                                                                              
+                                            ;+:::::::::$&&&&$:.    :+&&&&&:.    ::&&&&&&$;                                                                            
+                                                      $&&&&X:.      ;X&&&&&:.     :;$&&&&&&                                                                            
+                                                    $&&&&X;:;+;:    +$&&&&&:.      ++&&&&&XX                                                                           
+                                                  :X$$$$&&&&&&&&&+  ;x&&&&&:.      +X&&&&&+x                                                                           
+                                                        .:X&&&&&&$; :+$$$$$:.      +X&$$$&++                                                                           
+                                                          :+$$$$$:: :;XxxxX..      xxXXxxX;+                                                                           
+                                                          :;XxxxX.. .:x+++x..     :+X++++::                                                                            
+                                            x&+         :XX;;;;;.   :+;;;+.     XXx;;;+::                                                                             
+                                            :;xx$&&$$XXX$X;:::;:.   .;+;;;++&$&&&x;;;+;:.                                                                              
+                                             ::::::;;;;;::::::      x+;:::;;;;:::::::                                                                                  
+                                                                      `}
+          </pre>
+        </div>
+      )}
 
       {characterCreationConfig === null ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-question is-visible"
-          id="character-setup-dialog"
-        >
-          {startupFlowStep === "choose" ? (
-            <>
-              <div className="nh3d-question-text">
-                Choose your character setup:
-              </div>
-              <div className="nh3d-startup-config-grid centered">
-                <label className="nh3d-startup-config-field">
-                  <span>NetHack Version</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) =>
-                      setRuntimeVersion(
-                        event.target.value as NethackRuntimeVersion,
-                      )
+        <>
+          <div
+            className="nh3d-dialog nh3d-dialog-question is-visible startup"
+            id="character-setup-dialog"
+          >
+            {startupFlowStep === "choose" ? (
+              <>
+                <div className="nh3d-question-text">
+                  Choose your character setup:
+                </div>
+                <div className="nh3d-startup-config-grid centered">
+                  <label className="nh3d-startup-config-field">
+                    <span>NetHack Version</span>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) =>
+                        setRuntimeVersion(
+                          event.target.value as NethackRuntimeVersion,
+                        )
+                      }
+                      value={runtimeVersion}
+                    >
+                      <option value="3.6.7">3.6.x (3.6.7)</option>
+                      {import.meta.env.DEV && <option value="3.7">3.7</option>}
+                    </select>
+                  </label>
+                </div>
+                <div className="nh3d-choice-list">
+                  <button
+                    className="nh3d-choice-button nh3d-character-setup-choice-button"
+                    onClick={() => setStartupFlowStep("random-name")}
+                    type="button"
+                  >
+                    Random character
+                  </button>
+                  <button
+                    className="nh3d-choice-button nh3d-character-setup-choice-button"
+                    onClick={() => setStartupFlowStep("create")}
+                    type="button"
+                  >
+                    Create character
+                  </button>
+                  <button
+                    className="nh3d-choice-button nh3d-character-setup-choice-button"
+                    onClick={openClientOptionsDialog}
+                    type="button"
+                  >
+                    NetHack 3D Options
+                  </button>
+                </div>
+              </>
+            ) : startupFlowStep === "random-name" ? (
+              <>
+                <div className="nh3d-question-text">Random character name:</div>
+                <div className="nh3d-startup-config-grid centered">
+                  <label className="nh3d-startup-config-field">
+                    <span>Name</span>
+                    <input
+                      className="nh3d-startup-config-input"
+                      maxLength={30}
+                      onChange={(event) => setCreateName(event.target.value)}
+                      placeholder="Web_user"
+                      type="text"
+                      value={createName}
+                    />
+                  </label>
+                </div>
+                <div className="nh3d-menu-actions">
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                    onClick={() =>
+                      setCharacterCreationConfig({
+                        mode: "random",
+                        playMode: clientOptions.fpsMode ? "fps" : "normal",
+                        runtimeVersion,
+                        name: normalizeStartupCharacterName(createName),
+                      })
                     }
-                    value={runtimeVersion}
+                    type="button"
                   >
-                    <option value="3.6.7">3.6.x (3.6.7)</option>
-                    {import.meta.env.DEV && <option value="3.7">3.7</option>}
-                  </select>
-                </label>
-              </div>
-              <div className="nh3d-choice-list">
-                <button
-                  className="nh3d-choice-button nh3d-character-setup-choice-button"
-                  onClick={() => setStartupFlowStep("random-name")}
-                  type="button"
-                >
-                  Random character
-                </button>
-                <button
-                  className="nh3d-choice-button nh3d-character-setup-choice-button"
-                  onClick={() => setStartupFlowStep("create")}
-                  type="button"
-                >
-                  Create character
-                </button>
-                <button
-                  className="nh3d-choice-button nh3d-character-setup-choice-button"
-                  onClick={openClientOptionsDialog}
-                  type="button"
-                >
-                  NetHack 3D Options
-                </button>
-              </div>
-            </>
-          ) : startupFlowStep === "random-name" ? (
-            <>
-              <div className="nh3d-question-text">Random character name:</div>
-              <div className="nh3d-startup-config-grid centered">
-                <label className="nh3d-startup-config-field">
-                  <span>Name</span>
-                  <input
-                    className="nh3d-startup-config-input"
-                    maxLength={30}
-                    onChange={(event) => setCreateName(event.target.value)}
-                    placeholder="Web_user"
-                    type="text"
-                    value={createName}
-                  />
-                </label>
-              </div>
-              <div className="nh3d-menu-actions">
-                <button
-                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                  onClick={() =>
-                    setCharacterCreationConfig({
-                      mode: "random",
-                      playMode: clientOptions.fpsMode ? "fps" : "normal",
-                      runtimeVersion,
-                      name: normalizeStartupCharacterName(createName),
-                    })
-                  }
-                  type="button"
-                >
-                  Start game
-                </button>
-                <button
-                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                  onClick={() => setStartupFlowStep("choose")}
-                  type="button"
-                >
-                  Back
-                </button>
-                <button
-                  className="nh3d-menu-action-button"
-                  onClick={openClientOptionsDialog}
-                  type="button"
-                >
-                  NetHack 3D Options
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="nh3d-question-text">Create your character:</div>
-              <div className="nh3d-startup-config-grid">
-                <label className="nh3d-startup-config-field">
-                  <span>Name</span>
-                  <input
-                    className="nh3d-startup-config-input"
-                    maxLength={30}
-                    onChange={(event) => setCreateName(event.target.value)}
-                    placeholder="Web_user"
-                    type="text"
-                    value={createName}
-                  />
-                </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Role</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) => setCreateRole(event.target.value)}
-                    value={createRole}
+                    Start game
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                    onClick={() => setStartupFlowStep("choose")}
+                    type="button"
                   >
-                    {startupRoleOptions.map((role) => (
-                      <option key={role} value={role}>
-                        {role}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Race</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) => setCreateRace(event.target.value)}
-                    value={createRace}
+                    Back
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button"
+                    onClick={openClientOptionsDialog}
+                    type="button"
                   >
-                    {startupRaceOptions.map((race) => (
-                      <option key={race} value={race}>
-                        {race}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Gender</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) => setCreateGender(event.target.value)}
-                    value={createGender}
+                    NetHack 3D Options
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="nh3d-question-text">Create your character:</div>
+                <div className="nh3d-startup-config-grid">
+                  <label className="nh3d-startup-config-field">
+                    <span>Name</span>
+                    <input
+                      className="nh3d-startup-config-input"
+                      maxLength={30}
+                      onChange={(event) => setCreateName(event.target.value)}
+                      placeholder="Web_user"
+                      type="text"
+                      value={createName}
+                    />
+                  </label>
+                  <label className="nh3d-startup-config-field">
+                    <span>Role</span>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) => setCreateRole(event.target.value)}
+                      value={createRole}
+                    >
+                      {startupRoleOptions.map((role) => (
+                        <option key={role} value={role}>
+                          {role}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nh3d-startup-config-field">
+                    <span>Race</span>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) => setCreateRace(event.target.value)}
+                      value={createRace}
+                    >
+                      {startupRaceOptions.map((race) => (
+                        <option key={race} value={race}>
+                          {race}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nh3d-startup-config-field">
+                    <span>Gender</span>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) => setCreateGender(event.target.value)}
+                      value={createGender}
+                    >
+                      {startupGenderOptions.map((gender) => (
+                        <option key={gender} value={gender}>
+                          {gender}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="nh3d-startup-config-field">
+                    <span>Alignment</span>
+                    <select
+                      className="nh3d-startup-config-select"
+                      onChange={(event) => setCreateAlign(event.target.value)}
+                      value={createAlign}
+                    >
+                      {startupAlignOptions.map((align) => (
+                        <option key={align} value={align}>
+                          {align}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="nh3d-menu-actions">
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                    onClick={() =>
+                      setCharacterCreationConfig({
+                        mode: "create",
+                        playMode: clientOptions.fpsMode ? "fps" : "normal",
+                        runtimeVersion,
+                        name: normalizeStartupCharacterName(createName),
+                        role: createRole,
+                        race: createRace,
+                        gender: createGender,
+                        align: createAlign,
+                      })
+                    }
+                    type="button"
                   >
-                    {startupGenderOptions.map((gender) => (
-                      <option key={gender} value={gender}>
-                        {gender}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="nh3d-startup-config-field">
-                  <span>Alignment</span>
-                  <select
-                    className="nh3d-startup-config-select"
-                    onChange={(event) => setCreateAlign(event.target.value)}
-                    value={createAlign}
+                    Start game
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                    onClick={() => setStartupFlowStep("choose")}
+                    type="button"
                   >
-                    {startupAlignOptions.map((align) => (
-                      <option key={align} value={align}>
-                        {align}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div className="nh3d-menu-actions">
-                <button
-                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                  onClick={() =>
-                    setCharacterCreationConfig({
-                      mode: "create",
-                      playMode: clientOptions.fpsMode ? "fps" : "normal",
-                      runtimeVersion,
-                      name: normalizeStartupCharacterName(createName),
-                      role: createRole,
-                      race: createRace,
-                      gender: createGender,
-                      align: createAlign,
-                    })
-                  }
-                  type="button"
-                >
-                  Start game
-                </button>
-                <button
-                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                  onClick={() => setStartupFlowStep("choose")}
-                  type="button"
-                >
-                  Back
-                </button>
-                <button
-                  className="nh3d-menu-action-button"
-                  onClick={openClientOptionsDialog}
-                  type="button"
-                >
-                  NetHack 3D Options
-                </button>
-              </div>
-            </>
-          )}
-        </div>
+                    Back
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button"
+                    onClick={openClientOptionsDialog}
+                    type="button"
+                  >
+                    NetHack 3D Options
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
       ) : null}
 
       <div
@@ -1452,7 +1528,7 @@ export default function App(): JSX.Element {
         <div className="loading-subtitle">Starting local runtime...</div>
       </div>
 
-      {!isMobileViewport ? (
+      {!isMobileViewport && isDesktopGameRunning ? (
         <div className="top-left-ui with-stats">
           <div id="game-status">{statusText}</div>
           {clientOptions.liveMessageLog ? (
@@ -1497,90 +1573,92 @@ export default function App(): JSX.Element {
         ))}
       </div>
 
-      <div id="stats-bar">
-        <div className="nh3d-stats-name">
-          {playerStats.name} (Lvl {playerStats.level})
-        </div>
-        <div className="nh3d-stats-meter">
-          <div className="nh3d-stats-meter-label nh3d-stats-meter-label-hp">
-            HP: {playerStats.hp}/{playerStats.maxHp}
+      {!startup && (
+        <div id="stats-bar">
+          <div className="nh3d-stats-name">
+            {playerStats.name} (Lvl {playerStats.level})
           </div>
-          <div className="nh3d-stats-meter-track">
-            <div
-              className="nh3d-stats-meter-fill"
-              style={{
-                width: `${hpPercentage}%`,
-                backgroundColor: hpColor,
-              }}
-            />
-          </div>
-        </div>
-        {playerStats.maxPower > 0 ? (
           <div className="nh3d-stats-meter">
-            <div className="nh3d-stats-meter-label nh3d-stats-meter-label-pw">
-              Pw: {playerStats.power}/{playerStats.maxPower}
+            <div className="nh3d-stats-meter-label nh3d-stats-meter-label-hp">
+              HP: {playerStats.hp}/{playerStats.maxHp}
             </div>
             <div className="nh3d-stats-meter-track">
               <div
-                className="nh3d-stats-meter-fill nh3d-stats-meter-fill-pw"
-                style={{ width: `${powerPercentage}%` }}
+                className="nh3d-stats-meter-fill"
+                style={{
+                  width: `${hpPercentage}%`,
+                  backgroundColor: hpColor,
+                }}
               />
             </div>
           </div>
-        ) : null}
-        <div className="nh3d-stats-group nh3d-stats-group-core">
-          <div className="nh3d-stats-core">St:{playerStats.strength}</div>
-          <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
-          <div className="nh3d-stats-core">Co:{playerStats.constitution}</div>
-          <div className="nh3d-stats-core">In:{playerStats.intelligence}</div>
-          <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
-          <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
-          <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
-            AC:{playerStats.armor}
+          {playerStats.maxPower > 0 ? (
+            <div className="nh3d-stats-meter">
+              <div className="nh3d-stats-meter-label nh3d-stats-meter-label-pw">
+                Pw: {playerStats.power}/{playerStats.maxPower}
+              </div>
+              <div className="nh3d-stats-meter-track">
+                <div
+                  className="nh3d-stats-meter-fill nh3d-stats-meter-fill-pw"
+                  style={{ width: `${powerPercentage}%` }}
+                />
+              </div>
+            </div>
+          ) : null}
+          <div className="nh3d-stats-group nh3d-stats-group-core">
+            <div className="nh3d-stats-core">St:{playerStats.strength}</div>
+            <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
+            <div className="nh3d-stats-core">Co:{playerStats.constitution}</div>
+            <div className="nh3d-stats-core">In:{playerStats.intelligence}</div>
+            <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
+            <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
+            <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
+              AC:{playerStats.armor}
+            </div>
+            <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
+              Exp:{playerStats.experience}
+            </div>
+            <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
+              T:{playerStats.time}
+            </div>
+            <div className="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">
+              $:{playerStats.gold}
+            </div>
           </div>
-          <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
-            Exp:{playerStats.experience}
+          <div className="nh3d-stats-group nh3d-stats-group-secondary">
+            <div className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">
+              AC:{playerStats.armor}
+            </div>
+            <div className="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">
+              Exp:{playerStats.experience}
+            </div>
+            <div className="nh3d-stats-secondary-gold nh3d-stats-desktop-secondary">
+              $:{playerStats.gold}
+            </div>
+            <div className="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">
+              T:{playerStats.time}
+            </div>
+            <div className="nh3d-stats-hunger nh3d-stats-desktop-secondary">
+              {playerStats.hunger}
+              {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
+            </div>
           </div>
-          <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
-            T:{playerStats.time}
-          </div>
-          <div className="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">
-            $:{playerStats.gold}
+          <div className="nh3d-stats-location">
+            <div className="nh3d-stats-dungeon">
+              {playerStats.dungeon} {playerStats.dlevel}
+              {locationStatusText ? (
+                <span className="nh3d-stats-mobile-location-status">
+                  {locationStatusText}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
-        <div className="nh3d-stats-group nh3d-stats-group-secondary">
-          <div className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">
-            AC:{playerStats.armor}
-          </div>
-          <div className="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">
-            Exp:{playerStats.experience}
-          </div>
-          <div className="nh3d-stats-secondary-gold nh3d-stats-desktop-secondary">
-            $:{playerStats.gold}
-          </div>
-          <div className="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">
-            T:{playerStats.time}
-          </div>
-          <div className="nh3d-stats-hunger nh3d-stats-desktop-secondary">
-            {playerStats.hunger}
-            {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
-          </div>
-        </div>
-        <div className="nh3d-stats-location">
-          <div className="nh3d-stats-dungeon">
-            {playerStats.dungeon} {playerStats.dlevel}
-            {locationStatusText ? (
-              <span className="nh3d-stats-mobile-location-status">
-                {locationStatusText}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </div>
+      )}
 
       {isClientOptionsVisible ? (
         <div
-          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-has-mobile-close is-visible"
+          className={`nh3d-dialog nh3d-dialog-options nh3d-dialog-has-mobile-close is-visible`}
           id="nh3d-client-options-dialog"
         >
           {renderMobileDialogCloseButton(

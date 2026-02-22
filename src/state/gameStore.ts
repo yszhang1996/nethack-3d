@@ -61,10 +61,7 @@ type GameStore = {
   nextFloatingMessageId: number;
   setLoadingVisible: (visible: boolean) => void;
   setStatusText: (text: string) => void;
-  setConnectionStatus: (
-    text: string,
-    state: NethackConnectionState,
-  ) => void;
+  setConnectionStatus: (text: string, state: NethackConnectionState) => void;
   setGameMessages: (messages: string[]) => void;
   pushFloatingMessage: (message: string) => void;
   removeFloatingMessage: (id: number) => void;
@@ -86,7 +83,7 @@ const maxFloatingMessages = 12;
 
 export const useGameStore = create<GameStore>((set, get) => ({
   loadingVisible: true,
-  statusText: "Starting NetHack...",
+  statusText: "",
   connectionState: "disconnected",
   connectionText: "Disconnected",
   gameMessages: [],
@@ -126,10 +123,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const id = get().nextFloatingMessageId;
     set((state) => ({
       nextFloatingMessageId: id + 1,
-      floatingMessages: [{ id, text: trimmed }, ...state.floatingMessages].slice(
-        0,
-        maxFloatingMessages,
-      ),
+      floatingMessages: [
+        { id, text: trimmed },
+        ...state.floatingMessages,
+      ].slice(0, maxFloatingMessages),
     }));
     if (typeof window !== "undefined") {
       window.setTimeout(() => {
