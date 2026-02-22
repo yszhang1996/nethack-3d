@@ -1345,6 +1345,11 @@ class LocalNetHackRuntime {
     }
 
     if (input.length === 1) {
+      const isViDirectionKey = /^[hjklyubn]$/i.test(input);
+      if (isViDirectionKey && this.numberPadModeEnabled) {
+        return false;
+      }
+
       return (
         input === "h" ||
         input === "j" ||

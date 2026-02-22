@@ -2335,6 +2335,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private getDirectionVectorFromInput(
     input: string,
   ): { dx: number; dy: number } | null {
+    if (this.numberPadModeEnabled && /^[hjklyubn]$/i.test(input)) {
+      return null;
+    }
+
     switch (input) {
       case "k":
       case "K":
@@ -8883,7 +8887,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         case "U":
         case "B":
         case "N":
-          return true;
+          return !this.numberPadModeEnabled;
         case "1":
         case "2":
         case "3":
@@ -9223,6 +9227,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private tryResolveFpsMovementInput(key: string, code: string = ""): string | null {
     const lower = key.toLowerCase();
+    if (this.numberPadModeEnabled && /^[hjklyubn]$/.test(lower)) {
+      return null;
+    }
     const aim = this.getFpsAimDirectionFromCamera();
     if (!aim) {
       return null;
