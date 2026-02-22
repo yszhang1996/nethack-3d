@@ -326,7 +326,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
   private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
   private readonly fpsCrosshairGlancePostResolveGraceMs: number = 420;
-  private fpsWallChamferGeometryCache: Map<number, THREE.ExtrudeGeometry> =
+  private fpsWallChamferGeometryCache: Map<number, THREE.BufferGeometry> =
     new Map();
   private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
     new Map();
@@ -336,7 +336,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     THREE.MeshBasicMaterial
   > = new Map();
   private fpsWallChamferFloorMaterialCache: Map<
-    TileMaterialKind,
+    string,
     { material: THREE.MeshBasicMaterial; texture: THREE.CanvasTexture }
   > = new Map();
   private readonly fpsWallChamferInset = TILE_SIZE * 0.25;
@@ -4366,16 +4366,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
-      // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
-      // Tint cut corners with nearby floor-like material to expose a readable diagonal passage.
-      const chamferKind =
-        typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
-          ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
-          : null;
-      const chamferMaterial = chamferKind
-        ? this.getMaterialByKind(chamferKind)
-        : baseMaterial;
-      mesh.material = [overlay.material, baseMaterial, chamferMaterial];
+      if (useTiles) {
+        // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
+        // In tileset mode, apply the wall tile to every visible face group.
+        mesh.material = [overlay.material, overlay.material, overlay.material];
+      } else {
+        // In ASCII mode, keep chamfer cuts floor-tinted for diagonal readability.
+        const chamferKind =
+          typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+            ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+            : null;
+        const chamferMaterial = chamferKind
+          ? this.getMaterialByKind(chamferKind)
+          : baseMaterial;
+        mesh.material = [overlay.material, baseMaterial, chamferMaterial];
+      }
     } else if (isWall) {
       if (mesh.userData.materialKind === "door" && useTiles) {
         mesh.material = [
@@ -4536,26 +4541,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private getFpsWallChamferFloorMaterial(
     materialKind: TileMaterialKind,
   ): THREE.MeshBasicMaterial {
-    const cached = this.fpsWallChamferFloorMaterialCache.get(materialKind);
+    const tileIndex = this.getFpsWallChamferFloorTileIndex(materialKind);
+    const useTiles =
+      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+    const cacheKey = useTiles ? `tile:${tileIndex}` : `ascii:${materialKind}`;
+    const cached = this.fpsWallChamferFloorMaterialCache.get(cacheKey);
     if (cached) {
       return cached.material;
     }
 
-    const baseColorHex =
-      this.getMaterialByKind(materialKind).color.getHexString();
-    const texture = this.createGlyphTexture(
-      baseColorHex,
-      " ",
-      "#F4F4F4",
-      1,
-      256,
-      true,
-    );
+    const texture = useTiles
+      ? this.createTileTexture(
+          tileIndex,
+          materialKind === "dark" ? 0.6 : 1,
+          false,
+        )
+      : this.createGlyphTexture(
+          this.getMaterialByKind(materialKind).color.getHexString(),
+          " ",
+          "#F4F4F4",
+          1,
+          256,
+          true,
+        );
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       transparent: false,
     });
-    this.fpsWallChamferFloorMaterialCache.set(materialKind, {
+    this.fpsWallChamferFloorMaterialCache.set(cacheKey, {
       material,
       texture,
     });
@@ -4564,6 +4577,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.patchMaterialForVignette(material);
 
     return material;
+  }
+
+  private getFpsWallChamferFloorTileIndex(
+    materialKind: TileMaterialKind,
+  ): number {
+    const floorGlyph = getDefaultFloorGlyph();
+    const fallbackGlyph =
+      materialKind === "dark" ? floorGlyph + 1 : floorGlyph;
+    const behavior = classifyTileBehavior({
+      glyph: fallbackGlyph,
+      runtimeChar: ".",
+      runtimeColor: null,
+      priorTerrain: null,
+    });
+    return behavior.effective.tileIndex;
   }
 
   private clearFpsWallChamferMaterialCaches(): void {
@@ -4640,7 +4668,108 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return geometry;
   }
 
-  private createFpsChamferedWallGeometry(mask: number): THREE.ExtrudeGeometry {
+  private remapFpsChamferWallUVs(
+    geometry: THREE.BufferGeometry,
+  ): THREE.BufferGeometry {
+    const workingGeometry = geometry.index ? geometry.toNonIndexed() : geometry;
+    const position = workingGeometry.getAttribute("position");
+    if (!(position instanceof THREE.BufferAttribute)) {
+      return workingGeometry;
+    }
+
+    const uv = new Float32Array(position.count * 2);
+    const half = TILE_SIZE / 2;
+    const halfWall = WALL_HEIGHT / 2;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const ab = new THREE.Vector3();
+    const ac = new THREE.Vector3();
+    const normal = new THREE.Vector3();
+    const normalXY = new THREE.Vector2();
+
+    const writeUv = (index: number, u: number, v: number): void => {
+      uv[index * 2] = THREE.MathUtils.clamp(u, 0, 1);
+      uv[index * 2 + 1] = THREE.MathUtils.clamp(v, 0, 1);
+    };
+
+    for (let i = 0; i < position.count; i += 3) {
+      a.fromBufferAttribute(position, i);
+      b.fromBufferAttribute(position, i + 1);
+      c.fromBufferAttribute(position, i + 2);
+      ab.subVectors(b, a);
+      ac.subVectors(c, a);
+      normal.crossVectors(ab, ac).normalize();
+
+      if (Math.abs(normal.z) >= 0.9) {
+        const vertices = [a, b, c];
+        for (let j = 0; j < 3; j += 1) {
+          const p = vertices[j];
+          const u = (p.x + half) / TILE_SIZE;
+          const v = 1 - (p.y + half) / TILE_SIZE;
+          writeUv(i + j, u, v);
+        }
+        continue;
+      }
+
+      normalXY.set(normal.x, normal.y);
+      if (normalXY.lengthSq() <= 0.000001) {
+        normalXY.set(1, 0);
+      } else {
+        normalXY.normalize();
+      }
+
+      const tangentX = -normalXY.y;
+      const tangentY = normalXY.x;
+      const projectedA = a.x * tangentX + a.y * tangentY;
+      const projectedB = b.x * tangentX + b.y * tangentY;
+      const projectedC = c.x * tangentX + c.y * tangentY;
+      const projectedMin = Math.min(projectedA, projectedB, projectedC);
+      const projectedMax = Math.max(projectedA, projectedB, projectedC);
+      const projectedRange = projectedMax - projectedMin;
+
+      const vertices = [a, b, c];
+      const projected = [projectedA, projectedB, projectedC];
+      for (let j = 0; j < 3; j += 1) {
+        const p = vertices[j];
+        const horizontal =
+          projectedRange > 0.000001
+            ? (projected[j] - projectedMin) / projectedRange
+            : 0.5;
+        // Match BoxGeometry wall-face UV orientation:
+        // vertical axis in U, horizontal axis in V.
+        const u = 1 - (p.z + halfWall) / WALL_HEIGHT;
+        const v = horizontal;
+        writeUv(i + j, u, v);
+      }
+    }
+
+    workingGeometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+    return workingGeometry;
+  }
+
+  private remapFpsChamferFloorUVs(geometry: THREE.ShapeGeometry): void {
+    const position = geometry.getAttribute("position");
+    const uv = geometry.getAttribute("uv");
+    if (
+      !(position instanceof THREE.BufferAttribute) ||
+      !(uv instanceof THREE.BufferAttribute)
+    ) {
+      return;
+    }
+
+    const half = TILE_SIZE / 2;
+    for (let i = 0; i < position.count; i += 1) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const u = THREE.MathUtils.clamp((x + half) / TILE_SIZE, 0, 1);
+      const v = THREE.MathUtils.clamp(1 - (y + half) / TILE_SIZE, 0, 1);
+      uv.setXY(i, u, v);
+    }
+    uv.needsUpdate = true;
+  }
+
+  private createFpsChamferedWallGeometry(mask: number): THREE.BufferGeometry {
     const half = TILE_SIZE / 2;
     const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
     const cutNorthWest = (mask & 1) !== 0;
@@ -4678,15 +4807,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const shape = new THREE.Shape(points);
-    const geometry = new THREE.ExtrudeGeometry(shape, {
+    const extrudedGeometry = new THREE.ExtrudeGeometry(shape, {
       depth: WALL_HEIGHT,
       bevelEnabled: false,
       steps: 1,
       curveSegments: 1,
     });
-    this.splitFpsChamferGeometryGroups(geometry);
+    this.splitFpsChamferGeometryGroups(extrudedGeometry);
     // Align with box geometry, which is centered around z=0.
-    geometry.translate(0, 0, -WALL_HEIGHT / 2);
+    extrudedGeometry.translate(0, 0, -WALL_HEIGHT / 2);
+    const geometry = this.remapFpsChamferWallUVs(extrudedGeometry);
+    if (geometry !== extrudedGeometry) {
+      extrudedGeometry.dispose();
+    }
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
@@ -4761,6 +4894,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const geometry = new THREE.ShapeGeometry(shapes);
+    this.remapFpsChamferFloorUVs(geometry);
     geometry.computeVertexNormals();
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
@@ -4878,6 +5012,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.glyphDarkenFactor === "number"
         ? mesh.userData.glyphDarkenFactor
         : 1;
+    const tileIndex =
+      typeof mesh.userData?.tileIndex === "number"
+        ? mesh.userData.tileIndex
+        : -1;
     this.applyGlyphMaterial(
       key,
       mesh,
@@ -4887,6 +5025,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       true,
       darkenFactor,
       true,
+      tileIndex,
     );
   }
 
@@ -5626,6 +5765,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
+    mesh.userData.tileIndex = renderBehavior.effective.tileIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
