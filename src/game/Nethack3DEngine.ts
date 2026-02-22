@@ -2069,7 +2069,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : [];
         this.inventoryRefreshInFlight = false;
         const itemCount = nextInventory.length;
-        const actualItems = nextInventory.filter((item: any) => !item.isCategory);
+        const actualItems = nextInventory.filter(
+          (item: any) => !item.isCategory,
+        );
         console.log(
           `📦 Received inventory update with ${itemCount} total items (${actualItems.length} actual items)`,
         );
@@ -10125,6 +10127,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const aim = this.getFpsAimDirectionFromCamera();
     if (!aim) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
       return;
     }
     this.fpsCurrentAimDirection = aim;
@@ -10134,6 +10139,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const targetY = this.playerPos.y + aim.dy;
     const targetKey = `${targetX},${targetY}`;
     const targetTile = this.tileMap.get(targetKey);
+    const isDiscoveredPassableTarget =
+      Boolean(targetTile) && !Boolean(targetTile?.userData?.isWall);
+    if (!isDiscoveredPassableTarget) {
+      if (this.fpsForwardHighlight) {
+        this.fpsForwardHighlight.visible = false;
+      }
+      return;
+    }
     const targetZ = targetTile?.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
 
     if (this.fpsForwardHighlight) {
