@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import { Nethack3DEngine } from "../game";
 import type {
   CharacterCreationConfig,
@@ -579,6 +586,17 @@ export default function App(): JSX.Element {
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
   const isFpsPlayMode = clientOptions.fpsMode;
+  const fpsContextTitle = String(fpsCrosshairContext?.title || "");
+  const shouldScrollFpsContextTitle = fpsContextTitle.length > 44;
+  const fpsContextTitleDurationSec = Math.max(
+    6,
+    Math.min(20, fpsContextTitle.length * 0.14),
+  );
+  const fpsContextTitleStyle: CSSProperties | undefined = shouldScrollFpsContextTitle
+    ? ({
+        "--nh3d-context-title-scroll-duration": `${fpsContextTitleDurationSec}s`,
+      } as CSSProperties)
+    : undefined;
   const inventoryItemActions = useMemo(
     () => [
       { id: "apply", label: "Apply" },
@@ -600,6 +618,20 @@ export default function App(): JSX.Element {
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
+  const inventoryContextTitle = inventoryContextMenu
+    ? `${inventoryContextMenu.itemText} (${inventoryContextMenu.accelerator})`
+    : "";
+  const shouldScrollInventoryContextTitle = inventoryContextTitle.length > 44;
+  const inventoryContextTitleDurationSec = Math.max(
+    6,
+    Math.min(20, inventoryContextTitle.length * 0.14),
+  );
+  const inventoryContextTitleStyle: CSSProperties | undefined =
+    shouldScrollInventoryContextTitle
+      ? ({
+          "--nh3d-context-title-scroll-duration": `${inventoryContextTitleDurationSec}s`,
+        } as CSSProperties)
+      : undefined;
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -2299,8 +2331,22 @@ export default function App(): JSX.Element {
             top: `${inventoryContextMenu.y}px`,
           }}
         >
-          <div className="nh3d-context-menu-title">
-            {inventoryContextMenu.itemText} ({inventoryContextMenu.accelerator})
+          <div
+            className={`nh3d-context-menu-title${
+              shouldScrollInventoryContextTitle
+                ? " nh3d-context-menu-title-scroll"
+                : ""
+            }`}
+            style={inventoryContextTitleStyle}
+          >
+            {shouldScrollInventoryContextTitle ? (
+              <span className="nh3d-context-menu-title-scroll-track">
+                <span>{inventoryContextTitle}</span>
+                <span aria-hidden="true">{inventoryContextTitle}</span>
+              </span>
+            ) : (
+              inventoryContextTitle
+            )}
           </div>
           <div className="nh3d-context-menu-actions">
             {inventoryItemActions.map((action) => (
@@ -2334,9 +2380,22 @@ export default function App(): JSX.Element {
 
       {isFpsPlayMode && fpsCrosshairContext ? (
         <div className="nh3d-context-menu nh3d-fps-crosshair-context">
-          <div className="nh3d-context-menu-title">
-            {fpsCrosshairContext.title} ({fpsCrosshairContext.tileX},
-            {fpsCrosshairContext.tileY})
+          <div
+            className={`nh3d-context-menu-title${
+              shouldScrollFpsContextTitle
+                ? " nh3d-context-menu-title-scroll"
+                : ""
+            }`}
+            style={fpsContextTitleStyle}
+          >
+            {shouldScrollFpsContextTitle ? (
+              <span className="nh3d-context-menu-title-scroll-track">
+                <span>{fpsContextTitle}</span>
+                <span aria-hidden="true">{fpsContextTitle}</span>
+              </span>
+            ) : (
+              fpsContextTitle
+            )}
           </div>
           <div className="nh3d-context-menu-actions">
             {fpsCrosshairContext.actions.map((action) => (

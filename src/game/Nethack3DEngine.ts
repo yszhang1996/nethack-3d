@@ -1983,6 +1983,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const oldPos = { ...this.playerPos };
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
+        if (this.isFpsMode()) {
+          this.removeMonsterBillboard(`${data.x},${data.y}`);
+        }
         this.markLightingDirty();
         console.log(
           `🎯 Player position changed from (${oldPos.x}, ${oldPos.y}) to (${data.x}, ${data.y})`,
@@ -5421,6 +5424,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const newZ = (verticalOffset - 0.5) * scaleBase + floorZ;
     sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
     sprite.userData.elevatedZ = newZ;
+    sprite.userData.tileX = x;
+    sprite.userData.tileY = y;
 
     const shadowScale = (scaleBase * contentWidth * 1.25) / (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
@@ -5634,8 +5639,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.effective.tileIndex,
     );
 
+    const isFpsPlayerTile =
+      this.isFpsMode() &&
+      this.hasSeenPlayerPosition &&
+      x === this.playerPos.x &&
+      y === this.playerPos.y;
+
     // Create or remove a billboard for any entity that should be elevated.
-    if (shouldElevateEntity && useTiles) {
+    if (
+      shouldElevateEntity &&
+      useTiles &&
+      !isFpsPlayerTile
+    ) {
       this.ensureMonsterBillboard(
         key,
         x,
@@ -10283,35 +10298,129 @@ class Nethack3DEngine implements Nethack3DEngineController {
     y: number;
     mesh: THREE.Mesh;
   } | null {
+    return this.getTileTargetFromPointerNdc(0, 0, true);
+  }
+
+  private isOpaqueSpriteIntersection(
+    intersection: THREE.Intersection<THREE.Object3D>,
+  ): boolean {
+    const sprite = intersection.object;
+    if (!(sprite instanceof THREE.Sprite)) {
+      return true;
+    }
+
+    const material = sprite.material;
+    if (!(material instanceof THREE.SpriteMaterial)) {
+      return true;
+    }
+
+    const texture = material.map;
+    if (!texture || !intersection.uv) {
+      return true;
+    }
+
+    const image = texture.image;
+    if (!(image instanceof HTMLCanvasElement)) {
+      return true;
+    }
+
+    const width = image.width;
+    const height = image.height;
+    if (width <= 0 || height <= 0) {
+      return false;
+    }
+
+    const uv = intersection.uv.clone();
+    texture.transformUv(uv);
+    const u = THREE.MathUtils.clamp(uv.x, 0, 0.999999);
+    const v = THREE.MathUtils.clamp(uv.y, 0, 0.999999);
+    const px = Math.floor(u * width);
+    const py = Math.floor(THREE.MathUtils.clamp(1 - v, 0, 0.999999) * height);
+    const context = image.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      return true;
+    }
+
+    const alpha = context.getImageData(px, py, 1, 1).data[3];
+    const alphaThreshold = Math.max(
+      1,
+      Math.round((material.alphaTest || 0) * 255),
+    );
+    return alpha >= alphaThreshold;
+  }
+
+  private getTileTargetFromPointerNdc(
+    ndcX: number,
+    ndcY: number,
+    requireMesh: boolean,
+  ): {
+    key: string;
+    x: number;
+    y: number;
+    mesh: THREE.Mesh;
+  } | null {
     const tiles = Array.from(this.tileMap.values());
-    if (tiles.length === 0) {
+    const billboards = Array.from(this.monsterBillboards.values());
+    if (tiles.length === 0 && billboards.length === 0) {
       return null;
     }
 
-    this.pointerNdc.set(0, 0);
+    this.pointerNdc.set(ndcX, ndcY);
     this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
-    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
+    const intersections = this.pointerRaycaster.intersectObjects(
+      [...billboards, ...tiles],
+      false,
+    );
     if (intersections.length === 0) {
       return null;
     }
 
-    const hit = intersections[0]?.object;
-    if (!(hit instanceof THREE.Mesh)) {
-      return null;
+    for (const intersection of intersections) {
+      const object = intersection.object;
+      if (object instanceof THREE.Sprite) {
+        if (!this.isOpaqueSpriteIntersection(intersection)) {
+          continue;
+        }
+        const spriteTileX = Number(object.userData?.tileX);
+        const spriteTileY = Number(object.userData?.tileY);
+        const x = Number.isFinite(spriteTileX)
+          ? Math.round(spriteTileX)
+          : Math.round(object.position.x / TILE_SIZE);
+        const y = Number.isFinite(spriteTileY)
+          ? Math.round(spriteTileY)
+          : Math.round(-object.position.y / TILE_SIZE);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          continue;
+        }
+        const key = `${x},${y}`;
+        const mesh = this.tileMap.get(key) ?? null;
+        if (!mesh && requireMesh) {
+          continue;
+        }
+        if (mesh) {
+          return { key, x, y, mesh };
+        }
+        continue;
+      }
+
+      if (!(object instanceof THREE.Mesh)) {
+        continue;
+      }
+
+      const x = Math.round(object.position.x / TILE_SIZE);
+      const y = Math.round(-object.position.y / TILE_SIZE);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      return {
+        key: `${x},${y}`,
+        x,
+        y,
+        mesh: object,
+      };
     }
 
-    const x = Math.round(hit.position.x / TILE_SIZE);
-    const y = Math.round(-hit.position.y / TILE_SIZE);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return null;
-    }
-
-    return {
-      key: `${x},${y}`,
-      x,
-      y,
-      mesh: hit,
-    };
+    return null;
   }
 
   private sanitizeFpsCrosshairGlanceText(rawText: string): string {
@@ -10324,6 +10433,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private shouldIgnoreFpsCrosshairGlanceText(text: string): boolean {
     const normalized = text.toLowerCase();
     if (!normalized) {
+      return true;
+    }
+    if (/^pick (an?|the)? ?object\b/.test(normalized)) {
       return true;
     }
     if (
@@ -10465,6 +10577,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileKey: string,
     nowMs: number,
   ): FpsCrosshairTargetHint | null {
+    const cached = this.getCachedFpsCrosshairGlanceEntry(tileKey, nowMs);
+    return cached ? cached.hint : null;
+  }
+
+  private getCachedFpsCrosshairGlanceEntry(
+    tileKey: string,
+    nowMs: number,
+  ): FpsCrosshairGlanceCacheEntry | null {
     const cached = this.fpsCrosshairGlanceCache.get(tileKey);
     if (!cached) {
       return null;
@@ -10473,7 +10593,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsCrosshairGlanceCache.delete(tileKey);
       return null;
     }
-    return cached.hint;
+    return cached;
   }
 
   private startFpsCrosshairGlanceProbe(
@@ -10498,7 +10618,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const cached = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    const cached = this.getCachedFpsCrosshairGlanceEntry(target.key, nowMs);
     if (cached !== null) {
       return;
     }
@@ -10732,7 +10852,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     key: string,
     mesh: THREE.Mesh,
     glanceHint: FpsCrosshairTargetHint | null = null,
+    glanceText: string | null = null,
   ): string {
+    const glanceTitle = String(glanceText || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (glanceTitle) {
+      return glanceTitle;
+    }
+
     const hint = glanceHint ?? this.getFpsCrosshairHintFromTile(key, mesh);
     switch (hint) {
       case "monster":
@@ -10793,7 +10921,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.startFpsCrosshairGlanceProbe(target, nowMs);
-    const glanceHint = this.getCachedFpsCrosshairTargetHint(target.key, nowMs);
+    const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(
+      target.key,
+      nowMs,
+    );
+    const glanceHint = glanceEntry?.hint ?? null;
     const actions = this.getFpsCrosshairActionsForTile(
       target.key,
       target.mesh,
@@ -10804,7 +10936,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    let title = this.getFpsCrosshairTitle(target.key, target.mesh, glanceHint);
+    let title = this.getFpsCrosshairTitle(
+      target.key,
+      target.mesh,
+      glanceHint,
+      glanceEntry?.sourceText ?? null,
+    );
     if (
       glanceHint === null &&
       this.fpsCrosshairGlancePending &&
@@ -11049,29 +11186,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
-
-    const tiles = Array.from(this.tileMap.values());
-    if (tiles.length === 0) {
+    const target = this.getTileTargetFromPointerNdc(
+      this.pointerNdc.x,
+      this.pointerNdc.y,
+      false,
+    );
+    if (!target) {
       return null;
     }
-
-    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
-    if (intersections.length === 0) {
-      return null;
-    }
-
-    const hit = intersections[0].object;
-    if (!(hit instanceof THREE.Mesh)) {
-      return null;
-    }
-
-    const x = Math.round(hit.position.x / TILE_SIZE);
-    const y = Math.round(-hit.position.y / TILE_SIZE);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return null;
-    }
-    return { x, y };
+    return { x: target.x, y: target.y };
   }
 
   private getGridPositionFromClientCoordinates(

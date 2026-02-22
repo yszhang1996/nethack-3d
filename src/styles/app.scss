@@ -1701,6 +1701,35 @@ canvas {
   text-overflow: ellipsis;
 }
 
+.nh3d-context-menu-title-scroll {
+  text-overflow: clip;
+}
+
+.nh3d-context-menu-title-scroll-track {
+  display: inline-flex;
+  align-items: center;
+  min-width: 100%;
+  gap: 28px;
+  white-space: nowrap;
+  animation: nh3d-context-title-scroll
+    var(--nh3d-context-title-scroll-duration, 10s) linear infinite;
+  will-change: transform;
+}
+
+.nh3d-context-menu-title-scroll-track > span {
+  display: inline-block;
+  flex: 0 0 auto;
+}
+
+@keyframes nh3d-context-title-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-50% - 14px));
+  }
+}
+
 .nh3d-context-menu-actions {
   display: flex;
   flex-direction: column;
@@ -1729,6 +1758,9 @@ canvas {
 
 .nh3d-inventory-context-menu {
   @extend %custom-scrollbar;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
   max-height: min(70vh, 450px);
   overflow-y: auto;
 }
