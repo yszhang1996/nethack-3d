@@ -4331,21 +4331,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
-      if (useTiles) {
-        // Keep chamfered wall faces in tiles mode textured like the base wall tile.
-        mesh.material = [overlay.material, overlay.material, overlay.material];
-      } else {
-        // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
-        // Tint cut corners with nearby floor-like material to expose a readable diagonal passage.
-        const chamferKind =
-          typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
-            ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
-            : null;
-        const chamferMaterial = chamferKind
-          ? this.getMaterialByKind(chamferKind)
-          : baseMaterial;
-        mesh.material = [overlay.material, baseMaterial, chamferMaterial];
-      }
+      // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
+      // Tint cut corners with nearby floor-like material to expose a readable diagonal passage.
+      const chamferKind =
+        typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
+          ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
+          : null;
+      const chamferMaterial = chamferKind
+        ? this.getMaterialByKind(chamferKind)
+        : baseMaterial;
+      mesh.material = [overlay.material, baseMaterial, chamferMaterial];
     } else if (isWall) {
       if (mesh.userData.materialKind === "door" && useTiles) {
         mesh.material = [
@@ -5398,8 +5393,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const floorZ = isWall ? WALL_HEIGHT + 0.03 : 0.028;
     const newZ = (verticalOffset - 0.5) * scaleBase + floorZ;
     sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
-    sprite.userData.tileX = x;
-    sprite.userData.tileY = y;
     sprite.userData.elevatedZ = newZ;
 
     const shadowScale = (scaleBase * contentWidth * 1.25) / (TILE_SIZE * 0.8);
@@ -9036,93 +9029,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private getFpsRelativeDirectionOffset(
-    event: KeyboardEvent,
-  ): { dx: number; dy: number } | null {
-    const lower = event.key.toLowerCase();
-    switch (lower) {
-      case "k":
-      case "arrowup":
-        return { dx: 0, dy: -1 };
-      case "j":
-      case "arrowdown":
-        return { dx: 0, dy: 1 };
-      case "h":
-      case "arrowleft":
-        return { dx: -1, dy: 0 };
-      case "l":
-      case "arrowright":
-        return { dx: 1, dy: 0 };
-      case "y":
-        return { dx: -1, dy: -1 };
-      case "u":
-        return { dx: 1, dy: -1 };
-      case "b":
-        return { dx: -1, dy: 1 };
-      case "n":
-        return { dx: 1, dy: 1 };
-      default:
-        break;
-    }
-
-    switch (event.key) {
-      case "Home":
-        return { dx: -1, dy: -1 };
-      case "PageUp":
-        return { dx: 1, dy: -1 };
-      case "End":
-        return { dx: -1, dy: 1 };
-      case "PageDown":
-        return { dx: 1, dy: 1 };
-      default:
-        break;
-    }
-
-    switch (event.code) {
-      case "Numpad8":
-        return { dx: 0, dy: -1 };
-      case "Numpad2":
-        return { dx: 0, dy: 1 };
-      case "Numpad4":
-        return { dx: -1, dy: 0 };
-      case "Numpad6":
-        return { dx: 1, dy: 0 };
-      case "Numpad7":
-        return { dx: -1, dy: -1 };
-      case "Numpad9":
-        return { dx: 1, dy: -1 };
-      case "Numpad1":
-        return { dx: -1, dy: 1 };
-      case "Numpad3":
-        return { dx: 1, dy: 1 };
-      default:
-        return null;
-    }
-  }
-
-  private getFpsDirectionInputFromRelativeOffset(
-    relativeDx: number,
-    relativeDy: number,
-  ): string | null {
-    const aim = this.getFpsAimDirectionFromCamera();
-    if (!aim) {
-      return null;
-    }
-    const rightX = -aim.dy;
-    const rightY = aim.dx;
-    const forwardScale = -relativeDy;
-    const worldDx = Math.sign(aim.dx * forwardScale + rightX * relativeDx);
-    const worldDy = Math.sign(aim.dy * forwardScale + rightY * relativeDx);
-    return this.getDirectionInputFromMapDelta(worldDx, worldDy);
-  }
-
-  private tryResolveFpsMovementInput(event: KeyboardEvent): string | null {
-    const offset = this.getFpsRelativeDirectionOffset(event);
-    if (offset) {
-      return this.getFpsDirectionInputFromRelativeOffset(offset.dx, offset.dy);
-    }
-
-    const lower = event.key.toLowerCase();
+  private tryResolveFpsMovementInput(key: string): string | null {
+    const lower = key.toLowerCase();
     const aim = this.getFpsAimDirectionFromCamera();
     if (!aim) {
       return null;
@@ -9558,7 +9466,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !event.ctrlKey &&
       !event.metaKey
     ) {
-      const fpsMoveInput = this.tryResolveFpsMovementInput(event);
+      const fpsMoveInput = this.tryResolveFpsMovementInput(event.key);
       if (fpsMoveInput) {
         event.preventDefault();
         if (event.shiftKey) {
@@ -10196,13 +10104,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const targetY = this.playerPos.y + aim.dy;
     const targetKey = `${targetX},${targetY}`;
     const targetTile = this.tileMap.get(targetKey);
-    if (!targetTile) {
-      if (this.fpsForwardHighlight) {
-        this.fpsForwardHighlight.visible = false;
-      }
-      return;
-    }
-    const targetZ = targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+    const targetZ = targetTile?.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
 
     if (this.fpsForwardHighlight) {
       this.fpsForwardHighlight.position.set(
@@ -10288,7 +10190,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     key: string;
     x: number;
     y: number;
-    mesh: THREE.Object3D;
+    mesh: THREE.Mesh;
   } | null {
     const tiles = Array.from(this.tileMap.values());
     if (tiles.length === 0) {
@@ -10297,28 +10199,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.pointerNdc.set(0, 0);
     this.pointerRaycaster.setFromCamera(this.pointerNdc, this.camera);
-    const billboards = Array.from(this.monsterBillboards.values());
-    const intersections = this.pointerRaycaster.intersectObjects(
-      [...tiles, ...billboards],
-      false,
-    );
+    const intersections = this.pointerRaycaster.intersectObjects(tiles, false);
     if (intersections.length === 0) {
       return null;
     }
 
     const hit = intersections[0]?.object;
-    if (!(hit instanceof THREE.Mesh) && !(hit instanceof THREE.Sprite)) {
+    if (!(hit instanceof THREE.Mesh)) {
       return null;
     }
 
-    const tileX = Number(hit.userData?.tileX);
-    const tileY = Number(hit.userData?.tileY);
-    const x = Number.isFinite(tileX)
-      ? tileX
-      : Math.round(hit.position.x / TILE_SIZE);
-    const y = Number.isFinite(tileY)
-      ? tileY
-      : Math.round(-hit.position.y / TILE_SIZE);
+    const x = Math.round(hit.position.x / TILE_SIZE);
+    const y = Math.round(-hit.position.y / TILE_SIZE);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return null;
     }
@@ -10547,7 +10439,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getFpsCrosshairHintFromTile(
     key: string,
-    mesh: THREE.Object3D,
+    mesh: THREE.Mesh,
   ): FpsCrosshairTargetHint {
     if (
       Boolean(mesh.userData?.isMonsterLikeCharacter) ||
@@ -10588,7 +10480,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getFpsCrosshairActionsForTile(
     key: string,
-    mesh: THREE.Object3D,
+    mesh: THREE.Mesh,
     glanceHint: FpsCrosshairTargetHint | null = null,
   ): FpsContextAction[] {
     const actions: FpsContextAction[] = [];
@@ -10747,7 +10639,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getFpsCrosshairTitle(
     key: string,
-    mesh: THREE.Object3D,
+    mesh: THREE.Mesh,
     glanceHint: FpsCrosshairTargetHint | null = null,
   ): string {
     const hint = glanceHint ?? this.getFpsCrosshairHintFromTile(key, mesh);
@@ -11004,11 +10896,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       key = absY >= absX ? (dy < 0 ? "w" : "s") : dx < 0 ? "a" : "d";
     }
-    const mockEvent = {
-      key,
-      code: key,
-    } as KeyboardEvent;
-    return this.tryResolveFpsMovementInput(mockEvent);
+    return this.tryResolveFpsMovementInput(key);
   }
 
   private resolveDirectionKeyFromDelta(
