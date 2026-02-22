@@ -1373,12 +1373,12 @@ canvas {
     display: inline-block;
     width: 320px;
 
-    @media (max-width: 720px), (pointer: coarse) {
+    @media (pointer: coarse) {
       width: 100%;
     }
   }
 
-  @media (max-width: 720px), (pointer: coarse) {
+  @media (pointer: coarse) {
     grid-template-columns: 1fr;
   }
 }
