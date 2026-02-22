@@ -720,12 +720,12 @@ canvas {
 
     @media (pointer: coarse) {
       top: calc(var(--nh3d-safe-area-top) + 3vh);
-      font-size: 6px;
+      font-size: 5px;
     }
 
     @media screen and (max-width: 515px) {
       top: calc(var(--nh3d-safe-area-top) + 3vh);
-      font-size: 6px;
+      font-size: 5px;
     }
   }
 }
