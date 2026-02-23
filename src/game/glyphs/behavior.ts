@@ -80,6 +80,11 @@ export function isDoorwayCmapGlyph(glyph: number): boolean {
   );
 }
 
+export function isSinkCmapGlyph(glyph: number): boolean {
+  // drawing.c: cmap index 30 is sink (S_sink).
+  return getCmapIndex(glyph) === 30;
+}
+
 type CmapSemantic =
   | "wall"
   | "floor"

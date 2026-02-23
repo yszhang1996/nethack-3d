@@ -20,6 +20,7 @@ import {
   getDefaultFloorGlyph,
   isDarkCorridorCmapGlyph,
   isDoorwayCmapGlyph,
+  isSinkCmapGlyph,
 } from "./glyphs/behavior";
 import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
@@ -1332,7 +1333,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return Boolean(terrain && isDarkCorridorCmapGlyph(terrain.glyph));
   }
 
-  private recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile: any): void {
+  private recordNewlyDiscoveredDarkCorridorTileForCurrentInput(
+    tile: any,
+  ): void {
     if (
       !this.darkCorridorInputDiscoveryWindowActive ||
       !tile ||
@@ -1390,7 +1393,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
       priorTerrain: terrain,
     });
-    if (typeof behavior.glyphChar === "string" && behavior.glyphChar.length > 0) {
+    if (
+      typeof behavior.glyphChar === "string" &&
+      behavior.glyphChar.length > 0
+    ) {
       return behavior.glyphChar.charAt(0);
     }
     return null;
@@ -1409,7 +1415,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const activationChar = this.getDoorwayActivationCharForInference(terrain);
     return Boolean(
       activationChar &&
-        this.darkCorridorDiscoveryDoorwayChars.has(activationChar),
+      this.darkCorridorDiscoveryDoorwayChars.has(activationChar),
     );
   }
 
@@ -1438,7 +1444,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
-  private collectDiscoveredDarkCorridorTiles(): Map<string, { x: number; y: number }> {
+  private collectDiscoveredDarkCorridorTiles(): Map<
+    string,
+    { x: number; y: number }
+  > {
     const discovered = new Map<string, { x: number; y: number }>();
 
     const tryAddKey = (key: string, glyph: number): void => {
@@ -1487,8 +1496,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isDarkCorridorWallInferenceEnabled(): boolean {
-    const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
-    return runtimeVersion === "3.6.7" && this.clientOptions.darkCorridorWalls367;
+    const runtimeVersion =
+      this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+    return (
+      runtimeVersion === "3.6.7" && this.clientOptions.darkCorridorWalls367
+    );
   }
 
   private getDarkCorridorRayDepthFromPlayer(
@@ -1599,7 +1611,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: null,
       priorTerrain: null,
     });
-    this.queueMinimapTileUpdate(tileX, tileY, undiscoveredFallbackBehavior, true);
+    this.queueMinimapTileUpdate(
+      tileX,
+      tileY,
+      undiscoveredFallbackBehavior,
+      true,
+    );
     this.refreshFpsWallChamferGeometryNear(tileX, tileY);
     this.markLightingDirty();
   }
@@ -1649,10 +1666,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const darkCorridorTiles = this.collectDiscoveredDarkCorridorTiles();
-    const frontierSeedDarkCorridorTiles =
-      this.darkCorridorInputDiscoveryWindowActive
-        ? this.newlyDiscoveredDarkCorridorTilesForCurrentInput
-        : new Map<string, { x: number; y: number }>();
+    const frontierSeedDarkCorridorTiles = this
+      .darkCorridorInputDiscoveryWindowActive
+      ? this.newlyDiscoveredDarkCorridorTilesForCurrentInput
+      : new Map<string, { x: number; y: number }>();
     const frontierDepthByRay = this.buildDarkCorridorFrontierDepthByRay(
       frontierSeedDarkCorridorTiles,
     );
@@ -3548,7 +3565,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Keep normal ASCII floor glyphs (lit and dark floor/corridor) visible
     // under the suppressed player tile in FPS mode.
-    return behavior.materialKind === "floor" || behavior.materialKind === "dark";
+    return (
+      behavior.materialKind === "floor" || behavior.materialKind === "dark"
+    );
   }
 
   private flushPendingTileUpdatesForPlayerPositionReconcile(): void {
@@ -4612,7 +4631,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return this.bloodMistTexture;
     }
 
-    const size = 96;
+    // Intentionally low-resolution so blood particles render with a pixelated look.
+    const size = 10;
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
@@ -4642,12 +4662,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
-    texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearFilter;
+    texture.anisotropy = 1;
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
     texture.generateMipmaps = false;
 
     this.bloodMistTexture = texture;
@@ -5750,11 +5767,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const floorGlyph = getDefaultFloorGlyph();
     let fallbackGlyph = floorGlyph;
     if (materialKind === "dark") {
-      const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+      const runtimeVersion =
+        this.characterCreationConfig.runtimeVersion ?? "3.6.7";
       // NetHack 3.6.7 dark corridor walls should chamfer using the dark hallway
       // floor texture, not the generic dark room texture.
       fallbackGlyph =
-        runtimeVersion === "3.6.7" ? getDefaultDarkFloorGlyph() : floorGlyph + 1;
+        runtimeVersion === "3.6.7"
+          ? getDefaultDarkFloorGlyph()
+          : floorGlyph + 1;
     }
     const behavior = classifyTileBehavior({
       glyph: fallbackGlyph,
@@ -6817,7 +6837,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isPlayerCharacter = behavior.isPlayerGlyph;
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
-    const isSink = behavior.effective.tileIndex === 30;
+    const isSink = isSinkCmapGlyph(behavior.effective.glyph);
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
     const isAltar = this.isAltarLikeBehavior(behavior);
@@ -7016,9 +7036,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const shouldKeepFloorGlyphUnderPlayerInFpsAscii =
         this.shouldKeepFloorGlyphUnderFpsAsciiPlayer(renderBehavior);
       tileGlyphChar =
-        shouldKeepFlatGlyphUnderPlayer || shouldKeepFloorGlyphUnderPlayerInFpsAscii
-        ? renderBehavior.glyphChar
-        : " ";
+        shouldKeepFlatGlyphUnderPlayer ||
+        shouldKeepFloorGlyphUnderPlayerInFpsAscii
+          ? renderBehavior.glyphChar
+          : " ";
       tileTextColor = renderBehavior.textColor;
     } else if (preferNormalModeAsciiUnderlayForFpsBillboards) {
       // In FPS ASCII mode, keep the same tile color/material classification that
