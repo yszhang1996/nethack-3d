@@ -904,7 +904,7 @@ canvas {
     bottom: 0;
     z-index: 3;
     box-sizing: border-box;
-    margin-top: 18px;
+    margin-top: 32px;
     margin-left: calc(-1 * var(--nh3d-dialog-fixed-padding));
     margin-right: calc(-1 * var(--nh3d-dialog-fixed-padding));
     margin-bottom: calc(-1 * var(--nh3d-dialog-fixed-padding));
@@ -1692,7 +1692,6 @@ canvas {
   margin-top: 12px;
   border-top: 2px solid var(--nh3d-ui-border-strong);
   padding-top: 10px;
-  padding-bottom: 10px;
 
   @media (pointer: coarse) {
     display: none;
@@ -1899,7 +1898,9 @@ canvas {
   left: clamp(
     var(--nh3d-fps-context-side-pad),
     calc(50% + 75px),
-    calc(100vw - var(--nh3d-fps-context-width) - var(--nh3d-fps-context-side-pad))
+    calc(
+      100vw - var(--nh3d-fps-context-width) - var(--nh3d-fps-context-side-pad)
+    )
   ) !important;
   top: 50%;
   transform: translateY(-50%);
@@ -1986,7 +1987,6 @@ canvas {
   margin-top: 10px;
   border-top: 2px solid var(--nh3d-ui-border-strong);
   padding-top: 10px;
-  padding-bottom: 10px;
 
   @media (pointer: coarse) {
     display: none;

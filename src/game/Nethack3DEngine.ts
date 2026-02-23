@@ -379,7 +379,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     { material: THREE.MeshBasicMaterial; texture: THREE.CanvasTexture }
   > = new Map();
   private readonly fpsWallChamferInset = TILE_SIZE * 0.25;
-  private readonly fpsWallChamferFloorZ = 0.001;
+  private readonly fpsWallChamferFloorZ = 0.0;
   private readonly elevatedMonsterZ = WALL_HEIGHT * 0.58;
   private readonly elevatedLootZ = WALL_HEIGHT * 0.42;
   private entityBlobShadows: Map<string, THREE.Mesh> = new Map();
@@ -6165,6 +6165,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsPreviousPlayerTileForSuppression;
     const shouldSuppressRecentPreviousPlayerTileInFps =
       this.isFpsMode() &&
+      behavior.isPlayerGlyph &&
       previousPlayerTileForSuppression !== null &&
       nowMs - previousPlayerTileForSuppression.capturedAtMs <= 450 &&
       x === previousPlayerTileForSuppression.x &&
@@ -6350,7 +6351,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.materialKind = renderBehavior.materialKind;
     mesh.userData.effectKind = behavior.effectKind;
     mesh.userData.disposition = behavior.disposition;
-    mesh.userData.isPlayerGlyph = behavior.isPlayerGlyph;
+    mesh.userData.isPlayerGlyph = renderBehavior.isPlayerGlyph;
     mesh.userData.isMonsterLikeCharacter = isMonsterLikeCharacter;
     mesh.userData.isLootLikeCharacter = isLootLikeCharacter;
     mesh.userData.isDamageFlashableCharacter =
@@ -9155,10 +9156,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingInventoryContextPromptCloseRequestedAtMs = Date.now();
     this.pendingInventoryContextMessageDialogRequestedAtMs = Date.now();
     if (normalizedActionId === "unwield") {
-      this.sendInputSequence([
-        `${this.inventoryContextSelectionPrefix}-`,
-        "w",
-      ]);
+      this.sendInputSequence([`${this.inventoryContextSelectionPrefix}-`, "w"]);
       this.queueRepeatDirectionCandidate({
         kind: "inventory_command",
         value: "w",
@@ -9692,6 +9690,79 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private resolvePositionInputConfirmKey(event: KeyboardEvent): string | null {
+    if (event.key === "Enter") {
+      return "Enter";
+    }
+    if (
+      event.key === " " ||
+      event.key === "Spacebar" ||
+      event.key === "Space"
+    ) {
+      return ".";
+    }
+    if (
+      event.key === "." ||
+      event.key === "Decimal" ||
+      event.code === "NumpadDecimal"
+    ) {
+      return ".";
+    }
+    if (event.key === "s" || event.key === "S") {
+      return "s";
+    }
+    if (event.code === "Numpad5") {
+      return this.numberPadModeEnabled ? "5" : ".";
+    }
+    return null;
+  }
+
+  private tryResolvePositionInputMovementKey(
+    event: KeyboardEvent,
+  ): string | null {
+    if (this.isFpsMode()) {
+      return this.tryResolveFpsPositionLookInput(event.key, event.code);
+    }
+
+    const mappedNav = this.mapDirectionalKeyFromNavigationInput(event.key);
+    if (mappedNav) {
+      return mappedNav;
+    }
+
+    if (event.code.startsWith("Numpad") && /^[1-9]$/.test(event.key)) {
+      return this.mapNumpadDigitToDirectionKey(event.key);
+    }
+
+    if (this.numberPadModeEnabled && /^[1-9]$/.test(event.key)) {
+      return event.key;
+    }
+
+    if (!this.numberPadModeEnabled) {
+      const lowerKey = event.key.toLowerCase();
+      if ("hjklyubn".includes(lowerKey)) {
+        return lowerKey;
+      }
+    }
+
+    return null;
+  }
+
+  private cancelPositionInputMode(): void {
+    this.sendInput("Escape");
+    this.setPositionInputMode(false);
+    if (this.positionHideTimerId !== null) {
+      window.clearTimeout(this.positionHideTimerId);
+      this.positionHideTimerId = null;
+    }
+    if (this.uiAdapter) {
+      this.uiAdapter.setPositionRequest(null);
+    }
+    const posDialog = document.getElementById("position-dialog");
+    if (posDialog) {
+      posDialog.classList.remove("is-visible");
+    }
+  }
+
   private isFpsMode(): boolean {
     return this.playMode === "fps";
   }
@@ -9890,6 +9961,68 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "c":
       case "n":
       case "pagedown":
+        return this.resolveFpsRelativeMovementInput(aim, 1, -1);
+      default:
+        return null;
+    }
+  }
+
+  private tryResolveFpsPositionLookInput(
+    key: string,
+    code: string = "",
+  ): string | null {
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return null;
+    }
+
+    if (code.startsWith("Numpad")) {
+      switch (code) {
+        case "Numpad8":
+          return this.resolveFpsRelativeMovementInput(aim, 0, 1);
+        case "Numpad2":
+          return this.resolveFpsRelativeMovementInput(aim, 0, -1);
+        case "Numpad4":
+          return this.resolveFpsRelativeMovementInput(aim, -1, 0);
+        case "Numpad6":
+          return this.resolveFpsRelativeMovementInput(aim, 1, 0);
+        case "Numpad7":
+          return this.resolveFpsRelativeMovementInput(aim, -1, 1);
+        case "Numpad9":
+          return this.resolveFpsRelativeMovementInput(aim, 1, 1);
+        case "Numpad1":
+          return this.resolveFpsRelativeMovementInput(aim, -1, -1);
+        case "Numpad3":
+          return this.resolveFpsRelativeMovementInput(aim, 1, -1);
+        default:
+          break;
+      }
+    }
+
+    switch (key.toLowerCase()) {
+      case "arrowup":
+      case "k":
+        return this.resolveFpsRelativeMovementInput(aim, 0, 1);
+      case "arrowdown":
+      case "j":
+        return this.resolveFpsRelativeMovementInput(aim, 0, -1);
+      case "arrowleft":
+      case "h":
+        return this.resolveFpsRelativeMovementInput(aim, -1, 0);
+      case "arrowright":
+      case "l":
+        return this.resolveFpsRelativeMovementInput(aim, 1, 0);
+      case "home":
+      case "y":
+        return this.resolveFpsRelativeMovementInput(aim, -1, 1);
+      case "pageup":
+      case "u":
+        return this.resolveFpsRelativeMovementInput(aim, 1, 1);
+      case "end":
+      case "b":
+        return this.resolveFpsRelativeMovementInput(aim, -1, -1);
+      case "pagedown":
+      case "n":
         return this.resolveFpsRelativeMovementInput(aim, 1, -1);
       default:
         return null;
@@ -10156,6 +10289,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (this.uiAdapter) {
         this.uiAdapter.setPositionRequest(null);
       }
+      if (this.positionHideTimerId !== null) {
+        window.clearTimeout(this.positionHideTimerId);
+        this.positionHideTimerId = null;
+      }
       // Clear question states when escape is pressed
       this.isInQuestion = false;
       this.isInDirectionQuestion = false;
@@ -10224,6 +10361,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
         event.preventDefault();
         return;
       }
+    }
+
+    if (
+      this.positionInputModeActive &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion
+    ) {
+      const positionMoveKey = this.tryResolvePositionInputMovementKey(event);
+      if (positionMoveKey) {
+        event.preventDefault();
+        this.sendInput(positionMoveKey);
+        return;
+      }
+      const positionConfirmKey = this.resolvePositionInputConfirmKey(event);
+      if (positionConfirmKey) {
+        event.preventDefault();
+        this.sendInput(positionConfirmKey);
+        return;
+      }
+      event.preventDefault();
+      this.cancelPositionInputMode();
+      return;
     }
 
     const modifiedInput = this.getModifiedInput(event);
@@ -10304,6 +10463,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       event.preventDefault();
       return;
+    }
+
+    if (
+      this.isFpsMode() &&
+      this.positionInputModeActive &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey
+    ) {
+      const fpsLookInput = this.tryResolveFpsPositionLookInput(
+        event.key,
+        event.code,
+      );
+      if (fpsLookInput) {
+        event.preventDefault();
+        this.sendInput(fpsLookInput);
+        return;
+      }
     }
 
     if (
@@ -11713,7 +11892,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : this.getCachedFpsCrosshairGlanceEntry(target.key, nowMs);
     const glanceHint: FpsCrosshairTargetHint | null = treatAsVoidWallTarget
       ? "wall"
-      : glanceEntry?.hint ?? null;
+      : (glanceEntry?.hint ?? null);
     const actions = this.getFpsCrosshairActionsForTile(
       target.key,
       target.mesh,
@@ -11960,11 +12139,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const maxY = Math.max(minY, hostBottom - half - margin);
     const centerX = THREE.MathUtils.clamp(gesture.startX, minX, maxX);
     const offsetY = this.resolveFpsTouchRunButtonOffsetY();
-    const centerY = THREE.MathUtils.clamp(
-      gesture.startY - offsetY,
-      minY,
-      maxY,
-    );
+    const centerY = THREE.MathUtils.clamp(gesture.startY - offsetY, minY, maxY);
     this.fpsTouchRunButtonTouchId = gesture.touchId;
     this.fpsTouchRunButtonCenterX = centerX;
     this.fpsTouchRunButtonCenterY = centerY;
