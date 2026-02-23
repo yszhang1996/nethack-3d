@@ -312,6 +312,7 @@ type ClientOption =
 
 type ClientOptionToggleKey =
   | "fpsMode"
+  | "invertTouchPanningDirection"
   | "minimap"
   | "damageNumbers"
   | "tileShakeOnHit"
@@ -536,6 +537,18 @@ const clientOptionsConfig: ClientOption[] = [
     key: "fpsMode",
     label: "FPS mode",
     description: "Use first-person controls and mouselook.",
+    type: "boolean",
+  },
+  {
+    key: "group-controls",
+    label: "Mobile controls",
+    type: "group",
+  },
+  {
+    key: "invertTouchPanningDirection",
+    label: "Invert touch panning direction",
+    description:
+      "Reverse drag direction for touch panning after hold-to-pan starts.",
     type: "boolean",
   },
   {

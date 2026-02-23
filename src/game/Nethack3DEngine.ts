@@ -14081,8 +14081,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const deltaX = touch.clientX - this.touchSwipeStart.lastX;
       const deltaY = touch.clientY - this.touchSwipeStart.lastY;
       const panSpeed = 0.05;
-      this.cameraPanX -= deltaX * panSpeed;
-      this.cameraPanY += deltaY * panSpeed;
+      const touchPanDirection = this.clientOptions.invertTouchPanningDirection
+        ? -1
+        : 1;
+      this.cameraPanX += -deltaX * panSpeed * touchPanDirection;
+      this.cameraPanY += deltaY * panSpeed * touchPanDirection;
       this.cameraPanTargetX = this.cameraPanX;
       this.cameraPanTargetY = this.cameraPanY;
       this.isCameraCenteredOnPlayer = false;
