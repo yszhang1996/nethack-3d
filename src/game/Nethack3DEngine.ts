@@ -389,12 +389,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     null;
   private fpsTouchMoveGesture: FpsTouchGestureState | null = null;
   private fpsTouchLookGesture: FpsTouchGestureState | null = null;
+  private fpsTouchRunButton: HTMLDivElement | null = null;
+  private fpsTouchRunButtonTouchId: number | null = null;
+  private fpsTouchRunButtonCenterX: number = 0;
+  private fpsTouchRunButtonCenterY: number = 0;
+  private fpsTouchRunButtonActive: boolean = false;
+  private fpsTouchRunButtonHoldTimerId: number | null = null;
   private readonly fpsTouchLookSensitivity: number = 0.0038;
   private readonly fpsTouchLookMoveThresholdPx: number = 8;
   private readonly fpsTouchTapMaxDurationMs: number = 280;
   private readonly touchSwipeMinDistancePx: number = 26;
   private readonly touchSwipeMaxDurationMs: number = 720;
   private readonly touchSwipePanHoldMs: number = 500;
+  private readonly fpsTouchRunButtonHoldMs: number = 500;
+  private readonly fpsTouchRunButtonOffsetYPx: number = 200;
+  private readonly fpsTouchRunButtonSizePx: number = 82;
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
@@ -4787,10 +4796,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
           projectedRange > 0.000001
             ? (projected[j] - projectedMin) / projectedRange
             : 0.5;
-        // Match BoxGeometry wall-face UV orientation:
-        // vertical axis in U, horizontal axis in V.
-        const u = 1 - (p.z + halfWall) / WALL_HEIGHT;
-        const v = horizontal;
+        const vertical = 1 - (p.z + halfWall) / WALL_HEIGHT;
+        // Keep side-wall orientation unchanged, but rotate faces whose wall run
+        // is horizontal in top-down space (eg north/south room walls).
+        const tangentIsHorizontal = Math.abs(tangentX) >= Math.abs(tangentY);
+        let u = vertical;
+        let v = horizontal;
+        if (tangentIsHorizontal) {
+          // 90deg clockwise rotation in UV space.
+          u = 1 - horizontal;
+          v = vertical;
+        }
         writeUv(i + j, u, v);
       }
     }
@@ -11301,6 +11317,174 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearFpsTouchGestures(): void {
     this.fpsTouchMoveGesture = null;
     this.fpsTouchLookGesture = null;
+    this.clearFpsTouchRunButtonHoldTimer();
+    this.clearFpsTouchRunButtonState();
+  }
+
+  private clearFpsTouchRunButtonHoldTimer(): void {
+    if (this.fpsTouchRunButtonHoldTimerId !== null && typeof window !== "undefined") {
+      window.clearTimeout(this.fpsTouchRunButtonHoldTimerId);
+    }
+    this.fpsTouchRunButtonHoldTimerId = null;
+  }
+
+  private ensureFpsTouchRunButton(): HTMLDivElement {
+    if (this.fpsTouchRunButton) {
+      return this.fpsTouchRunButton;
+    }
+    const button = document.createElement("div");
+    button.textContent = "Run";
+    button.setAttribute("aria-hidden", "true");
+    button.style.position = "fixed";
+    button.style.left = "0px";
+    button.style.top = "0px";
+    button.style.width = `${this.fpsTouchRunButtonSizePx}px`;
+    button.style.height = `${this.fpsTouchRunButtonSizePx}px`;
+    button.style.display = "none";
+    button.style.alignItems = "center";
+    button.style.justifyContent = "center";
+    button.style.pointerEvents = "none";
+    button.style.userSelect = "none";
+    button.style.touchAction = "none";
+    button.style.borderRadius = "12px";
+    button.style.border = "2px solid #96a996";
+    button.style.background = "rgba(24, 34, 24, 0.88)";
+    button.style.color = "#e7f8e7";
+    button.style.fontFamily = "system-ui, sans-serif";
+    button.style.fontSize = "20px";
+    button.style.fontWeight = "700";
+    button.style.letterSpacing = "0.02em";
+    button.style.transform = "translate(-50%, -50%) scale(1)";
+    button.style.transition = "transform 90ms ease, background-color 90ms ease, border-color 90ms ease, box-shadow 90ms ease";
+    button.style.zIndex = "80";
+    document.body.appendChild(button);
+    this.fpsTouchRunButton = button;
+    return button;
+  }
+
+  private clearFpsTouchRunButtonState(): void {
+    this.fpsTouchRunButtonTouchId = null;
+    this.fpsTouchRunButtonActive = false;
+    this.fpsTouchRunButtonCenterX = 0;
+    this.fpsTouchRunButtonCenterY = 0;
+    if (this.fpsTouchRunButton) {
+      this.fpsTouchRunButton.style.display = "none";
+      this.fpsTouchRunButton.style.transform =
+        "translate(-50%, -50%) scale(1)";
+      this.fpsTouchRunButton.style.background = "rgba(24, 34, 24, 0.88)";
+      this.fpsTouchRunButton.style.borderColor = "#96a996";
+      this.fpsTouchRunButton.style.boxShadow = "none";
+    }
+  }
+
+  private scheduleFpsTouchRunButtonHold(gesture: FpsTouchGestureState): void {
+    this.clearFpsTouchRunButtonHoldTimer();
+    if (typeof window === "undefined") {
+      return;
+    }
+    this.fpsTouchRunButtonHoldTimerId = window.setTimeout(() => {
+      this.fpsTouchRunButtonHoldTimerId = null;
+      const activeGesture = this.fpsTouchMoveGesture;
+      if (!activeGesture || activeGesture.touchId !== gesture.touchId) {
+        return;
+      }
+      if (this.fpsTouchRunButtonTouchId !== null) {
+        return;
+      }
+      this.showFpsTouchRunButtonForGesture(activeGesture);
+      this.setFpsTouchRunButtonActive(
+        this.isTouchOverFpsRunButton(activeGesture.lastX, activeGesture.lastY),
+      );
+    }, this.fpsTouchRunButtonHoldMs);
+  }
+
+  private showFpsTouchRunButtonForGesture(
+    gesture: FpsTouchGestureState,
+  ): void {
+    const button = this.ensureFpsTouchRunButton();
+    const half = this.fpsTouchRunButtonSizePx / 2;
+    const margin = 8;
+    const maxX = Math.max(half + margin, window.innerWidth - half - margin);
+    const maxY = Math.max(half + margin, window.innerHeight - half - margin);
+    const centerX = THREE.MathUtils.clamp(gesture.startX, half + margin, maxX);
+    const centerY = THREE.MathUtils.clamp(
+      gesture.startY - this.fpsTouchRunButtonOffsetYPx,
+      half + margin,
+      maxY,
+    );
+    this.fpsTouchRunButtonTouchId = gesture.touchId;
+    this.fpsTouchRunButtonCenterX = centerX;
+    this.fpsTouchRunButtonCenterY = centerY;
+    this.fpsTouchRunButtonActive = false;
+    button.style.left = `${centerX}px`;
+    button.style.top = `${centerY}px`;
+    button.style.display = "flex";
+    button.style.transform = "translate(-50%, -50%) scale(1)";
+    button.style.background = "rgba(24, 34, 24, 0.88)";
+    button.style.borderColor = "#96a996";
+    button.style.boxShadow = "none";
+  }
+
+  private isTouchOverFpsRunButton(clientX: number, clientY: number): boolean {
+    if (this.fpsTouchRunButtonTouchId === null) {
+      return false;
+    }
+    const half = this.fpsTouchRunButtonSizePx / 2;
+    return (
+      clientX >= this.fpsTouchRunButtonCenterX - half &&
+      clientX <= this.fpsTouchRunButtonCenterX + half &&
+      clientY >= this.fpsTouchRunButtonCenterY - half &&
+      clientY <= this.fpsTouchRunButtonCenterY + half
+    );
+  }
+
+  private setFpsTouchRunButtonActive(active: boolean): void {
+    if (this.fpsTouchRunButtonActive === active) {
+      return;
+    }
+    this.fpsTouchRunButtonActive = active;
+    const button = this.fpsTouchRunButton;
+    if (!button || button.style.display === "none") {
+      return;
+    }
+    if (active) {
+      button.style.transform = "translate(-50%, -50%) scale(1.12)";
+      button.style.background = "rgba(72, 148, 72, 0.96)";
+      button.style.borderColor = "#d6ffd6";
+      button.style.boxShadow = "0 0 0 3px rgba(192, 255, 192, 0.34)";
+      return;
+    }
+    button.style.transform = "translate(-50%, -50%) scale(1)";
+    button.style.background = "rgba(24, 34, 24, 0.88)";
+    button.style.borderColor = "#96a996";
+    button.style.boxShadow = "none";
+  }
+
+  private updateFpsTouchRunButtonForMoveGesture(
+    gesture: FpsTouchGestureState,
+    touch: Touch,
+    nowMs: number,
+  ): void {
+    const matchingTouch =
+      this.fpsTouchRunButtonTouchId !== null
+        ? this.fpsTouchRunButtonTouchId === gesture.touchId
+        : true;
+    if (!matchingTouch) {
+      return;
+    }
+    if (this.fpsTouchRunButtonTouchId === null) {
+      const heldMs = nowMs - gesture.startedAtMs;
+      if (heldMs < this.fpsTouchRunButtonHoldMs) {
+        return;
+      }
+      this.showFpsTouchRunButtonForGesture(gesture);
+    }
+    if (this.fpsTouchRunButtonTouchId !== gesture.touchId) {
+      return;
+    }
+    this.setFpsTouchRunButtonActive(
+      this.isTouchOverFpsRunButton(touch.clientX, touch.clientY),
+    );
   }
 
   private findTouchById(list: TouchList, touchId: number): Touch | null {
@@ -11709,6 +11893,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.clearFpsTouchGestures();
           return;
         }
+        this.clearFpsTouchRunButtonHoldTimer();
+        this.clearFpsTouchRunButtonState();
 
         const rect = this.renderer.domElement.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
@@ -11778,6 +11964,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (isLeftSide) {
           if (!this.fpsTouchMoveGesture) {
             this.fpsTouchMoveGesture = gesture;
+            this.scheduleFpsTouchRunButtonHold(gesture);
             if (this.fpsCrosshairContextMenuOpen) {
               this.closeFpsCrosshairContextMenu(false);
             }
@@ -11886,9 +12073,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       if (!this.canUseFpsTouchInput(event)) {
+        this.clearFpsTouchGestures();
         return;
       }
 
+      const nowMs = Date.now();
       let consumed = false;
       if (this.fpsTouchLookGesture) {
         const touch =
@@ -11927,6 +12116,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (touch) {
           this.fpsTouchMoveGesture.lastX = touch.clientX;
           this.fpsTouchMoveGesture.lastY = touch.clientY;
+          this.updateFpsTouchRunButtonForMoveGesture(
+            this.fpsTouchMoveGesture,
+            touch,
+            nowMs,
+          );
           if (this.fpsCrosshairContextMenuOpen) {
             const traveled = Math.hypot(
               touch.clientX - this.fpsTouchMoveGesture.startX,
@@ -12022,6 +12216,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleTouchEnd(event: TouchEvent): void {
     if (this.isFpsMode()) {
       if (this.isInDirectionQuestion) {
+        this.clearFpsTouchRunButtonHoldTimer();
+        this.clearFpsTouchRunButtonState();
         if (!event.changedTouches || event.changedTouches.length === 0) {
           return;
         }
@@ -12119,8 +12315,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ) {
           const gesture = this.fpsTouchMoveGesture;
           this.fpsTouchMoveGesture = null;
+          this.clearFpsTouchRunButtonHoldTimer();
           const dx = touch.clientX - gesture.startX;
           const dy = touch.clientY - gesture.startY;
+          const hadRunButtonForTouch =
+            this.fpsTouchRunButtonTouchId === touch.identifier;
+          const runButtonActive =
+            hadRunButtonForTouch && this.fpsTouchRunButtonActive;
+          if (hadRunButtonForTouch) {
+            this.clearFpsTouchRunButtonState();
+            const fpsMoveInput = this.resolveFpsMovementInputFromSwipe(dx, dy);
+            if (runButtonActive && fpsMoveInput) {
+              if (this.fpsCrosshairContextMenuOpen) {
+                this.closeFpsCrosshairContextMenu(false);
+              }
+              if (!this.hasPlayerMovedOnce) {
+                this.lastMovementInputAtMs = nowMs;
+              }
+              this.sendForcedDirectionalInput(fpsMoveInput);
+            }
+            // Releasing off the run button cancels the swipe entirely.
+            consumed = true;
+            continue;
+          }
+
           const durationMs = nowMs - gesture.startedAtMs;
           const fpsMoveInput =
             durationMs <= this.touchSwipeMaxDurationMs
