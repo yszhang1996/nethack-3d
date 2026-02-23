@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -253,7 +254,9 @@ function pickRandomStartupRole(): string {
 }
 
 function pickRandomStartupGender(role: string): string {
-  const normalizedRole = String(role || "").trim().toLowerCase();
+  const normalizedRole = String(role || "")
+    .trim()
+    .toLowerCase();
   if (normalizedRole === "valkyrie") {
     return "female";
   }
@@ -302,7 +305,10 @@ type ClientOptionGroupHeader = {
   type: "group";
 };
 
-type ClientOption = ClientOptionGroupHeader | ClientOptionToggle | ClientOptionSelect;
+type ClientOption =
+  | ClientOptionGroupHeader
+  | ClientOptionToggle
+  | ClientOptionSelect;
 
 type ClientOptionToggleKey =
   | "fpsMode"
@@ -371,13 +377,27 @@ const inventoryCategoryActionBlocklist: Record<
   rings: new Set(["quaff", "wear", "take-off", "zap"]),
   amulets: new Set(["quaff", "wear", "take-off", "zap"]),
   tools: new Set(["quaff", "wear", "take-off", "zap"]),
-  comestibles: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  comestibles: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+  ]),
   potions: new Set(["wear", "take-off", "put-on", "remove", "zap"]),
   scrolls: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
   spellbooks: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
   wands: new Set(["quaff", "wear", "take-off", "put-on", "remove"]),
   coins: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
-  gems_stones: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  gems_stones: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+  ]),
   boulders_statues: new Set([
     "quaff",
     "wear",
@@ -402,7 +422,8 @@ function normalizeInventoryCategoryLabel(raw: unknown): string {
 function classifyInventoryCategory(
   categoryLabel: string,
 ): InventoryCategoryId | null {
-  const normalized = normalizeInventoryCategoryLabel(categoryLabel).toLowerCase();
+  const normalized =
+    normalizeInventoryCategoryLabel(categoryLabel).toLowerCase();
   if (!normalized) {
     return null;
   }
@@ -470,7 +491,9 @@ function getBlockedInventoryActionIdsForCategory(
   if (!categoryId) {
     return emptyInventoryActionIdSet;
   }
-  return inventoryCategoryActionBlocklist[categoryId] ?? emptyInventoryActionIdSet;
+  return (
+    inventoryCategoryActionBlocklist[categoryId] ?? emptyInventoryActionIdSet
+  );
 }
 
 const mobileDefaultFpsLookSensitivity = 1.35;
@@ -505,6 +528,17 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
+    key: "group-controls",
+    label: "First-person mode",
+    type: "group",
+  },
+  {
+    key: "fpsMode",
+    label: "FPS mode",
+    description: "Use first-person controls and mouselook.",
+    type: "boolean",
+  },
+  {
     key: "group-combat",
     label: "Combat feedback",
     type: "group",
@@ -534,20 +568,9 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "darkCorridorWalls367",
-    label: "3.6.7 dark corridor walls",
+    label: "NetHack 3.6.7 dark corridor walls",
     description:
       "Infer and cache dark corridor wall tiles (NetHack 3.6.7 behavior).",
-    type: "boolean",
-  },
-  {
-    key: "group-controls",
-    label: "First-person controls",
-    type: "group",
-  },
-  {
-    key: "fpsMode",
-    label: "FPS mode",
-    description: "Use first-person controls and mouselook.",
     type: "boolean",
   },
 ];
@@ -818,11 +841,12 @@ export default function App(): JSX.Element {
     6,
     Math.min(20, fpsContextTitle.length * 0.14),
   );
-  const fpsContextTitleStyle: CSSProperties | undefined = shouldScrollFpsContextTitle
-    ? ({
-        "--nh3d-context-title-scroll-duration": `${fpsContextTitleDurationSec}s`,
-      } as CSSProperties)
-    : undefined;
+  const fpsContextTitleStyle: CSSProperties | undefined =
+    shouldScrollFpsContextTitle
+      ? ({
+          "--nh3d-context-title-scroll-duration": `${fpsContextTitleDurationSec}s`,
+        } as CSSProperties)
+      : undefined;
   const inventoryItemActions = inventoryContextActions;
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [inventoryContextMenu, setInventoryContextMenu] =
@@ -876,15 +900,20 @@ export default function App(): JSX.Element {
       ? inventoryItemActions.filter((action) => !blocked.has(action.id))
       : inventoryItemActions;
     const selectedItemText = String(inventoryContextMenu?.itemText || "");
-    const selectedItemIsWeaponInHand =
-      /\bweapon in hand\b/i.test(selectedItemText);
+    const selectedItemIsWeaponInHand = /\bweapon in hand\b/i.test(
+      selectedItemText,
+    );
     if (!selectedItemIsWeaponInHand) {
       return visibleActions;
     }
     return visibleActions.map((action) =>
       action.id === "wield" ? { id: "unwield", label: "Unwield" } : action,
     );
-  }, [inventoryContextCategory, inventoryContextMenu?.itemText, inventoryItemActions]);
+  }, [
+    inventoryContextCategory,
+    inventoryContextMenu?.itemText,
+    inventoryItemActions,
+  ]);
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -1977,25 +2006,127 @@ export default function App(): JSX.Element {
               if (option.type === "boolean") {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
                 return (
-                  <div className="nh3d-option-row" key={option.key}>
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">{option.label}</div>
-                      <div className="nh3d-option-description">
-                        {option.description}
+                  <Fragment key={option.key}>
+                    <div className="nh3d-option-row">
+                      <div className="nh3d-option-copy">
+                        <div className="nh3d-option-label">{option.label}</div>
+                        <div className="nh3d-option-description">
+                          {option.description}
+                        </div>
                       </div>
+                      <button
+                        aria-checked={enabled}
+                        className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
+                        onClick={() =>
+                          updateClientOptionDraft(option.key, !enabled)
+                        }
+                        role="switch"
+                        type="button"
+                      >
+                        <span className="nh3d-option-switch-thumb" />
+                      </button>
                     </div>
-                    <button
-                      aria-checked={enabled}
-                      className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
-                      onClick={() =>
-                        updateClientOptionDraft(option.key, !enabled)
-                      }
-                      role="switch"
-                      type="button"
-                    >
-                      <span className="nh3d-option-switch-thumb" />
-                    </button>
-                  </div>
+                    {option.key === "fpsMode" && clientOptionsDraft.fpsMode ? (
+                      <>
+                        <div className="nh3d-option-row nh3d-option-row-slider">
+                          <div className="nh3d-option-copy">
+                            <div className="nh3d-option-label">
+                              FPS Field of View
+                            </div>
+                            <div className="nh3d-option-description">
+                              Adjust first-person camera FOV.
+                            </div>
+                          </div>
+                          <div className="nh3d-option-slider-control">
+                            <input
+                              aria-label="FPS Field of View"
+                              className="nh3d-option-slider"
+                              max={110}
+                              min={45}
+                              onChange={(event) =>
+                                updateClientFovDraft(Number(event.target.value))
+                              }
+                              step={1}
+                              type="range"
+                              value={clientOptionsDraft.fpsFov}
+                            />
+                            <div className="nh3d-option-slider-value">
+                              {clientOptionsDraft.fpsFov}
+                              {"\u00b0"}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="nh3d-option-row nh3d-option-row-slider">
+                          <div className="nh3d-option-copy">
+                            <div className="nh3d-option-label">
+                              Look Sensitivity X
+                            </div>
+                            <div className="nh3d-option-description">
+                              Horizontal mouselook/touch-look sensitivity.
+                            </div>
+                          </div>
+                          <div className="nh3d-option-slider-control">
+                            <input
+                              aria-label="Look Sensitivity X"
+                              className="nh3d-option-slider"
+                              max={nh3dFpsLookSensitivityMax}
+                              min={nh3dFpsLookSensitivityMin}
+                              onChange={(event) =>
+                                updateClientLookSensitivityDraft(
+                                  "fpsLookSensitivityX",
+                                  Number(event.target.value),
+                                )
+                              }
+                              step={0.01}
+                              type="range"
+                              value={clientOptionsDraft.fpsLookSensitivityX}
+                            />
+                            <div className="nh3d-option-slider-value">
+                              {clientOptionsDraft.fpsLookSensitivityX.toFixed(
+                                2,
+                              )}
+                              x
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="nh3d-option-row nh3d-option-row-slider">
+                          <div className="nh3d-option-copy">
+                            <div className="nh3d-option-label">
+                              Look Sensitivity Y
+                            </div>
+                            <div className="nh3d-option-description">
+                              Vertical mouselook/touch-look sensitivity.
+                            </div>
+                          </div>
+                          <div className="nh3d-option-slider-control">
+                            <input
+                              aria-label="Look Sensitivity Y"
+                              className="nh3d-option-slider"
+                              max={nh3dFpsLookSensitivityMax}
+                              min={nh3dFpsLookSensitivityMin}
+                              onChange={(event) =>
+                                updateClientLookSensitivityDraft(
+                                  "fpsLookSensitivityY",
+                                  Number(event.target.value),
+                                )
+                              }
+                              step={0.01}
+                              type="range"
+                              value={clientOptionsDraft.fpsLookSensitivityY}
+                            />
+                            <div className="nh3d-option-slider-value">
+                              {clientOptionsDraft.fpsLookSensitivityY.toFixed(
+                                2,
+                              )}
+                              x
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : null}
+                  </Fragment>
                 );
               }
               if (option.type === "select") {
@@ -2028,93 +2159,6 @@ export default function App(): JSX.Element {
               }
               return null;
             })}
-            {clientOptionsDraft.fpsMode ? (
-              <>
-                <div className="nh3d-option-row nh3d-option-row-slider">
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">FPS Field of View</div>
-                    <div className="nh3d-option-description">
-                      Adjust first-person camera FOV.
-                    </div>
-                  </div>
-                  <div className="nh3d-option-slider-control">
-                    <input
-                      aria-label="FPS Field of View"
-                      className="nh3d-option-slider"
-                      max={110}
-                      min={45}
-                      onChange={(event) =>
-                        updateClientFovDraft(Number(event.target.value))
-                      }
-                      step={1}
-                      type="range"
-                      value={clientOptionsDraft.fpsFov}
-                    />
-                    <div className="nh3d-option-slider-value">
-                      {clientOptionsDraft.fpsFov}°
-                    </div>
-                  </div>
-                </div>
-
-                <div className="nh3d-option-row nh3d-option-row-slider">
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">Look Sensitivity X</div>
-                    <div className="nh3d-option-description">
-                      Horizontal mouselook/touch-look sensitivity.
-                    </div>
-                  </div>
-                  <div className="nh3d-option-slider-control">
-                    <input
-                      aria-label="Look Sensitivity X"
-                      className="nh3d-option-slider"
-                      max={nh3dFpsLookSensitivityMax}
-                      min={nh3dFpsLookSensitivityMin}
-                      onChange={(event) =>
-                        updateClientLookSensitivityDraft(
-                          "fpsLookSensitivityX",
-                          Number(event.target.value),
-                        )
-                      }
-                      step={0.01}
-                      type="range"
-                      value={clientOptionsDraft.fpsLookSensitivityX}
-                    />
-                    <div className="nh3d-option-slider-value">
-                      {clientOptionsDraft.fpsLookSensitivityX.toFixed(2)}x
-                    </div>
-                  </div>
-                </div>
-
-                <div className="nh3d-option-row nh3d-option-row-slider">
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">Look Sensitivity Y</div>
-                    <div className="nh3d-option-description">
-                      Vertical mouselook/touch-look sensitivity.
-                    </div>
-                  </div>
-                  <div className="nh3d-option-slider-control">
-                    <input
-                      aria-label="Look Sensitivity Y"
-                      className="nh3d-option-slider"
-                      max={nh3dFpsLookSensitivityMax}
-                      min={nh3dFpsLookSensitivityMin}
-                      onChange={(event) =>
-                        updateClientLookSensitivityDraft(
-                          "fpsLookSensitivityY",
-                          Number(event.target.value),
-                        )
-                      }
-                      step={0.01}
-                      type="range"
-                      value={clientOptionsDraft.fpsLookSensitivityY}
-                    />
-                    <div className="nh3d-option-slider-value">
-                      {clientOptionsDraft.fpsLookSensitivityY.toFixed(2)}x
-                    </div>
-                  </div>
-                </div>
-              </>
-            ) : null}
           </div>
           <div className="nh3d-menu-actions">
             <button

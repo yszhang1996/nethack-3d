@@ -751,6 +751,7 @@ canvas {
 
   &.startup {
     top: 57%;
+    padding-bottom: 20px;
 
     @media (pointer: coarse) {
       top: calc(55% + var(--nh3d-safe-area-top)) !important;
@@ -844,7 +845,7 @@ canvas {
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-bottom: 0;
-      padding-bottom: 0px;
+      padding-bottom: var(--nh3d-dialog-mobile-padding, 14px);
       border-bottom-left-radius: inherit;
       border-bottom-right-radius: inherit;
       background-clip: padding-box;
@@ -872,6 +873,7 @@ canvas {
 .nh3d-dialog-fixed-actions {
   --nh3d-dialog-fixed-padding: 20px;
   --nh3d-dialog-fixed-actions-bg: #040c18;
+  padding-bottom: 0;
 
   &.is-visible {
     display: flex;
@@ -896,33 +898,16 @@ canvas {
     margin-top: 32px;
     margin-left: calc(-1 * var(--nh3d-dialog-fixed-padding));
     margin-right: calc(-1 * var(--nh3d-dialog-fixed-padding));
-    margin-bottom: calc(-1 * var(--nh3d-dialog-fixed-padding));
+    margin-bottom: 0;
     padding-top: 14px;
     padding-left: var(--nh3d-dialog-fixed-padding);
     padding-right: var(--nh3d-dialog-fixed-padding);
-    padding-bottom: 0px;
+    padding-bottom: var(--nh3d-dialog-fixed-padding);
     background: var(--nh3d-dialog-fixed-actions-bg) !important;
     border-top: 1px solid var(--nh3d-ui-border);
     border-bottom-left-radius: inherit;
     border-bottom-right-radius: inherit;
     background-clip: padding-box;
-
-    &::after {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      top: 100%;
-      height: var(--nh3d-dialog-fixed-padding);
-      background: var(--nh3d-dialog-fixed-actions-bg);
-      pointer-events: none;
-      z-index: 0;
-    }
-  }
-
-  &:has(> .nh3d-choice-list) > .nh3d-menu-actions::after,
-  &:has(> .nh3d-choice-list) > .nh3d-pickup-actions::after {
-    content: none;
   }
 
   > .nh3d-question-pagination {
