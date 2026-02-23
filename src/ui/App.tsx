@@ -2475,7 +2475,7 @@ export default function App(): JSX.Element {
           </div>
         ) : (
           <div
-            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
+            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-has-mobile-close is-visible"
             id="direction-dialog"
           >
             {renderMobileDialogCloseButton(
