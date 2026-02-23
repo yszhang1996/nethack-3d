@@ -938,7 +938,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private patchMaterialForVignette(material: THREE.Material): void {
     // Force Three.js to compile a unique shader for this patch
-    material.customProgramCacheKey = () => "vignette_patch_v6";
+    material.customProgramCacheKey = () => "vignette_patch_v8";
 
     material.onBeforeCompile = (shader) => {
       // Bind our class-level uniforms to this specific shader
@@ -976,6 +976,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
       }
 
+      let damageFlashLogic = "float uDamageFlash = 0.0;";
+
+      // If it's a sprite, intercept the diffuse color (material.color)
+      if (material instanceof THREE.SpriteMaterial) {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          "vec4 diffuseColor = vec4( diffuse, opacity );",
+          `vec4 diffuseColor = vec4( diffuse, opacity );
+           // When color is set to red, green drops to 0. Calculate flash intensity from that.
+           float uDamageFlashAmount = clamp(1.0 - diffuse.g, 0.0, 1.0);
+           // Reset the base multiplier to white so the texture isn't darkened
+           diffuseColor.rgb = vec3(1.0); 
+          `,
+        );
+        damageFlashLogic = "float uDamageFlash = uDamageFlashAmount;";
+      }
+
       // Inject logic into Fragment Shader right at the end (before fog)
       shader.fragmentShader = `
         uniform vec3 uLightingCenter;
@@ -988,8 +1004,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       `.replace(
         "#include <fog_fragment>",
         `#include <fog_fragment>
+        
+        ${damageFlashLogic}
+        if (uDamageFlash > 0.0) {
+            // Mix in solid red while perfectly preserving original alpha/transparency
+            gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.0, 0.0), uDamageFlash);
+        }
+
         // Apply vignette in both normal and FPS modes.
-        // FPS mode uses the camera-centered uLightingCenter (set each frame).
         float radius = uIsFpsMode ? (uLightingRadius) : uLightingRadius;
         float dist = distance(vWorldPos.xy, uLightingCenter.xy);
         float t = clamp(dist / radius, 0.0, 1.0);
@@ -3482,7 +3504,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
-    const useMonsterBillboardFlash = this.shouldUseMonsterBillboardDamageFlash(key);
+    const useMonsterBillboardFlash =
+      this.shouldUseMonsterBillboardDamageFlash(key);
     const isPlayerTarget = x === this.playerPos.x && y === this.playerPos.y;
     if (variant === "hit" || variant === "defeat") {
       if (useMonsterBillboardFlash) {

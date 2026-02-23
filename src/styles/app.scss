@@ -882,22 +882,6 @@ canvas {
     content: none;
   }
 
-  &:has(> .nh3d-menu-actions, > .nh3d-pickup-actions):not(
-      :has(> .nh3d-choice-list)
-    )::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: var(--nh3d-dialog-fixed-padding);
-    background: var(--nh3d-dialog-fixed-actions-bg);
-    pointer-events: none;
-    z-index: 2;
-    border-bottom-left-radius: inherit;
-    border-bottom-right-radius: inherit;
-  }
-
   @media (pointer: coarse) {
     --nh3d-dialog-fixed-padding: var(--nh3d-dialog-mobile-padding, 9px);
   }
@@ -922,6 +906,23 @@ canvas {
     border-bottom-left-radius: inherit;
     border-bottom-right-radius: inherit;
     background-clip: padding-box;
+
+    &::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      height: var(--nh3d-dialog-fixed-padding);
+      background: var(--nh3d-dialog-fixed-actions-bg);
+      pointer-events: none;
+      z-index: 0;
+    }
+  }
+
+  &:has(> .nh3d-choice-list) > .nh3d-menu-actions::after,
+  &:has(> .nh3d-choice-list) > .nh3d-pickup-actions::after {
+    content: none;
   }
 
   > .nh3d-question-pagination {
@@ -1264,6 +1265,15 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.nh3d-options-group-title {
+  color: var(--nh3d-ui-accent-soft);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 0.08em;
+  margin: 4px 2px 0;
+  text-transform: uppercase;
 }
 
 .nh3d-option-row {

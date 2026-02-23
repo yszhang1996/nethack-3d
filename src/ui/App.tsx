@@ -296,7 +296,13 @@ type ClientOptionSelect = {
   options: { value: "ascii" | "tiles"; label: string }[];
 };
 
-type ClientOption = ClientOptionToggle | ClientOptionSelect;
+type ClientOptionGroupHeader = {
+  key: string;
+  label: string;
+  type: "group";
+};
+
+type ClientOption = ClientOptionGroupHeader | ClientOptionToggle | ClientOptionSelect;
 
 type ClientOptionToggleKey =
   | "fpsMode"
@@ -472,10 +478,9 @@ const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
 
 const clientOptionsConfig: ClientOption[] = [
   {
-    key: "fpsMode",
-    label: "FPS mode",
-    description: "Use first-person controls and mouselook.",
-    type: "boolean",
+    key: "group-display",
+    label: "Interface & display",
+    type: "group",
   },
   {
     key: "tilesetMode",
@@ -492,6 +497,17 @@ const clientOptionsConfig: ClientOption[] = [
     label: "Minimap",
     description: "Show or hide the dungeon minimap.",
     type: "boolean",
+  },
+  {
+    key: "liveMessageLog",
+    label: "Live message log",
+    description: "Display the scrolling in-game message log.",
+    type: "boolean",
+  },
+  {
+    key: "group-combat",
+    label: "Combat feedback",
+    type: "group",
   },
   {
     key: "damageNumbers",
@@ -512,16 +528,26 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
-    key: "liveMessageLog",
-    label: "Live message log",
-    description: "Display the scrolling in-game message log.",
-    type: "boolean",
+    key: "group-compatibility",
+    label: "Runtime compatibility",
+    type: "group",
   },
   {
     key: "darkCorridorWalls367",
     label: "3.6.7 dark corridor walls",
     description:
       "Infer and cache dark corridor wall tiles (NetHack 3.6.7 behavior).",
+    type: "boolean",
+  },
+  {
+    key: "group-controls",
+    label: "First-person controls",
+    type: "group",
+  },
+  {
+    key: "fpsMode",
+    label: "FPS mode",
+    description: "Use first-person controls and mouselook.",
     type: "boolean",
   },
 ];
@@ -1941,6 +1967,13 @@ export default function App(): JSX.Element {
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
           <div className="nh3d-options-list">
             {clientOptionsConfig.map((option) => {
+              if (option.type === "group") {
+                return (
+                  <div className="nh3d-options-group-title" key={option.key}>
+                    {option.label}
+                  </div>
+                );
+              }
               if (option.type === "boolean") {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
                 return (
