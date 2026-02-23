@@ -55,6 +55,7 @@ type GameStore = {
   inventory: InventoryDialogState;
   textInput: TextInputRequestState | null;
   fpsCrosshairContext: FpsCrosshairContextState | null;
+  repeatActionVisible: boolean;
   extendedCommands: string[];
   positionRequest: string | null;
   engineController: Nethack3DEngineController | null;
@@ -73,6 +74,7 @@ type GameStore = {
   setInventory: (inventory: InventoryDialogState) => void;
   setTextInput: (input: TextInputRequestState | null) => void;
   setFpsCrosshairContext: (context: FpsCrosshairContextState | null) => void;
+  setRepeatActionVisible: (visible: boolean) => void;
   setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
@@ -96,6 +98,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   inventory: { visible: false, items: [] },
   textInput: null,
   fpsCrosshairContext: null,
+  repeatActionVisible: false,
   extendedCommands: [],
   positionRequest: null,
   engineController: null,
@@ -164,6 +167,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setFpsCrosshairContext: (context) => {
     set({ fpsCrosshairContext: context });
+  },
+  setRepeatActionVisible: (visible) => {
+    set({ repeatActionVisible: Boolean(visible) });
   },
   setExtendedCommands: (commands) => {
     set({ extendedCommands: commands });

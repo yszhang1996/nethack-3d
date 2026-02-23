@@ -209,6 +209,7 @@ export interface Nethack3DEngineUIAdapter {
   setExtendedCommands(commands: string[]): void;
   setPositionRequest(text: string | null): void;
   setFpsCrosshairContext(state: FpsCrosshairContextState | null): void;
+  setRepeatActionVisible(visible: boolean): void;
 }
 
 export interface Nethack3DEngineController {
@@ -226,6 +227,7 @@ export interface Nethack3DEngineController {
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(actionId: string): void;
   runExtendedCommand(commandText: string): void;
+  repeatLastAction(): void;
   setClientOptions(options: Nh3dClientOptions): void;
   closeInventoryDialog(): void;
   closeInfoMenuDialog(): void;

@@ -59,5 +59,8 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     setFpsCrosshairContext(state): void {
       useGameStore.getState().setFpsCrosshairContext(state);
     },
+    setRepeatActionVisible(visible: boolean): void {
+      useGameStore.getState().setRepeatActionVisible(visible);
+    },
   };
 }

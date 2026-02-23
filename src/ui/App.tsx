@@ -581,6 +581,9 @@ export default function App(): JSX.Element {
   const fpsCrosshairContext = useGameStore(
     (state) => state.fpsCrosshairContext,
   );
+  const repeatActionVisible = useGameStore(
+    (state) => state.repeatActionVisible,
+  );
   const positionRequest = useGameStore((state) => state.positionRequest);
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
@@ -2536,6 +2539,19 @@ export default function App(): JSX.Element {
             </div>
           )}
         </div>
+      ) : null}
+
+      {isMobileGameRunning && repeatActionVisible ? (
+        <button
+          className="nh3d-mobile-repeat-button"
+          onClick={() => {
+            controller?.dismissFpsCrosshairContextMenu();
+            controller?.repeatLastAction();
+          }}
+          type="button"
+        >
+          Repeat
+        </button>
       ) : null}
 
       {isMobileGameRunning ? (

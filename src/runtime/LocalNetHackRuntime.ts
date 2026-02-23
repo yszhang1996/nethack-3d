@@ -58,7 +58,8 @@ class LocalNetHackRuntime {
     this.mouseClickPrimaryMod = 1; // CLICK_1 (left click)
     this.mouseClickSecondaryMod = 2; // CLICK_2 (right click)
     this.extendedCommandEntries = null;
-    this.pendingExtendedCommands = [];
+    this.pendingExtendedCommand = null;
+    this.extendedCommandTriggerQueued = false;
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
@@ -269,7 +270,8 @@ class LocalNetHackRuntime {
     this.setPositionInputActive(false);
     this.activeInputRequest = null;
     this.menuSelections.clear();
-    this.pendingExtendedCommands = [];
+    this.pendingExtendedCommand = null;
+    this.extendedCommandTriggerQueued = false;
     this.pendingInventoryContextSelection = null;
     this.awaitingQuestionInput = false;
     this.windowTextBuffers.clear();
@@ -802,20 +804,24 @@ class LocalNetHackRuntime {
   queueExtendedCommandSubmission(commandText, source = "synthetic") {
     const normalizedCommand =
       typeof commandText === "string" ? commandText : "";
-    this.pendingExtendedCommands.push(normalizedCommand);
+    this.pendingExtendedCommand = normalizedCommand;
+    if (this.extendedCommandTriggerQueued) {
+      return;
+    }
+    this.extendedCommandTriggerQueued = true;
     // Route "#" through the normal input path so whichever callback is active
     // (event or position) can trigger NetHack's extended-command flow.
     this.enqueueInputKeys(["#"], source);
   }
 
   dequeuePendingExtendedCommandSubmission() {
-    if (
-      !Array.isArray(this.pendingExtendedCommands) ||
-      this.pendingExtendedCommands.length === 0
-    ) {
+    const pending = this.pendingExtendedCommand;
+    this.pendingExtendedCommand = null;
+    this.extendedCommandTriggerQueued = false;
+    if (pending === null || pending === undefined) {
       return undefined;
     }
-    return this.pendingExtendedCommands.shift();
+    return pending;
   }
 
   isLiteralTextInput(input) {

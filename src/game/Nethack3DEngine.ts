@@ -185,6 +185,11 @@ type FpsTouchGestureState = {
   startedAtMs: number;
 };
 
+type RepeatableActionSpec =
+  | { kind: "quick"; value: string }
+  | { kind: "extended"; value: string }
+  | { kind: "inventory_command"; value: string };
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -286,6 +291,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
   private readonly inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+  private repeatableAction: RepeatableActionSpec | null = null;
+  private repeatActionVisible: boolean = false;
+  private repeatAutoDirectionPending: boolean = false;
+  private repeatAutoDirectionArmedAtMs: number = 0;
+  private readonly repeatAutoDirectionWindowMs: number = 1800;
+  private lastRepeatDirectionInput: string | null = null;
   private isTextInputActive: boolean = false;
   private characterCreationConfig: CharacterCreationConfig = {
     mode: "create",
@@ -937,6 +948,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.connectToRuntime();
     if (this.uiAdapter) {
       this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
+      this.uiAdapter.setRepeatActionVisible(false);
     }
 
     if (this.playMode === "fps") {
@@ -2044,6 +2056,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "direction_question":
+        if (this.tryAutoAnswerDirectionQuestionFromRepeat()) {
+          break;
+        }
         // Special handling for direction questions - show UI and pause movement
         this.isInQuestion = true;
         this.showDirectionQuestion(data.text);
@@ -2053,6 +2068,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "question":
+        this.repeatAutoDirectionPending = false;
+        this.repeatAutoDirectionArmedAtMs = 0;
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
           const payload = this.toCharacterCreationQuestionPayload(data);
           this.isInQuestion = true;
@@ -2076,6 +2093,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "text_request":
+        this.repeatAutoDirectionPending = false;
+        this.repeatAutoDirectionArmedAtMs = 0;
         this.showTextInputRequest(
           String(data.text || ""),
           typeof data.maxLength === "number" ? data.maxLength : 256,
@@ -2897,6 +2916,193 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private setRepeatActionVisible(visible: boolean): void {
+    if (this.repeatActionVisible === visible) {
+      return;
+    }
+    this.repeatActionVisible = visible;
+    this.uiAdapter?.setRepeatActionVisible(visible);
+  }
+
+  private armRepeatableAction(action: RepeatableActionSpec): void {
+    this.repeatableAction = action;
+    this.repeatAutoDirectionPending = false;
+    this.repeatAutoDirectionArmedAtMs = 0;
+    this.setRepeatActionVisible(true);
+  }
+
+  private clearRepeatableAction(): void {
+    this.repeatableAction = null;
+    this.repeatAutoDirectionPending = false;
+    this.repeatAutoDirectionArmedAtMs = 0;
+    this.setRepeatActionVisible(false);
+  }
+
+  private onSwipeCommandExecuted(): void {
+    this.clearRepeatableAction();
+  }
+
+  private canExecuteRepeatableGameplayAction(): boolean {
+    return Boolean(this.session) && !(
+      this.metaCommandModeActive ||
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.positionInputModeActive
+    );
+  }
+
+  private executeQuickAction(
+    normalizedActionId: string,
+    shouldArmRepeat: boolean,
+  ): boolean {
+    if (!normalizedActionId || !this.session) {
+      return false;
+    }
+
+    this.closeFpsCrosshairContextMenu(true);
+    if (!this.canExecuteRepeatableGameplayAction()) {
+      return false;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      this.hideInventoryDialog();
+    }
+
+    let didExecute = true;
+    switch (normalizedActionId) {
+      case "wait":
+        this.sendInput(".");
+        break;
+      case "search":
+        this.sendInput("s");
+        break;
+      case "pickup":
+        this.sendInput(",");
+        break;
+      case "look":
+        this.sendInput("/");
+        break;
+      case "loot":
+        this.sendInput("l");
+        break;
+      case "open":
+        this.armFpsFireSuppression();
+        this.sendInput("o");
+        break;
+      case "close":
+        this.armFpsFireSuppression();
+        this.sendInput("c");
+        break;
+      case "ascend":
+        this.sendInput("<");
+        break;
+      case "descend":
+        this.sendInput(">");
+        break;
+      case "extended":
+        this.sendInput("#");
+        break;
+      default:
+        console.log(`Unknown quick action requested: ${normalizedActionId}`);
+        didExecute = false;
+        break;
+    }
+
+    if (didExecute && shouldArmRepeat) {
+      this.armRepeatableAction({
+        kind: "quick",
+        value: normalizedActionId,
+      });
+    }
+
+    return didExecute;
+  }
+
+  private executeExtendedCommand(
+    normalizedCommandText: string,
+    shouldArmRepeat: boolean,
+  ): boolean {
+    if (!normalizedCommandText || !this.session) {
+      return false;
+    }
+
+    this.closeFpsCrosshairContextMenu(true);
+    if (!this.canExecuteRepeatableGameplayAction()) {
+      return false;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      this.hideInventoryDialog();
+    }
+
+    if (normalizedCommandText === "kick") {
+      this.armFpsFireSuppression();
+    }
+    const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
+    this.sendInputSequence(sequence);
+    if (shouldArmRepeat) {
+      this.armRepeatableAction({
+        kind: "extended",
+        value: normalizedCommandText,
+      });
+    }
+    return true;
+  }
+
+  private executeInventoryCommandWithoutSelection(
+    commandKey: string,
+    shouldArmRepeat: boolean,
+  ): boolean {
+    if (!commandKey || commandKey.length !== 1 || !this.session) {
+      return false;
+    }
+
+    this.closeFpsCrosshairContextMenu(true);
+    if (!this.canExecuteRepeatableGameplayAction()) {
+      return false;
+    }
+
+    this.hideInfoMenuDialog();
+    if (this.isInventoryDialogOpen()) {
+      this.hideInventoryDialog();
+    }
+
+    this.sendInput(commandKey);
+    if (shouldArmRepeat) {
+      this.armRepeatableAction({
+        kind: "inventory_command",
+        value: commandKey,
+      });
+    }
+    return true;
+  }
+
+  private tryAutoAnswerDirectionQuestionFromRepeat(): boolean {
+    if (!this.repeatAutoDirectionPending) {
+      return false;
+    }
+    if (
+      Date.now() - this.repeatAutoDirectionArmedAtMs >
+      this.repeatAutoDirectionWindowMs
+    ) {
+      this.repeatAutoDirectionPending = false;
+      this.repeatAutoDirectionArmedAtMs = 0;
+      return false;
+    }
+    this.repeatAutoDirectionPending = false;
+    this.repeatAutoDirectionArmedAtMs = 0;
+    const directionKey = this.lastRepeatDirectionInput;
+    if (!directionKey) {
+      return false;
+    }
+    this.isInQuestion = true;
+    this.isInDirectionQuestion = true;
+    this.submitDirectionAnswer(directionKey);
+    return true;
+  }
+
   private submitDirectionAnswer(directionKey: string): void {
     if (!this.isInDirectionQuestion || !directionKey) {
       return;
@@ -2906,6 +3112,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.lastRepeatDirectionInput = normalized;
     this.sendInput(normalized);
     if (this.isFpsMode()) {
       this.requestDirectionalAnswerTileRefresh(normalized);
@@ -8672,6 +8879,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       `${this.inventoryContextSelectionPrefix}${accelerator}`,
       commandKey,
     ]);
+    this.armRepeatableAction({
+      kind: "inventory_command",
+      value: commandKey,
+    });
   }
 
   public dismissFpsCrosshairContextMenu(): void {
@@ -8682,95 +8893,47 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const normalizedActionId = String(actionId || "")
       .trim()
       .toLowerCase();
-    if (!normalizedActionId || !this.session) {
-      return;
-    }
-
-    this.closeFpsCrosshairContextMenu(true);
-
-    if (
-      this.metaCommandModeActive ||
-      this.isInQuestion ||
-      this.isInDirectionQuestion ||
-      this.positionInputModeActive
-    ) {
-      return;
-    }
-
-    this.hideInfoMenuDialog();
-    if (this.isInventoryDialogOpen()) {
-      this.hideInventoryDialog();
-    }
-
-    switch (normalizedActionId) {
-      case "wait":
-        this.sendInput(".");
-        return;
-      case "search":
-        this.sendInput("s");
-        return;
-      case "pickup":
-        this.sendInput(",");
-        return;
-      case "look":
-        this.sendInput("/");
-        return;
-      case "loot":
-        this.sendInput("l");
-        return;
-      case "open":
-        this.armFpsFireSuppression();
-        this.sendInput("o");
-        return;
-      case "close":
-        this.armFpsFireSuppression();
-        this.sendInput("c");
-        return;
-      case "ascend":
-        this.sendInput("<");
-        return;
-      case "descend":
-        this.sendInput(">");
-        return;
-      case "extended":
-        this.sendInput("#");
-        return;
-      default:
-        console.log(`Unknown quick action requested: ${actionId}`);
-        return;
-    }
+    this.executeQuickAction(normalizedActionId, true);
   }
 
   public runExtendedCommand(commandText: string): void {
     const normalizedCommandText = String(commandText || "")
       .trim()
       .toLowerCase();
-    if (!normalizedCommandText || !this.session) {
+    this.executeExtendedCommand(normalizedCommandText, true);
+  }
+
+  public repeatLastAction(): void {
+    if (!this.repeatActionVisible || !this.repeatableAction) {
       return;
     }
 
-    this.closeFpsCrosshairContextMenu(true);
-
-    if (
-      this.metaCommandModeActive ||
-      this.isInQuestion ||
-      this.isInDirectionQuestion ||
-      this.positionInputModeActive
-    ) {
-      return;
+    let didExecute = false;
+    switch (this.repeatableAction.kind) {
+      case "quick":
+        didExecute = this.executeQuickAction(this.repeatableAction.value, false);
+        break;
+      case "extended":
+        didExecute = this.executeExtendedCommand(
+          this.repeatableAction.value,
+          false,
+        );
+        break;
+      case "inventory_command":
+        didExecute = this.executeInventoryCommandWithoutSelection(
+          this.repeatableAction.value,
+          false,
+        );
+        break;
+      default:
+        didExecute = false;
+        break;
     }
 
-    this.hideInfoMenuDialog();
-    if (this.isInventoryDialogOpen()) {
-      this.hideInventoryDialog();
+    if (didExecute) {
+      this.repeatAutoDirectionPending = true;
+      this.repeatAutoDirectionArmedAtMs = Date.now();
     }
-
-    if (normalizedCommandText === "kick") {
-      this.armFpsFireSuppression();
-    }
-
-    const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
-    this.sendInputSequence(sequence);
   }
 
   public setClientOptions(options: Nh3dClientOptions): void {
@@ -12343,6 +12506,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               if (!this.hasPlayerMovedOnce) {
                 this.lastMovementInputAtMs = nowMs;
               }
+              this.onSwipeCommandExecuted();
               this.sendForcedDirectionalInput(fpsMoveInput);
             }
             // Releasing off the run button cancels the swipe entirely.
@@ -12362,6 +12526,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             if (!this.hasPlayerMovedOnce) {
               this.lastMovementInputAtMs = nowMs;
             }
+            this.onSwipeCommandExecuted();
             this.sendInput(fpsMoveInput);
             consumed = true;
           }
@@ -12432,6 +12597,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           if (event.cancelable) {
             event.preventDefault();
           }
+          this.onSwipeCommandExecuted();
           this.sendForcedDirectionalInput(direction);
         }
         return;
@@ -12443,6 +12609,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         event.preventDefault();
       }
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
+      this.onSwipeCommandExecuted();
       this.sendMouseInput(target.x, target.y, 0);
       return;
     }
@@ -12454,6 +12621,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (event.cancelable) {
       event.preventDefault();
     }
+    this.onSwipeCommandExecuted();
     this.sendInput(swipeInput);
   }
 
