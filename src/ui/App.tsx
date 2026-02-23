@@ -590,7 +590,7 @@ export default function App(): JSX.Element {
   const controller = useGameStore((state) => state.engineController);
   const isFpsPlayMode = clientOptions.fpsMode;
   const fpsContextTitle = String(fpsCrosshairContext?.title || "");
-  const shouldScrollFpsContextTitle = fpsContextTitle.length > 44;
+  const shouldScrollFpsContextTitle = fpsContextTitle.length > 0;
   const fpsContextTitleDurationSec = Math.max(
     6,
     Math.min(20, fpsContextTitle.length * 0.14),

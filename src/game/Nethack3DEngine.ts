@@ -296,7 +296,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private repeatAutoDirectionPending: boolean = false;
   private repeatAutoDirectionArmedAtMs: number = 0;
   private readonly repeatAutoDirectionWindowMs: number = 1800;
+  private repeatDirectionCandidate: RepeatableActionSpec | null = null;
+  private repeatDirectionCandidateAtMs: number = 0;
+  private readonly repeatDirectionCandidateWindowMs: number = 1100;
   private lastRepeatDirectionInput: string | null = null;
+  private skipNextMobileFpsClickLookPromptMessage: boolean = false;
   private isTextInputActive: boolean = false;
   private characterCreationConfig: CharacterCreationConfig = {
     mode: "create",
@@ -2037,6 +2041,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "text":
+        if (this.shouldSkipMobileFpsClickLookPromptMessageEvent(data.text)) {
+          break;
+        }
         this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
@@ -2044,6 +2051,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "raw_print":
+        if (this.shouldSkipMobileFpsClickLookPromptMessageEvent(data.text)) {
+          break;
+        }
         this.captureFpsCrosshairGlanceMessage(data.text);
         this.captureMonsterDefeatFromMessage(data.text);
         this.captureDamageFromMessage(data.text);
@@ -2056,6 +2066,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "direction_question":
+        {
+          const repeatCandidate = this.consumeRepeatDirectionCandidate();
+          if (repeatCandidate) {
+            this.armRepeatableAction(repeatCandidate);
+          }
+        }
         if (this.tryAutoAnswerDirectionQuestionFromRepeat()) {
           break;
         }
@@ -2070,6 +2086,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "question":
         this.repeatAutoDirectionPending = false;
         this.repeatAutoDirectionArmedAtMs = 0;
+        this.clearRepeatDirectionCandidate();
+        this.skipNextMobileFpsClickLookPromptMessage = false;
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
           const payload = this.toCharacterCreationQuestionPayload(data);
           this.isInQuestion = true;
@@ -2095,6 +2113,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "text_request":
         this.repeatAutoDirectionPending = false;
         this.repeatAutoDirectionArmedAtMs = 0;
+        this.clearRepeatDirectionCandidate();
+        this.skipNextMobileFpsClickLookPromptMessage = false;
         this.showTextInputRequest(
           String(data.text || ""),
           typeof data.maxLength === "number" ? data.maxLength : 256,
@@ -2928,6 +2948,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.repeatableAction = action;
     this.repeatAutoDirectionPending = false;
     this.repeatAutoDirectionArmedAtMs = 0;
+    this.repeatDirectionCandidate = null;
+    this.repeatDirectionCandidateAtMs = 0;
     this.setRepeatActionVisible(true);
   }
 
@@ -2935,11 +2957,62 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.repeatableAction = null;
     this.repeatAutoDirectionPending = false;
     this.repeatAutoDirectionArmedAtMs = 0;
+    this.repeatDirectionCandidate = null;
+    this.repeatDirectionCandidateAtMs = 0;
     this.setRepeatActionVisible(false);
   }
 
   private onSwipeCommandExecuted(): void {
     this.clearRepeatableAction();
+  }
+
+  private queueRepeatDirectionCandidate(action: RepeatableActionSpec): void {
+    this.repeatDirectionCandidate = action;
+    this.repeatDirectionCandidateAtMs = Date.now();
+  }
+
+  private consumeRepeatDirectionCandidate(): RepeatableActionSpec | null {
+    const candidate = this.repeatDirectionCandidate;
+    const ageMs = Date.now() - this.repeatDirectionCandidateAtMs;
+    this.repeatDirectionCandidate = null;
+    this.repeatDirectionCandidateAtMs = 0;
+    if (!candidate || ageMs > this.repeatDirectionCandidateWindowMs) {
+      return null;
+    }
+    return candidate;
+  }
+
+  private clearRepeatDirectionCandidate(): void {
+    this.repeatDirectionCandidate = null;
+    this.repeatDirectionCandidateAtMs = 0;
+  }
+
+  private shouldSkipMobileFpsClickLookPromptMessageEvent(
+    messageLike: unknown,
+  ): boolean {
+    if (!this.skipNextMobileFpsClickLookPromptMessage) {
+      return false;
+    }
+    this.skipNextMobileFpsClickLookPromptMessage = false;
+    if (typeof messageLike !== "string") {
+      return false;
+    }
+    const normalized = this.sanitizeFpsCrosshairGlanceText(
+      messageLike,
+    ).toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (/^pick (an?|the)? ?object\b/.test(normalized)) {
+      return true;
+    }
+    if (
+      normalized.startsWith("pick ") &&
+      normalized.includes("monster, object or location")
+    ) {
+      return true;
+    }
+    return false;
   }
 
   private canExecuteRepeatableGameplayAction(): boolean {
@@ -2967,6 +3040,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
     if (this.isInventoryDialogOpen()) {
       this.hideInventoryDialog();
+    }
+
+    if (shouldArmRepeat) {
+      this.clearRepeatableAction();
+    }
+    this.clearRepeatDirectionCandidate();
+    if (
+      shouldArmRepeat &&
+      normalizedActionId === "look" &&
+      this.isFpsMode()
+    ) {
+      this.skipNextMobileFpsClickLookPromptMessage = true;
     }
 
     let didExecute = true;
@@ -3010,7 +3095,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (didExecute && shouldArmRepeat) {
-      this.armRepeatableAction({
+      this.queueRepeatDirectionCandidate({
         kind: "quick",
         value: normalizedActionId,
       });
@@ -3037,13 +3122,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.hideInventoryDialog();
     }
 
+    if (shouldArmRepeat) {
+      this.clearRepeatableAction();
+    }
+    this.clearRepeatDirectionCandidate();
     if (normalizedCommandText === "kick") {
       this.armFpsFireSuppression();
     }
     const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
     this.sendInputSequence(sequence);
     if (shouldArmRepeat) {
-      this.armRepeatableAction({
+      this.queueRepeatDirectionCandidate({
         kind: "extended",
         value: normalizedCommandText,
       });
@@ -3069,9 +3158,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.hideInventoryDialog();
     }
 
+    if (shouldArmRepeat) {
+      this.clearRepeatableAction();
+    }
+    this.clearRepeatDirectionCandidate();
     this.sendInput(commandKey);
     if (shouldArmRepeat) {
-      this.armRepeatableAction({
+      this.queueRepeatDirectionCandidate({
         kind: "inventory_command",
         value: commandKey,
       });
@@ -8875,11 +8968,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.hideInfoMenuDialog();
     this.hideInventoryDialog();
+    this.clearRepeatableAction();
+    this.clearRepeatDirectionCandidate();
     this.sendInputSequence([
       `${this.inventoryContextSelectionPrefix}${accelerator}`,
       commandKey,
     ]);
-    this.armRepeatableAction({
+    this.queueRepeatDirectionCandidate({
       kind: "inventory_command",
       value: commandKey,
     });
