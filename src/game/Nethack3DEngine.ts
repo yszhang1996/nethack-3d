@@ -3534,6 +3534,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private shouldKeepFloorGlyphUnderFpsAsciiPlayer(
+    behavior: TileBehaviorResult,
+  ): boolean {
+    if (!this.isFpsMode() || this.clientOptions.tilesetMode === "tiles") {
+      return false;
+    }
+    if (behavior.isPlayerGlyph || behavior.isWall) {
+      return false;
+    }
+    if (behavior.resolved.kind !== "cmap") {
+      return false;
+    }
+    // Keep normal ASCII floor glyphs (lit and dark floor/corridor) visible
+    // under the suppressed player tile in FPS mode.
+    return behavior.materialKind === "floor" || behavior.materialKind === "dark";
+  }
+
   private flushPendingTileUpdatesForPlayerPositionReconcile(): void {
     if (!this.pendingTileUpdates.size) {
       return;
@@ -6956,9 +6973,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
+    const preferNormalModeAsciiUnderlayForFpsBillboards =
+      this.isFpsMode() && !useTiles && shouldUseElevatedBillboard;
 
-    // FPS mode (plus existing tiles behavior): render entities on an elevated billboard
-    // and keep the underlying tile as floor terrain.
+    // FPS/tiles billboard rendering: hide duplicate glyph text on the tile.
+    // Terrain underlay behavior differs by branch below.
     if (shouldSuppressPlayerTileVisualInFps) {
       const defaultPlayerSuppressedGlyph = this.isFpsMode()
         ? getDefaultDarkFloorGlyph()
@@ -6994,10 +7013,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       const shouldKeepFlatGlyphUnderPlayer =
         this.shouldRenderFlatFeatureUnderFpsPlayer(renderBehavior);
-      tileGlyphChar = shouldKeepFlatGlyphUnderPlayer
+      const shouldKeepFloorGlyphUnderPlayerInFpsAscii =
+        this.shouldKeepFloorGlyphUnderFpsAsciiPlayer(renderBehavior);
+      tileGlyphChar =
+        shouldKeepFlatGlyphUnderPlayer || shouldKeepFloorGlyphUnderPlayerInFpsAscii
         ? renderBehavior.glyphChar
         : " ";
       tileTextColor = renderBehavior.textColor;
+    } else if (preferNormalModeAsciiUnderlayForFpsBillboards) {
+      // In FPS ASCII mode, keep the same tile color/material classification that
+      // normal mode would use under entity glyphs; only lift the glyph itself
+      // onto the billboard to avoid double-drawing the character.
+      tileGlyphChar = " ";
+      tileTextColor = behavior.textColor;
     } else if (shouldUseElevatedBillboard) {
       if (isStairsUp || isFountain || isAltar) {
         renderBehavior = classifyTileBehavior({
