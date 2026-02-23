@@ -96,6 +96,7 @@ export type Nh3dClientOptions = {
   tileShakeOnHit: boolean;
   blood: boolean;
   liveMessageLog: boolean;
+  darkCorridorWalls367: boolean;
   tilesetMode: "ascii" | "tiles";
 };
 
@@ -117,6 +118,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
+  darkCorridorWalls367: true,
   tilesetMode: "tiles",
 };
 
@@ -178,6 +180,10 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
+    darkCorridorWalls367:
+      typeof overrides?.darkCorridorWalls367 === "boolean"
+        ? overrides.darkCorridorWalls367
+        : defaultNh3dClientOptions.darkCorridorWalls367,
     tilesetMode: overrides?.tilesetMode === "tiles" ? "tiles" : "ascii",
   };
 }

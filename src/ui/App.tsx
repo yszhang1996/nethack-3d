@@ -298,6 +298,15 @@ type ClientOptionSelect = {
 
 type ClientOption = ClientOptionToggle | ClientOptionSelect;
 
+type ClientOptionToggleKey =
+  | "fpsMode"
+  | "minimap"
+  | "damageNumbers"
+  | "tileShakeOnHit"
+  | "blood"
+  | "liveMessageLog"
+  | "darkCorridorWalls367";
+
 type ClientOptionLookSensitivityKey =
   | "fpsLookSensitivityX"
   | "fpsLookSensitivityY";
@@ -506,6 +515,13 @@ const clientOptionsConfig: ClientOption[] = [
     key: "liveMessageLog",
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
+    type: "boolean",
+  },
+  {
+    key: "darkCorridorWalls367",
+    label: "3.6.7 dark corridor walls",
+    description:
+      "Infer and cache dark corridor wall tiles (NetHack 3.6.7 behavior).",
     type: "boolean",
   },
 ];

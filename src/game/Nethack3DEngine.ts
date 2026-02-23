@@ -196,6 +196,7 @@ type RepeatableActionSpec =
 
 type TileUpdateOptions = {
   inferredDarkCorridorWall?: boolean;
+  restartRevealFade?: boolean;
 };
 
 /**
@@ -1485,6 +1486,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return x;
   }
 
+  private isDarkCorridorWallInferenceEnabled(): boolean {
+    const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+    return runtimeVersion === "3.6.7" && this.clientOptions.darkCorridorWalls367;
+  }
+
   private getDarkCorridorRayDepthFromPlayer(
     tileX: number,
     tileY: number,
@@ -1598,7 +1604,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.markLightingDirty();
   }
 
+  private clearAllInferredDarkCorridorWallMeshes(): void {
+    for (const [key, tile] of Array.from(
+      this.inferredDarkCorridorWallTiles.entries(),
+    )) {
+      this.clearInferredDarkCorridorWallMeshAt(key, tile.x, tile.y);
+    }
+
+    for (const [key, mesh] of Array.from(this.tileMap.entries())) {
+      if (!mesh.userData?.isInferredDarkCorridorWall) {
+        continue;
+      }
+      const parsedKey = this.parseTileKey(key);
+      if (!parsedKey) {
+        continue;
+      }
+      this.clearInferredDarkCorridorWallMeshAt(key, parsedKey.x, parsedKey.y);
+    }
+  }
+
   private reconcileInferredDarkCorridorWalls(): void {
+    if (!this.isDarkCorridorWallInferenceEnabled()) {
+      this.clearAllInferredDarkCorridorWallMeshes();
+      return;
+    }
+
     if (!this.hasSeenPlayerPosition) {
       for (const [key, tile] of Array.from(
         this.inferredDarkCorridorWallTiles.entries(),
@@ -1656,7 +1686,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const darkWallGlyph = getDefaultDarkWallGlyph();
+    const newlyInferredKeys = new Set<string>();
     for (const [key, tile] of nextInferred.entries()) {
+      if (!this.inferredDarkCorridorWallTiles.has(key)) {
+        newlyInferredKeys.add(key);
+      }
       this.inferredDarkCorridorWallTiles.set(key, tile);
     }
 
@@ -1675,6 +1709,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.updateTile(tile.x, tile.y, darkWallGlyph, " ", undefined, {
         inferredDarkCorridorWall: true,
+        restartRevealFade: newlyInferredKeys.has(key),
       });
     }
   }
@@ -1798,6 +1833,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileShakeChanged =
       previous.tileShakeOnHit !== normalized.tileShakeOnHit;
     const bloodChanged = previous.blood !== normalized.blood;
+    const darkCorridorWallsChanged =
+      previous.darkCorridorWalls367 !== normalized.darkCorridorWalls367;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
 
     this.clientOptions = normalized;
@@ -1823,6 +1860,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
+    }
+    if (darkCorridorWallsChanged) {
+      this.reconcileInferredDarkCorridorWalls();
+      this.markLightingDirty();
     }
   }
 
@@ -6725,6 +6766,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const key = `${x},${y}`;
     const isInferredDarkCorridorWall =
       options.inferredDarkCorridorWall === true;
+    const restartRevealFade = options.restartRevealFade === true;
     const hadInferredDarkCorridorWall =
       this.inferredDarkCorridorWallTiles.has(key);
     let mesh = this.tileMap.get(key);
@@ -6999,8 +7041,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? this.getFpsWallGeometry(wallChamferMask, wallChamferRotateUv)
         : this.floorGeometry;
     const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
+    let createdMesh = false;
 
     if (!mesh) {
+      createdMesh = true;
       mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
       mesh.castShadow = false;
@@ -7013,6 +7057,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       mesh.geometry = geometry;
       mesh.position.set(x * TILE_SIZE, -y * TILE_SIZE, targetZ);
+    }
+
+    if (restartRevealFade) {
+      this.tileRevealStartMs.set(key, performance.now());
     }
 
     mesh.userData.tileX = x;
@@ -7037,7 +7085,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.fpsWallChamferRotateUv = wallChamferRotateUv;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
     mesh.scale.set(visualScale, visualScale, visualScale);
-    const drawFpsFloorGrid = this.isFpsMode();
+    const drawFpsFloorGrid = this.isFpsMode() && !isInferredDarkCorridorWall;
 
     this.applyGlyphMaterial(
       key,
@@ -7050,6 +7098,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       drawFpsFloorGrid,
       renderBehavior.effective.tileIndex,
     );
+    if (isInferredDarkCorridorWall && (createdMesh || restartRevealFade)) {
+      const overlay = this.glyphOverlayMap.get(key);
+      if (overlay) {
+        overlay.material.opacity = 0;
+      }
+    }
 
     const isFpsPlayerTile =
       this.isFpsMode() &&
