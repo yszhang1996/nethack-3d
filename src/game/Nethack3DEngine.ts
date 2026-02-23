@@ -13,7 +13,12 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import { classifyTileBehavior, getDefaultFloorGlyph } from "./glyphs/behavior";
+import {
+  classifyTileBehavior,
+  getDefaultFloorGlyph,
+  getDefaultStairsDownGlyph,
+  getDefaultStairsUpGlyph,
+} from "./glyphs/behavior";
 import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
@@ -210,6 +215,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private floatingMessageLayer: HTMLDivElement | null = null;
   private floatingMessageEntries: FloatingMessageEntry[] = [];
   private hasSeenPlayerPosition: boolean = false;
+  private assumeInitialPlayerTileIsStairsUp: boolean = true;
+  private pendingVerticalTransitionAssumption:
+    | "stairs_up"
+    | "stairs_down"
+    | null = null;
   private pendingPlayerTileRefreshOnNextPosition: boolean = true;
   private hasPlayerMovedOnce: boolean = false;
   private lastMovementInputAtMs: number = 0;
@@ -2292,6 +2302,116 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
+  private snapshotPersistentTerrainFromTile(
+    tile: any,
+    behavior: TileBehaviorResult | null,
+  ): TerrainSnapshot | null {
+    if (!tile || typeof tile.glyph !== "number" || !behavior) {
+      return null;
+    }
+    if (behavior.isPlayerGlyph) {
+      return null;
+    }
+    if (!this.isPersistentTerrainKind(behavior.resolved.kind)) {
+      return null;
+    }
+    return {
+      glyph: tile.glyph,
+      char: behavior.resolved.char ?? undefined,
+      color: behavior.resolved.color ?? undefined,
+    };
+  }
+
+  private seedTerrainCacheFromSupersededPendingUpdate(
+    key: string,
+    previousTile: any,
+    nextTile: any,
+  ): void {
+    const nextBehavior = this.classifyTilePayload(nextTile);
+    if (!nextBehavior?.isPlayerGlyph) {
+      return;
+    }
+    const previousBehavior = this.classifyTilePayload(previousTile);
+    const previousTerrain = this.snapshotPersistentTerrainFromTile(
+      previousTile,
+      previousBehavior,
+    );
+    if (!previousTerrain) {
+      return;
+    }
+    this.lastKnownTerrain.set(key, previousTerrain);
+  }
+
+  private trackPlayerTileAssumptionInput(input: string): void {
+    const normalized = String(input || "").trim();
+    if (!normalized) {
+      return;
+    }
+    if (normalized === ">") {
+      this.pendingVerticalTransitionAssumption = "stairs_up";
+      return;
+    }
+    if (normalized === "<") {
+      this.pendingVerticalTransitionAssumption = "stairs_down";
+      return;
+    }
+    this.pendingVerticalTransitionAssumption = null;
+  }
+
+  private findAdjacentFloorTerrainSnapshot(
+    x: number,
+    y: number,
+  ): TerrainSnapshot | null {
+    const offsets: Array<{ dx: number; dy: number }> = [
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: 0 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: -1, dy: -1 },
+      { dx: 1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: 1, dy: 1 },
+    ];
+    for (const offset of offsets) {
+      const neighbor = this.lastKnownTerrain.get(
+        `${x + offset.dx},${y + offset.dy}`,
+      );
+      if (!neighbor) {
+        continue;
+      }
+      const behavior = classifyTileBehavior({
+        glyph: neighbor.glyph,
+        runtimeChar: neighbor.char ?? null,
+        runtimeColor: typeof neighbor.color === "number" ? neighbor.color : null,
+        priorTerrain: neighbor,
+      });
+      if (behavior.materialKind === "floor" || behavior.materialKind === "dark") {
+        return neighbor;
+      }
+    }
+    return null;
+  }
+
+  private resolvePlayerTileAssumptionSnapshot(
+    x: number,
+    y: number,
+  ): TerrainSnapshot {
+    if (this.pendingVerticalTransitionAssumption === "stairs_up") {
+      return { glyph: getDefaultStairsUpGlyph() };
+    }
+    if (this.pendingVerticalTransitionAssumption === "stairs_down") {
+      return { glyph: getDefaultStairsDownGlyph() };
+    }
+    if (this.assumeInitialPlayerTileIsStairsUp) {
+      return { glyph: getDefaultStairsUpGlyph() };
+    }
+    const adjacentFloor = this.findAdjacentFloorTerrainSnapshot(x, y);
+    if (adjacentFloor) {
+      return adjacentFloor;
+    }
+    return { glyph: getDefaultFloorGlyph(), char: "." };
+  }
+
   private extractDamageAmountFromMessage(message: string): number | null {
     const patterns = [
       /\bfor\s+(-?\d+)\s+damage\b/i,
@@ -2718,6 +2838,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const key = `${tile.x},${tile.y}`;
+    const pendingTile = this.pendingTileUpdates.get(key);
+    if (pendingTile) {
+      this.seedTerrainCacheFromSupersededPendingUpdate(key, pendingTile, tile);
+    }
     this.pendingTileUpdates.set(key, tile);
 
     if (this.tileFlushScheduled) {
@@ -5051,6 +5175,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.clearDamageEffects();
     this.lastKnownPlayerHp = null;
     this.pendingPlayerTileRefreshOnNextPosition = true;
+    this.assumeInitialPlayerTileIsStairsUp = true;
     this.lightingCenterInitialized = false;
     this.positionInputModeActive = false;
     this.hasRuntimePositionCursor = false;
@@ -5663,6 +5788,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!this.lastKnownTerrain.has(key)) {
         this.requestTileUpdate(x, y);
       }
+      const cachedTerrain = this.lastKnownTerrain.get(key);
+      if (cachedTerrain) {
+        this.updateTile(
+          x,
+          y,
+          cachedTerrain.glyph,
+          cachedTerrain.char,
+          cachedTerrain.color,
+        );
+      } else {
+        const assumedSnapshot = this.resolvePlayerTileAssumptionSnapshot(x, y);
+        this.updateTile(
+          x,
+          y,
+          assumedSnapshot.glyph,
+          assumedSnapshot.char,
+          assumedSnapshot.color,
+        );
+      }
       this.markLightingDirty();
       return;
     }
@@ -5685,6 +5829,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
+    const isFpsPlayerTile =
+      this.isFpsMode() &&
+      this.hasSeenPlayerPosition &&
+      x === this.playerPos.x &&
+      y === this.playerPos.y;
 
     // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
     if (shouldElevateEntity && useTiles) {
@@ -5718,8 +5867,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
           });
         }
       }
-      tileGlyphChar = " ";
-      tileTextColor = renderBehavior.textColor;
+      if (isFpsPlayerTile) {
+        // If an elevated entity occupies the player's tile in FPS mode, keep a flat
+        // glyph overlay on the ground instead of hiding it with a billboard.
+        tileGlyphChar = behavior.glyphChar;
+        tileTextColor = behavior.textColor;
+      } else {
+        tileGlyphChar = " ";
+        tileTextColor = renderBehavior.textColor;
+      }
     }
 
     const material = this.getMaterialByKind(renderBehavior.materialKind);
@@ -5769,7 +5925,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
-    mesh.userData.tileIndex = renderBehavior.effective.tileIndex;
+    const overlayTileIndex =
+      isFpsPlayerTile && shouldElevateEntity && useTiles
+        ? behavior.effective.tileIndex
+        : renderBehavior.effective.tileIndex;
+    mesh.userData.tileIndex = overlayTileIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
@@ -5785,14 +5945,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.isWall,
       renderBehavior.darkenFactor,
       drawFpsFloorGrid,
-      renderBehavior.effective.tileIndex,
+      overlayTileIndex,
     );
-
-    const isFpsPlayerTile =
-      this.isFpsMode() &&
-      this.hasSeenPlayerPosition &&
-      x === this.playerPos.x &&
-      y === this.playerPos.y;
 
     // Create or remove a billboard for any entity that should be elevated.
     if (
@@ -5888,6 +6042,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (!this.hasPlayerMovedOnce && moved && hasRecentMovementInput) {
       this.hasPlayerMovedOnce = true;
+      this.assumeInitialPlayerTileIsStairsUp = false;
     }
   }
 
@@ -8726,6 +8881,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private sendInput(input: string): void {
     this.logNameInputTrace(input);
+    this.trackPlayerTileAssumptionInput(input);
 
     if (this.isMovementInput(input)) {
       this.lastManualDirectionalInputAtMs = Date.now();
@@ -8765,6 +8921,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const nowMs = Date.now();
     for (const input of inputs) {
+      this.trackPlayerTileAssumptionInput(input);
       if (this.isMovementInput(input)) {
         this.lastManualDirectionalInputAtMs = nowMs;
         this.fpsAutoMoveDirection = null;
