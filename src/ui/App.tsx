@@ -312,6 +312,7 @@ type ClientOption =
 
 type ClientOptionToggleKey =
   | "fpsMode"
+  | "invertLookYAxis"
   | "invertTouchPanningDirection"
   | "minimap"
   | "damageNumbers"
@@ -540,7 +541,13 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
-    key: "group-controls",
+    key: "invertLookYAxis",
+    label: "Invert Y-axis look",
+    description: "Invert vertical mouselook and touch-look direction.",
+    type: "boolean",
+  },
+  {
+    key: "group-mobile-controls",
     label: "Mobile controls",
     type: "group",
   },
@@ -2009,6 +2016,13 @@ export default function App(): JSX.Element {
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
           <div className="nh3d-options-list">
             {clientOptionsConfig.map((option) => {
+              if (
+                option.type === "boolean" &&
+                option.key === "invertLookYAxis" &&
+                !clientOptionsDraft.fpsMode
+              ) {
+                return null;
+              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>

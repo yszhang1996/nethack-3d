@@ -10869,9 +10869,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       baseSensitivity * this.resolveFpsLookSensitivityScale("x");
     const sensitivityY =
       baseSensitivity * this.resolveFpsLookSensitivityScale("y");
+    const lookYDirection = this.clientOptions.invertLookYAxis ? -1 : 1;
     this.cameraYaw = this.wrapAngle(this.cameraYaw + deltaX * sensitivityX);
     this.cameraPitch = THREE.MathUtils.clamp(
-      this.cameraPitch - deltaY * sensitivityY,
+      this.cameraPitch - deltaY * sensitivityY * lookYDirection,
       this.firstPersonPitchMin,
       this.firstPersonPitchMax,
     );

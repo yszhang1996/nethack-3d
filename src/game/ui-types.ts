@@ -91,6 +91,7 @@ export type Nh3dClientOptions = {
   fpsFov: number;
   fpsLookSensitivityX: number;
   fpsLookSensitivityY: number;
+  invertLookYAxis: boolean;
   invertTouchPanningDirection: boolean;
   minimap: boolean;
   damageNumbers: boolean;
@@ -114,6 +115,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsFov: isMobilePortrait ? 95 : 62,
   fpsLookSensitivityX: isMobile ? 1.5 : 1,
   fpsLookSensitivityY: isMobile ? 1.5 : 1,
+  invertLookYAxis: false,
   invertTouchPanningDirection: true,
   minimap: true,
   damageNumbers: true,
@@ -162,6 +164,10 @@ export function normalizeNh3dClientOptions(
     fpsFov,
     fpsLookSensitivityX,
     fpsLookSensitivityY,
+    invertLookYAxis:
+      typeof overrides?.invertLookYAxis === "boolean"
+        ? overrides.invertLookYAxis
+        : defaultNh3dClientOptions.invertLookYAxis,
     invertTouchPanningDirection:
       typeof overrides?.invertTouchPanningDirection === "boolean"
         ? overrides.invertTouchPanningDirection
