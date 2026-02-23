@@ -329,7 +329,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
   private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
   private readonly fpsCrosshairGlancePostResolveGraceMs: number = 420;
-  private fpsWallChamferGeometryCache: Map<number, THREE.BufferGeometry> =
+  private fpsWallChamferGeometryCache: Map<string, THREE.BufferGeometry> =
     new Map();
   private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
     new Map();
@@ -4730,6 +4730,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private remapFpsChamferWallUVs(
     geometry: THREE.BufferGeometry,
+    rotateSideFaces: boolean,
   ): THREE.BufferGeometry {
     const workingGeometry = geometry.index ? geometry.toNonIndexed() : geometry;
     const position = workingGeometry.getAttribute("position");
@@ -4797,12 +4798,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
             ? (projected[j] - projectedMin) / projectedRange
             : 0.5;
         const vertical = 1 - (p.z + halfWall) / WALL_HEIGHT;
-        // Keep side-wall orientation unchanged, but rotate faces whose wall run
-        // is horizontal in top-down space (eg north/south room walls).
-        const tangentIsHorizontal = Math.abs(tangentX) >= Math.abs(tangentY);
         let u = vertical;
         let v = horizontal;
-        if (tangentIsHorizontal) {
+        if (rotateSideFaces) {
           // 90deg clockwise rotation in UV space.
           u = 1 - horizontal;
           v = vertical;
@@ -4813,6 +4811,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     workingGeometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     return workingGeometry;
+  }
+
+  private shouldRotateFpsChamferWallUv(glyphChar: string): boolean {
+    // NetHack uses '-' for horizontal room walls and '|' for vertical walls.
+    // In tiles mode these frequently map to different wall textures; only the
+    // horizontal-wall variant should be rotated for chamfered wall faces.
+    return glyphChar === "-";
   }
 
   private remapFpsChamferFloorUVs(geometry: THREE.ShapeGeometry): void {
@@ -4836,7 +4841,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     uv.needsUpdate = true;
   }
 
-  private createFpsChamferedWallGeometry(mask: number): THREE.BufferGeometry {
+  private createFpsChamferedWallGeometry(
+    mask: number,
+    rotateSideFaces: boolean,
+  ): THREE.BufferGeometry {
     const half = TILE_SIZE / 2;
     const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
     const cutNorthWest = (mask & 1) !== 0;
@@ -4883,7 +4891,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.splitFpsChamferGeometryGroups(extrudedGeometry);
     // Align with box geometry, which is centered around z=0.
     extrudedGeometry.translate(0, 0, -WALL_HEIGHT / 2);
-    const geometry = this.remapFpsChamferWallUVs(extrudedGeometry);
+    const geometry = this.remapFpsChamferWallUVs(
+      extrudedGeometry,
+      rotateSideFaces,
+    );
     if (geometry !== extrudedGeometry) {
       extrudedGeometry.dispose();
     }
@@ -4893,16 +4904,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return geometry;
   }
 
-  private getFpsWallGeometry(mask: number): THREE.BufferGeometry {
+  private getFpsWallGeometry(
+    mask: number,
+    rotateSideFaces: boolean = false,
+  ): THREE.BufferGeometry {
     if (mask === 0) {
       return this.wallGeometry;
     }
-    const cached = this.fpsWallChamferGeometryCache.get(mask);
+    const cacheKey = `${mask}:${rotateSideFaces ? 1 : 0}`;
+    const cached = this.fpsWallChamferGeometryCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const geometry = this.createFpsChamferedWallGeometry(mask);
-    this.fpsWallChamferGeometryCache.set(mask, geometry);
+    const geometry = this.createFpsChamferedWallGeometry(mask, rotateSideFaces);
+    this.fpsWallChamferGeometryCache.set(cacheKey, geometry);
     return geometry;
   }
 
@@ -5053,24 +5068,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.fpsWallChamferMaterialKind === "string"
         ? (mesh.userData.fpsWallChamferMaterialKind as TileMaterialKind)
         : null;
-    const nextGeometry = this.getFpsWallGeometry(nextMask);
+    const glyphChar =
+      typeof mesh.userData?.glyphChar === "string"
+        ? mesh.userData.glyphChar
+        : " ";
+    const rotateChamferSideFaces =
+      nextMask > 0 ? this.shouldRotateFpsChamferWallUv(glyphChar) : false;
+    const previousRotateChamferSideFaces = Boolean(
+      mesh.userData?.fpsWallChamferRotateUv,
+    );
+    const nextGeometry = this.getFpsWallGeometry(
+      nextMask,
+      rotateChamferSideFaces,
+    );
     const geometryChanged = mesh.geometry !== nextGeometry;
     if (geometryChanged) {
       mesh.geometry = nextGeometry;
     }
     mesh.userData.fpsWallChamferMask = nextMask;
     mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
+    mesh.userData.fpsWallChamferRotateUv = rotateChamferSideFaces;
     this.upsertFpsWallChamferFloorMesh(tileX, tileY, nextMask, nextChamferKind);
     const chamferKindChanged = previousChamferKind !== nextChamferKind;
-    if (!geometryChanged && previousMask === nextMask && !chamferKindChanged) {
+    const chamferRotateChanged =
+      previousRotateChamferSideFaces !== rotateChamferSideFaces;
+    if (
+      !geometryChanged &&
+      previousMask === nextMask &&
+      !chamferKindChanged &&
+      !chamferRotateChanged
+    ) {
       return;
     }
 
     const baseMaterial = this.getMaterialByKind(materialKind);
-    const glyphChar =
-      typeof mesh.userData?.glyphChar === "string"
-        ? mesh.userData.glyphChar
-        : " ";
     const textColor =
       typeof mesh.userData?.glyphTextColor === "string"
         ? mesh.userData.glyphTextColor
@@ -5808,9 +5839,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       wallChamferMask > 0
         ? this.getFpsChamferMaterialKindForWall(renderBehavior.materialKind)
         : null;
+    const wallChamferRotateUv =
+      wallChamferMask > 0
+        ? this.shouldRotateFpsChamferWallUv(tileGlyphChar)
+        : false;
     const geometry =
       renderBehavior.geometryKind === "wall"
-        ? this.getFpsWallGeometry(wallChamferMask)
+        ? this.getFpsWallGeometry(wallChamferMask, wallChamferRotateUv)
         : this.floorGeometry;
     const targetZ = renderBehavior.isWall ? WALL_HEIGHT / 2 : 0;
 
@@ -5847,6 +5882,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.tileIndex = renderBehavior.effective.tileIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
+    mesh.userData.fpsWallChamferRotateUv = wallChamferRotateUv;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
     mesh.scale.set(visualScale, visualScale, visualScale);
     const drawFpsFloorGrid = this.isFpsMode();
@@ -11335,29 +11371,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const button = document.createElement("div");
     button.textContent = "Run";
     button.setAttribute("aria-hidden", "true");
-    button.style.position = "fixed";
+    button.className = "nh3d-fps-touch-run-button";
     button.style.left = "0px";
     button.style.top = "0px";
     button.style.width = `${this.fpsTouchRunButtonSizePx}px`;
     button.style.height = `${this.fpsTouchRunButtonSizePx}px`;
-    button.style.display = "none";
-    button.style.alignItems = "center";
-    button.style.justifyContent = "center";
-    button.style.pointerEvents = "none";
-    button.style.userSelect = "none";
-    button.style.touchAction = "none";
-    button.style.borderRadius = "12px";
-    button.style.border = "2px solid #96a996";
-    button.style.background = "rgba(24, 34, 24, 0.88)";
-    button.style.color = "#e7f8e7";
-    button.style.fontFamily = "system-ui, sans-serif";
-    button.style.fontSize = "20px";
-    button.style.fontWeight = "700";
-    button.style.letterSpacing = "0.02em";
-    button.style.transform = "translate(-50%, -50%) scale(1)";
-    button.style.transition = "transform 90ms ease, background-color 90ms ease, border-color 90ms ease, box-shadow 90ms ease";
-    button.style.zIndex = "80";
-    document.body.appendChild(button);
+    const host = this.mountElement ?? document.body;
+    host.appendChild(button);
     this.fpsTouchRunButton = button;
     return button;
   }
@@ -11368,12 +11388,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsTouchRunButtonCenterX = 0;
     this.fpsTouchRunButtonCenterY = 0;
     if (this.fpsTouchRunButton) {
-      this.fpsTouchRunButton.style.display = "none";
-      this.fpsTouchRunButton.style.transform =
-        "translate(-50%, -50%) scale(1)";
-      this.fpsTouchRunButton.style.background = "rgba(24, 34, 24, 0.88)";
-      this.fpsTouchRunButton.style.borderColor = "#96a996";
-      this.fpsTouchRunButton.style.boxShadow = "none";
+      this.fpsTouchRunButton.classList.remove("is-visible", "is-active");
     }
   }
 
@@ -11402,27 +11417,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     gesture: FpsTouchGestureState,
   ): void {
     const button = this.ensureFpsTouchRunButton();
+    const hostRect = this.mountElement?.getBoundingClientRect();
+    const hostLeft = hostRect?.left ?? 0;
+    const hostTop = hostRect?.top ?? 0;
+    const hostWidth = hostRect?.width ?? window.innerWidth;
+    const hostHeight = hostRect?.height ?? window.innerHeight;
+    const hostRight = hostLeft + hostWidth;
+    const hostBottom = hostTop + hostHeight;
     const half = this.fpsTouchRunButtonSizePx / 2;
     const margin = 8;
-    const maxX = Math.max(half + margin, window.innerWidth - half - margin);
-    const maxY = Math.max(half + margin, window.innerHeight - half - margin);
-    const centerX = THREE.MathUtils.clamp(gesture.startX, half + margin, maxX);
+    const minX = hostLeft + half + margin;
+    const minY = hostTop + half + margin;
+    const maxX = Math.max(minX, hostRight - half - margin);
+    const maxY = Math.max(minY, hostBottom - half - margin);
+    const centerX = THREE.MathUtils.clamp(gesture.startX, minX, maxX);
     const centerY = THREE.MathUtils.clamp(
       gesture.startY - this.fpsTouchRunButtonOffsetYPx,
-      half + margin,
+      minY,
       maxY,
     );
     this.fpsTouchRunButtonTouchId = gesture.touchId;
     this.fpsTouchRunButtonCenterX = centerX;
     this.fpsTouchRunButtonCenterY = centerY;
     this.fpsTouchRunButtonActive = false;
-    button.style.left = `${centerX}px`;
-    button.style.top = `${centerY}px`;
-    button.style.display = "flex";
-    button.style.transform = "translate(-50%, -50%) scale(1)";
-    button.style.background = "rgba(24, 34, 24, 0.88)";
-    button.style.borderColor = "#96a996";
-    button.style.boxShadow = "none";
+    button.style.left = `${centerX - hostLeft}px`;
+    button.style.top = `${centerY - hostTop}px`;
+    button.classList.add("is-visible");
+    button.classList.remove("is-active");
   }
 
   private isTouchOverFpsRunButton(clientX: number, clientY: number): boolean {
@@ -11444,20 +11465,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.fpsTouchRunButtonActive = active;
     const button = this.fpsTouchRunButton;
-    if (!button || button.style.display === "none") {
+    if (!button || !button.classList.contains("is-visible")) {
       return;
     }
-    if (active) {
-      button.style.transform = "translate(-50%, -50%) scale(1.12)";
-      button.style.background = "rgba(72, 148, 72, 0.96)";
-      button.style.borderColor = "#d6ffd6";
-      button.style.boxShadow = "0 0 0 3px rgba(192, 255, 192, 0.34)";
-      return;
-    }
-    button.style.transform = "translate(-50%, -50%) scale(1)";
-    button.style.background = "rgba(24, 34, 24, 0.88)";
-    button.style.borderColor = "#96a996";
-    button.style.boxShadow = "none";
+    button.classList.toggle("is-active", active);
   }
 
   private updateFpsTouchRunButtonForMoveGesture(

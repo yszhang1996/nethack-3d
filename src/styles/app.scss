@@ -1794,6 +1794,46 @@ canvas {
   max-width: min(280px, calc(50vw - 28px));
 }
 
+.nh3d-fps-touch-run-button {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  border-radius: 12px;
+  border: 2px solid #96a996;
+  background: rgba(24, 34, 24, 0.88);
+  color: #e7f8e7;
+  font-family: "Courier New", monospace;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  transform: translate(-50%, -50%) scale(1);
+  transition:
+    transform 90ms ease,
+    background-color 90ms ease,
+    border-color 90ms ease,
+    box-shadow 90ms ease;
+  z-index: 1960;
+  box-shadow: none;
+
+  &.is-visible {
+    display: flex;
+  }
+
+  &.is-active {
+    transform: translate(-50%, -50%) scale(1.12);
+    background: rgba(72, 148, 72, 0.96);
+    border-color: #d6ffd6;
+    box-shadow: 0 0 0 3px rgba(192, 255, 192, 0.34);
+  }
+}
+
 .nh3d-inventory-keybinds {
   font-size: 11px;
   line-height: 1.2;
