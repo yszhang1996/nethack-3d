@@ -97,6 +97,12 @@ type GlyphDamageFlashState = {
   darkenFactor: number;
 };
 
+type MonsterBillboardDamageFlashState = {
+  key: string;
+  elapsedMs: number;
+  durationMs: number;
+};
+
 type GlyphDamageShakeState = {
   key: string;
   tileX: number;
@@ -105,6 +111,7 @@ type GlyphDamageShakeState = {
   durationMs: number;
   amplitude: number;
   seed: number;
+  spriteOnly: boolean;
 };
 
 type BloodMistParticle = {
@@ -509,11 +516,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private pendingCharacterDamageQueue: PendingCharacterDamage[] = [];
   private readonly pendingCharacterDamageMaxAgeMs: number = 420;
   private readonly glyphDamageFlashDurationMs: number = 180;
+  private readonly monsterBillboardDamageFlashDurationMs: number = 320;
   private readonly glyphDamageFlashTextureSize: number = 256;
   private readonly glyphDamageFlashRed = new THREE.Color("#ff2d2d");
   private readonly glyphDamageFlashWhite = new THREE.Color("#ffffff");
   private readonly glyphDamageFlashColor = new THREE.Color("#ffffff");
   private glyphDamageFlashes: Map<string, GlyphDamageFlashState> = new Map();
+  private monsterBillboardDamageFlashes: Map<
+    string,
+    MonsterBillboardDamageFlashState
+  > = new Map();
+  private defeatedMonsterBillboardUntilMs: Map<string, number> = new Map();
   private glyphDamageShakes: Map<string, GlyphDamageShakeState> = new Map();
   private damageParticles: BloodMistParticle[] = [];
   private playerDamageNumberParticles: DamageNumberParticle[] = [];
@@ -528,6 +541,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly glyphDefeatShakeDurationMs: number = 240;
   private readonly glyphDamageShakeAmplitude: number = TILE_SIZE * 0.08;
   private readonly glyphDefeatShakeAmplitude: number = TILE_SIZE * 0.14;
+  private readonly defeatedMonsterBillboardLingerMs: number = 280;
   private readonly bloodParticleHitLifetimeMs: number = 620;
   private readonly bloodParticleDefeatLifetimeMs: number = 1250;
   private readonly bloodParticleHitCountMin: number = 5;
@@ -3468,9 +3482,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
+    const useMonsterBillboardFlash = this.shouldUseMonsterBillboardDamageFlash(key);
     const isPlayerTarget = x === this.playerPos.x && y === this.playerPos.y;
-    if (variant === "hit") {
-      this.startGlyphDamageFlash(key);
+    if (variant === "hit" || variant === "defeat") {
+      if (useMonsterBillboardFlash) {
+        this.stopGlyphDamageFlash(key);
+        this.startMonsterBillboardDamageFlash(key);
+      } else {
+        this.startGlyphDamageFlash(key);
+      }
+    }
+    if (variant === "defeat" && useMonsterBillboardFlash) {
+      this.queueDefeatedMonsterBillboardRemoval(key);
     }
     if (
       isPlayerTarget &&
@@ -3480,7 +3503,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.spawnPlayerDamageNumberParticle(x, y, damage);
     }
     if (this.clientOptions.tileShakeOnHit) {
-      this.startGlyphDamageShake(x, y, variant);
+      this.startGlyphDamageShake(x, y, variant, {
+        spriteOnly: variant === "defeat" && useMonsterBillboardFlash,
+      });
     }
     if (this.clientOptions.blood) {
       this.spawnBloodMistParticles(x, y, damage, variant);
@@ -4441,6 +4466,146 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.glyphDamageFlashes.delete(key);
   }
 
+  private shouldUseMonsterBillboardDamageFlash(key: string): boolean {
+    if (this.clientOptions.tilesetMode !== "tiles") {
+      return false;
+    }
+    const mesh = this.tileMap.get(key);
+    if (!mesh || !mesh.userData?.isMonsterLikeCharacter) {
+      return false;
+    }
+    return this.monsterBillboards.has(key);
+  }
+
+  private queueDefeatedMonsterBillboardRemoval(key: string): void {
+    if (!this.monsterBillboards.has(key)) {
+      return;
+    }
+    const now = Date.now();
+    const untilMs =
+      now +
+      Math.max(
+        this.defeatedMonsterBillboardLingerMs,
+        this.glyphDefeatShakeDurationMs,
+        this.monsterBillboardDamageFlashDurationMs,
+      );
+    const existingUntilMs = this.defeatedMonsterBillboardUntilMs.get(key) ?? 0;
+    if (untilMs > existingUntilMs) {
+      this.defeatedMonsterBillboardUntilMs.set(key, untilMs);
+    }
+  }
+
+  private shouldKeepDefeatedMonsterBillboardVisible(key: string): boolean {
+    const untilMs = this.defeatedMonsterBillboardUntilMs.get(key);
+    if (typeof untilMs !== "number") {
+      return false;
+    }
+    if (!this.monsterBillboards.has(key)) {
+      this.defeatedMonsterBillboardUntilMs.delete(key);
+      return false;
+    }
+    if (Date.now() >= untilMs) {
+      return false;
+    }
+    return true;
+  }
+
+  private flushExpiredDefeatedMonsterBillboards(): void {
+    if (this.defeatedMonsterBillboardUntilMs.size === 0) {
+      return;
+    }
+    const now = Date.now();
+    for (const [key, untilMs] of Array.from(
+      this.defeatedMonsterBillboardUntilMs.entries(),
+    )) {
+      if (untilMs > now) {
+        continue;
+      }
+      const mesh = this.tileMap.get(key);
+      if (mesh?.userData?.isMonsterLikeCharacter) {
+        this.defeatedMonsterBillboardUntilMs.delete(key);
+        continue;
+      }
+      this.removeMonsterBillboard(key);
+    }
+  }
+
+  private startMonsterBillboardDamageFlash(key: string): void {
+    const sprite = this.monsterBillboards.get(key);
+    if (!sprite) {
+      return;
+    }
+    const material = sprite.material;
+    if (!(material instanceof THREE.SpriteMaterial)) {
+      return;
+    }
+
+    let state = this.monsterBillboardDamageFlashes.get(key);
+    if (!state) {
+      state = {
+        key,
+        elapsedMs: 0,
+        durationMs: this.monsterBillboardDamageFlashDurationMs,
+      };
+      this.monsterBillboardDamageFlashes.set(key, state);
+    } else {
+      state.elapsedMs = 0;
+      state.durationMs = this.monsterBillboardDamageFlashDurationMs;
+    }
+
+    // Change to red directly on the billboard material.
+    material.color.set(0xff0000);
+    material.needsUpdate = true;
+  }
+
+  private stopMonsterBillboardDamageFlash(key: string): void {
+    const state = this.monsterBillboardDamageFlashes.get(key);
+    if (!state) {
+      return;
+    }
+
+    const sprite = this.monsterBillboards.get(key);
+    if (sprite && sprite.material instanceof THREE.SpriteMaterial) {
+      sprite.material.color.copy(this.glyphDamageFlashWhite);
+      sprite.material.needsUpdate = true;
+    }
+
+    this.monsterBillboardDamageFlashes.delete(key);
+  }
+
+  private updateMonsterBillboardDamageFlashes(deltaSeconds: number): void {
+    if (this.monsterBillboardDamageFlashes.size === 0) {
+      return;
+    }
+
+    const deltaMs = deltaSeconds * 1000;
+    const entries = Array.from(this.monsterBillboardDamageFlashes.entries());
+    for (const [key, state] of entries) {
+      const sprite = this.monsterBillboards.get(key);
+      if (!sprite || !(sprite.material instanceof THREE.SpriteMaterial)) {
+        this.stopMonsterBillboardDamageFlash(key);
+        continue;
+      }
+
+      state.elapsedMs += deltaMs;
+      const progress = THREE.MathUtils.clamp(
+        state.elapsedMs / state.durationMs,
+        0,
+        1,
+      );
+      const intensity = Math.exp(-8.5 * progress);
+      this.glyphDamageFlashColor
+        .copy(this.glyphDamageFlashWhite)
+        .lerp(this.glyphDamageFlashRed, intensity);
+      sprite.material.color.copy(this.glyphDamageFlashColor);
+      sprite.material.needsUpdate = true;
+
+      if (progress >= 1) {
+        this.stopMonsterBillboardDamageFlash(key);
+      }
+    }
+  }
+
   private updateGlyphDamageFlashes(deltaSeconds: number): void {
     if (this.glyphDamageFlashes.size === 0) {
       return;
@@ -4479,10 +4644,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileX: number,
     tileY: number,
     variant: "hit" | "defeat",
+    options?: { spriteOnly?: boolean },
   ): void {
     const key = `${tileX},${tileY}`;
     const mesh = this.tileMap.get(key);
-    if (!mesh) {
+    const sprite = this.monsterBillboards.get(key);
+    const spriteOnly = options?.spriteOnly === true;
+    if (!mesh && !sprite) {
+      return;
+    }
+    if (spriteOnly && !sprite) {
       return;
     }
 
@@ -4500,6 +4671,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       existing.elapsedMs = 0;
       existing.durationMs = Math.max(existing.durationMs, durationMs);
       existing.amplitude = Math.max(existing.amplitude, amplitude);
+      existing.spriteOnly = existing.spriteOnly && spriteOnly;
       return;
     }
 
@@ -4511,6 +4683,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       durationMs,
       amplitude,
       seed: Math.random() * Math.PI * 2,
+      spriteOnly,
     });
   }
 
@@ -4521,7 +4694,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const mesh = this.tileMap.get(key);
-    if (mesh) {
+    if (mesh && !state.spriteOnly) {
       const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
       mesh.position.set(
         state.tileX * TILE_SIZE,
@@ -4564,7 +4737,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     for (const [key, state] of entries) {
       const mesh = this.tileMap.get(key);
-      if (!mesh) {
+      const sprite = this.monsterBillboards.get(key);
+      if (!mesh && !sprite) {
+        this.glyphDamageShakes.delete(key);
+        continue;
+      }
+      if (state.spriteOnly && !sprite) {
         this.glyphDamageShakes.delete(key);
         continue;
       }
@@ -4584,14 +4762,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const offsetY =
         Math.cos(oscillationBase * 81 + state.seed * 0.91) * jitter +
         Math.cos(oscillationBase * 29 + state.seed * 1.71) * jitter * 0.4;
-      const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
-
-      mesh.position.set(
-        state.tileX * TILE_SIZE + offsetX,
-        -state.tileY * TILE_SIZE + offsetY,
-        baseZ,
-      );
-      const sprite = this.monsterBillboards.get(key);
+      if (!state.spriteOnly && mesh) {
+        const baseZ = mesh.userData?.isWall ? WALL_HEIGHT / 2 : 0;
+        mesh.position.set(
+          state.tileX * TILE_SIZE + offsetX,
+          -state.tileY * TILE_SIZE + offsetY,
+          baseZ,
+        );
+      }
       if (sprite) {
         const spriteZ =
           typeof sprite.userData?.elevatedZ === "number"
@@ -4605,7 +4783,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       const shadow = this.entityBlobShadows.get(key);
       if (shadow) {
-        const shadowZ = mesh.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
+        const shadowZ = mesh?.userData?.isWall ? WALL_HEIGHT + 0.03 : 0.028;
         shadow.position.set(
           state.tileX * TILE_SIZE + offsetX * 0.4,
           -state.tileY * TILE_SIZE + offsetY * 0.4,
@@ -5443,7 +5621,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateDamageEffects(deltaSeconds: number): void {
     this.updateGlyphDamageFlashes(deltaSeconds);
+    this.updateMonsterBillboardDamageFlashes(deltaSeconds);
     this.updateGlyphDamageShakes(deltaSeconds);
+    this.flushExpiredDefeatedMonsterBillboards();
     this.updateDamageParticles(deltaSeconds);
     this.updatePlayerDamageNumberParticles(deltaSeconds);
     const now = Date.now();
@@ -5455,6 +5635,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (const key of flashKeys) {
       this.stopGlyphDamageFlash(key);
     }
+    const billboardFlashKeys = Array.from(
+      this.monsterBillboardDamageFlashes.keys(),
+    );
+    for (const key of billboardFlashKeys) {
+      this.stopMonsterBillboardDamageFlash(key);
+    }
+    this.defeatedMonsterBillboardUntilMs.clear();
 
     const shakeKeys = Array.from(this.glyphDamageShakes.keys());
     for (const key of shakeKeys) {
@@ -6583,6 +6770,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private removeMonsterBillboard(key: string): void {
     this.removeEntityBlobShadow(key);
+    this.defeatedMonsterBillboardUntilMs.delete(key);
+    this.stopMonsterBillboardDamageFlash(key);
     const sprite = this.monsterBillboards.get(key);
     if (!sprite) {
       return;
@@ -6710,6 +6899,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     entityType: "monster" | "loot" = "monster",
     isWall: boolean = false,
   ): void {
+    this.defeatedMonsterBillboardUntilMs.delete(key);
     const useTiles =
       this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
     const textureKey = useTiles
@@ -7193,7 +7383,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         renderBehavior.isWall,
       );
     } else {
-      this.removeMonsterBillboard(key);
+      if (!this.shouldKeepDefeatedMonsterBillboardVisible(key)) {
+        this.removeMonsterBillboard(key);
+      }
     }
     if (behavior.effectKind) {
       this.activeEffectTileKeys.add(key);

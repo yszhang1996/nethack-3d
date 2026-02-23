@@ -844,7 +844,10 @@ canvas {
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-bottom: 0;
-      padding-bottom: 0;
+      padding-bottom: 0px;
+      border-bottom-left-radius: inherit;
+      border-bottom-right-radius: inherit;
+      background-clip: padding-box;
     }
   }
 
@@ -891,6 +894,8 @@ canvas {
     background: var(--nh3d-dialog-fixed-actions-bg);
     pointer-events: none;
     z-index: 2;
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
   }
 
   @media (pointer: coarse) {
@@ -911,9 +916,12 @@ canvas {
     padding-top: 14px;
     padding-left: var(--nh3d-dialog-fixed-padding);
     padding-right: var(--nh3d-dialog-fixed-padding);
-    padding-bottom: 0;
+    padding-bottom: 0px;
     background: var(--nh3d-dialog-fixed-actions-bg) !important;
     border-top: 1px solid var(--nh3d-ui-border);
+    border-bottom-left-radius: inherit;
+    border-bottom-right-radius: inherit;
+    background-clip: padding-box;
   }
 
   > .nh3d-question-pagination {
