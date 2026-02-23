@@ -1351,7 +1351,7 @@ export default function App(): JSX.Element {
       {characterCreationConfig === null ? (
         <>
           <div
-            className="nh3d-dialog nh3d-dialog-question is-visible startup"
+            className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible startup"
             id="character-setup-dialog"
           >
             {startupFlowStep === "choose" ? (
@@ -1699,7 +1699,7 @@ export default function App(): JSX.Element {
 
       {isClientOptionsVisible ? (
         <div
-          className={`nh3d-dialog nh3d-dialog-options nh3d-dialog-has-mobile-close is-visible`}
+          className={`nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible`}
           id="nh3d-client-options-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -1872,7 +1872,7 @@ export default function App(): JSX.Element {
 
       {textInputRequest ? (
         <div
-          className="nh3d-dialog nh3d-dialog-text nh3d-dialog-has-mobile-close is-visible"
+          className="nh3d-dialog nh3d-dialog-text nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
           id="text-input-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -1920,7 +1920,7 @@ export default function App(): JSX.Element {
 
       {question ? (
         <div
-          className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-has-mobile-close is-visible${
+          className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible${
             question.menuItems.length === 0 && isYesNoQuestionChoices
               ? " nh3d-dialog-question-yes-no"
               : ""
@@ -2139,7 +2139,7 @@ export default function App(): JSX.Element {
           </div>
         ) : (
           <div
-            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-has-mobile-close is-visible"
+            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
             id="direction-dialog"
           >
             {renderMobileDialogCloseButton(
@@ -2209,7 +2209,7 @@ export default function App(): JSX.Element {
 
       {infoMenu ? (
         <div
-          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-has-mobile-close is-visible"
+          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
           id="info-menu-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -2241,7 +2241,7 @@ export default function App(): JSX.Element {
 
       {inventory.visible ? (
         <div
-          className="nh3d-dialog nh3d-dialog-inventory nh3d-dialog-has-mobile-close is-visible"
+          className="nh3d-dialog nh3d-dialog-inventory nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
           id="inventory-dialog"
         >
           {renderMobileDialogCloseButton(

@@ -827,21 +827,24 @@ canvas {
       box-sizing: border-box;
     }
 
-    .nh3d-menu-actions,
-    .nh3d-pickup-actions {
+    &.nh3d-dialog-fixed-actions > .nh3d-menu-actions,
+    &.nh3d-dialog-fixed-actions > .nh3d-pickup-actions {
       flex-wrap: wrap;
       position: sticky;
+      bottom: 0;
       z-index: 3;
       box-sizing: border-box;
-      background: var(--nh3d-ui-panel-bg-strong);
+      background: #040c18 !important;
       border-top: 1px solid var(--nh3d-ui-border);
       box-shadow: 0 -8px 14px rgba(0, 0, 0, 0.45);
-      padding: 8px var(--nh3d-dialog-mobile-padding, 14px);
-      margin-top: 12px;
+      padding-top: 12px;
+      padding-left: var(--nh3d-dialog-mobile-padding, 14px);
+      padding-right: var(--nh3d-dialog-mobile-padding, 14px);
+      margin-top: 18px;
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-      padding-bottom: 8px;
+      padding-bottom: 0;
     }
   }
 
@@ -859,6 +862,48 @@ canvas {
           ) -
           16px
       );
+    }
+  }
+}
+
+.nh3d-dialog-fixed-actions {
+  --nh3d-dialog-fixed-padding: 20px;
+
+  &.is-visible {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (pointer: coarse) {
+    --nh3d-dialog-fixed-padding: var(--nh3d-dialog-mobile-padding, 9px);
+  }
+
+  > .nh3d-menu-actions,
+  > .nh3d-pickup-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    box-sizing: border-box;
+    margin-top: 18px;
+    margin-left: calc(-1 * var(--nh3d-dialog-fixed-padding));
+    margin-right: calc(-1 * var(--nh3d-dialog-fixed-padding));
+    margin-bottom: calc(-1 * var(--nh3d-dialog-fixed-padding));
+    padding-top: 14px;
+    padding-left: var(--nh3d-dialog-fixed-padding);
+    padding-right: var(--nh3d-dialog-fixed-padding);
+    padding-bottom: 0;
+    background: #040c18 !important;
+    border-top: 1px solid var(--nh3d-ui-border);
+
+    &::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: calc(-1 * var(--nh3d-dialog-fixed-padding));
+      height: var(--nh3d-dialog-fixed-padding);
+      background: #040c18;
+      pointer-events: none;
     }
   }
 }
@@ -981,9 +1026,21 @@ canvas {
 }
 
 #character-setup-dialog {
+  --nh3d-character-setup-control-width: min(320px, 100%);
+  --nh3d-character-setup-control-height: 40px;
   width: min(92vw, 680px);
+  max-height: 92vh;
   box-sizing: border-box;
   overflow-x: hidden;
+  overflow-y: auto;
+
+  &.nh3d-dialog-fixed-actions > .nh3d-menu-actions {
+    margin-bottom: 0;
+  }
+
+  &.nh3d-dialog-fixed-actions > .nh3d-menu-actions::after {
+    display: none;
+  }
 
   .nh3d-question-text {
     font-size: clamp(15px, 2.4vw, 19px);
@@ -994,15 +1051,41 @@ canvas {
     box-sizing: border-box;
     max-width: 100%;
     overflow-x: hidden;
+    padding-right: 0;
+  }
+
+  .nh3d-startup-config-grid.centered {
+    grid-template-columns: minmax(0, 1fr);
+    width: var(--nh3d-character-setup-control-width);
+    margin-bottom: 0;
+  }
+
+  .nh3d-startup-config-grid.centered .nh3d-startup-config-field {
+    width: 100%;
+  }
+
+  .nh3d-startup-config-grid.centered .nh3d-startup-config-select,
+  .nh3d-startup-config-grid.centered .nh3d-startup-config-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: var(--nh3d-character-setup-control-height);
   }
 
   .nh3d-character-setup-choice-button {
-    width: min(320px, 100%);
-    min-height: 40px;
+    width: var(--nh3d-character-setup-control-width);
+    min-height: var(--nh3d-character-setup-control-height);
     text-align: center;
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+
+  .nh3d-startup-config-grid.centered + .nh3d-choice-list {
+    margin-top: 8px;
+  }
+
+  .nh3d-startup-config-grid + .nh3d-menu-actions {
+    margin-top: 28px;
   }
 
   @media (pointer: coarse) {
@@ -1011,16 +1094,7 @@ canvas {
     transform: translate(-50%, -50%);
     width: min(92vw, 680px);
     max-width: calc(100vw - 16px);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        32px
-    );
+    max-height: var(--nh3d-calculated-mobile-height);
     padding: 12px;
     box-sizing: border-box;
     overflow-x: hidden;
@@ -1029,10 +1103,22 @@ canvas {
       margin-bottom: 12px;
     }
 
+    .nh3d-startup-config-grid.centered {
+      width: 100%;
+      max-width: 100%;
+      align-self: stretch;
+      margin-left: 0;
+      margin-right: 0;
+    }
+
     .nh3d-choice-list {
       margin-top: 10px;
       width: 100%;
       max-width: 100%;
+    }
+
+    .nh3d-startup-config-grid + .nh3d-menu-actions {
+      margin-top: 24px;
     }
 
     .nh3d-character-setup-choice-button {
@@ -1044,16 +1130,7 @@ canvas {
   @media (orientation: landscape) and (pointer: coarse) {
     top: 50%;
     transform: translate(-50%, -50%);
-    max-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - var(--nh3d-safe-area-top) - max(
-          env(safe-area-inset-bottom),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        16px
-    );
+    max-height: var(--nh3d-calculated-mobile-height);
   }
 }
 
@@ -1373,8 +1450,11 @@ canvas {
   margin-top: 8px;
 
   &.centered {
-    display: inline-block;
-    width: 320px;
+    grid-template-columns: minmax(0, 1fr);
+    width: min(320px, 100%);
+    align-self: center;
+    margin-left: auto;
+    margin-right: auto;
 
     @media (pointer: coarse) {
       width: 100%;
@@ -1393,6 +1473,10 @@ canvas {
   font-size: 12px;
   color: var(--nh3d-ui-text-muted);
   text-align: left;
+
+  > span {
+    font-weight: 700;
+  }
 }
 
 .nh3d-startup-config-select,

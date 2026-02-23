@@ -13,10 +13,7 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import {
-  classifyTileBehavior,
-  getDefaultFloorGlyph,
-} from "./glyphs/behavior";
+import { classifyTileBehavior, getDefaultFloorGlyph } from "./glyphs/behavior";
 import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
@@ -2997,9 +2994,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof messageLike !== "string") {
       return false;
     }
-    const normalized = this.sanitizeFpsCrosshairGlanceText(
-      messageLike,
-    ).toLowerCase();
+    const normalized =
+      this.sanitizeFpsCrosshairGlanceText(messageLike).toLowerCase();
     if (!normalized) {
       return false;
     }
@@ -3016,11 +3012,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private canExecuteRepeatableGameplayAction(): boolean {
-    return Boolean(this.session) && !(
-      this.metaCommandModeActive ||
-      this.isInQuestion ||
-      this.isInDirectionQuestion ||
-      this.positionInputModeActive
+    return (
+      Boolean(this.session) &&
+      !(
+        this.metaCommandModeActive ||
+        this.isInQuestion ||
+        this.isInDirectionQuestion ||
+        this.positionInputModeActive
+      )
     );
   }
 
@@ -3046,11 +3045,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearRepeatableAction();
     }
     this.clearRepeatDirectionCandidate();
-    if (
-      shouldArmRepeat &&
-      normalizedActionId === "look" &&
-      this.isFpsMode()
-    ) {
+    if (shouldArmRepeat && normalizedActionId === "look" && this.isFpsMode()) {
       this.skipNextMobileFpsClickLookPromptMessage = true;
     }
 
@@ -4943,8 +4938,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     materialKind: TileMaterialKind,
   ): number {
     const floorGlyph = getDefaultFloorGlyph();
-    const fallbackGlyph =
-      materialKind === "dark" ? floorGlyph + 1 : floorGlyph;
+    const fallbackGlyph = materialKind === "dark" ? floorGlyph + 1 : floorGlyph;
     const behavior = classifyTileBehavior({
       glyph: fallbackGlyph,
       runtimeChar: ".",
@@ -6206,11 +6200,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       y === this.playerPos.y;
 
     // Create or remove a billboard for any entity that should be elevated.
-    if (
-      shouldElevateEntity &&
-      useTiles &&
-      !isFpsPlayerTile
-    ) {
+    if (shouldElevateEntity && useTiles && !isFpsPlayerTile) {
       this.ensureMonsterBillboard(
         key,
         x,
@@ -9006,7 +8996,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let didExecute = false;
     switch (this.repeatableAction.kind) {
       case "quick":
-        didExecute = this.executeQuickAction(this.repeatableAction.value, false);
+        didExecute = this.executeQuickAction(
+          this.repeatableAction.value,
+          false,
+        );
         break;
       case "extended":
         didExecute = this.executeExtendedCommand(
@@ -9594,7 +9587,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.getDirectionInputFromMapDelta(stepDx, stepDy);
   }
 
-  private tryResolveFpsMovementInput(key: string, code: string = ""): string | null {
+  private tryResolveFpsMovementInput(
+    key: string,
+    code: string = "",
+  ): string | null {
     const lower = key.toLowerCase();
     if (this.numberPadModeEnabled && /^[hjklyubn]$/.test(lower)) {
       return null;
@@ -11094,14 +11090,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairContextSignature = "";
   }
 
-  private getCachedFpsCrosshairTargetHint(
-    tileKey: string,
-    nowMs: number,
-  ): FpsCrosshairTargetHint | null {
-    const cached = this.getCachedFpsCrosshairGlanceEntry(tileKey, nowMs);
-    return cached ? cached.hint : null;
-  }
-
   private getCachedFpsCrosshairGlanceEntry(
     tileKey: string,
     nowMs: number,
@@ -11616,7 +11604,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private clearFpsTouchRunButtonHoldTimer(): void {
-    if (this.fpsTouchRunButtonHoldTimerId !== null && typeof window !== "undefined") {
+    if (
+      this.fpsTouchRunButtonHoldTimerId !== null &&
+      typeof window !== "undefined"
+    ) {
       window.clearTimeout(this.fpsTouchRunButtonHoldTimerId);
     }
     this.fpsTouchRunButtonHoldTimerId = null;
@@ -11671,9 +11662,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }, this.fpsTouchRunButtonHoldMs);
   }
 
-  private showFpsTouchRunButtonForGesture(
-    gesture: FpsTouchGestureState,
-  ): void {
+  private showFpsTouchRunButtonForGesture(gesture: FpsTouchGestureState): void {
     const button = this.ensureFpsTouchRunButton();
     const hostRect = this.mountElement?.getBoundingClientRect();
     const hostLeft = hostRect?.left ?? 0;
