@@ -12,10 +12,12 @@ import type {
 
 // NetHack hero role glyph block starts at 329 (e.g. archeologist),
 // so 330 misses one valid player glyph and can leak a player sprite in FPS.
-const PLAYER_GLYPH_MIN = 329;
+const PLAYER_GLYPH_MIN = 327;
 const PLAYER_GLYPH_MAX = 360;
 
-function getGlyphKindRange(kind: string): { start: number; endExclusive: number } | null {
+function getGlyphKindRange(
+  kind: string,
+): { start: number; endExclusive: number } | null {
   const ranges = getGlyphCatalogRanges();
   for (const range of ranges) {
     if (range.kind === kind) {
@@ -149,7 +151,7 @@ function fallbackGlyphChar(glyph: number, resolved: ResolvedGlyph): string {
 
 function inferDisposition(
   effective: ResolvedGlyph,
-  isPlayer: boolean
+  isPlayer: boolean,
 ): GlyphDisposition {
   if (isPlayer) {
     return "friendly";
@@ -177,7 +179,7 @@ function inferDisposition(
 function textColorFor(
   disposition: GlyphDisposition,
   effective: ResolvedGlyph,
-  effectKind: TileEffectKind | null
+  effectKind: TileEffectKind | null,
 ): string {
   if (effectKind === "warning") return "#FFF9E8";
   if (effectKind === "zap") return "#F3FBFF";
@@ -302,7 +304,7 @@ function applyCmapSemantic(semantic: CmapSemantic): {
 }
 
 function baseMaterialForDisposition(
-  disposition: GlyphDisposition
+  disposition: GlyphDisposition,
 ): TileMaterialKind {
   switch (disposition) {
     case "friendly":
@@ -316,7 +318,10 @@ function baseMaterialForDisposition(
   }
 }
 
-function classifyByKind(effective: ResolvedGlyph, isPlayer: boolean): {
+function classifyByKind(
+  effective: ResolvedGlyph,
+  isPlayer: boolean,
+): {
   materialKind: TileMaterialKind;
   geometryKind: TileGeometryKind;
   isWall: boolean;
@@ -385,7 +390,9 @@ function classifyByKind(effective: ResolvedGlyph, isPlayer: boolean): {
     case "ridden":
     case "invis":
       return {
-        materialKind: baseMaterialForDisposition(inferDisposition(effective, false)),
+        materialKind: baseMaterialForDisposition(
+          inferDisposition(effective, false),
+        ),
         geometryKind: "floor",
         isWall: false,
         effectKind: null,
@@ -415,10 +422,13 @@ export function classifyTileBehavior(input: {
   const resolvedCmapSemantic =
     resolved.kind === "cmap" ? semanticForCmapGlyph(resolved.glyph) : null;
   const isDeterministicDarkCmap =
-    resolvedCmapSemantic === "dark_floor" || resolvedCmapSemantic === "dark_wall";
+    resolvedCmapSemantic === "dark_floor" ||
+    resolvedCmapSemantic === "dark_wall";
   const darkOverlayIndex = getCmapIndex(input.glyph);
   const isDarkOverlay =
-    darkOverlayIndex === 0 || darkOverlayIndex === 20 || darkOverlayIndex === 21;
+    darkOverlayIndex === 0 ||
+    darkOverlayIndex === 20 ||
+    darkOverlayIndex === 21;
   const isPlayer = isPlayerGlyph(input.glyph, runtimeChar);
 
   let effective = resolved;
@@ -429,7 +439,7 @@ export function classifyTileBehavior(input: {
       effective = resolveGlyph(
         input.priorTerrain.glyph,
         input.priorTerrain.char ?? null,
-        input.priorTerrain.color ?? null
+        input.priorTerrain.color ?? null,
       );
     }
     darkenFactor = darkOverlayIndex === 21 ? 0.45 : 0.6;
@@ -452,10 +462,16 @@ export function classifyTileBehavior(input: {
     if (override.materialKind) materialKind = override.materialKind;
     if (override.geometryKind) geometryKind = override.geometryKind;
     if (typeof override.isWall === "boolean") isWall = override.isWall;
-    if (typeof override.glyphChar === "string" && override.glyphChar.length > 0) {
+    if (
+      typeof override.glyphChar === "string" &&
+      override.glyphChar.length > 0
+    ) {
       glyphChar = override.glyphChar.charAt(0);
     }
-    if (typeof override.textColor === "string" && override.textColor.length > 0) {
+    if (
+      typeof override.textColor === "string" &&
+      override.textColor.length > 0
+    ) {
       textColor = override.textColor;
     }
     if (typeof override.darkenFactor === "number") {

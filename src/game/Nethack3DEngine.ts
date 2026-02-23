@@ -1623,6 +1623,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private requestInferredDarkCorridorWallReconcile(options?: {
+    forceImmediate?: boolean;
+  }): void {
+    if (options?.forceImmediate === true) {
+      this.reconcileInferredDarkCorridorWalls();
+      return;
+    }
+    this.reconcileInferredDarkCorridorWalls();
+  }
+
   private reconcileInferredDarkCorridorWalls(): void {
     if (!this.isDarkCorridorWallInferenceEnabled()) {
       this.clearAllInferredDarkCorridorWallMeshes();
@@ -1751,7 +1761,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         snapshot.color,
       );
     }
-    this.reconcileInferredDarkCorridorWalls();
+    this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
   }
 
   private applyPlayMode(nextPlayMode: PlayMode): void {
@@ -1862,7 +1872,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.refreshTilesFromStateCache();
     }
     if (darkCorridorWallsChanged) {
-      this.reconcileInferredDarkCorridorWalls();
+      this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       this.markLightingDirty();
     }
   }
@@ -2502,7 +2512,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const oldPos = { ...this.playerPos };
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
-        this.reconcileInferredDarkCorridorWalls();
+        this.flushPendingTileUpdatesForPlayerPositionReconcile();
+        this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
         if (this.isFpsMode()) {
           this.removeMonsterBillboard(`${data.x},${data.y}`);
         }
@@ -3512,7 +3523,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tileStateCache.set(key, signature);
       this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
     }
-    this.reconcileInferredDarkCorridorWalls();
+    // Inferred dark-corridor walls intentionally reconcile from player_position
+    // updates, not tile flushes, to avoid transient wall flashes mid-move.
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
 
@@ -3520,6 +3532,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tileFlushScheduled = true;
       requestAnimationFrame(() => this.flushPendingTileUpdates());
     }
+  }
+
+  private flushPendingTileUpdatesForPlayerPositionReconcile(): void {
+    if (!this.pendingTileUpdates.size) {
+      return;
+    }
+    // Drain queued map updates before dark-corridor wall inference runs for
+    // this movement step, preventing temporary front-wall flashes.
+    this.flushPendingTileUpdates();
   }
 
   /**

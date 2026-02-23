@@ -3675,6 +3675,10 @@ class LocalNetHackRuntime {
         const oldPlayerPos = { ...this.playerPosition };
         this.playerPosition = { x: clipX, y: clipY };
 
+        // Emit any queued map glyphs first so position-driven client inference
+        // can reconcile once with the complete post-move tile state.
+        this.flushMapGlyphUpdates();
+
         // Send updated player position to client
         if (this.eventHandler) {
           this.emit({
