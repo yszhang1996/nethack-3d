@@ -140,9 +140,10 @@ class LocalNetHackRuntime {
       return [];
     }
     const name = this.normalizeCharacterNameValue(config.name);
+    const role = this.normalizeCharacterOptionValue(config.role);
     if (config.mode === "random") {
       const randomOptions = [
-        "role:random",
+        role ? `role:${role}` : "role:random",
         "race:random",
         "gender:random",
         "align:random",
@@ -153,7 +154,6 @@ class LocalNetHackRuntime {
       return randomOptions;
     }
 
-    const role = this.normalizeCharacterOptionValue(config.role);
     const race = this.normalizeCharacterOptionValue(config.race);
     const gender = this.normalizeCharacterOptionValue(config.gender);
     const align = this.normalizeCharacterOptionValue(config.align);

@@ -225,8 +225,14 @@ export interface Nethack3DEngineController {
   toggleInventoryDialog(): void;
   runInventoryItemAction(actionId: string, itemAccelerator: string): void;
   dismissFpsCrosshairContextMenu(): void;
-  runQuickAction(actionId: string): void;
-  runExtendedCommand(commandText: string): void;
+  runQuickAction(
+    actionId: string,
+    options?: { autoDirectionFromFpsAim?: boolean },
+  ): void;
+  runExtendedCommand(
+    commandText: string,
+    options?: { autoDirectionFromFpsAim?: boolean },
+  ): void;
   repeatLastAction(): void;
   setClientOptions(options: Nh3dClientOptions): void;
   closeInventoryDialog(): void;

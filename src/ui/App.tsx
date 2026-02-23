@@ -243,6 +243,15 @@ const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
 type StartupFlowStep = "choose" | "create" | "random-name";
+
+function pickRandomStartupRole(): string {
+  if (startupRoleOptions.length === 0) {
+    return "";
+  }
+  const randomIndex = Math.floor(Math.random() * startupRoleOptions.length);
+  return startupRoleOptions[randomIndex] ?? "";
+}
+
 type MobileActionEntry = {
   id: string;
   label: string;
@@ -250,6 +259,10 @@ type MobileActionEntry = {
   value: string;
 };
 type MobileActionSheetMode = "quick" | "extended";
+type InventoryContextAction = {
+  id: string;
+  label: string;
+};
 type InventoryContextMenuState = {
   accelerator: string;
   itemText: string;
@@ -276,6 +289,162 @@ type ClientOption = ClientOptionToggle | ClientOptionSelect;
 type ClientOptionLookSensitivityKey =
   | "fpsLookSensitivityX"
   | "fpsLookSensitivityY";
+
+type InventoryCategoryId =
+  | "illegal_objects"
+  | "weapons"
+  | "armor"
+  | "rings"
+  | "amulets"
+  | "tools"
+  | "comestibles"
+  | "potions"
+  | "scrolls"
+  | "spellbooks"
+  | "wands"
+  | "coins"
+  | "gems_stones"
+  | "boulders_statues"
+  | "iron_balls"
+  | "chains"
+  | "venoms"
+  | "bagged_boxed_items";
+
+const inventoryContextActions: InventoryContextAction[] = [
+  { id: "apply", label: "Apply" },
+  { id: "drop", label: "Drop" },
+  { id: "eat", label: "Eat" },
+  { id: "quaff", label: "Quaff" },
+  { id: "read", label: "Read" },
+  { id: "throw", label: "Throw" },
+  { id: "wield", label: "Wield" },
+  { id: "wear", label: "Wear" },
+  { id: "take-off", label: "Take Off" },
+  { id: "put-on", label: "Put On" },
+  { id: "remove", label: "Remove" },
+  { id: "zap", label: "Zap" },
+];
+
+const emptyInventoryActionIdSet: ReadonlySet<string> = new Set<string>();
+
+const inventoryCategoryActionBlocklist: Record<
+  InventoryCategoryId,
+  ReadonlySet<string>
+> = {
+  illegal_objects: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+  ]),
+  weapons: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  armor: new Set(["quaff", "put-on", "remove", "zap"]),
+  rings: new Set(["quaff", "wear", "take-off", "zap"]),
+  amulets: new Set(["quaff", "wear", "take-off", "zap"]),
+  tools: new Set(["quaff", "wear", "take-off", "zap"]),
+  comestibles: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  potions: new Set(["wear", "take-off", "put-on", "remove", "zap"]),
+  scrolls: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  spellbooks: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  wands: new Set(["quaff", "wear", "take-off", "put-on", "remove"]),
+  coins: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  gems_stones: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  boulders_statues: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+  ]),
+  iron_balls: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  chains: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  venoms: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  // Mixed contents; keep this category permissive.
+  bagged_boxed_items: emptyInventoryActionIdSet,
+};
+
+function normalizeInventoryCategoryLabel(raw: unknown): string {
+  return String(raw || "")
+    .replace(/[\s:]+$/g, "")
+    .trim();
+}
+
+function classifyInventoryCategory(
+  categoryLabel: string,
+): InventoryCategoryId | null {
+  const normalized = normalizeInventoryCategoryLabel(categoryLabel).toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.includes("illegal object")) {
+    return "illegal_objects";
+  }
+  if (normalized.startsWith("weapon")) {
+    return "weapons";
+  }
+  if (normalized.startsWith("armor")) {
+    return "armor";
+  }
+  if (normalized.startsWith("ring")) {
+    return "rings";
+  }
+  if (normalized.startsWith("amulet")) {
+    return "amulets";
+  }
+  if (normalized.startsWith("tool")) {
+    return "tools";
+  }
+  if (normalized.startsWith("comestible")) {
+    return "comestibles";
+  }
+  if (normalized.startsWith("potion")) {
+    return "potions";
+  }
+  if (normalized.startsWith("scroll")) {
+    return "scrolls";
+  }
+  if (normalized.startsWith("spellbook")) {
+    return "spellbooks";
+  }
+  if (normalized.startsWith("wand")) {
+    return "wands";
+  }
+  if (normalized.startsWith("coin")) {
+    return "coins";
+  }
+  if (normalized.includes("gem") || normalized.includes("stone")) {
+    return "gems_stones";
+  }
+  if (normalized.includes("boulder") || normalized.includes("statue")) {
+    return "boulders_statues";
+  }
+  if (normalized.includes("iron ball")) {
+    return "iron_balls";
+  }
+  if (normalized.includes("chain")) {
+    return "chains";
+  }
+  if (normalized.includes("venom")) {
+    return "venoms";
+  }
+  if (normalized.includes("bagged") || normalized.includes("boxed")) {
+    return "bagged_boxed_items";
+  }
+  return null;
+}
+
+function getBlockedInventoryActionIdsForCategory(
+  categoryLabel: string,
+): ReadonlySet<string> {
+  const categoryId = classifyInventoryCategory(categoryLabel);
+  if (!categoryId) {
+    return emptyInventoryActionIdSet;
+  }
+  return inventoryCategoryActionBlocklist[categoryId] ?? emptyInventoryActionIdSet;
+}
 
 const mobileDefaultFpsLookSensitivity = 1.35;
 const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
@@ -600,24 +769,7 @@ export default function App(): JSX.Element {
         "--nh3d-context-title-scroll-duration": `${fpsContextTitleDurationSec}s`,
       } as CSSProperties)
     : undefined;
-  const inventoryItemActions = useMemo(
-    () => [
-      { id: "apply", label: "Apply" },
-      { id: "drop", label: "Drop" },
-      { id: "eat", label: "Eat" },
-      { id: "quaff", label: "Quaff" },
-      { id: "read", label: "Read" },
-      { id: "throw", label: "Throw" },
-      { id: "wield", label: "Wield" },
-      { id: "wear", label: "Wear" },
-      { id: "take-off", label: "Take Off" },
-      { id: "put-on", label: "Put On" },
-      { id: "remove", label: "Remove" },
-      { id: "zap", label: "Zap" },
-      { id: "cast", label: "Cast" },
-    ],
-    [],
-  );
+  const inventoryItemActions = inventoryContextActions;
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
@@ -635,6 +787,50 @@ export default function App(): JSX.Element {
           "--nh3d-context-title-scroll-duration": `${inventoryContextTitleDurationSec}s`,
         } as CSSProperties)
       : undefined;
+  const inventoryItemCategoryByAccelerator = useMemo(() => {
+    const categoryByAccelerator = new Map<string, string>();
+    let currentCategory = "";
+    for (const item of inventory.items) {
+      if (item?.isCategory) {
+        currentCategory = normalizeInventoryCategoryLabel(item.text);
+        continue;
+      }
+      const accelerator =
+        typeof item?.accelerator === "string" ? item.accelerator.trim() : "";
+      if (!accelerator) {
+        continue;
+      }
+      categoryByAccelerator.set(accelerator, currentCategory);
+    }
+    return categoryByAccelerator;
+  }, [inventory.items]);
+  const inventoryContextCategory = useMemo(() => {
+    if (!inventoryContextMenu) {
+      return "";
+    }
+    return (
+      inventoryItemCategoryByAccelerator.get(
+        String(inventoryContextMenu.accelerator || "").trim(),
+      ) || ""
+    );
+  }, [inventoryContextMenu, inventoryItemCategoryByAccelerator]);
+  const inventoryContextMenuActions = useMemo(() => {
+    const blocked = getBlockedInventoryActionIdsForCategory(
+      inventoryContextCategory,
+    );
+    const visibleActions = blocked.size
+      ? inventoryItemActions.filter((action) => !blocked.has(action.id))
+      : inventoryItemActions;
+    const selectedItemText = String(inventoryContextMenu?.itemText || "");
+    const selectedItemIsWeaponInHand =
+      /\bweapon in hand\b/i.test(selectedItemText);
+    if (!selectedItemIsWeaponInHand) {
+      return visibleActions;
+    }
+    return visibleActions.map((action) =>
+      action.id === "wield" ? { id: "unwield", label: "Unwield" } : action,
+    );
+  }, [inventoryContextCategory, inventoryContextMenu?.itemText, inventoryItemActions]);
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -1122,10 +1318,14 @@ export default function App(): JSX.Element {
     action: FpsCrosshairContextState["actions"][number],
   ): void => {
     if (action.kind === "quick") {
-      controller?.runQuickAction(action.value);
+      controller?.runQuickAction(action.value, {
+        autoDirectionFromFpsAim: true,
+      });
       return;
     }
-    controller?.runExtendedCommand(action.value);
+    controller?.runExtendedCommand(action.value, {
+      autoDirectionFromFpsAim: true,
+    });
   };
 
   useEffect(() => {
@@ -1425,6 +1625,7 @@ export default function App(): JSX.Element {
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
                         name: normalizeStartupCharacterName(createName),
+                        role: pickRandomStartupRole(),
                       })
                     }
                     type="button"
@@ -2357,8 +2558,8 @@ export default function App(): JSX.Element {
               inventoryContextTitle
             )}
           </div>
-          <div className="nh3d-context-menu-actions">
-            {inventoryItemActions.map((action) => (
+          <div className="nh3d-context-menu-actions nh3d-context-menu-actions-inventory">
+            {inventoryContextMenuActions.map((action) => (
               <button
                 className="nh3d-context-menu-button"
                 key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}

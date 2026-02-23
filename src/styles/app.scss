@@ -834,7 +834,7 @@ canvas {
       bottom: 0;
       z-index: 3;
       box-sizing: border-box;
-      background: #040c18 !important;
+      background: var(--nh3d-dialog-fixed-actions-bg, #040c18) !important;
       border-top: 1px solid var(--nh3d-ui-border);
       box-shadow: 0 -8px 14px rgba(0, 0, 0, 0.45);
       padding-top: 12px;
@@ -843,7 +843,7 @@ canvas {
       margin-top: 18px;
       margin-left: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
       margin-right: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
-      margin-bottom: calc(-1 * var(--nh3d-dialog-mobile-padding, 14px));
+      margin-bottom: 0;
       padding-bottom: 0;
     }
   }
@@ -868,10 +868,29 @@ canvas {
 
 .nh3d-dialog-fixed-actions {
   --nh3d-dialog-fixed-padding: 20px;
+  --nh3d-dialog-fixed-actions-bg: #040c18;
 
   &.is-visible {
     display: flex;
     flex-direction: column;
+  }
+
+  &::after {
+    content: none;
+  }
+
+  &:has(> .nh3d-menu-actions, > .nh3d-pickup-actions):not(
+      :has(> .nh3d-choice-list)
+    )::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: var(--nh3d-dialog-fixed-padding);
+    background: var(--nh3d-dialog-fixed-actions-bg);
+    pointer-events: none;
+    z-index: 2;
   }
 
   @media (pointer: coarse) {
@@ -880,6 +899,7 @@ canvas {
 
   > .nh3d-menu-actions,
   > .nh3d-pickup-actions {
+    order: 30;
     position: sticky;
     bottom: 0;
     z-index: 3;
@@ -892,19 +912,18 @@ canvas {
     padding-left: var(--nh3d-dialog-fixed-padding);
     padding-right: var(--nh3d-dialog-fixed-padding);
     padding-bottom: 0;
-    background: #040c18 !important;
+    background: var(--nh3d-dialog-fixed-actions-bg) !important;
     border-top: 1px solid var(--nh3d-ui-border);
+  }
 
-    &::after {
-      content: "";
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: calc(-1 * var(--nh3d-dialog-fixed-padding));
-      height: var(--nh3d-dialog-fixed-padding);
-      background: #040c18;
-      pointer-events: none;
-    }
+  > .nh3d-question-pagination {
+    order: 20;
+    margin-bottom: 12px;
+  }
+
+  > .nh3d-dialog-hint {
+    order: 25;
+    margin-bottom: 12px;
   }
 }
 
@@ -913,15 +932,15 @@ canvas {
   position: absolute;
   top: 8px;
   right: 8px;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
   border-radius: 999px;
   border: 1px solid rgba(145, 180, 220, 0.72);
   background: rgba(12, 26, 42, 0.96);
   color: #e7f3ff;
   font-family: "Courier New", monospace;
-  font-size: 21px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
   padding: 0;
@@ -985,7 +1004,7 @@ canvas {
   text-align: center;
   min-width: 300px;
   max-width: 600px;
-  max-height: 80vh;
+  max-height: 92vh;
   overflow-y: auto;
 
   &.nh3d-dialog-question-yes-no {
@@ -1033,14 +1052,6 @@ canvas {
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
-
-  &.nh3d-dialog-fixed-actions > .nh3d-menu-actions {
-    margin-bottom: 0;
-  }
-
-  &.nh3d-dialog-fixed-actions > .nh3d-menu-actions::after {
-    display: none;
-  }
 
   .nh3d-question-text {
     font-size: clamp(15px, 2.4vw, 19px);
@@ -1412,7 +1423,7 @@ canvas {
   gap: 8px;
   margin-top: 15px;
   width: min(560px, 90vw);
-  max-height: min(45vh, 360px);
+  max-height: min(62vh, 560px);
   overflow-y: auto;
   padding-right: 4px;
 
@@ -1681,6 +1692,7 @@ canvas {
   margin-top: 12px;
   border-top: 2px solid var(--nh3d-ui-border-strong);
   padding-top: 10px;
+  padding-bottom: 10px;
 
   @media (pointer: coarse) {
     display: none;
@@ -1703,7 +1715,7 @@ canvas {
 
 .nh3d-inventory-items {
   @extend %custom-scrollbar;
-  margin-bottom: 20px;
+  margin-bottom: 8px;
   max-height: none;
   flex: 1 1 auto;
   min-height: 0;
@@ -1822,6 +1834,17 @@ canvas {
   gap: 5px;
 }
 
+.nh3d-context-menu-actions-inventory {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+
+  .nh3d-context-menu-button {
+    min-width: 0;
+    text-align: center;
+  }
+}
+
 .nh3d-context-menu-button {
   border: 1px solid var(--nh3d-ui-button-border);
   background: var(--nh3d-ui-button-bg);
@@ -1871,13 +1894,24 @@ canvas {
 }
 
 .nh3d-fps-crosshair-context {
-  left: calc(50% + 19.2px);
+  left: calc(50% + 75px) !important;
   top: 50%;
   transform: translateY(-50%);
   z-index: 1701;
   min-width: 0;
   width: min(280px, max(140px, calc(50vw - 28px)));
   max-width: min(280px, calc(50vw - 28px));
+
+  .nh3d-context-menu-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .nh3d-context-menu-button {
+    min-width: 0;
+    text-align: center;
+  }
 }
 
 .nh3d-fps-touch-run-button {
@@ -1944,8 +1978,9 @@ canvas {
   color: var(--nh3d-ui-text-muted);
   text-align: center;
   margin-top: 10px;
-  border-top: 1px solid var(--nh3d-ui-border);
+  border-top: 2px solid var(--nh3d-ui-border-strong);
   padding-top: 10px;
+  padding-bottom: 10px;
 
   @media (pointer: coarse) {
     display: none;

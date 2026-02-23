@@ -293,6 +293,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private repeatAutoDirectionPending: boolean = false;
   private repeatAutoDirectionArmedAtMs: number = 0;
   private readonly repeatAutoDirectionWindowMs: number = 1800;
+  private fpsContextAutoDirectionInput: string | null = null;
+  private fpsContextAutoDirectionArmedAtMs: number = 0;
+  private readonly fpsContextAutoDirectionWindowMs: number = 10000;
   private repeatDirectionCandidate: RepeatableActionSpec | null = null;
   private repeatDirectionCandidateAtMs: number = 0;
   private readonly repeatDirectionCandidateWindowMs: number = 1100;
@@ -319,7 +322,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly tileVisualScaleFps = 1;
   private readonly defaultFpsCameraFov = 62;
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
-  private readonly firstPersonPitchMin = -1.18;
+  private readonly firstPersonPitchMin = -Math.PI / 2 + 0.03;
   private readonly firstPersonPitchMax = 1.18;
   private readonly firstPersonMouseSensitivity = 0.0026;
   private readonly fpsDiagonalAimBias = 0.035;
@@ -334,8 +337,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsFireSuppressionDurationMs: number = 1500;
   private fpsCrosshairContextMenuOpen: boolean = false;
   private fpsCrosshairContextSignature: string = "";
+  private readonly fpsVoidContextMesh: THREE.Mesh = (() => {
+    const mesh = new THREE.Mesh();
+    mesh.userData = {
+      isWall: true,
+      materialKind: "rock",
+      isMonsterLikeCharacter: false,
+      isLootLikeCharacter: false,
+    };
+    return mesh;
+  })();
   private fpsCrosshairGlanceCache: Map<string, FpsCrosshairGlanceCacheEntry> =
     new Map();
+  private fpsCrosshairGlanceAttemptedKeys: Set<string> = new Set();
   private fpsCrosshairGlancePending: FpsCrosshairGlancePending | null = null;
   private fpsCrosshairGlanceRequestSequence: number = 0;
   private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
@@ -415,6 +429,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly touchSwipePanHoldMs: number = 500;
   private readonly fpsTouchRunButtonHoldMs: number = 500;
   private readonly fpsTouchRunButtonOffsetYPx: number = 200;
+  private readonly fpsTouchRunButtonLandscapeOffsetYPx: number = 140;
   private readonly fpsTouchRunButtonSizePx: number = 82;
   private minDistance: number = 5;
   private maxDistance: number = 50;
@@ -2069,6 +2084,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
             this.armRepeatableAction(repeatCandidate);
           }
         }
+        if (this.tryAutoAnswerDirectionQuestionFromFpsContextAction()) {
+          break;
+        }
         if (this.tryAutoAnswerDirectionQuestionFromRepeat()) {
           break;
         }
@@ -3026,6 +3044,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private executeQuickAction(
     normalizedActionId: string,
     shouldArmRepeat: boolean,
+    autoDirectionFromFpsAim: boolean = false,
   ): boolean {
     if (!normalizedActionId || !this.session) {
       return false;
@@ -3045,6 +3064,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearRepeatableAction();
     }
     this.clearRepeatDirectionCandidate();
+    this.clearFpsContextAutoDirection();
     if (shouldArmRepeat && normalizedActionId === "look" && this.isFpsMode()) {
       this.skipNextMobileFpsClickLookPromptMessage = true;
     }
@@ -3095,6 +3115,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         value: normalizedActionId,
       });
     }
+    if (
+      didExecute &&
+      autoDirectionFromFpsAim &&
+      (normalizedActionId === "open" || normalizedActionId === "close")
+    ) {
+      this.armFpsContextAutoDirectionFromAim();
+    }
 
     return didExecute;
   }
@@ -3102,6 +3129,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private executeExtendedCommand(
     normalizedCommandText: string,
     shouldArmRepeat: boolean,
+    autoDirectionFromFpsAim: boolean = false,
   ): boolean {
     if (!normalizedCommandText || !this.session) {
       return false;
@@ -3121,6 +3149,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearRepeatableAction();
     }
     this.clearRepeatDirectionCandidate();
+    this.clearFpsContextAutoDirection();
     if (normalizedCommandText === "kick") {
       this.armFpsFireSuppression();
     }
@@ -3131,6 +3160,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         kind: "extended",
         value: normalizedCommandText,
       });
+    }
+    if (
+      autoDirectionFromFpsAim &&
+      (normalizedCommandText === "kick" ||
+        normalizedCommandText === "throw" ||
+        normalizedCommandText === "fire" ||
+        normalizedCommandText === "zap")
+    ) {
+      this.armFpsContextAutoDirectionFromAim();
     }
     return true;
   }
@@ -3164,6 +3202,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
         value: commandKey,
       });
     }
+    return true;
+  }
+
+  private clearFpsContextAutoDirection(): void {
+    this.fpsContextAutoDirectionInput = null;
+    this.fpsContextAutoDirectionArmedAtMs = 0;
+  }
+
+  private armFpsContextAutoDirectionFromAim(): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const directionInput = this.getFpsDirectionQuestionInputFromAim();
+    if (!directionInput) {
+      return;
+    }
+    this.fpsContextAutoDirectionInput = directionInput;
+    this.fpsContextAutoDirectionArmedAtMs = Date.now();
+  }
+
+  private tryAutoAnswerDirectionQuestionFromFpsContextAction(): boolean {
+    const directionKey = this.fpsContextAutoDirectionInput;
+    if (!directionKey) {
+      return false;
+    }
+    const ageMs = Date.now() - this.fpsContextAutoDirectionArmedAtMs;
+    this.clearFpsContextAutoDirection();
+    if (ageMs > this.fpsContextAutoDirectionWindowMs) {
+      return false;
+    }
+    this.isInQuestion = true;
+    this.isInDirectionQuestion = true;
+    this.submitDirectionAnswer(directionKey);
     return true;
   }
 
@@ -5492,6 +5563,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairContextSignature = "";
     this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlancePending = null;
     this.uiAdapter?.setFpsCrosshairContext(null);
 
@@ -5996,6 +6068,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       isLootLikeCharacter ||
       (useTiles &&
         (isSink || isFountain || isStairsUp || isPlayerCharacter || isStatue));
+    const shouldUseElevatedBillboard =
+      shouldElevateEntity && (useTiles || this.isFpsMode());
 
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
 
@@ -6086,8 +6160,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
 
-    // FPS MODE: Force the underlying mesh to look like a floor if it is a monster/item
-    if (shouldElevateEntity && useTiles) {
+    // FPS mode (plus existing tiles behavior): render entities on an elevated billboard
+    // and keep the underlying tile as floor terrain.
+    if (shouldUseElevatedBillboard) {
       const isStairsUp = behavior.materialKind === "stairs_up";
       const isFountain = behavior.materialKind === "fountain";
       if (isStairsUp || isFountain) {
@@ -6200,7 +6275,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       y === this.playerPos.y;
 
     // Create or remove a billboard for any entity that should be elevated.
-    if (shouldElevateEntity && useTiles && !isFpsPlayerTile) {
+    if (shouldUseElevatedBillboard && !isFpsPlayerTile) {
       this.ensureMonsterBillboard(
         key,
         x,
@@ -6247,9 +6322,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    if (this.hasPlayerMovedOnce) {
-      this.showFloatingGameMessage(message);
-    }
+    this.showFloatingGameMessage(message);
   }
 
   private recordPlayerMovement(
@@ -8943,6 +9016,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       read: "r",
       throw: "t",
       wield: "w",
+      unwield: "w",
       wear: "W",
       "take-off": "T",
       "put-on": "P",
@@ -8957,9 +9031,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.hideInfoMenuDialog();
-    this.hideInventoryDialog();
     this.clearRepeatableAction();
     this.clearRepeatDirectionCandidate();
+    if (normalizedActionId === "unwield") {
+      this.sendInputSequence([
+        `${this.inventoryContextSelectionPrefix}-`,
+        "w",
+      ]);
+      this.queueRepeatDirectionCandidate({
+        kind: "inventory_command",
+        value: "w",
+      });
+      return;
+    }
+
     this.sendInputSequence([
       `${this.inventoryContextSelectionPrefix}${accelerator}`,
       commandKey,
@@ -8974,18 +9059,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.closeFpsCrosshairContextMenu(true);
   }
 
-  public runQuickAction(actionId: string): void {
+  public runQuickAction(
+    actionId: string,
+    options?: { autoDirectionFromFpsAim?: boolean },
+  ): void {
     const normalizedActionId = String(actionId || "")
       .trim()
       .toLowerCase();
-    this.executeQuickAction(normalizedActionId, true);
+    this.executeQuickAction(
+      normalizedActionId,
+      true,
+      Boolean(options?.autoDirectionFromFpsAim),
+    );
   }
 
-  public runExtendedCommand(commandText: string): void {
+  public runExtendedCommand(
+    commandText: string,
+    options?: { autoDirectionFromFpsAim?: boolean },
+  ): void {
     const normalizedCommandText = String(commandText || "")
       .trim()
       .toLowerCase();
-    this.executeExtendedCommand(normalizedCommandText, true);
+    this.executeExtendedCommand(
+      normalizedCommandText,
+      true,
+      Boolean(options?.autoDirectionFromFpsAim),
+    );
   }
 
   public repeatLastAction(): void {
@@ -9144,6 +9243,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.updateDirectionalAttackContext(direction);
     this.sendInputSequence(["5", direction]);
+  }
+
+  private logClickLookTileDebug(source: string, x: number, y: number): void {
+    const key = `${x},${y}`;
+    const signature = this.tileStateCache.get(key);
+    const parsed = signature ? this.parseTileStateSignature(signature) : null;
+    const mesh = this.tileMap.get(key) ?? null;
+    const tileId =
+      typeof mesh?.userData?.tileIndex === "number"
+        ? mesh.userData.tileIndex
+        : null;
+    const glyph = parsed?.glyph ?? null;
+    console.log(
+      `[clicklook:${source}] tile=${key} glyph=${glyph ?? "unknown"} tileId=${tileId ?? "unknown"}`,
+    );
   }
 
   private sendMouseInput(x: number, y: number, button: number): void {
@@ -9964,6 +10078,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         !this.metaCommandModeActive
       ) {
         event.preventDefault();
+        this.logClickLookTileDebug(
+          "keyboard-enter",
+          this.playerPos.x,
+          this.playerPos.y,
+        );
         this.sendMouseInput(this.playerPos.x, this.playerPos.y, 0);
         return;
       }
@@ -10715,10 +10834,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCurrentAimDirection = aim;
     this.ensureFpsAimVisuals();
 
-    const targetX = this.playerPos.x + aim.dx;
-    const targetY = this.playerPos.y + aim.dy;
-    const targetKey = `${targetX},${targetY}`;
-    const targetTile = this.tileMap.get(targetKey);
+    let targetX = this.playerPos.x + aim.dx;
+    let targetY = this.playerPos.y + aim.dy;
+    let targetTile = this.tileMap.get(`${targetX},${targetY}`) ?? null;
+    const shouldPreferPlayerTileHighlight =
+      this.cameraPitch <= this.firstPersonPitchMin + 0.42;
+    if (shouldPreferPlayerTileHighlight) {
+      const playerTile =
+        this.tileMap.get(`${this.playerPos.x},${this.playerPos.y}`) ?? null;
+      if (playerTile) {
+        targetX = this.playerPos.x;
+        targetY = this.playerPos.y;
+        targetTile = playerTile;
+      }
+    }
     const isDiscoveredPassableTarget =
       Boolean(targetTile) && !Boolean(targetTile?.userData?.isWall);
     if (!isDiscoveredPassableTarget) {
@@ -10788,6 +10917,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlancePending = null;
     this.fpsCrosshairContextMenuOpen = true;
     this.syncFpsPointerLockForUiState(false);
@@ -11131,6 +11261,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (cached !== null) {
       return;
     }
+    if (this.fpsCrosshairGlanceAttemptedKeys.has(target.key)) {
+      return;
+    }
 
     if (this.fpsCrosshairGlancePending) {
       const pendingAgeMs = nowMs - this.fpsCrosshairGlancePending.startedAtMs;
@@ -11152,8 +11285,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       sawPositionInput: false,
       positionResolvedAtMs: null,
     };
+    this.fpsCrosshairGlanceAttemptedKeys.add(target.key);
 
+    // Suppress NetHack's transient clicklook prompt ("Pick an object.")
+    // generated by the synthetic glance flow.
+    this.skipNextMobileFpsClickLookPromptMessage = true;
     this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"]);
+    this.logClickLookTileDebug("fps-glance", target.x, target.y);
     this.sendMouseInput(target.x, target.y, 0);
   }
 
@@ -11161,9 +11299,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     key: string,
     mesh: THREE.Mesh,
   ): FpsCrosshairTargetHint {
+    const [rawX, rawY] = key.split(",");
+    const tileX = Number.parseInt(rawX, 10);
+    const tileY = Number.parseInt(rawY, 10);
+    const isPlayerTile =
+      Number.isFinite(tileX) &&
+      Number.isFinite(tileY) &&
+      tileX === this.playerPos.x &&
+      tileY === this.playerPos.y;
     if (
-      Boolean(mesh.userData?.isMonsterLikeCharacter) ||
-      this.monsterBillboards.has(key)
+      !isPlayerTile &&
+      (Boolean(mesh.userData?.isMonsterLikeCharacter) ||
+        this.monsterBillboards.has(key))
     ) {
       return "monster";
     }
@@ -11202,6 +11349,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     key: string,
     mesh: THREE.Mesh,
     glanceHint: FpsCrosshairTargetHint | null = null,
+    glanceText: string | null = null,
   ): FpsContextAction[] {
     const actions: FpsContextAction[] = [];
     const addQuickAction = (id: string, label: string, value: string = id) => {
@@ -11244,6 +11392,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.materialKind === "string"
         ? mesh.userData.materialKind
         : "";
+    const normalizedGlanceText = String(glanceText || "").toLowerCase();
+    const glanceSaysClosedDoor = /\bclosed door\b/.test(normalizedGlanceText);
+    let isTargetPlayerTile = true;
+    {
+      const [rawX, rawY] = key.split(",");
+      const tileX = Number.parseInt(rawX, 10);
+      const tileY = Number.parseInt(rawY, 10);
+      if (Number.isFinite(tileX) && Number.isFinite(tileY)) {
+        isTargetPlayerTile =
+          tileX === this.playerPos.x && tileY === this.playerPos.y;
+      }
+    }
     if (glanceHint) {
       switch (glanceHint) {
         case "monster":
@@ -11255,7 +11415,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           break;
         case "door":
           materialKind = "door";
-          isWall = false;
+          isLoot = false;
+          isMonster = false;
+          if (glanceSaysClosedDoor) {
+            // Closed doors are interactable even when the tile mesh is wall-like.
+            isWall = false;
+          }
           break;
         case "stairs_up":
           materialKind = "stairs_up";
@@ -11287,6 +11452,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           break;
       }
     }
+    if (isTargetPlayerTile) {
+      // The player's own tile should still allow self-tile actions (loot/pickup).
+      isMonster = false;
+    }
     const isStairsUp = materialKind === "stairs_up";
     const isStairsDown = materialKind === "stairs_down";
 
@@ -11297,38 +11466,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
       addQuickAction("descend", "Descend (>)");
     }
 
+    if (!isTargetPlayerTile) {
+      addExtendedAction("kick", "Kick");
+      addExtendedAction("throw", "Throw");
+      addExtendedAction("fire", "Fire");
+    }
+
     if (isMonster) {
-      addQuickAction("look", "Look");
       addQuickAction("search", "Search");
       return actions;
     }
 
     if (isLoot) {
-      addQuickAction("pickup", "Pick Up");
-      addQuickAction("loot", "Loot");
-      addQuickAction("look", "Look");
+      if (isTargetPlayerTile) {
+        addQuickAction("pickup", "Pick Up");
+        addQuickAction("loot", "Loot");
+      }
       return actions;
     }
 
-    if (materialKind === "door") {
+    if (materialKind === "door" && (!isWall || glanceSaysClosedDoor)) {
       addQuickAction("open", "Open");
       addQuickAction("close", "Close");
       addExtendedAction("kick", "Kick");
       addQuickAction("search", "Search");
-      addQuickAction("look", "Look");
       return actions;
     }
 
     if (isStairsUp || isStairsDown) {
-      addQuickAction("look", "Look");
       addQuickAction("search", "Search");
-      addQuickAction("pickup", "Pick Up");
+      if (isTargetPlayerTile) {
+        addQuickAction("pickup", "Pick Up");
+      }
       return actions;
     }
 
     if (materialKind === "water" || materialKind === "fountain") {
       addQuickAction("quaff", "Quaff");
-      addQuickAction("look", "Look");
       addQuickAction("search", "Search");
     }
 
@@ -11338,22 +11512,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       materialKind === "trap" ||
       materialKind === "feature"
     ) {
-      addQuickAction("look", "Look");
       addQuickAction("search", "Search");
       return actions;
     }
 
     if (isWall) {
       addQuickAction("search", "Search");
-      addQuickAction("open", "Open");
-      addQuickAction("look", "Look");
       return actions;
     }
 
     addQuickAction("search", "Search");
-    addQuickAction("pickup", "Pick Up");
-    addQuickAction("loot", "Loot");
-    addQuickAction("look", "Look");
+    if (isTargetPlayerTile) {
+      addQuickAction("pickup", "Pick Up");
+      addQuickAction("loot", "Loot");
+    }
     return actions;
   }
 
@@ -11423,22 +11595,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const target = this.getTileUnderFpsCrosshair();
+    let target = this.getTileUnderFpsCrosshair();
+    let treatAsVoidWallTarget = false;
     if (!target) {
-      this.clearFpsCrosshairContextMenu();
-      return;
+      const aim = this.getFpsAimDirectionFromCamera();
+      if (!aim) {
+        this.clearFpsCrosshairContextMenu();
+        return;
+      }
+      const fallbackX = this.playerPos.x + aim.dx;
+      const fallbackY = this.playerPos.y + aim.dy;
+      const fallbackKey = `${fallbackX},${fallbackY}`;
+      const fallbackMesh =
+        this.tileMap.get(fallbackKey) ?? this.fpsVoidContextMesh;
+      target = {
+        key: fallbackKey,
+        x: fallbackX,
+        y: fallbackY,
+        mesh: fallbackMesh,
+      };
+      treatAsVoidWallTarget = fallbackMesh === this.fpsVoidContextMesh;
     }
 
-    this.startFpsCrosshairGlanceProbe(target, nowMs);
-    const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(
-      target.key,
-      nowMs,
-    );
-    const glanceHint = glanceEntry?.hint ?? null;
+    if (!treatAsVoidWallTarget) {
+      this.startFpsCrosshairGlanceProbe(target, nowMs);
+    }
+    const glanceEntry = treatAsVoidWallTarget
+      ? null
+      : this.getCachedFpsCrosshairGlanceEntry(target.key, nowMs);
+    const glanceHint: FpsCrosshairTargetHint | null = treatAsVoidWallTarget
+      ? "wall"
+      : glanceEntry?.hint ?? null;
     const actions = this.getFpsCrosshairActionsForTile(
       target.key,
       target.mesh,
       glanceHint,
+      glanceEntry?.sourceText ?? null,
     );
     if (actions.length === 0) {
       this.clearFpsCrosshairContextMenu();
@@ -11452,6 +11644,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glanceEntry?.sourceText ?? null,
     );
     if (
+      !treatAsVoidWallTarget &&
       glanceHint === null &&
       this.fpsCrosshairGlancePending &&
       this.fpsCrosshairGlancePending.tileKey === target.key
@@ -11678,8 +11871,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const maxX = Math.max(minX, hostRight - half - margin);
     const maxY = Math.max(minY, hostBottom - half - margin);
     const centerX = THREE.MathUtils.clamp(gesture.startX, minX, maxX);
+    const offsetY = this.resolveFpsTouchRunButtonOffsetY();
     const centerY = THREE.MathUtils.clamp(
-      gesture.startY - this.fpsTouchRunButtonOffsetYPx,
+      gesture.startY - offsetY,
       minY,
       maxY,
     );
@@ -11691,6 +11885,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     button.style.top = `${centerY - hostTop}px`;
     button.classList.add("is-visible");
     button.classList.remove("is-active");
+  }
+
+  private resolveFpsTouchRunButtonOffsetY(): number {
+    if (typeof window === "undefined") {
+      return this.fpsTouchRunButtonOffsetYPx;
+    }
+    return window.innerWidth > window.innerHeight
+      ? this.fpsTouchRunButtonLandscapeOffsetYPx
+      : this.fpsTouchRunButtonOffsetYPx;
   }
 
   private isTouchOverFpsRunButton(clientX: number, clientY: number): boolean {
@@ -12048,6 +12251,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (event.button === 0) {
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
     }
+    this.logClickLookTileDebug(
+      event.button === 2 ? "mouse-secondary" : "mouse-primary",
+      target.x,
+      target.y,
+    );
     this.sendMouseInput(target.x, target.y, event.button);
     return true;
   }
@@ -12694,6 +12902,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
       this.onSwipeCommandExecuted();
+      this.logClickLookTileDebug("touch-primary", target.x, target.y);
       this.sendMouseInput(target.x, target.y, 0);
       return;
     }
