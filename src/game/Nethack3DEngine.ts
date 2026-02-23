@@ -2389,6 +2389,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isAltarLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.isPlayerGlyph || behavior.resolved.kind !== "cmap") {
+      return false;
+    }
+    if (behavior.materialKind !== "feature") {
+      return false;
+    }
+    const chars = [
+      behavior.glyphChar,
+      behavior.effective.char,
+      behavior.resolved.char,
+    ];
+    return chars.some(
+      (value) => typeof value === "string" && value.trim() === "_",
+    );
+  }
+
   private isGoldLikeBehavior(behavior: TileBehaviorResult): boolean {
     if (behavior.effective.kind !== "obj") {
       return false;
@@ -6190,7 +6207,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const isBoulder = tileIndex === 869;
+    const isBoulderTileIndex =
+      tileIndex === 844 ||
+      tileIndex === 845 ||
+      tileIndex === 869 ||
+      tileIndex === 871;
+    const isBoulder =
+      entityType === "loot" &&
+      (isBoulderTileIndex || String(glyphChar || "").trim() === "`");
 
     const overrideSize = (normalScale: number, fpsScale: number) => {
       return this.isFpsMode() ? fpsScale : normalScale;
@@ -6206,7 +6230,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : 1;
 
     if (isBoulder) {
-      scaleBase = overrideSize(2, 3);
+      scaleBase = overrideSize(1, 1);
     }
     sprite.scale.set(scaleBase, scaleBase, 1);
 
@@ -6254,6 +6278,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = behavior.effective.tileIndex === 30;
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
+    const isAltar = this.isAltarLikeBehavior(behavior);
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
     const nowMs = Date.now();
@@ -6274,8 +6299,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
       isLootLikeCharacter ||
+      (this.isFpsMode() && isAltar) ||
       (useTiles &&
-        (isSink || isFountain || isStairsUp || isPlayerCharacter || isStatue));
+        (isSink ||
+          isFountain ||
+          isStairsUp ||
+          isAltar ||
+          isPlayerCharacter ||
+          isStatue));
     const shouldUseElevatedBillboard =
       shouldElevateEntity && (useTiles || this.isFpsMode());
 
@@ -6427,7 +6458,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : " ";
       tileTextColor = renderBehavior.textColor;
     } else if (shouldUseElevatedBillboard) {
-      if (isStairsUp || isFountain) {
+      if (isStairsUp || isFountain || isAltar) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
@@ -9467,8 +9498,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private sendInput(input: string): void {
     this.logNameInputTrace(input);
+    const resolvedInput = this.resolveMovementInputOrSearch(input);
 
-    if (this.isMovementInput(input)) {
+    if (this.isMovementInput(resolvedInput)) {
       this.lastManualDirectionalInputAtMs = Date.now();
       this.fpsAutoMoveDirection = null;
       this.fpsAutoTurnTargetYaw = null;
@@ -9478,15 +9510,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !this.hasPlayerMovedOnce &&
       !this.isInQuestion &&
       !this.isInDirectionQuestion &&
-      this.isMovementInput(input)
+      this.isMovementInput(resolvedInput)
     ) {
       this.lastMovementInputAtMs = Date.now();
     }
 
-    this.updateDirectionalAttackContext(input);
+    this.updateDirectionalAttackContext(resolvedInput);
 
     if (
-      input === "," &&
+      resolvedInput === "," &&
       !this.isInQuestion &&
       !this.isInDirectionQuestion &&
       !this.positionInputModeActive
@@ -9495,7 +9527,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.session) {
-      this.session.sendInput(input);
+      this.session.sendInput(resolvedInput);
     }
   }
 
@@ -9519,6 +9551,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private sendForcedDirectionalInput(direction: string): void {
     if (!direction) {
+      return;
+    }
+    const resolvedDirection = this.resolveMovementInputOrSearch(direction);
+    if (resolvedDirection !== direction) {
+      this.sendInput(resolvedDirection);
       return;
     }
     this.updateDirectionalAttackContext(direction);
@@ -9680,6 +9717,102 @@ class Nethack3DEngine implements Nethack3DEngineController {
       default:
         return false;
     }
+  }
+
+  private getMovementDeltaFromInput(
+    input: string,
+  ): { dx: number; dy: number } | null {
+    if (!this.isMovementInput(input)) {
+      return null;
+    }
+    switch (input) {
+      case "ArrowUp":
+      case "Numpad8":
+        return { dx: 0, dy: -1 };
+      case "ArrowDown":
+      case "Numpad2":
+        return { dx: 0, dy: 1 };
+      case "ArrowLeft":
+      case "Numpad4":
+        return { dx: -1, dy: 0 };
+      case "ArrowRight":
+      case "Numpad6":
+        return { dx: 1, dy: 0 };
+      case "Home":
+      case "Numpad7":
+        return { dx: -1, dy: -1 };
+      case "PageUp":
+      case "Numpad9":
+        return { dx: 1, dy: -1 };
+      case "End":
+      case "Numpad1":
+        return { dx: -1, dy: 1 };
+      case "PageDown":
+      case "Numpad3":
+        return { dx: 1, dy: 1 };
+      default:
+        break;
+    }
+
+    const normalized = input.toLowerCase();
+    switch (normalized) {
+      case "k":
+      case "8":
+        return { dx: 0, dy: -1 };
+      case "j":
+      case "2":
+        return { dx: 0, dy: 1 };
+      case "h":
+      case "4":
+        return { dx: -1, dy: 0 };
+      case "l":
+      case "6":
+        return { dx: 1, dy: 0 };
+      case "y":
+      case "7":
+        return { dx: -1, dy: -1 };
+      case "u":
+      case "9":
+        return { dx: 1, dy: -1 };
+      case "b":
+      case "1":
+        return { dx: -1, dy: 1 };
+      case "n":
+      case "3":
+        return { dx: 1, dy: 1 };
+      default:
+        return null;
+    }
+  }
+
+  private shouldFallbackMovementIntoWallToSearch(input: string): boolean {
+    if (!this.session || !this.isMovementInput(input)) {
+      return false;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.positionInputModeActive
+    ) {
+      return false;
+    }
+    const delta = this.getMovementDeltaFromInput(input);
+    if (!delta) {
+      return false;
+    }
+    const targetKey = `${this.playerPos.x + delta.dx},${this.playerPos.y + delta.dy}`;
+    const targetMesh = this.tileMap.get(targetKey);
+    if (!targetMesh || !targetMesh.userData?.isWall) {
+      return false;
+    }
+    return targetMesh.userData?.materialKind !== "door";
+  }
+
+  private resolveMovementInputOrSearch(input: string): string {
+    if (!this.shouldFallbackMovementIntoWallToSearch(input)) {
+      return input;
+    }
+    return "s";
   }
 
   private isInventoryDialogOpen(): boolean {
@@ -10107,11 +10240,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "arrowright":
       case "l":
         return this.resolveFpsRelativeMovementInput(aim, 1, 0);
-      case "q":
       case "y":
       case "home":
         return this.resolveFpsRelativeMovementInput(aim, -1, 1);
-      case "e":
       case "u":
       case "pageup":
         return this.resolveFpsRelativeMovementInput(aim, 1, 1);
