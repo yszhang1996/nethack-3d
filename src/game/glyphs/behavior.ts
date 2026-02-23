@@ -43,6 +43,15 @@ export function getDefaultFloorGlyph(): number {
   return range.start + 19;
 }
 
+export function getDefaultDarkFloorGlyph(): number {
+  const range = getGlyphKindRange("cmap");
+  if (!range) {
+    return getDefaultFloorGlyph();
+  }
+  // drawing.c: index 21 is dark corridor, which is a good unseen-dark fallback.
+  return range.start + 21;
+}
+
 type CmapSemantic =
   | "wall"
   | "floor"

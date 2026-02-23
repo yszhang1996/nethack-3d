@@ -1453,16 +1453,22 @@ class LocalNetHackRuntime {
     if (!Array.isArray(lines) || lines.length === 0) {
       return false;
     }
-    const firstNonEmptyLine = lines.find(
-      (line) => String(line || "").trim().length > 0,
-    );
-    if (!firstNonEmptyLine) {
+    const normalizedNonEmptyLines = lines
+      .map((line) => String(line || "").trim().toLowerCase())
+      .filter((line) => line.length > 0);
+    if (normalizedNonEmptyLines.length === 0) {
       return false;
     }
-    return firstNonEmptyLine
-      .trim()
-      .toLowerCase()
-      .startsWith("things that are here:");
+    const firstNonEmptyLine = normalizedNonEmptyLines[0];
+    if (firstNonEmptyLine.startsWith("things that are here:")) {
+      return true;
+    }
+    if (!firstNonEmptyLine.startsWith("there is a doorway here.")) {
+      return false;
+    }
+    return normalizedNonEmptyLines.some((line) =>
+      line.startsWith("things that are here:"),
+    );
   }
 
   emitWindowTextLinesToLog(lines, winId, source = "display_nhwindow") {

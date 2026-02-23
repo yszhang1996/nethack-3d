@@ -13,7 +13,11 @@ import {
   toggleLoggingEnabled,
 } from "../logging";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
-import { classifyTileBehavior, getDefaultFloorGlyph } from "./glyphs/behavior";
+import {
+  classifyTileBehavior,
+  getDefaultDarkFloorGlyph,
+  getDefaultFloorGlyph,
+} from "./glyphs/behavior";
 import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
@@ -6346,6 +6350,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // FPS mode (plus existing tiles behavior): render entities on an elevated billboard
     // and keep the underlying tile as floor terrain.
     if (shouldSuppressPlayerTileVisualInFps) {
+      const defaultPlayerSuppressedGlyph = this.isFpsMode()
+        ? getDefaultDarkFloorGlyph()
+        : getDefaultFloorGlyph();
       const cachedFlatFeature =
         this.fpsFlatFeatureUnderPlayerCache.get(key) ??
         this.lastKnownTerrain.get(key);
@@ -6359,9 +6366,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
               : null,
           priorTerrain: cachedFlatFeature,
         });
+        if (this.isFpsMode() && renderBehavior.isWall) {
+          renderBehavior = classifyTileBehavior({
+            glyph: getDefaultDarkFloorGlyph(),
+            runtimeChar: ".",
+            runtimeColor: null,
+            priorTerrain: null,
+          });
+        }
       } else {
         renderBehavior = classifyTileBehavior({
-          glyph: getDefaultFloorGlyph(),
+          glyph: defaultPlayerSuppressedGlyph,
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,
@@ -6393,9 +6408,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 : null,
             priorTerrain: floorSnapshot,
           });
+          if (this.isFpsMode() && renderBehavior.isWall) {
+            renderBehavior = classifyTileBehavior({
+              glyph: getDefaultDarkFloorGlyph(),
+              runtimeChar: ".",
+              runtimeColor: null,
+              priorTerrain: null,
+            });
+          }
         } else {
+          const fallbackGlyph = this.isFpsMode()
+            ? getDefaultDarkFloorGlyph()
+            : getDefaultFloorGlyph();
           renderBehavior = classifyTileBehavior({
-            glyph: getDefaultFloorGlyph(),
+            glyph: fallbackGlyph,
             runtimeChar: ".",
             runtimeColor: null,
             priorTerrain: null,
