@@ -54,6 +54,30 @@ export function getDefaultDarkFloorGlyph(): number {
   return range.start + 21;
 }
 
+export function getDefaultDarkWallGlyph(): number {
+  const range = getGlyphKindRange("cmap");
+  if (!range) {
+    return getDefaultDarkFloorGlyph();
+  }
+  // drawing.c: index 0 is stone/out-of-bounds and classifies as dark wall.
+  return range.start;
+}
+
+export function isDarkCorridorCmapGlyph(glyph: number): boolean {
+  return getCmapIndex(glyph) === 21;
+}
+
+export function isDoorwayCmapGlyph(glyph: number): boolean {
+  const cmapIndex = getCmapIndex(glyph);
+  return (
+    cmapIndex === 12 || // doorway
+    cmapIndex === 13 || // open vertical door
+    cmapIndex === 14 || // open horizontal door
+    cmapIndex === 15 || // closed vertical door
+    cmapIndex === 16 // closed horizontal door
+  );
+}
+
 type CmapSemantic =
   | "wall"
   | "floor"

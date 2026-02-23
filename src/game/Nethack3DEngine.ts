@@ -16,7 +16,10 @@ import { TILE_SIZE, WALL_HEIGHT } from "./constants";
 import {
   classifyTileBehavior,
   getDefaultDarkFloorGlyph,
+  getDefaultDarkWallGlyph,
   getDefaultFloorGlyph,
+  isDarkCorridorCmapGlyph,
+  isDoorwayCmapGlyph,
 } from "./glyphs/behavior";
 import { setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
@@ -191,6 +194,10 @@ type RepeatableActionSpec =
   | { kind: "extended"; value: string }
   | { kind: "inventory_command"; value: string };
 
+type TileUpdateOptions = {
+  inferredDarkCorridorWall?: boolean;
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
@@ -210,6 +217,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastKnownTerrain: Map<string, TerrainSnapshot> = new Map();
   private fpsFlatFeatureUnderPlayerCache: Map<string, TerrainSnapshot> =
     new Map();
+  private inferredDarkCorridorWallTiles: Map<string, { x: number; y: number }> =
+    new Map();
+  private darkCorridorInputDiscoveryWindowActive: boolean = false;
+  private newlyDiscoveredDarkCorridorTilesForCurrentInput: Map<
+    string,
+    { x: number; y: number }
+  > = new Map();
+  private readonly darkCorridorDiscoveryDoorwayChars: ReadonlySet<string> =
+    new Set([".", "-", "|"]);
+  private readonly darkCorridorInferenceRingInsetTiles: number = 1;
+  private readonly darkCorridorWallNeighborOffsets: ReadonlyArray<{
+    dx: number;
+    dy: number;
+  }> = [
+    { dx: -1, dy: -1 },
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: 0 },
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 1 },
+    { dx: 0, dy: 1 },
+    { dx: 1, dy: 1 },
+  ];
   private glyphTextureCache: Map<
     string,
     { texture: THREE.CanvasTexture; refCount: number }
@@ -1265,6 +1295,390 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
+  private parseTileKey(key: string): { x: number; y: number } | null {
+    const [rawX, rawY] = String(key || "").split(",");
+    const x = Number.parseInt(rawX, 10);
+    const y = Number.parseInt(rawY, 10);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
+  }
+
+  private getTileSnapshotFromStateCache(key: string): TerrainSnapshot | null {
+    const signature = this.tileStateCache.get(key);
+    if (!signature) {
+      return null;
+    }
+    const parsed = this.parseTileStateSignature(signature);
+    if (!parsed) {
+      return null;
+    }
+    return {
+      glyph: parsed.glyph,
+      char: parsed.char,
+      color: parsed.color,
+    };
+  }
+
+  private beginDarkCorridorDiscoveryWindowFromPlayerInput(): void {
+    this.darkCorridorInputDiscoveryWindowActive = true;
+    this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
+  }
+
+  private isTileKnownAsDarkCorridorFromCaches(key: string): boolean {
+    const terrain = this.getKnownTerrainSnapshotForInferenceAtKey(key);
+    return Boolean(terrain && isDarkCorridorCmapGlyph(terrain.glyph));
+  }
+
+  private recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile: any): void {
+    if (
+      !this.darkCorridorInputDiscoveryWindowActive ||
+      !tile ||
+      typeof tile.x !== "number" ||
+      typeof tile.y !== "number" ||
+      typeof tile.glyph !== "number"
+    ) {
+      return;
+    }
+
+    if (!this.isValidMinimapCoordinate(tile.x, tile.y)) {
+      return;
+    }
+    if (!isDarkCorridorCmapGlyph(tile.glyph)) {
+      return;
+    }
+
+    const key = `${tile.x},${tile.y}`;
+    if (this.isTileKnownAsDarkCorridorFromCaches(key)) {
+      return;
+    }
+
+    this.newlyDiscoveredDarkCorridorTilesForCurrentInput.set(key, {
+      x: tile.x,
+      y: tile.y,
+    });
+  }
+
+  private getKnownTerrainSnapshotForInferenceAtKey(
+    key: string,
+  ): TerrainSnapshot | null {
+    const cachedTerrain = this.lastKnownTerrain.get(key);
+    if (cachedTerrain) {
+      return cachedTerrain;
+    }
+
+    const cachedFlatFeature = this.fpsFlatFeatureUnderPlayerCache.get(key);
+    if (cachedFlatFeature) {
+      return cachedFlatFeature;
+    }
+
+    return this.getTileSnapshotFromStateCache(key);
+  }
+
+  private getDoorwayActivationCharForInference(
+    terrain: TerrainSnapshot,
+  ): string | null {
+    if (typeof terrain.char === "string" && terrain.char.length > 0) {
+      return terrain.char.charAt(0);
+    }
+
+    const behavior = classifyTileBehavior({
+      glyph: terrain.glyph,
+      runtimeChar: null,
+      runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      priorTerrain: terrain,
+    });
+    if (typeof behavior.glyphChar === "string" && behavior.glyphChar.length > 0) {
+      return behavior.glyphChar.charAt(0);
+    }
+    return null;
+  }
+
+  private shouldUsePlayerTileAsDarkCorridorInferenceOrigin(): boolean {
+    const playerKey = `${this.playerPos.x},${this.playerPos.y}`;
+    const terrain = this.getKnownTerrainSnapshotForInferenceAtKey(playerKey);
+    if (!terrain || typeof terrain.glyph !== "number") {
+      return false;
+    }
+    if (isDoorwayCmapGlyph(terrain.glyph)) {
+      return true;
+    }
+
+    const activationChar = this.getDoorwayActivationCharForInference(terrain);
+    return Boolean(
+      activationChar &&
+        this.darkCorridorDiscoveryDoorwayChars.has(activationChar),
+    );
+  }
+
+  private classifyAuthoritativeTileForDarkCorridorInference(
+    key: string,
+  ): TileBehaviorResult | null {
+    const terrain = this.lastKnownTerrain.get(key);
+    if (terrain) {
+      return classifyTileBehavior({
+        glyph: terrain.glyph,
+        runtimeChar: terrain.char ?? null,
+        runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+        priorTerrain: terrain,
+      });
+    }
+
+    const snapshot = this.getTileSnapshotFromStateCache(key);
+    if (!snapshot) {
+      return null;
+    }
+    return classifyTileBehavior({
+      glyph: snapshot.glyph,
+      runtimeChar: snapshot.char ?? null,
+      runtimeColor: typeof snapshot.color === "number" ? snapshot.color : null,
+      priorTerrain: null,
+    });
+  }
+
+  private collectDiscoveredDarkCorridorTiles(): Map<string, { x: number; y: number }> {
+    const discovered = new Map<string, { x: number; y: number }>();
+
+    const tryAddKey = (key: string, glyph: number): void => {
+      if (!isDarkCorridorCmapGlyph(glyph)) {
+        return;
+      }
+      const parsedKey = this.parseTileKey(key);
+      if (!parsedKey) {
+        return;
+      }
+      if (!this.isValidMinimapCoordinate(parsedKey.x, parsedKey.y)) {
+        return;
+      }
+      discovered.set(key, parsedKey);
+    };
+
+    for (const [key, terrain] of this.lastKnownTerrain.entries()) {
+      if (terrain && typeof terrain.glyph === "number") {
+        tryAddKey(key, terrain.glyph);
+      }
+    }
+
+    for (const [key, signature] of this.tileStateCache.entries()) {
+      if (discovered.has(key)) {
+        continue;
+      }
+      const parsed = this.parseTileStateSignature(signature);
+      if (!parsed) {
+        continue;
+      }
+      tryAddKey(key, parsed.glyph);
+    }
+
+    return discovered;
+  }
+
+  private getGreatestCommonDivisor(a: number, b: number): number {
+    let x = Math.abs(Math.trunc(a));
+    let y = Math.abs(Math.trunc(b));
+    while (y !== 0) {
+      const remainder = x % y;
+      x = y;
+      y = remainder;
+    }
+    return x;
+  }
+
+  private getDarkCorridorRayDepthFromPlayer(
+    tileX: number,
+    tileY: number,
+  ): { rayKey: string; depth: number } | null {
+    const dx = tileX - this.playerPos.x;
+    const dy = tileY - this.playerPos.y;
+    if (dx === 0 && dy === 0) {
+      return null;
+    }
+    const gcd = this.getGreatestCommonDivisor(dx, dy);
+    if (gcd <= 0) {
+      return null;
+    }
+    return {
+      rayKey: `${dx / gcd},${dy / gcd}`,
+      depth: gcd,
+    };
+  }
+
+  private buildDarkCorridorFrontierDepthByRay(
+    darkCorridorTiles: Map<string, { x: number; y: number }>,
+  ): Map<string, number> {
+    const maxDepthByRay = new Map<string, number>();
+    for (const tile of darkCorridorTiles.values()) {
+      const rayDepth = this.getDarkCorridorRayDepthFromPlayer(tile.x, tile.y);
+      if (!rayDepth) {
+        continue;
+      }
+      const currentMax = maxDepthByRay.get(rayDepth.rayKey) ?? 0;
+      if (rayDepth.depth > currentMax) {
+        maxDepthByRay.set(rayDepth.rayKey, rayDepth.depth);
+      }
+    }
+    return maxDepthByRay;
+  }
+
+  private canInferDarkCorridorWallsFromTile(
+    tileX: number,
+    tileY: number,
+    frontierDepthByRay: Map<string, number>,
+  ): boolean {
+    if (tileX === this.playerPos.x && tileY === this.playerPos.y) {
+      return true;
+    }
+
+    const rayDepth = this.getDarkCorridorRayDepthFromPlayer(tileX, tileY);
+    if (!rayDepth) {
+      return false;
+    }
+    const farthestDepthOnRay = frontierDepthByRay.get(rayDepth.rayKey);
+    if (typeof farthestDepthOnRay !== "number") {
+      return false;
+    }
+
+    // Frontier is computed per player-ray. We inset inference by one extra ring
+    // so each ray keeps its outer bands as frontier.
+    const inferenceDepthExclusive = Math.max(
+      1,
+      farthestDepthOnRay - this.darkCorridorInferenceRingInsetTiles,
+    );
+    return rayDepth.depth < inferenceDepthExclusive;
+  }
+
+  private shouldInferDarkCorridorWallAt(key: string): boolean {
+    const mesh = this.tileMap.get(key);
+    if (mesh && !mesh.userData?.isInferredDarkCorridorWall) {
+      return false;
+    }
+
+    const knownBehavior =
+      this.classifyAuthoritativeTileForDarkCorridorInference(key);
+    if (!knownBehavior) {
+      return true;
+    }
+
+    return this.isUndiscoveredKind(knownBehavior.effective.kind);
+  }
+
+  private clearInferredDarkCorridorWallMeshAt(
+    key: string,
+    tileX: number,
+    tileY: number,
+  ): void {
+    this.inferredDarkCorridorWallTiles.delete(key);
+
+    const mesh = this.tileMap.get(key);
+    if (!mesh || !mesh.userData?.isInferredDarkCorridorWall) {
+      return;
+    }
+
+    this.scene.remove(mesh);
+    this.tileMap.delete(key);
+    this.tileRevealStartMs.delete(key);
+    this.activeEffectTileKeys.delete(key);
+    this.removeMonsterBillboard(key);
+
+    const overlay = this.glyphOverlayMap.get(key);
+    if (overlay) {
+      this.disposeGlyphOverlay(overlay);
+      this.glyphOverlayMap.delete(key);
+    }
+
+    const undiscoveredFallbackBehavior = classifyTileBehavior({
+      glyph: getDefaultFloorGlyph(),
+      runtimeChar: ".",
+      runtimeColor: null,
+      priorTerrain: null,
+    });
+    this.queueMinimapTileUpdate(tileX, tileY, undiscoveredFallbackBehavior, true);
+    this.refreshFpsWallChamferGeometryNear(tileX, tileY);
+    this.markLightingDirty();
+  }
+
+  private reconcileInferredDarkCorridorWalls(): void {
+    if (!this.hasSeenPlayerPosition) {
+      for (const [key, tile] of Array.from(
+        this.inferredDarkCorridorWallTiles.entries(),
+      )) {
+        this.clearInferredDarkCorridorWallMeshAt(key, tile.x, tile.y);
+      }
+      return;
+    }
+
+    const darkCorridorTiles = this.collectDiscoveredDarkCorridorTiles();
+    const frontierSeedDarkCorridorTiles =
+      this.darkCorridorInputDiscoveryWindowActive
+        ? this.newlyDiscoveredDarkCorridorTilesForCurrentInput
+        : new Map<string, { x: number; y: number }>();
+    const frontierDepthByRay = this.buildDarkCorridorFrontierDepthByRay(
+      frontierSeedDarkCorridorTiles,
+    );
+    const inferenceSourceTiles = new Map(darkCorridorTiles);
+    if (this.shouldUsePlayerTileAsDarkCorridorInferenceOrigin()) {
+      const playerKey = `${this.playerPos.x},${this.playerPos.y}`;
+      inferenceSourceTiles.set(playerKey, {
+        x: this.playerPos.x,
+        y: this.playerPos.y,
+      });
+    }
+    const nextInferred = new Map<string, { x: number; y: number }>();
+
+    for (const tile of inferenceSourceTiles.values()) {
+      if (
+        !this.canInferDarkCorridorWallsFromTile(
+          tile.x,
+          tile.y,
+          frontierDepthByRay,
+        )
+      ) {
+        continue;
+      }
+
+      for (const offset of this.darkCorridorWallNeighborOffsets) {
+        const neighborX = tile.x + offset.dx;
+        const neighborY = tile.y + offset.dy;
+        if (!this.isValidMinimapCoordinate(neighborX, neighborY)) {
+          continue;
+        }
+
+        const neighborKey = `${neighborX},${neighborY}`;
+        if (darkCorridorTiles.has(neighborKey)) {
+          continue;
+        }
+        if (!this.shouldInferDarkCorridorWallAt(neighborKey)) {
+          continue;
+        }
+        nextInferred.set(neighborKey, { x: neighborX, y: neighborY });
+      }
+    }
+
+    const darkWallGlyph = getDefaultDarkWallGlyph();
+    for (const [key, tile] of nextInferred.entries()) {
+      this.inferredDarkCorridorWallTiles.set(key, tile);
+    }
+
+    for (const [key, tile] of Array.from(
+      this.inferredDarkCorridorWallTiles.entries(),
+    )) {
+      if (!this.shouldInferDarkCorridorWallAt(key)) {
+        this.inferredDarkCorridorWallTiles.delete(key);
+        continue;
+      }
+
+      const mesh = this.tileMap.get(key);
+      if (mesh && !mesh.userData?.isInferredDarkCorridorWall) {
+        continue;
+      }
+
+      this.updateTile(tile.x, tile.y, darkWallGlyph, " ", undefined, {
+        inferredDarkCorridorWall: true,
+      });
+    }
+  }
+
   private refreshTilesFromStateCache(): void {
     const snapshots: Array<{
       x: number;
@@ -1302,6 +1716,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         snapshot.color,
       );
     }
+    this.reconcileInferredDarkCorridorWalls();
   }
 
   private applyPlayMode(nextPlayMode: PlayMode): void {
@@ -2046,6 +2461,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const oldPos = { ...this.playerPos };
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
+        this.reconcileInferredDarkCorridorWalls();
         if (this.isFpsMode()) {
           this.removeMonsterBillboard(`${data.x},${data.y}`);
         }
@@ -3033,6 +3449,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     for (const tile of updates) {
       const key = `${tile.x},${tile.y}`;
+      this.recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile);
       const behavior = this.classifyTilePayload(tile);
       if (
         this.isFpsMode() &&
@@ -3054,6 +3471,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tileStateCache.set(key, signature);
       this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
     }
+    this.reconcileInferredDarkCorridorWalls();
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
 
@@ -5251,7 +5669,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     materialKind: TileMaterialKind,
   ): number {
     const floorGlyph = getDefaultFloorGlyph();
-    const fallbackGlyph = materialKind === "dark" ? floorGlyph + 1 : floorGlyph;
+    let fallbackGlyph = floorGlyph;
+    if (materialKind === "dark") {
+      const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+      // NetHack 3.6.7 dark corridor walls should chamfer using the dark hallway
+      // floor texture, not the generic dark room texture.
+      fallbackGlyph =
+        runtimeVersion === "3.6.7" ? getDefaultDarkFloorGlyph() : floorGlyph + 1;
+    }
     const behavior = classifyTileBehavior({
       glyph: fallbackGlyph,
       runtimeChar: ".",
@@ -5822,6 +6247,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.tileStateCache.clear();
     this.lastKnownTerrain.clear();
     this.fpsFlatFeatureUnderPlayerCache.clear();
+    this.inferredDarkCorridorWallTiles.clear();
+    this.darkCorridorInputDiscoveryWindowActive = false;
+    this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
     this.activeEffectTileKeys.clear();
     this.pendingTileUpdates.clear();
     this.tileFlushScheduled = false;
@@ -6292,8 +6720,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     glyph: number,
     char?: string,
     color?: number,
+    options: TileUpdateOptions = {},
   ): void {
     const key = `${x},${y}`;
+    const isInferredDarkCorridorWall =
+      options.inferredDarkCorridorWall === true;
+    const hadInferredDarkCorridorWall =
+      this.inferredDarkCorridorWallTiles.has(key);
     let mesh = this.tileMap.get(key);
     const behavior = classifyTileBehavior({
       glyph,
@@ -6340,6 +6773,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       shouldElevateEntity && (useTiles || this.isFpsMode());
 
     const isUndiscovered = this.isUndiscoveredKind(behavior.effective.kind);
+
+    if (
+      !isInferredDarkCorridorWall &&
+      hadInferredDarkCorridorWall &&
+      isUndiscovered
+    ) {
+      // Keep inferred corridor-wall memory when runtime emits an unknown/undiscovered
+      // refresh for out-of-sight tiles. Only concrete terrain should overwrite it.
+      return;
+    }
+
+    if (!isInferredDarkCorridorWall) {
+      this.inferredDarkCorridorWallTiles.delete(key);
+    }
 
     if (isUndiscovered) {
       if (mesh) {
@@ -6416,23 +6863,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (!behavior.isPlayerGlyph) {
-      const shouldCacheFlatUnderPlayer =
-        this.shouldRenderFlatFeatureUnderFpsPlayer(behavior);
-      if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
-        this.lastKnownTerrain.set(key, {
-          glyph,
-          char: behavior.resolved.char ?? undefined,
-          color: behavior.resolved.color ?? undefined,
-        });
-      }
-      if (shouldCacheFlatUnderPlayer) {
-        this.fpsFlatFeatureUnderPlayerCache.set(key, {
-          glyph,
-          char: behavior.resolved.char ?? undefined,
-          color: behavior.resolved.color ?? undefined,
-        });
-      } else {
-        this.fpsFlatFeatureUnderPlayerCache.delete(key);
+      if (!isInferredDarkCorridorWall) {
+        const shouldCacheFlatUnderPlayer =
+          this.shouldRenderFlatFeatureUnderFpsPlayer(behavior);
+        if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
+          this.lastKnownTerrain.set(key, {
+            glyph,
+            char: behavior.resolved.char ?? undefined,
+            color: behavior.resolved.color ?? undefined,
+          });
+        }
+        if (shouldCacheFlatUnderPlayer) {
+          this.fpsFlatFeatureUnderPlayerCache.set(key, {
+            glyph,
+            char: behavior.resolved.char ?? undefined,
+            color: behavior.resolved.color ?? undefined,
+          });
+        } else {
+          this.fpsFlatFeatureUnderPlayerCache.delete(key);
+        }
       }
     } else {
       const oldPos = { ...this.playerPos };
@@ -6568,6 +7017,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     mesh.userData.tileX = x;
     mesh.userData.tileY = y;
+    mesh.userData.isInferredDarkCorridorWall = isInferredDarkCorridorWall;
     mesh.userData.isWall = renderBehavior.isWall;
     mesh.userData.materialKind = renderBehavior.materialKind;
     mesh.userData.effectKind = behavior.effectKind;
@@ -9556,6 +10006,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.session) {
+      this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
       this.session.sendInput(resolvedInput);
     }
   }
@@ -9575,6 +10026,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
+    this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
     this.session.sendInputSequence(inputs);
   }
 
@@ -9610,6 +10062,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.session) {
       return;
     }
+    this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
     this.session.sendMouseInput(x, y, button);
   }
 
