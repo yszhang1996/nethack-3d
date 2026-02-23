@@ -2420,6 +2420,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private isBoulderTileIndex(tileIndex: number): boolean {
+    return (
+      tileIndex === 844 ||
+      tileIndex === 845 ||
+      tileIndex === 869 ||
+      tileIndex === 871
+    );
+  }
+
+  private isBoulderLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.effective.kind !== "obj") {
+      return false;
+    }
+    const tileIndex = behavior.effective.tileIndex;
+    if (this.isBoulderTileIndex(tileIndex)) {
+      return true;
+    }
+    const chars = [
+      behavior.glyphChar,
+      behavior.effective.char,
+      behavior.resolved.char,
+    ];
+    return chars.some(
+      (value) => typeof value === "string" && value.trim() === "`",
+    );
+  }
+
   private captureAutopickupStateFromMessage(messageLike: unknown): void {
     if (typeof messageLike !== "string") {
       return;
@@ -2486,6 +2513,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return true;
     }
     if (this.isLootLikeBehavior(behavior)) {
+      if (this.isBoulderLikeBehavior(behavior)) {
+        return false;
+      }
       return !(this.autoPickupEnabled && this.isGoldLikeBehavior(behavior));
     }
     switch (behavior.materialKind) {
@@ -3288,6 +3318,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
       case "pickup":
         this.sendInput(",");
+        break;
+      case "eat":
+        this.sendInput("e");
         break;
       case "look":
         this.sendInput("/");
@@ -6207,11 +6240,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const isBoulderTileIndex =
-      tileIndex === 844 ||
-      tileIndex === 845 ||
-      tileIndex === 869 ||
-      tileIndex === 871;
+    const isBoulderTileIndex = this.isBoulderTileIndex(tileIndex);
     const isBoulder =
       entityType === "loot" &&
       (isBoulderTileIndex || String(glyphChar || "").trim() === "`");
@@ -10246,11 +10275,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "u":
       case "pageup":
         return this.resolveFpsRelativeMovementInput(aim, 1, 1);
-      case "z":
       case "b":
       case "end":
         return this.resolveFpsRelativeMovementInput(aim, -1, -1);
-      case "c":
       case "n":
       case "pagedown":
         return this.resolveFpsRelativeMovementInput(aim, 1, -1);
@@ -10378,6 +10405,98 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return this.getFpsDirectionQuestionInputFromAim();
     }
     return null;
+  }
+
+  private tryRunFpsSelfTilePrimaryClickAction(): boolean {
+    if (!this.isFpsMode()) {
+      return false;
+    }
+
+    // Keep this threshold aligned with the under-player highlight behavior.
+    const shouldPreferPlayerTileHighlight =
+      this.cameraPitch <= this.firstPersonPitchMin + 0.42;
+    if (!shouldPreferPlayerTileHighlight) {
+      return false;
+    }
+
+    const tileX = this.playerPos.x;
+    const tileY = this.playerPos.y;
+    const tileKey = `${tileX},${tileY}`;
+    const tileMesh = this.tileMap.get(tileKey);
+    if (!tileMesh || Boolean(tileMesh.userData?.isWall)) {
+      return false;
+    }
+
+    const nowMs = Date.now();
+    const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(tileKey, nowMs);
+    const glanceText = glanceEntry?.sourceText ?? "";
+    const normalizedGlanceText = glanceText.toLowerCase();
+    const isContainerLikeLoot =
+      /\b(chest|box|coffer|container|sack|bag)\b/.test(normalizedGlanceText);
+    const actions = this.getFpsCrosshairActionsForTile(
+      tileKey,
+      tileMesh,
+      glanceEntry?.hint ?? null,
+      glanceText,
+    );
+    const hasQuickAction = (id: string): boolean =>
+      actions.some((action) => action.kind === "quick" && action.id === id);
+
+    let actionId: string | null = null;
+    if (hasQuickAction("ascend")) {
+      actionId = "ascend";
+    } else if (hasQuickAction("descend")) {
+      actionId = "descend";
+    } else if (isContainerLikeLoot && hasQuickAction("loot")) {
+      actionId = "loot";
+    } else if (hasQuickAction("pickup")) {
+      actionId = "pickup";
+    }
+
+    if (!actionId) {
+      return false;
+    }
+
+    return this.executeQuickAction(actionId, true);
+  }
+
+  private tryRunFpsDoorPrimaryClickAction(): boolean {
+    if (!this.isFpsMode()) {
+      return false;
+    }
+
+    let target = this.getTileUnderFpsCrosshair();
+    if (!target) {
+      const aim = this.getFpsAimDirectionFromCamera();
+      if (!aim) {
+        return false;
+      }
+      const tileX = this.playerPos.x + aim.dx;
+      const tileY = this.playerPos.y + aim.dy;
+      const tileKey = `${tileX},${tileY}`;
+      const tileMesh = this.tileMap.get(tileKey);
+      if (!tileMesh) {
+        return false;
+      }
+      target = { key: tileKey, x: tileX, y: tileY, mesh: tileMesh };
+    }
+
+    const nowMs = Date.now();
+    const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(
+      target.key,
+      nowMs,
+    );
+    const glanceHint = glanceEntry?.hint ?? null;
+    const glanceText = String(glanceEntry?.sourceText || "").toLowerCase();
+    const materialKind =
+      typeof target.mesh.userData?.materialKind === "string"
+        ? target.mesh.userData.materialKind
+        : "";
+    if (materialKind !== "door" && glanceHint !== "door") {
+      return false;
+    }
+
+    return this.executeQuickAction("open", true, true);
   }
 
   private handlePointerLockChange(): void {
@@ -11953,6 +12072,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : "";
     const normalizedGlanceText = String(glanceText || "").toLowerCase();
     const glanceSaysClosedDoor = /\bclosed door\b/.test(normalizedGlanceText);
+    const glanceSuggestsEdibleLoot =
+      /\b(corpse|food|ration|tin|egg|tripe|carcass)\b/.test(
+        normalizedGlanceText,
+      );
     let isTargetPlayerTile = true;
     {
       const [rawX, rawY] = key.split(",");
@@ -12040,6 +12163,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (isTargetPlayerTile) {
         addQuickAction("pickup", "Pick Up");
         addQuickAction("loot", "Loot");
+        addQuickAction("eat", "Eat");
       }
       return actions;
     }
@@ -12084,6 +12208,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (isTargetPlayerTile) {
       addQuickAction("pickup", "Pick Up");
       addQuickAction("loot", "Loot");
+      if (glanceSuggestsEdibleLoot) {
+        addQuickAction("eat", "Eat");
+      }
     }
     return actions;
   }
@@ -12865,6 +12992,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       if (document.pointerLockElement !== this.renderer.domElement) {
         this.renderer.domElement.requestPointerLock?.();
+        return;
+      }
+      if (this.tryRunFpsSelfTilePrimaryClickAction()) {
+        return;
+      }
+      if (this.tryRunFpsDoorPrimaryClickAction()) {
         return;
       }
       this.fireInCurrentAimDirection();

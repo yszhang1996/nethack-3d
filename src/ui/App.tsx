@@ -252,6 +252,18 @@ function pickRandomStartupRole(): string {
   return startupRoleOptions[randomIndex] ?? "";
 }
 
+function pickRandomStartupGender(role: string): string {
+  const normalizedRole = String(role || "").trim().toLowerCase();
+  if (normalizedRole === "valkyrie") {
+    return "female";
+  }
+  if (startupGenderOptions.length === 0) {
+    return "male";
+  }
+  const randomIndex = Math.floor(Math.random() * startupGenderOptions.length);
+  return startupGenderOptions[randomIndex] ?? "male";
+}
+
 type MobileActionEntry = {
   id: string;
   label: string;
@@ -1619,15 +1631,18 @@ export default function App(): JSX.Element {
                 <div className="nh3d-menu-actions">
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                    onClick={() =>
+                    onClick={() => {
+                      const randomRole = pickRandomStartupRole();
+                      const randomGender = pickRandomStartupGender(randomRole);
                       setCharacterCreationConfig({
                         mode: "random",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
                         name: normalizeStartupCharacterName(createName),
-                        role: pickRandomStartupRole(),
-                      })
-                    }
+                        role: randomRole,
+                        gender: randomGender,
+                      });
+                    }}
                     type="button"
                   >
                     Start game

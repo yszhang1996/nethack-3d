@@ -10,7 +10,9 @@ import type {
   TileMaterialKind,
 } from "./types";
 
-const PLAYER_GLYPH_MIN = 330;
+// NetHack hero role glyph block starts at 329 (e.g. archeologist),
+// so 330 misses one valid player glyph and can leak a player sprite in FPS.
+const PLAYER_GLYPH_MIN = 329;
 const PLAYER_GLYPH_MAX = 360;
 
 function getGlyphKindRange(kind: string): { start: number; endExclusive: number } | null {
