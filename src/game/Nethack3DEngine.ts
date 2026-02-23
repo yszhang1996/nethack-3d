@@ -97,9 +97,10 @@ type PointerAttackTargetContext = {
 
 type GlyphDamageFlashState = {
   key: string;
-  canvas: HTMLCanvasElement;
-  context: CanvasRenderingContext2D;
-  texture: THREE.CanvasTexture;
+  mode: "glyph_texture" | "overlay_tint";
+  canvas: HTMLCanvasElement | null;
+  context: CanvasRenderingContext2D | null;
+  texture: THREE.CanvasTexture | null;
   elapsedMs: number;
   durationMs: number;
   baseColorHex: string;
@@ -4468,11 +4469,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    const useOverlayTint =
+      this.clientOptions.tilesetMode === "tiles" &&
+      Boolean(mesh.userData.isPlayerGlyph);
     const glyphChar =
       typeof mesh.userData.glyphChar === "string"
         ? mesh.userData.glyphChar
         : "";
-    if (!glyphChar.trim()) {
+    if (!useOverlayTint && !glyphChar.trim()) {
       return;
     }
 
@@ -4485,38 +4489,59 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData.glyphDarkenFactor === "number"
         ? THREE.MathUtils.clamp(mesh.userData.glyphDarkenFactor, 0, 1)
         : 1;
+    const nextMode = useOverlayTint ? "overlay_tint" : "glyph_texture";
 
     let state = this.glyphDamageFlashes.get(key);
-    if (!state) {
-      const canvas = document.createElement("canvas");
-      const size = this.glyphDamageFlashTextureSize;
-      canvas.width = size;
-      canvas.height = size;
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return;
+    if (!state || state.mode !== nextMode) {
+      if (state?.texture) {
+        state.texture.dispose();
       }
 
-      const texture = new THREE.CanvasTexture(canvas);
-      texture.needsUpdate = true;
-      texture.anisotropy = Math.min(
-        4,
-        this.renderer.capabilities.getMaxAnisotropy(),
-      );
-      texture.magFilter = THREE.LinearFilter;
-      texture.minFilter = THREE.LinearMipmapLinearFilter;
+      if (nextMode === "glyph_texture") {
+        const canvas = document.createElement("canvas");
+        const size = this.glyphDamageFlashTextureSize;
+        canvas.width = size;
+        canvas.height = size;
+        const context = canvas.getContext("2d");
+        if (!context) {
+          return;
+        }
 
-      state = {
-        key,
-        canvas,
-        context,
-        texture,
-        elapsedMs: 0,
-        durationMs: this.glyphDamageFlashDurationMs,
-        baseColorHex,
-        glyphChar,
-        darkenFactor,
-      };
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.needsUpdate = true;
+        texture.anisotropy = Math.min(
+          4,
+          this.renderer.capabilities.getMaxAnisotropy(),
+        );
+        texture.magFilter = THREE.LinearFilter;
+        texture.minFilter = THREE.LinearMipmapLinearFilter;
+
+        state = {
+          key,
+          mode: nextMode,
+          canvas,
+          context,
+          texture,
+          elapsedMs: 0,
+          durationMs: this.glyphDamageFlashDurationMs,
+          baseColorHex,
+          glyphChar,
+          darkenFactor,
+        };
+      } else {
+        state = {
+          key,
+          mode: nextMode,
+          canvas: null,
+          context: null,
+          texture: null,
+          elapsedMs: 0,
+          durationMs: this.glyphDamageFlashDurationMs,
+          baseColorHex,
+          glyphChar,
+          darkenFactor,
+        };
+      }
       this.glyphDamageFlashes.set(key, state);
     } else {
       state.elapsedMs = 0;
@@ -4525,21 +4550,48 @@ class Nethack3DEngine implements Nethack3DEngineController {
       state.darkenFactor = darkenFactor;
     }
 
-    overlay.material.map = state.texture;
+    overlay.material.map =
+      state.mode === "glyph_texture" && state.texture
+        ? state.texture
+        : overlay.texture;
     overlay.material.needsUpdate = true;
     this.renderGlyphDamageFlash(state, 1);
+  }
+
+  private getGlyphDamageFlashIntensity(state: GlyphDamageFlashState): number {
+    const progress = THREE.MathUtils.clamp(
+      state.elapsedMs / state.durationMs,
+      0,
+      1,
+    );
+    return Math.exp(-8.5 * progress);
   }
 
   private renderGlyphDamageFlash(
     state: GlyphDamageFlashState,
     intensity: number,
   ): void {
+    const overlay = this.glyphOverlayMap.get(state.key);
+    if (!overlay) {
+      return;
+    }
+
     const clamped = THREE.MathUtils.clamp(intensity, 0, 1);
     this.glyphDamageFlashColor
       .copy(this.glyphDamageFlashWhite)
       .lerp(this.glyphDamageFlashRed, clamped);
-    const flashTextColor = `#${this.glyphDamageFlashColor.getHexString()}`;
+    if (state.mode === "overlay_tint") {
+      overlay.material.map = overlay.texture;
+      overlay.material.color.copy(this.glyphDamageFlashColor);
+      overlay.material.needsUpdate = true;
+      return;
+    }
 
+    if (!state.context || !state.canvas || !state.texture) {
+      return;
+    }
+
+    const flashTextColor = `#${this.glyphDamageFlashColor.getHexString()}`;
     this.drawGlyphTextureToCanvas(
       state.context,
       state.canvas.width,
@@ -4549,6 +4601,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       state.darkenFactor,
     );
     state.texture.needsUpdate = true;
+    overlay.material.map = state.texture;
+    overlay.material.color.copy(this.glyphDamageFlashWhite);
+    overlay.material.needsUpdate = true;
   }
 
   private stopGlyphDamageFlash(key: string): void {
@@ -4560,10 +4615,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const overlay = this.glyphOverlayMap.get(key);
     if (overlay) {
       overlay.material.map = overlay.texture;
+      overlay.material.color.copy(this.glyphDamageFlashWhite);
       overlay.material.needsUpdate = true;
     }
 
-    state.texture.dispose();
+    state.texture?.dispose();
     this.glyphDamageFlashes.delete(key);
   }
 
@@ -4674,13 +4730,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         0,
         1,
       );
-      const intensity = Math.exp(-8.5 * progress);
+      const intensity = this.getGlyphDamageFlashIntensity(state);
       this.renderGlyphDamageFlash(state, intensity);
-
-      const overlay = this.glyphOverlayMap.get(key);
-      if (overlay) {
-        overlay.material.map = state.texture;
-      }
 
       if (progress >= 1) {
         this.stopGlyphDamageFlash(key);
@@ -5772,8 +5823,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       flashState.baseColorHex = baseColorHex;
       flashState.glyphChar = glyphChar;
       flashState.darkenFactor = clampedDarken;
-      overlay.material.map = flashState.texture;
-      overlay.material.needsUpdate = true;
+      if (flashState.mode === "glyph_texture" && flashState.texture) {
+        overlay.material.map = flashState.texture;
+        overlay.material.color.copy(this.glyphDamageFlashWhite);
+        overlay.material.needsUpdate = true;
+      } else {
+        this.renderGlyphDamageFlash(
+          flashState,
+          this.getGlyphDamageFlashIntensity(flashState),
+        );
+      }
     }
 
     if (!this.tileRevealStartMs.has(key)) {
