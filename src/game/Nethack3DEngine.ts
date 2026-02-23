@@ -215,6 +215,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private floatingMessageLayer: HTMLDivElement | null = null;
   private floatingMessageEntries: FloatingMessageEntry[] = [];
   private hasSeenPlayerPosition: boolean = false;
+  private fpsPreviousPlayerTileForSuppression: {
+    x: number;
+    y: number;
+    capturedAtMs: number;
+  } | null = null;
   private pendingPlayerTileRefreshOnNextPosition: boolean = true;
   private hasPlayerMovedOnce: boolean = false;
   private lastMovementInputAtMs: number = 0;
@@ -350,6 +355,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsCrosshairGlanceCache: Map<string, FpsCrosshairGlanceCacheEntry> =
     new Map();
   private fpsCrosshairGlanceAttemptedKeys: Set<string> = new Set();
+  private fpsCrosshairGlanceIssuedThisOpen: boolean = false;
   private fpsCrosshairGlancePending: FpsCrosshairGlancePending | null = null;
   private fpsCrosshairGlanceRequestSequence: number = 0;
   private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
@@ -428,7 +434,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly touchSwipeMaxDurationMs: number = 720;
   private readonly touchSwipePanHoldMs: number = 500;
   private readonly fpsTouchRunButtonHoldMs: number = 500;
-  private readonly fpsTouchRunButtonOffsetYPx: number = 200;
+  private readonly fpsTouchRunButtonOffsetYPx: number = 170;
   private readonly fpsTouchRunButtonLandscapeOffsetYPx: number = 140;
   private readonly fpsTouchRunButtonSizePx: number = 82;
   private minDistance: number = 5;
@@ -1305,6 +1311,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
     this.fpsStepCameraActive = false;
+    this.fpsPreviousPlayerTileForSuppression = null;
 
     if (this.playMode === "fps") {
       const eyeX = this.playerPos.x * TILE_SIZE;
@@ -5559,11 +5566,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastManualDirectionalInputAtMs = 0;
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
+    this.fpsPreviousPlayerTileForSuppression = null;
     this.fpsPointerLockRestorePending = false;
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairContextSignature = "";
     this.fpsCrosshairGlanceCache.clear();
     this.fpsCrosshairGlanceAttemptedKeys.clear();
+    this.fpsCrosshairGlanceIssuedThisOpen = false;
     this.fpsCrosshairGlancePending = null;
     this.uiAdapter?.setFpsCrosshairContext(null);
 
@@ -6062,6 +6071,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isStairsUp = behavior.materialKind === "stairs_up";
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
+    const nowMs = Date.now();
+    const previousPlayerTileForSuppression =
+      this.fpsPreviousPlayerTileForSuppression;
+    const shouldSuppressRecentPreviousPlayerTileInFps =
+      this.isFpsMode() &&
+      previousPlayerTileForSuppression !== null &&
+      nowMs - previousPlayerTileForSuppression.capturedAtMs <= 450 &&
+      x === previousPlayerTileForSuppression.x &&
+      y === previousPlayerTileForSuppression.y;
+    const shouldSuppressPlayerTileVisualInFps =
+      this.isFpsMode() &&
+      ((x === this.playerPos.x && y === this.playerPos.y) ||
+        shouldSuppressRecentPreviousPlayerTileInFps);
 
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
@@ -6162,7 +6184,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // FPS mode (plus existing tiles behavior): render entities on an elevated billboard
     // and keep the underlying tile as floor terrain.
-    if (shouldUseElevatedBillboard) {
+    if (shouldUseElevatedBillboard || shouldSuppressPlayerTileVisualInFps) {
       const isStairsUp = behavior.materialKind === "stairs_up";
       const isFountain = behavior.materialKind === "fountain";
       if (isStairsUp || isFountain) {
@@ -6271,8 +6293,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isFpsPlayerTile =
       this.isFpsMode() &&
       this.hasSeenPlayerPosition &&
-      x === this.playerPos.x &&
-      y === this.playerPos.y;
+      shouldSuppressPlayerTileVisualInFps;
 
     // Create or remove a billboard for any entity that should be elevated.
     if (shouldUseElevatedBillboard && !isFpsPlayerTile) {
@@ -6339,6 +6360,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (moved) {
+      if (this.isFpsMode()) {
+        this.fpsPreviousPlayerTileForSuppression = {
+          x: fromX,
+          y: fromY,
+          capturedAtMs: Date.now(),
+        };
+      }
       if (this.isFpsMode()) {
         const nowMs = Date.now();
         const autoMoveLikely =
@@ -10918,6 +10946,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.fpsCrosshairGlanceCache.clear();
     this.fpsCrosshairGlanceAttemptedKeys.clear();
+    this.fpsCrosshairGlanceIssuedThisOpen = false;
     this.fpsCrosshairGlancePending = null;
     this.fpsCrosshairContextMenuOpen = true;
     this.syncFpsPointerLockForUiState(false);
@@ -10932,6 +10961,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.fpsCrosshairContextMenuOpen = false;
+    this.fpsCrosshairGlanceIssuedThisOpen = false;
     this.fpsCrosshairGlancePending = null;
     this.clearFpsCrosshairContextMenu();
     if (restorePointerLock) {
@@ -11180,56 +11210,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairContextSignature = "";
   }
 
-  private expireFpsCrosshairGlanceState(nowMs: number): void {
-    const staleCacheKeys: string[] = [];
-    for (const [key, entry] of this.fpsCrosshairGlanceCache.entries()) {
-      if (nowMs - entry.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs * 2) {
-        staleCacheKeys.push(key);
-      }
-    }
-    for (const key of staleCacheKeys) {
-      this.fpsCrosshairGlanceCache.delete(key);
-    }
-
-    const pending = this.fpsCrosshairGlancePending;
-    if (!pending) {
-      return;
-    }
-
-    const ageMs = nowMs - pending.startedAtMs;
-    const postResolveAgeMs =
-      pending.positionResolvedAtMs === null
-        ? 0
-        : nowMs - pending.positionResolvedAtMs;
-    const shouldExpireByTimeout = ageMs > this.fpsCrosshairGlanceTimeoutMs;
-    const shouldExpireAfterResolve =
-      pending.positionResolvedAtMs !== null &&
-      postResolveAgeMs > this.fpsCrosshairGlancePostResolveGraceMs;
-    if (!shouldExpireByTimeout && !shouldExpireAfterResolve) {
-      return;
-    }
-
-    if (!this.fpsCrosshairGlanceCache.has(pending.tileKey)) {
-      this.fpsCrosshairGlanceCache.set(pending.tileKey, {
-        hint: "unknown",
-        sourceText: "",
-        updatedAtMs: nowMs,
-      });
-    }
-    this.fpsCrosshairGlancePending = null;
-    this.fpsCrosshairContextSignature = "";
+  private expireFpsCrosshairGlanceState(_nowMs: number): void {
+    // Intentionally no-op while FPS context is open: glance requests are one-shot
+    // per menu open, and the resolved label should remain stable.
   }
 
   private getCachedFpsCrosshairGlanceEntry(
     tileKey: string,
-    nowMs: number,
+    _nowMs: number,
   ): FpsCrosshairGlanceCacheEntry | null {
     const cached = this.fpsCrosshairGlanceCache.get(tileKey);
     if (!cached) {
-      return null;
-    }
-    if (nowMs - cached.updatedAtMs > this.fpsCrosshairGlanceCacheTtlMs) {
-      this.fpsCrosshairGlanceCache.delete(tileKey);
       return null;
     }
     return cached;
@@ -11261,6 +11252,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (cached !== null) {
       return;
     }
+    if (this.fpsCrosshairGlanceIssuedThisOpen) {
+      return;
+    }
     if (this.fpsCrosshairGlanceAttemptedKeys.has(target.key)) {
       return;
     }
@@ -11286,6 +11280,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       positionResolvedAtMs: null,
     };
     this.fpsCrosshairGlanceAttemptedKeys.add(target.key);
+    this.fpsCrosshairGlanceIssuedThisOpen = true;
 
     // Suppress NetHack's transient clicklook prompt ("Pick an object.")
     // generated by the synthetic glance flow.

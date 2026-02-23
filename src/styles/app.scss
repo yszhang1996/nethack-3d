@@ -1894,13 +1894,19 @@ canvas {
 }
 
 .nh3d-fps-crosshair-context {
-  left: calc(50% + 75px) !important;
+  --nh3d-fps-context-side-pad: 8px;
+  --nh3d-fps-context-width: min(280px, max(140px, calc(50vw - 28px)));
+  left: clamp(
+    var(--nh3d-fps-context-side-pad),
+    calc(50% + 75px),
+    calc(100vw - var(--nh3d-fps-context-width) - var(--nh3d-fps-context-side-pad))
+  ) !important;
   top: 50%;
   transform: translateY(-50%);
   z-index: 1701;
   min-width: 0;
-  width: min(280px, max(140px, calc(50vw - 28px)));
-  max-width: min(280px, calc(50vw - 28px));
+  width: min(var(--nh3d-fps-context-width), calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
 
   .nh3d-context-menu-actions {
     display: grid;
@@ -1948,9 +1954,9 @@ canvas {
 
   &.is-active {
     transform: translate(-50%, -50%) scale(1.12);
-    background: rgba(72, 148, 72, 0.96);
-    border-color: #d6ffd6;
-    box-shadow: 0 0 0 3px rgba(192, 255, 192, 0.34);
+    background: rgba(34, 92, 158, 0.96);
+    border-color: #bfe7ff;
+    box-shadow: 0 0 0 3px rgba(102, 204, 255, 0.34);
   }
 }
 

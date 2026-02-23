@@ -776,7 +776,7 @@ export default function App(): JSX.Element {
   const inventoryContextTitle = inventoryContextMenu
     ? `${inventoryContextMenu.itemText} (${inventoryContextMenu.accelerator})`
     : "";
-  const shouldScrollInventoryContextTitle = inventoryContextTitle.length > 44;
+  const shouldScrollInventoryContextTitle = inventoryContextTitle.length > 36;
   const inventoryContextTitleDurationSec = Math.max(
     6,
     Math.min(20, inventoryContextTitle.length * 0.14),
