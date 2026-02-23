@@ -43,24 +43,6 @@ export function getDefaultFloorGlyph(): number {
   return range.start + 19;
 }
 
-export function getDefaultStairsUpGlyph(): number {
-  const range = getGlyphKindRange("cmap");
-  if (!range) {
-    return getDefaultFloorGlyph();
-  }
-  // drawing.c: S_upstair is index 23.
-  return range.start + 23;
-}
-
-export function getDefaultStairsDownGlyph(): number {
-  const range = getGlyphKindRange("cmap");
-  if (!range) {
-    return getDefaultFloorGlyph();
-  }
-  // drawing.c: S_dnstair is index 24.
-  return range.start + 24;
-}
-
 type CmapSemantic =
   | "wall"
   | "floor"
