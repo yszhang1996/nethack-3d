@@ -228,6 +228,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   } | null = null;
   private pendingPlayerTileRefreshOnNextPosition: boolean = true;
   private hasPlayerMovedOnce: boolean = false;
+  private autoPickupEnabled: boolean = true;
   private lastMovementInputAtMs: number = 0;
   private readonly tileRefreshRetryDelayMs: number = 120;
   private readonly maxFloatingMessages: number = 12;
@@ -2076,6 +2077,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         {
           const inventoryContextMessageDialogText =
             this.consumeInventoryContextMessageDialogText(data.text);
+          this.captureAutopickupStateFromMessage(data.text);
           this.captureFpsCrosshairGlanceMessage(data.text);
           this.captureMonsterDefeatFromMessage(data.text);
           this.captureDamageFromMessage(data.text);
@@ -2095,6 +2097,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         {
           const inventoryContextMessageDialogText =
             this.consumeInventoryContextMessageDialogText(data.text);
+          this.captureAutopickupStateFromMessage(data.text);
           this.captureFpsCrosshairGlanceMessage(data.text);
           this.captureMonsterDefeatFromMessage(data.text);
           this.captureDamageFromMessage(data.text);
@@ -2386,6 +2389,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isGoldLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.effective.kind !== "obj") {
+      return false;
+    }
+    const chars = [
+      behavior.glyphChar,
+      behavior.effective.char,
+      behavior.resolved.char,
+    ];
+    return chars.some(
+      (value) => typeof value === "string" && value.trim() === "$",
+    );
+  }
+
+  private captureAutopickupStateFromMessage(messageLike: unknown): void {
+    if (typeof messageLike !== "string") {
+      return;
+    }
+    const normalized = messageLike.trim().toLowerCase();
+    if (!normalized.includes("autopickup")) {
+      return;
+    }
+    if (/\b(off|disabled|deactivated)\b/.test(normalized)) {
+      this.autoPickupEnabled = false;
+      return;
+    }
+    if (/\b(on|enabled|activated)\b/.test(normalized)) {
+      this.autoPickupEnabled = true;
+    }
+  }
+
   private classifyTilePayload(tile: any): TileBehaviorResult | null {
     if (
       !tile ||
@@ -2433,6 +2467,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (behavior.resolved.kind === "statue") {
       return true;
+    }
+    if (this.isLootLikeBehavior(behavior)) {
+      return !(this.autoPickupEnabled && this.isGoldLikeBehavior(behavior));
     }
     switch (behavior.materialKind) {
       case "stairs_up":
@@ -6319,22 +6356,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (!behavior.isPlayerGlyph) {
+      const shouldCacheFlatUnderPlayer =
+        this.shouldRenderFlatFeatureUnderFpsPlayer(behavior);
       if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
         this.lastKnownTerrain.set(key, {
           glyph,
           char: behavior.resolved.char ?? undefined,
           color: behavior.resolved.color ?? undefined,
         });
-        if (!this.shouldRenderFlatFeatureUnderFpsPlayer(behavior)) {
-          this.fpsFlatFeatureUnderPlayerCache.delete(key);
-        }
       }
-      if (this.shouldRenderFlatFeatureUnderFpsPlayer(behavior)) {
+      if (shouldCacheFlatUnderPlayer) {
         this.fpsFlatFeatureUnderPlayerCache.set(key, {
           glyph,
           char: behavior.resolved.char ?? undefined,
           color: behavior.resolved.color ?? undefined,
         });
+      } else {
+        this.fpsFlatFeatureUnderPlayerCache.delete(key);
       }
     } else {
       const oldPos = { ...this.playerPos };
