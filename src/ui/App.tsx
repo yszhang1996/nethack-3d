@@ -242,6 +242,7 @@ type TileAtlasState = {
 type TilePickerEntry = {
   tileId: number;
   glyphLabel: string;
+  glyphNumber: number | null;
 };
 
 type TilesetTilePickerDialogProps = {
@@ -253,6 +254,8 @@ type TilesetTilePickerDialogProps = {
   selectedTileId: number;
   defaultTileId: number;
   selectedGlyphLabel: string;
+  selectedGlyphNumber: number | null;
+  showGlyphNumber: boolean;
   statusText: string;
   tileAtlasLoaded: boolean;
   entries: TilePickerEntry[];
@@ -275,6 +278,8 @@ function TilesetTilePickerDialog({
   selectedTileId,
   defaultTileId,
   selectedGlyphLabel,
+  selectedGlyphNumber,
+  showGlyphNumber,
   statusText,
   tileAtlasLoaded,
   entries,
@@ -309,6 +314,9 @@ function TilesetTilePickerDialog({
           </div>
           <div className="nh3d-option-description">
             Glyph {selectedGlyphLabel}
+            {showGlyphNumber && typeof selectedGlyphNumber === "number"
+              ? ` (${selectedGlyphNumber})`
+              : ""}
           </div>
         </div>
       </div>
@@ -333,6 +341,9 @@ function TilesetTilePickerDialog({
                 </span>
                 <span className="nh3d-dark-wall-tile-card-glyph">
                   Glyph {entry.glyphLabel}
+                  {showGlyphNumber && typeof entry.glyphNumber === "number"
+                    ? ` (${entry.glyphNumber})`
+                    : ""}
                 </span>
                 <span className="nh3d-dark-wall-tile-card-id">
                   Tile {entry.tileId}
@@ -420,6 +431,52 @@ function buildRepresentativeGlyphByTileId(
     }
   }
   return representativeByTile;
+}
+
+function buildRepresentativeGlyphNumberByTileId(
+  glyphCatalog: ReadonlyArray<{
+    glyph?: number;
+    tileIndex: number;
+    ch?: number;
+    ttychar?: number;
+  }>,
+): Map<number, number> {
+  const representativeByTile = new Map<
+    number,
+    { glyphChar: string; glyph: number }
+  >();
+  for (const entry of glyphCatalog) {
+    const tileId = Math.trunc(entry.tileIndex);
+    if (!Number.isFinite(tileId) || tileId < 0) {
+      continue;
+    }
+    const candidate =
+      glyphCodePointToChar(entry.ch) ?? glyphCodePointToChar(entry.ttychar);
+    if (!candidate || candidate.length === 0) {
+      continue;
+    }
+    const glyph = Math.trunc(Number(entry.glyph));
+    if (!Number.isFinite(glyph) || glyph < 0) {
+      continue;
+    }
+    const glyphChar = candidate.charAt(0);
+    const existing = representativeByTile.get(tileId);
+    if (!existing) {
+      representativeByTile.set(tileId, { glyphChar, glyph });
+      continue;
+    }
+    if (
+      existing.glyphChar.trim().length === 0 &&
+      glyphChar.trim().length > 0
+    ) {
+      representativeByTile.set(tileId, { glyphChar, glyph });
+    }
+  }
+  const glyphByTileId = new Map<number, number>();
+  for (const [tileId, entry] of representativeByTile.entries()) {
+    glyphByTileId.set(tileId, entry.glyph);
+  }
+  return glyphByTileId;
 }
 
 function createIsolatedAtlasTilePreviewDataUrl(
@@ -1295,6 +1352,11 @@ export default function App(): JSX.Element {
     () => buildRepresentativeGlyphByTileId(GLYPH_CATALOG_367),
     [],
   );
+  const representativeGlyphNumberByTileId = useMemo(
+    () => buildRepresentativeGlyphNumberByTileId(GLYPH_CATALOG_367),
+    [],
+  );
+  const showTilePickerGlyphNumber = import.meta.env.DEV;
   const defaultDarkWallTileId = Math.max(
     0,
     Math.trunc(defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId),
@@ -1320,6 +1382,8 @@ export default function App(): JSX.Element {
   const selectedDarkWallGlyphLabel = formatTileGlyphLabel(
     selectedDarkWallGlyphChar,
   );
+  const selectedDarkWallGlyphNumber =
+    representativeGlyphNumberByTileId.get(selectedDarkWallTileId) ?? null;
   const defaultTilesetBackgroundTileId = useMemo(
     () =>
       resolveDefaultNh3dTilesetBackgroundTileId(clientOptionsDraft.tilesetPath),
@@ -1344,6 +1408,9 @@ export default function App(): JSX.Element {
   const selectedTilesetBackgroundGlyphLabel = formatTileGlyphLabel(
     selectedTilesetBackgroundGlyphChar,
   );
+  const selectedTilesetBackgroundGlyphNumber =
+    representativeGlyphNumberByTileId.get(selectedTilesetBackgroundTileId) ??
+    null;
   const selectedTilesetEntry = useMemo(
     () => findNh3dTilesetByPath(clientOptionsDraft.tilesetPath),
     [clientOptionsDraft.tilesetPath],
@@ -1358,11 +1425,13 @@ export default function App(): JSX.Element {
       entries.push({
         tileId,
         glyphLabel: formatTileGlyphLabel(glyphChar),
+        glyphNumber: representativeGlyphNumberByTileId.get(tileId) ?? null,
       });
     }
     return entries;
   }, [
     representativeGlyphByTileId,
+    representativeGlyphNumberByTileId,
     tileAtlasState.loaded,
     tileAtlasState.tileCount,
   ]);
@@ -3049,7 +3118,9 @@ export default function App(): JSX.Element {
         renderMobileCloseButton={renderMobileDialogCloseButton}
         renderTilePreviewImage={renderTilePreviewImage}
         selectedGlyphLabel={selectedDarkWallGlyphLabel}
+        selectedGlyphNumber={selectedDarkWallGlyphNumber}
         selectedTileId={selectedDarkWallTileId}
+        showGlyphNumber={showTilePickerGlyphNumber}
         statusText={tilePickerStatusText}
         tileAtlasLoaded={tileAtlasState.loaded}
         title="Dark Wall Tile Picker"
@@ -3070,7 +3141,9 @@ export default function App(): JSX.Element {
         renderMobileCloseButton={renderMobileDialogCloseButton}
         renderTilePreviewImage={renderTilePreviewImage}
         selectedGlyphLabel={selectedTilesetBackgroundGlyphLabel}
+        selectedGlyphNumber={selectedTilesetBackgroundGlyphNumber}
         selectedTileId={selectedTilesetBackgroundTileId}
+        showGlyphNumber={showTilePickerGlyphNumber}
         statusText={tilePickerStatusText}
         tileAtlasLoaded={tileAtlasState.loaded}
         title="Tileset Background Tile Picker"

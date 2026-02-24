@@ -7660,7 +7660,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileGlyphChar = " ";
       tileTextColor = behavior.textColor;
     } else if (shouldUseElevatedBillboard) {
-      if (isStairsUp || isFountain || isAltar) {
+      if (isStairsUp || isSink || isFountain || isAltar) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
