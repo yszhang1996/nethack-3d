@@ -6,6 +6,8 @@
   --nh3d-mobile-visible-height: 100vh;
   --nh3d-mobile-visible-top-offset: 0px;
   --nh3d-mobile-visible-bottom-offset: 0px;
+  --nh3d-mobile-bottom-bar-bottom-offset: 0px;
+  --nh3d-mobile-bottom-bar-clearance: 68px;
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
   --nh3d-ui-border: #2b5a76;
@@ -41,6 +43,19 @@
 
   @supports (height: 100dvh) {
     --nh3d-mobile-visible-height: 100dvh;
+  }
+}
+
+:root.nh3d-mobile-browser-mode {
+  --nh3d-mobile-bottom-bar-bottom-offset: 0px;
+}
+
+@media (orientation: landscape) and (pointer: coarse) {
+  :root {
+    --nh3d-mobile-bottom-bar-bottom-offset: calc(
+      8px + env(safe-area-inset-bottom)
+    );
+    --nh3d-mobile-bottom-bar-clearance: 0px;
   }
 }
 
@@ -789,14 +804,20 @@ canvas {
 
   @media (pointer: coarse) {
     --nh3d-dialog-mobile-padding: 9px;
+    --nh3d-dialog-mobile-top-inset: calc(
+      var(--nh3d-safe-area-top) + var(--nh3d-stats-bar-height, 64px) + 10px
+    );
+    --nh3d-dialog-mobile-bottom-inset: calc(
+      var(--nh3d-mobile-bottom-bar-bottom-offset, 0px) +
+        var(--nh3d-mobile-bottom-bar-clearance, 68px)
+    );
 
-    // Calculate dynamic height to respect safe areas
+    // Keep mobile dialogs within the same top and bottom bounds.
     --nh3d-calculated-mobile-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) - var(
-          --nh3d-mobile-visible-top-offset,
-          0px
-        ) - var(--nh3d-safe-area-top) - max(
-          env(safe-area-inset-bottom),
+      var(--nh3d-mobile-visible-height, 100vh) -
+        var(--nh3d-dialog-mobile-top-inset) -
+        max(
+          var(--nh3d-dialog-mobile-bottom-inset),
           var(--nh3d-mobile-visible-bottom-offset, 0px)
         ) -
         16px
@@ -855,17 +876,17 @@ canvas {
     &:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
       top: 50%;
       transform: translate(-50%, -50%);
-      max-height: calc(
-        var(--nh3d-mobile-visible-height, 100vh) - var(
-            --nh3d-mobile-visible-top-offset,
-            0px
-          ) - var(--nh3d-safe-area-top) - max(
-            env(safe-area-inset-bottom),
-            var(--nh3d-mobile-visible-bottom-offset, 0px)
-          ) -
-          16px
-      );
+      max-height: var(--nh3d-calculated-mobile-height);
     }
+  }
+}
+
+@media (pointer: coarse) {
+  .nh3d-dialog-question,
+  .nh3d-dialog-info,
+  .nh3d-dialog-options,
+  .nh3d-dialog-tile-picker {
+    max-height: var(--nh3d-calculated-mobile-height);
   }
 }
 
@@ -2466,11 +2487,10 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-mobile-bottom-bar {
-  --nh3d-safe-area-bottom: 0px;
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--nh3d-safe-area-bottom);
+  bottom: var(--nh3d-mobile-bottom-bar-bottom-offset, 0px);
   z-index: 1900;
   display: flex;
   gap: 6px;
@@ -2489,13 +2509,12 @@ canvas {
     left: 0;
     right: 0;
     top: 100%;
-    height: var(--nh3d-safe-area-bottom);
+    height: var(--nh3d-mobile-bottom-bar-bottom-offset, 0px);
     background: rgba(4, 12, 24, 0.98);
     pointer-events: none;
   }
 
   .nh3d-mobile-browser-mode & {
-    --nh3d-safe-area-bottom: 0px;
     bottom: 0;
 
     &::after {
@@ -2506,7 +2525,7 @@ canvas {
   @media (orientation: landscape) and (pointer: coarse) {
     left: auto;
     right: env(safe-area-inset-right);
-    bottom: calc(8px + env(safe-area-inset-bottom));
+    bottom: var(--nh3d-mobile-bottom-bar-bottom-offset);
     width: 94px;
     box-sizing: border-box;
     display: flex;
