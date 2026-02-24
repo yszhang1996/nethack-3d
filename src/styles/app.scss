@@ -894,7 +894,6 @@ canvas {
     bottom: 0;
     z-index: 3;
     box-sizing: border-box;
-    // margin-top: 32px;
     margin-left: calc(-1 * var(--nh3d-dialog-fixed-padding));
     margin-right: calc(-1 * var(--nh3d-dialog-fixed-padding));
     margin-bottom: 0;
@@ -1010,6 +1009,12 @@ canvas {
       overflow-x: hidden;
       padding-right: 0;
     }
+
+    @media (pointer: coarse) {
+      &:not(.startup) {
+        padding-bottom: 20px;
+      }
+    }
   }
 
   .nh3d-choice-button,
@@ -1027,6 +1032,12 @@ canvas {
 
 .nh3d-dialog-new-game {
   top: 62%;
+
+  .nh3d-menu-actions {
+    @media (pointer: coarse) {
+      margin-top: 0 !important;
+    }
+  }
 
   @media (pointer: coarse) {
     top: calc(60% + var(--nh3d-safe-area-top));
@@ -1097,6 +1108,10 @@ canvas {
 
     &:last-of-type {
       margin-bottom: 20px;
+
+      @media (pointer: coarse) {
+        margin-bottom: 0px;
+      }
     }
   }
 
@@ -1439,7 +1454,6 @@ canvas {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin-top: 15px;
   width: min(560px, 90vw);
   max-height: min(62vh, 560px);
   overflow-y: auto;

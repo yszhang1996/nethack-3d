@@ -336,6 +336,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastInventoryRefreshRequestedAtMs: number = 0;
   private readonly inventoryRefreshDebounceMs: number = 250;
   private runtimeTerminationPromptShown: boolean = false;
+  private runtimeConnectionState: NethackConnectionState = "disconnected";
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
   private isInventoryDialogVisible: boolean = false;
   private isInfoDialogVisible: boolean = false;
@@ -1353,7 +1354,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const visible = this.clientOptions.minimap;
+    const visible =
+      this.clientOptions.minimap && this.runtimeConnectionState === "running";
     this.minimapContainer.style.display = visible ? "" : "none";
     this.minimapContainer.style.pointerEvents = visible ? "auto" : "none";
     this.minimapContainer.setAttribute(
@@ -7851,8 +7853,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     status: string,
     state: NethackConnectionState,
   ): void {
+    this.runtimeConnectionState = state;
     if (this.uiAdapter) {
       this.uiAdapter.setConnectionStatus(status, state);
+      this.updateMinimapVisibility();
       return;
     }
 
@@ -7861,6 +7865,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       connElement.innerHTML = status;
       connElement.setAttribute("data-state", state);
     }
+    this.updateMinimapVisibility();
   }
 
   private setNewGamePrompt(visible: boolean, reason: string | null): void {
