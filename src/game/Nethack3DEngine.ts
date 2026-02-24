@@ -12768,7 +12768,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         toneMapped: false,
       });
       const mesh = new THREE.Mesh(geometry, material);
-      mesh.renderOrder = 980;
+      // Keep forward-tile highlight above floor/shadow layers but beneath
+      // elevated billboards (monster/loot sprites use renderOrder 910).
+      mesh.renderOrder = 907;
       this.scene.add(mesh);
       this.fpsForwardHighlight = mesh;
       this.fpsForwardHighlightMaterial = material;
