@@ -105,6 +105,8 @@ export type Nh3dClientOptions = {
   blood: boolean;
   liveMessageLog: boolean;
   darkCorridorWalls367: boolean;
+  darkCorridorWallTileOverrideEnabled: boolean;
+  darkCorridorWallTileOverrideTileId: number;
   tilesetMode: "ascii" | "tiles";
   antialiasing: Nh3dAntialiasingMode;
   brightness: number;
@@ -133,6 +135,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   blood: true,
   liveMessageLog: true,
   darkCorridorWalls367: true,
+  darkCorridorWallTileOverrideEnabled: false,
+  darkCorridorWallTileOverrideTileId: 850,
   tilesetMode: "tiles",
   antialiasing: isMobile ? "fxaa" : "taa",
   brightness: 0,
@@ -195,6 +199,15 @@ export function normalizeNh3dClientOptions(
       ? overrides.gamma
       : defaultNh3dClientOptions.gamma;
   const gamma = Number(Math.max(0.5, Math.min(2.5, rawGamma)).toFixed(2));
+  const rawDarkCorridorWallTileOverrideTileId =
+    typeof overrides?.darkCorridorWallTileOverrideTileId === "number" &&
+    Number.isFinite(overrides.darkCorridorWallTileOverrideTileId)
+      ? Math.trunc(overrides.darkCorridorWallTileOverrideTileId)
+      : defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId;
+  const darkCorridorWallTileOverrideTileId = Math.max(
+    0,
+    rawDarkCorridorWallTileOverrideTileId,
+  );
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
@@ -235,6 +248,11 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.darkCorridorWalls367 === "boolean"
         ? overrides.darkCorridorWalls367
         : defaultNh3dClientOptions.darkCorridorWalls367,
+    darkCorridorWallTileOverrideEnabled:
+      typeof overrides?.darkCorridorWallTileOverrideEnabled === "boolean"
+        ? overrides.darkCorridorWallTileOverrideEnabled
+        : defaultNh3dClientOptions.darkCorridorWallTileOverrideEnabled,
+    darkCorridorWallTileOverrideTileId,
     tilesetMode: overrides?.tilesetMode === "tiles" ? "tiles" : "ascii",
     antialiasing,
     brightness,

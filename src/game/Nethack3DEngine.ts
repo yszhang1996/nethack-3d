@@ -1616,6 +1616,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private resolveInferredDarkCorridorWallTileTextureIndex(
+    fallbackTileIndex: number,
+    isInferredDarkCorridorWall: boolean,
+  ): number {
+    if (!isInferredDarkCorridorWall) {
+      return fallbackTileIndex;
+    }
+    if (!this.clientOptions.darkCorridorWallTileOverrideEnabled) {
+      return fallbackTileIndex;
+    }
+    const overrideTileIndex = Math.trunc(
+      this.clientOptions.darkCorridorWallTileOverrideTileId,
+    );
+    if (!Number.isFinite(overrideTileIndex) || overrideTileIndex < 0) {
+      return fallbackTileIndex;
+    }
+    return overrideTileIndex;
+  }
+
   private getDarkCorridorRayDepthFromPlayer(
     tileX: number,
     tileY: number,
@@ -1975,6 +1994,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const bloodChanged = previous.blood !== normalized.blood;
     const darkCorridorWallsChanged =
       previous.darkCorridorWalls367 !== normalized.darkCorridorWalls367;
+    const darkCorridorWallTileOverrideChanged =
+      previous.darkCorridorWallTileOverrideEnabled !==
+        normalized.darkCorridorWallTileOverrideEnabled ||
+      previous.darkCorridorWallTileOverrideTileId !==
+        normalized.darkCorridorWallTileOverrideTileId;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
     const antialiasingChanged =
       previous.antialiasing !== normalized.antialiasing;
@@ -2013,7 +2037,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (brightnessChanged || contrastChanged || gammaChanged) {
       this.updateToneAdjustPostProcess();
     }
-    if (darkCorridorWallsChanged) {
+    if (darkCorridorWallsChanged || darkCorridorWallTileOverrideChanged) {
       this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       this.markLightingDirty();
     }
@@ -7543,7 +7567,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
-    mesh.userData.tileIndex = renderBehavior.effective.tileIndex;
+    const tileTextureIndex = this.resolveInferredDarkCorridorWallTileTextureIndex(
+      renderBehavior.effective.tileIndex,
+      isInferredDarkCorridorWall,
+    );
+    mesh.userData.tileIndex = tileTextureIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     mesh.userData.fpsWallChamferRotateUv = wallChamferRotateUv;
@@ -7560,7 +7588,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.isWall,
       renderBehavior.darkenFactor,
       drawFpsFloorGrid,
-      renderBehavior.effective.tileIndex,
+      tileTextureIndex,
     );
     if (isInferredDarkCorridorWall && (createdMesh || restartRevealFade)) {
       const overlay = this.glyphOverlayMap.get(key);

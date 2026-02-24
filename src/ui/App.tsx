@@ -24,6 +24,7 @@ import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
+import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 
 type DirectionChoice = {
   key?: string;
@@ -224,6 +225,128 @@ function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
   return getMenuSelectionInput(item).trim().length > 0;
 }
 
+const nh3dTilesetAtlasPath = "assets/nevanda-360.png";
+const nh3dTilesetTileSize = 32;
+
+type TileAtlasState = {
+  loaded: boolean;
+  failed: boolean;
+  columns: number;
+  rows: number;
+  tileCount: number;
+};
+
+type TilePickerEntry = {
+  tileId: number;
+  glyphLabel: string;
+  isDefault: boolean;
+};
+
+function glyphCodePointToChar(codePoint: unknown): string | null {
+  if (
+    typeof codePoint !== "number" ||
+    !Number.isInteger(codePoint) ||
+    codePoint < 0 ||
+    codePoint > 0x10ffff
+  ) {
+    return null;
+  }
+  return String.fromCodePoint(codePoint);
+}
+
+function formatTileGlyphLabel(glyphChar: string): string {
+  if (glyphChar === " ") {
+    return "space";
+  }
+  const codePoint = glyphChar.codePointAt(0);
+  if (
+    typeof codePoint === "number" &&
+    (codePoint < 32 || codePoint === 127)
+  ) {
+    return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
+  }
+  return `'${glyphChar}'`;
+}
+
+function buildRepresentativeGlyphByTileId(
+  glyphCatalog: ReadonlyArray<{
+    tileIndex: number;
+    ch?: number;
+    ttychar?: number;
+  }>,
+): Map<number, string> {
+  const representativeByTile = new Map<number, string>();
+  for (const entry of glyphCatalog) {
+    const tileId = Math.trunc(entry.tileIndex);
+    if (!Number.isFinite(tileId) || tileId < 0) {
+      continue;
+    }
+    const candidate =
+      glyphCodePointToChar(entry.ch) ?? glyphCodePointToChar(entry.ttychar);
+    if (!candidate || candidate.length === 0) {
+      continue;
+    }
+    const glyphChar = candidate.charAt(0);
+    const existing = representativeByTile.get(tileId);
+    if (!existing) {
+      representativeByTile.set(tileId, glyphChar);
+      continue;
+    }
+    if (existing.trim().length === 0 && glyphChar.trim().length > 0) {
+      representativeByTile.set(tileId, glyphChar);
+    }
+  }
+  return representativeByTile;
+}
+
+function createIsolatedAtlasTilePreviewDataUrl(
+  atlasImage: HTMLImageElement,
+  tileId: number,
+  tileSourceSize: number,
+): string | null {
+  if (
+    typeof document === "undefined" ||
+    !atlasImage ||
+    tileSourceSize <= 0 ||
+    !Number.isFinite(tileId)
+  ) {
+    return null;
+  }
+  const width = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+  const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
+  const tilesPerRow = Math.floor(width / tileSourceSize);
+  const tileRows = Math.floor(height / tileSourceSize);
+  const tileCount = tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
+  const safeTileId = Math.trunc(tileId);
+  if (tileCount <= 0 || safeTileId < 0 || safeTileId >= tileCount) {
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = tileSourceSize;
+  canvas.height = tileSourceSize;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  const sx = (safeTileId % tilesPerRow) * tileSourceSize;
+  const sy = Math.floor(safeTileId / tilesPerRow) * tileSourceSize;
+  context.clearRect(0, 0, tileSourceSize, tileSourceSize);
+  context.drawImage(
+    atlasImage,
+    sx,
+    sy,
+    tileSourceSize,
+    tileSourceSize,
+    0,
+    0,
+    tileSourceSize,
+    tileSourceSize,
+  );
+  return canvas.toDataURL("image/png");
+}
+
 const startupRoleOptions = [
   "Archeologist",
   "Barbarian",
@@ -333,7 +456,8 @@ type ClientOptionToggleKey =
   | "tileShakeOnHit"
   | "blood"
   | "liveMessageLog"
-  | "darkCorridorWalls367";
+  | "darkCorridorWalls367"
+  | "darkCorridorWallTileOverrideEnabled";
 
 type ClientOptionLookSensitivityKey =
   | "fpsLookSensitivityX"
@@ -644,6 +768,12 @@ const clientOptionsConfig: ClientOption[] = [
       "Infer and cache dark corridor wall tiles (NetHack 3.6.7 behavior).",
     type: "boolean",
   },
+  {
+    key: "darkCorridorWallTileOverrideEnabled",
+    label: "Override inferred dark wall tile",
+    description: "Use a custom atlas tile for inferred dark corridor walls.",
+    type: "boolean",
+  },
 ];
 
 const clampInventoryContextMenuPosition = (
@@ -869,6 +999,18 @@ export default function App(): JSX.Element {
   const [clientOptionsDraft, setClientOptionsDraft] =
     useState<Nh3dClientOptions>(() => resolveInitialClientOptions());
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
+  const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
+    useState(false);
+  const [tileAtlasImage, setTileAtlasImage] = useState<HTMLImageElement | null>(
+    null,
+  );
+  const [tileAtlasState, setTileAtlasState] = useState<TileAtlasState>({
+    loaded: false,
+    failed: false,
+    columns: 0,
+    rows: 0,
+    tileCount: 0,
+  });
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -988,6 +1130,85 @@ export default function App(): JSX.Element {
     inventoryContextMenu?.itemText,
     inventoryItemActions,
   ]);
+  const representativeGlyphByTileId = useMemo(
+    () => buildRepresentativeGlyphByTileId(GLYPH_CATALOG_367),
+    [],
+  );
+  const defaultDarkWallTileId = Math.max(
+    0,
+    Math.trunc(defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId),
+  );
+  const selectedDarkWallTileId = Math.max(
+    0,
+    Math.trunc(clientOptionsDraft.darkCorridorWallTileOverrideTileId),
+  );
+  const selectedDarkWallGlyphChar =
+    representativeGlyphByTileId.get(selectedDarkWallTileId) ?? " ";
+  const selectedDarkWallGlyphLabel = formatTileGlyphLabel(
+    selectedDarkWallGlyphChar,
+  );
+  const tilePickerEntries = useMemo<TilePickerEntry[]>(() => {
+    if (!tileAtlasState.loaded || tileAtlasState.tileCount <= 0) {
+      return [];
+    }
+    const entries: TilePickerEntry[] = [];
+    for (let tileId = 0; tileId < tileAtlasState.tileCount; tileId += 1) {
+      const glyphChar = representativeGlyphByTileId.get(tileId) ?? " ";
+      entries.push({
+        tileId,
+        glyphLabel: formatTileGlyphLabel(glyphChar),
+        isDefault: tileId === defaultDarkWallTileId,
+      });
+    }
+    return entries;
+  }, [
+    defaultDarkWallTileId,
+    representativeGlyphByTileId,
+    tileAtlasState.loaded,
+    tileAtlasState.tileCount,
+  ]);
+  const tilePreviewDataUrlById = useMemo(() => {
+    const previewByTileId = new Map<number, string>();
+    if (!tileAtlasState.loaded || !tileAtlasImage || tileAtlasState.tileCount <= 0) {
+      return previewByTileId;
+    }
+    for (let tileId = 0; tileId < tileAtlasState.tileCount; tileId += 1) {
+      const dataUrl = createIsolatedAtlasTilePreviewDataUrl(
+        tileAtlasImage,
+        tileId,
+        nh3dTilesetTileSize,
+      );
+      if (!dataUrl) {
+        continue;
+      }
+      previewByTileId.set(tileId, dataUrl);
+    }
+    return previewByTileId;
+  }, [tileAtlasImage, tileAtlasState.loaded, tileAtlasState.tileCount]);
+  const getTilePreviewDataUrl = (tileId: number): string | null => {
+    if (tileAtlasState.tileCount <= 0) {
+      return null;
+    }
+    const clampedTileId = Math.max(
+      0,
+      Math.min(tileAtlasState.tileCount - 1, Math.trunc(tileId)),
+    );
+    return tilePreviewDataUrlById.get(clampedTileId) ?? null;
+  };
+  const renderTilePreviewImage = (tileId: number): JSX.Element | null => {
+    const tilePreviewDataUrl = getTilePreviewDataUrl(tileId);
+    if (!tilePreviewDataUrl) {
+      return null;
+    }
+    return (
+      <img
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        src={tilePreviewDataUrl}
+      />
+    );
+  };
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -1016,6 +1237,57 @@ export default function App(): JSX.Element {
   useEffect(() => {
     persistClientOptions(clientOptions);
   }, [clientOptions]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    let disposed = false;
+    const atlasImage = new window.Image();
+
+    const handleLoad = (): void => {
+      if (disposed) {
+        return;
+      }
+      const width = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+      const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
+      const columns = Math.max(0, Math.floor(width / nh3dTilesetTileSize));
+      const rows = Math.max(0, Math.floor(height / nh3dTilesetTileSize));
+      const tileCount = columns > 0 && rows > 0 ? columns * rows : 0;
+      setTileAtlasState({
+        loaded: tileCount > 0,
+        failed: tileCount <= 0,
+        columns,
+        rows,
+        tileCount,
+      });
+      setTileAtlasImage(tileCount > 0 ? atlasImage : null);
+    };
+
+    const handleError = (): void => {
+      if (disposed) {
+        return;
+      }
+      setTileAtlasState({
+        loaded: false,
+        failed: true,
+        columns: 0,
+        rows: 0,
+        tileCount: 0,
+      });
+      setTileAtlasImage(null);
+    };
+
+    atlasImage.addEventListener("load", handleLoad);
+    atlasImage.addEventListener("error", handleError);
+    atlasImage.src = nh3dTilesetAtlasPath;
+
+    return () => {
+      disposed = true;
+      atlasImage.removeEventListener("load", handleLoad);
+      atlasImage.removeEventListener("error", handleError);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) {
@@ -1391,11 +1663,13 @@ export default function App(): JSX.Element {
   const openClientOptionsDialog = (): void => {
     setClientOptionsDraft({ ...clientOptions });
     setIsClientOptionsVisible(true);
+    setIsDarkWallTilePickerVisible(false);
     controller?.dismissFpsCrosshairContextMenu();
   };
 
   const closeClientOptionsDialog = (): void => {
     setIsClientOptionsVisible(false);
+    setIsDarkWallTilePickerVisible(false);
     setClientOptionsDraft({ ...clientOptions });
   };
 
@@ -1403,6 +1677,7 @@ export default function App(): JSX.Element {
     const next = { ...clientOptionsDraft };
     setClientOptions(next);
     setIsClientOptionsVisible(false);
+    setIsDarkWallTilePickerVisible(false);
     controller?.setClientOptions(next);
   };
 
@@ -1459,6 +1734,31 @@ export default function App(): JSX.Element {
     }
     updateClientOptionDraft(key, Number(clamped.toFixed(2)));
   };
+
+  const updateDarkWallTileOverrideTileIdDraft = (rawTileId: number): void => {
+    const maxTileId =
+      tileAtlasState.tileCount > 0 ? tileAtlasState.tileCount - 1 : Infinity;
+    const nextTileId = Math.max(
+      0,
+      Math.min(maxTileId, Math.trunc(rawTileId)),
+    );
+    setClientOptionsDraft((previous) => ({
+      ...previous,
+      darkCorridorWallTileOverrideTileId: nextTileId,
+    }));
+  };
+
+  useEffect(() => {
+    if (!clientOptionsDraft.darkCorridorWallTileOverrideEnabled) {
+      setIsDarkWallTilePickerVisible(false);
+    }
+  }, [clientOptionsDraft.darkCorridorWallTileOverrideEnabled]);
+
+  useEffect(() => {
+    if (!clientOptionsDraft.darkCorridorWalls367) {
+      setIsDarkWallTilePickerVisible(false);
+    }
+  }, [clientOptionsDraft.darkCorridorWalls367]);
 
   const renderMobileDialogCloseButton = (
     onClick: () => void,
@@ -1633,6 +1933,10 @@ export default function App(): JSX.Element {
       if (isClientOptionsVisible) {
         event.preventDefault();
         event.stopPropagation();
+        if (isDarkWallTilePickerVisible) {
+          setIsDarkWallTilePickerVisible(false);
+          return;
+        }
         closeClientOptionsDialog();
         return;
       }
@@ -1655,6 +1959,7 @@ export default function App(): JSX.Element {
     controller,
     hasGameplayOverlayOpen,
     isClientOptionsVisible,
+    isDarkWallTilePickerVisible,
     isDesktopGameRunning,
     isMobileViewport,
   ]);
@@ -2105,6 +2410,13 @@ export default function App(): JSX.Element {
               ) {
                 return null;
               }
+              if (
+                option.type === "boolean" &&
+                option.key === "darkCorridorWallTileOverrideEnabled" &&
+                !clientOptionsDraft.darkCorridorWalls367
+              ) {
+                return null;
+              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>
@@ -2114,6 +2426,8 @@ export default function App(): JSX.Element {
               }
               if (option.type === "boolean") {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
+                const isDarkWallTileOverrideOption =
+                  option.key === "darkCorridorWallTileOverrideEnabled";
                 return (
                   <Fragment key={option.key}>
                     <div className="nh3d-option-row">
@@ -2123,17 +2437,41 @@ export default function App(): JSX.Element {
                           {option.description}
                         </div>
                       </div>
-                      <button
-                        aria-checked={enabled}
-                        className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
-                        onClick={() =>
-                          updateClientOptionDraft(option.key, !enabled)
-                        }
-                        role="switch"
-                        type="button"
-                      >
-                        <span className="nh3d-option-switch-thumb" />
-                      </button>
+                      <div className="nh3d-option-toggle-controls">
+                        {isDarkWallTileOverrideOption ? (
+                          <button
+                            className={`nh3d-option-tile-picker-button${
+                              enabled ? "" : " is-disabled"
+                            }`}
+                            disabled={!enabled}
+                            onClick={() => setIsDarkWallTilePickerVisible(true)}
+                            type="button"
+                          >
+                            <span className="nh3d-option-tile-picker-preview">
+                              {renderTilePreviewImage(selectedDarkWallTileId)}
+                            </span>
+                            <span className="nh3d-option-tile-picker-copy">
+                              <span className="nh3d-option-tile-picker-glyph">
+                                {selectedDarkWallGlyphLabel}
+                              </span>
+                              <span className="nh3d-option-tile-picker-id">
+                                tile #{selectedDarkWallTileId}
+                              </span>
+                            </span>
+                          </button>
+                        ) : null}
+                        <button
+                          aria-checked={enabled}
+                          className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
+                          onClick={() =>
+                            updateClientOptionDraft(option.key, !enabled)
+                          }
+                          role="switch"
+                          type="button"
+                        >
+                          <span className="nh3d-option-switch-thumb" />
+                        </button>
+                      </div>
                     </div>
                     {option.key === "fpsMode" && clientOptionsDraft.fpsMode ? (
                       <>
@@ -2328,6 +2666,91 @@ export default function App(): JSX.Element {
               type="button"
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isClientOptionsVisible && isDarkWallTilePickerVisible ? (
+        <div
+          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-dialog-tile-picker"
+          id="nh3d-dark-wall-tile-picker-dialog"
+        >
+          {renderMobileDialogCloseButton(
+            () => setIsDarkWallTilePickerVisible(false),
+            "Close dark wall tile picker",
+          )}
+          <div className="nh3d-options-title">Dark Wall Tile Picker</div>
+          <div className="nh3d-dark-wall-picker-selected">
+            <span className="nh3d-dark-wall-picker-selected-preview">
+              {renderTilePreviewImage(selectedDarkWallTileId)}
+            </span>
+            <div className="nh3d-dark-wall-picker-selected-copy">
+              <div className="nh3d-option-label">
+                Selected: tile #{selectedDarkWallTileId}
+                {selectedDarkWallTileId === defaultDarkWallTileId
+                  ? " (default)"
+                  : ""}
+              </div>
+              <div className="nh3d-option-description">
+                Glyph {selectedDarkWallGlyphLabel}
+              </div>
+            </div>
+          </div>
+          {!tileAtlasState.loaded ? (
+            <div className="nh3d-dark-wall-picker-status">
+              {tileAtlasState.failed
+                ? "Unable to load tile atlas."
+                : "Loading tile atlas..."}
+            </div>
+          ) : (
+            <div className="nh3d-dark-wall-tile-grid">
+              {tilePickerEntries.map((entry) => (
+                <button
+                  className={`nh3d-dark-wall-tile-card${
+                    entry.tileId === selectedDarkWallTileId ? " is-selected" : ""
+                  }${entry.isDefault ? " is-default" : ""}`}
+                  key={entry.tileId}
+                  onClick={() =>
+                    updateDarkWallTileOverrideTileIdDraft(entry.tileId)
+                  }
+                  type="button"
+                >
+                  <span className="nh3d-dark-wall-tile-card-preview">
+                    {renderTilePreviewImage(entry.tileId)}
+                  </span>
+                  <span className="nh3d-dark-wall-tile-card-glyph">
+                    Glyph {entry.glyphLabel}
+                  </span>
+                  <span className="nh3d-dark-wall-tile-card-id">
+                    Tile {entry.tileId}
+                  </span>
+                  {entry.isDefault ? (
+                    <span className="nh3d-dark-wall-tile-card-default">
+                      Default
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button"
+              disabled={selectedDarkWallTileId === defaultDarkWallTileId}
+              onClick={() =>
+                updateDarkWallTileOverrideTileIdDraft(defaultDarkWallTileId)
+              }
+              type="button"
+            >
+              Reset to default
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={() => setIsDarkWallTilePickerVisible(false)}
+              type="button"
+            >
+              Done
             </button>
           </div>
         </div>
