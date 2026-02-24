@@ -8,6 +8,24 @@
   --nh3d-mobile-visible-bottom-offset: 0px;
   --nh3d-mobile-bottom-bar-bottom-offset: 0px;
   --nh3d-mobile-bottom-bar-clearance: 68px;
+  // Shared mobile overlay frame: keep dialogs/logs below the stats bar and
+  // above the fixed mobile action bar (including browser UI offsets).
+  --nh3d-mobile-overlay-top-inset: calc(
+    var(--nh3d-mobile-visible-top-offset, 0px) + var(--nh3d-safe-area-top) +
+      var(--nh3d-stats-bar-height, 0px) + 10px
+  );
+  --nh3d-mobile-overlay-bottom-inset: max(
+    calc(
+      var(--nh3d-mobile-bottom-bar-bottom-offset, 0px) +
+        var(--nh3d-mobile-bottom-bar-clearance, 68px)
+    ),
+    var(--nh3d-mobile-visible-bottom-offset, 0px)
+  );
+  --nh3d-mobile-overlay-max-height: calc(
+    var(--nh3d-mobile-visible-height, 100vh) -
+      var(--nh3d-mobile-overlay-top-inset) -
+      var(--nh3d-mobile-overlay-bottom-inset) - 16px
+  );
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
   --nh3d-ui-border: #2b5a76;
@@ -270,10 +288,12 @@ canvas {
 .nh3d-mobile-log {
   @extend %custom-scrollbar;
   position: fixed;
-  left: 8px;
-  right: 8px;
-  top: calc(var(--nh3d-mobile-log-top, 0px) + env(safe-area-inset-top) + 10px);
-  bottom: calc(72px + env(safe-area-inset-bottom));
+  // Mobile log only: include left safe-area inset to avoid notch/cutout overlap.
+  left: calc(8px + env(safe-area-inset-left));
+  right: calc(8px + env(safe-area-inset-right));
+  // Reuse the same safe-zone frame as dialogs so logs never collide with bars.
+  top: var(--nh3d-mobile-overlay-top-inset);
+  bottom: var(--nh3d-mobile-overlay-bottom-inset);
   z-index: 1800;
   max-height: none;
   overflow-y: auto;
@@ -288,11 +308,15 @@ canvas {
   box-shadow: var(--nh3d-ui-shadow);
 
   @media (pointer: coarse) {
-    bottom: calc(68px + env(safe-area-inset-bottom));
-
     .nh3d-mobile-dialog-close {
+      // Mobile log only: keep close button pinned while scrolling this panel.
+      position: sticky;
       top: 8px;
       right: 8px;
+      float: right;
+      margin: 0 0 6px 8px;
+      shape-outside: circle(50%);
+      -webkit-shape-outside: circle(50%);
       z-index: 2;
     }
   }
@@ -765,13 +789,18 @@ canvas {
   display: none;
 
   &.startup {
-    top: 57%;
-
-    @media (pointer: coarse) {
-      top: calc(55% + var(--nh3d-safe-area-top)) !important;
+    // Desktop startup flow keeps its original tuned visual placement.
+    @media (pointer: fine) {
+      top: 57%;
     }
 
-    @media (max-width: 515px) {
+    // Mobile startup flow stays centered in the safe-zone frame, with a
+    // deliberate downward bias to preserve onboarding composition.
+    @media (pointer: coarse) {
+      --nh3d-mobile-dialog-center-bias: clamp(28px, 6vh, 52px);
+    }
+
+    @media (max-width: 515px) and (pointer: fine) {
       top: 50%;
     }
   }
@@ -794,7 +823,7 @@ canvas {
     }
 
     @media (pointer: coarse) {
-      max-height: var(--nh3d-calculated-mobile-height, 80vh);
+      max-height: var(--nh3d-mobile-overlay-max-height, 80vh);
 
       .nh3d-inventory-items {
         padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -804,34 +833,22 @@ canvas {
 
   @media (pointer: coarse) {
     --nh3d-dialog-mobile-padding: 9px;
-    --nh3d-dialog-mobile-top-inset: calc(
-      var(--nh3d-safe-area-top) + var(--nh3d-stats-bar-height, 64px) + 10px
-    );
-    --nh3d-dialog-mobile-bottom-inset: calc(
-      var(--nh3d-mobile-bottom-bar-bottom-offset, 0px) +
-        var(--nh3d-mobile-bottom-bar-clearance, 68px)
-    );
+    --nh3d-mobile-dialog-center-bias: 0px;
 
-    // Keep mobile dialogs within the same top and bottom bounds.
-    --nh3d-calculated-mobile-height: calc(
-      var(--nh3d-mobile-visible-height, 100vh) -
-        var(--nh3d-dialog-mobile-top-inset) -
-        max(
-          var(--nh3d-dialog-mobile-bottom-inset),
-          var(--nh3d-mobile-visible-bottom-offset, 0px)
-        ) -
-        16px
+    // Center dialogs inside the safe-zone frame, not the full viewport.
+    top: calc(
+      var(--nh3d-mobile-overlay-top-inset) +
+        (var(--nh3d-mobile-overlay-max-height) / 2) +
+        var(--nh3d-mobile-dialog-center-bias)
     );
-
-    top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
     box-sizing: border-box;
     width: max-content;
     max-width: calc(100vw - 50px);
 
-    // Apply calculation generic dialogs
-    max-height: var(--nh3d-calculated-mobile-height);
+    // Keep mobile dialogs within the same top and bottom bounds.
+    max-height: var(--nh3d-mobile-overlay-max-height);
 
     padding: var(--nh3d-dialog-mobile-padding);
     border-radius: 8px;
@@ -874,19 +891,21 @@ canvas {
 
   @media (orientation: landscape) and (pointer: coarse) {
     &:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
-      top: 50%;
+      top: calc(
+        var(--nh3d-mobile-overlay-top-inset) +
+          (var(--nh3d-mobile-overlay-max-height) / 2)
+      );
       transform: translate(-50%, -50%);
-      max-height: var(--nh3d-calculated-mobile-height);
+      max-height: var(--nh3d-mobile-overlay-max-height);
     }
   }
 }
 
 @media (pointer: coarse) {
-  .nh3d-dialog-question,
-  .nh3d-dialog-info,
-  .nh3d-dialog-options,
-  .nh3d-dialog-tile-picker {
-    max-height: var(--nh3d-calculated-mobile-height);
+  // Ensure specialized dialog classes that set their own heights still clamp
+  // to the shared mobile safe-zone frame.
+  .nh3d-dialog:not(.nh3d-dialog-direction-fps) {
+    max-height: var(--nh3d-mobile-overlay-max-height);
   }
 }
 
@@ -1052,7 +1071,17 @@ canvas {
 }
 
 .nh3d-dialog-new-game {
+  // Desktop new-game prompt retains its established vertical emphasis.
   top: 62%;
+
+  // Mobile new-game prompt stays centered in the safe-zone frame, but lower.
+  @media (pointer: coarse) {
+    --nh3d-mobile-dialog-center-bias: clamp(56px, 10vh, 92px);
+  }
+
+  @media (orientation: landscape) and (pointer: coarse) {
+    --nh3d-mobile-dialog-center-bias: clamp(40px, 8vh, 72px);
+  }
 
   .nh3d-menu-actions {
     @media (pointer: coarse) {
@@ -1060,13 +1089,6 @@ canvas {
     }
   }
 
-  @media (pointer: coarse) {
-    top: calc(60% + var(--nh3d-safe-area-top));
-  }
-
-  @media (orientation: landscape) and (pointer: coarse) {
-    top: 58%;
-  }
 }
 
 .nh3d-dialog-text {
@@ -1145,12 +1167,11 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    // Character setup remains centered in-frame with a mild downward bias.
+    --nh3d-mobile-dialog-center-bias: clamp(10px, 2.5vh, 24px);
     width: min(92vw, 680px);
     max-width: calc(100vw - 16px);
-    max-height: var(--nh3d-calculated-mobile-height);
+    max-height: var(--nh3d-mobile-overlay-max-height);
     padding: 12px;
     box-sizing: border-box;
     overflow-x: hidden;
@@ -1184,9 +1205,8 @@ canvas {
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
-    top: 50%;
-    transform: translate(-50%, -50%);
-    max-height: var(--nh3d-calculated-mobile-height);
+    --nh3d-mobile-dialog-center-bias: clamp(6px, 1.8vh, 16px);
+    max-height: var(--nh3d-mobile-overlay-max-height);
   }
 }
 
@@ -1625,7 +1645,11 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    max-width: calc(100vw - 50px);
+    // Position prompt uses the same top/max-height frame as dialogs.
+    top: var(--nh3d-mobile-overlay-top-inset);
+    max-width: calc(100vw - 16px);
+    max-height: var(--nh3d-mobile-overlay-max-height);
+    overflow-y: auto;
     padding-right: 42px;
   }
 }
