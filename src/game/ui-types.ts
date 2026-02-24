@@ -1,5 +1,9 @@
 import type { NethackRuntimeVersion } from "../runtime/types";
-import { defaultNh3dTilesetPath, isNh3dTilesetPathAvailable } from "./tilesets";
+import {
+  defaultNh3dTilesetPath,
+  isNh3dTilesetPathAvailable,
+  resolveDefaultNh3dTilesetBackgroundTileId,
+} from "./tilesets";
 
 export type NethackConnectionState =
   | "disconnected"
@@ -93,6 +97,7 @@ export type FpsCrosshairContextState = {
 export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
 export type DarkCorridorWallTileOverrideByTileset = Record<string, number>;
+export type TilesetBackgroundTileByTileset = Record<string, number>;
 
 export type Nh3dClientOptions = {
   fpsMode: boolean;
@@ -110,6 +115,8 @@ export type Nh3dClientOptions = {
   darkCorridorWallTileOverrideEnabled: boolean;
   darkCorridorWallTileOverrideTileId: number;
   darkCorridorWallTileOverrideTileIdByTileset: DarkCorridorWallTileOverrideByTileset;
+  tilesetBackgroundTileId: number;
+  tilesetBackgroundTileIdByTileset: TilesetBackgroundTileByTileset;
   tilesetMode: "ascii" | "tiles";
   tilesetPath: string;
   antialiasing: Nh3dAntialiasingMode;
@@ -142,6 +149,10 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   darkCorridorWallTileOverrideEnabled: false,
   darkCorridorWallTileOverrideTileId: 850,
   darkCorridorWallTileOverrideTileIdByTileset: {},
+  tilesetBackgroundTileId: resolveDefaultNh3dTilesetBackgroundTileId(
+    defaultNh3dTilesetPath,
+  ),
+  tilesetBackgroundTileIdByTileset: {},
   tilesetMode: "tiles",
   tilesetPath: defaultNh3dTilesetPath,
   antialiasing: "taa",
@@ -157,6 +168,26 @@ function normalizeDarkCorridorWallTileOverrideByTileset(
     return {};
   }
   const normalized: DarkCorridorWallTileOverrideByTileset = {};
+  for (const [rawPath, rawTileId] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    if (typeof rawTileId !== "number" || !Number.isFinite(rawTileId)) {
+      continue;
+    }
+    normalized[tilesetPath] = Math.max(0, Math.trunc(rawTileId));
+  }
+  return normalized;
+}
+
+function normalizeTilesetBackgroundTileIdByTileset(
+  rawValue: unknown,
+): TilesetBackgroundTileByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: TilesetBackgroundTileByTileset = {};
   for (const [rawPath, rawTileId] of Object.entries(rawValue)) {
     const tilesetPath = String(rawPath || "").trim();
     if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
@@ -245,14 +276,26 @@ export function normalizeNh3dClientOptions(
     normalizeDarkCorridorWallTileOverrideByTileset(
       overrides?.darkCorridorWallTileOverrideTileIdByTileset,
     );
+  const tilesetBackgroundTileIdByTileset =
+    normalizeTilesetBackgroundTileIdByTileset(
+      overrides?.tilesetBackgroundTileIdByTileset,
+    );
   const selectedTilesetDarkWallOverrideTileId = tilesetPath
     ? darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetBackgroundTileId = tilesetPath
+    ? tilesetBackgroundTileIdByTileset[tilesetPath]
     : undefined;
   const darkCorridorWallTileOverrideTileId =
     typeof selectedTilesetDarkWallOverrideTileId === "number" &&
     Number.isFinite(selectedTilesetDarkWallOverrideTileId)
       ? Math.max(0, Math.trunc(selectedTilesetDarkWallOverrideTileId))
       : defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId;
+  const tilesetBackgroundTileId =
+    typeof selectedTilesetBackgroundTileId === "number" &&
+    Number.isFinite(selectedTilesetBackgroundTileId)
+      ? Math.max(0, Math.trunc(selectedTilesetBackgroundTileId))
+      : resolveDefaultNh3dTilesetBackgroundTileId(tilesetPath);
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
@@ -299,6 +342,8 @@ export function normalizeNh3dClientOptions(
         : defaultNh3dClientOptions.darkCorridorWallTileOverrideEnabled,
     darkCorridorWallTileOverrideTileId,
     darkCorridorWallTileOverrideTileIdByTileset,
+    tilesetBackgroundTileId,
+    tilesetBackgroundTileIdByTileset,
     tilesetMode,
     tilesetPath,
     antialiasing,

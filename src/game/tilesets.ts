@@ -6,6 +6,19 @@ import {
 export type Nh3dTilesetEntry = GeneratedTilesetManifestEntry;
 
 const fallbackTileSize = 32;
+const fallbackBackgroundTileId = 0;
+const tilesetBackgroundTilePresetByLabel: Readonly<Record<string, number>> = {
+  "DawnHack 16": 869,
+  "DawnHack 24": 869,
+  "DawnHack 32": 869,
+  "Nevanda 3.6": 1476,
+};
+const tilesetBackgroundTilePresetByPath: Readonly<Record<string, number>> = {
+  "assets/3.6/DawnHack 16.bmp": 869,
+  "assets/3.6/DawnHack 24.bmp": 869,
+  "assets/3.6/DawnHack 32.bmp": 869,
+  "assets/3.6/Nevanda 3.6.png": 1476,
+};
 
 const dedupedTilesets: Nh3dTilesetEntry[] = [];
 const seenPaths = new Set<string>();
@@ -61,3 +74,20 @@ export function getNh3dTilesetTileSize(
   return findNh3dTilesetByPath(path)?.tileSize ?? fallbackTileSize;
 }
 
+export function resolveDefaultNh3dTilesetBackgroundTileId(
+  path: string | null | undefined,
+): number {
+  const tileset = findNh3dTilesetByPath(path);
+  if (!tileset) {
+    return fallbackBackgroundTileId;
+  }
+  const presetByPath = tilesetBackgroundTilePresetByPath[tileset.path];
+  if (typeof presetByPath === "number" && Number.isFinite(presetByPath)) {
+    return Math.max(0, Math.trunc(presetByPath));
+  }
+  const presetByLabel = tilesetBackgroundTilePresetByLabel[tileset.label];
+  if (typeof presetByLabel === "number" && Number.isFinite(presetByLabel)) {
+    return Math.max(0, Math.trunc(presetByLabel));
+  }
+  return fallbackBackgroundTileId;
+}

@@ -307,6 +307,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     { texture: THREE.CanvasTexture; refCount: number }
   > = new Map();
+  private tilesetBackgroundTilePixelsCache: Map<number, Uint8ClampedArray> =
+    new Map();
   private pendingTileUpdates: Map<string, any> = new Map();
   private tileFlushScheduled: boolean = false;
   private playerPos = { x: 0, y: 0 };
@@ -1984,6 +1986,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         normalized.darkCorridorWallTileOverrideEnabled ||
       previous.darkCorridorWallTileOverrideTileId !==
         normalized.darkCorridorWallTileOverrideTileId;
+    const tilesetBackgroundTileChanged =
+      previous.tilesetBackgroundTileId !== normalized.tilesetBackgroundTileId;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
     const tilesetPathChanged = previous.tilesetPath !== normalized.tilesetPath;
     const antialiasingChanged =
@@ -2015,6 +2019,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (tilesetPathChanged) {
       this.loadTilesetTexture(normalized);
+    }
+    if (tilesetBackgroundTileChanged) {
+      this.invalidateBillboardTextureCaches();
+      this.refreshTilesFromStateCache();
     }
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
@@ -2066,6 +2074,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.monsterBillboardTextures.clear();
     this.clearFpsWallChamferMaterialCaches();
+    this.tilesetBackgroundTilePixelsCache.clear();
+  }
+
+  private invalidateBillboardTextureCaches(): void {
+    for (const key of Array.from(this.monsterBillboards.keys())) {
+      this.removeMonsterBillboard(key);
+    }
+    for (const entry of this.monsterBillboardTextures.values()) {
+      entry.texture.dispose();
+    }
+    this.monsterBillboardTextures.clear();
+    this.tilesetBackgroundTilePixelsCache.clear();
   }
 
   private loadTilesetTexture(options: Nh3dClientOptions): void {
@@ -4512,22 +4532,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       const img = this.tilesetTexture.image;
       const tilesPerRow = Math.floor(img.width / size);
+      const tileRows = Math.floor(img.height / size);
+      const tileCount =
+        tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
       const sx = (tileIndex % tilesPerRow) * size;
       const sy = Math.floor(tileIndex / tilesPerRow) * size;
 
       // Draw the specific tile from the atlas
       context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
 
-      // Apply chroma key transparency (#466d6c -> R=70, G=109, B=108)
       if (applyChromaKey) {
-        const imageData = context.getImageData(0, 0, size, size);
-        const data = imageData.data;
-        for (let i = 0; i < data.length; i += 4) {
-          if (data[i] === 70 && data[i + 1] === 109 && data[i + 2] === 108) {
-            data[i + 3] = 0; // Set alpha to 0
-          }
-        }
-        context.putImageData(imageData, 0, 0);
+        this.applyTilesetBackgroundRemoval(
+          context,
+          img,
+          size,
+          tileCount,
+          tilesPerRow,
+        );
       }
     } else {
       // Fallback if texture not loaded yet
@@ -4557,6 +4578,115 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
 
     return texture;
+  }
+
+  private getTilesetBackgroundTilePixels(
+    atlasImage: HTMLImageElement,
+    tileSize: number,
+    tileIndex: number,
+    tileCount: number,
+    tilesPerRow: number,
+  ): Uint8ClampedArray | null {
+    const normalizedTileIndex = Math.trunc(tileIndex);
+    if (
+      !Number.isFinite(normalizedTileIndex) ||
+      normalizedTileIndex < 0 ||
+      normalizedTileIndex >= tileCount ||
+      tilesPerRow <= 0
+    ) {
+      return null;
+    }
+
+    const cached =
+      this.tilesetBackgroundTilePixelsCache.get(normalizedTileIndex);
+    if (cached) {
+      return cached;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = tileSize;
+    canvas.height = tileSize;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      return null;
+    }
+
+    const sx = (normalizedTileIndex % tilesPerRow) * tileSize;
+    const sy = Math.floor(normalizedTileIndex / tilesPerRow) * tileSize;
+    context.clearRect(0, 0, tileSize, tileSize);
+    context.drawImage(
+      atlasImage,
+      sx,
+      sy,
+      tileSize,
+      tileSize,
+      0,
+      0,
+      tileSize,
+      tileSize,
+    );
+    const pixels = context.getImageData(0, 0, tileSize, tileSize).data;
+    this.tilesetBackgroundTilePixelsCache.set(normalizedTileIndex, pixels);
+    return pixels;
+  }
+
+  private applyTilesetBackgroundRemoval(
+    context: CanvasRenderingContext2D,
+    atlasImage: HTMLImageElement,
+    tileSize: number,
+    tileCount: number,
+    tilesPerRow: number,
+  ): void {
+    const backgroundTileIndex = Math.max(
+      0,
+      Math.trunc(this.clientOptions.tilesetBackgroundTileId),
+    );
+    const backgroundPixels = this.getTilesetBackgroundTilePixels(
+      atlasImage,
+      tileSize,
+      backgroundTileIndex,
+      tileCount,
+      tilesPerRow,
+    );
+    if (!backgroundPixels) {
+      return;
+    }
+
+    const imageData = context.getImageData(0, 0, tileSize, tileSize);
+    const data = imageData.data;
+    // Per-channel color-difference threshold where background removal begins.
+    // Pixels with max(R/G/B delta) <= this are treated as pure background (fully transparent).
+    const alphaSoftMin = 4;
+    // Per-channel color-difference threshold where background removal stops.
+    // Pixels with max(R/G/B delta) >= this are treated as full foreground (keep full alpha).
+    // Values between min/max are linearly feathered for smoother edges.
+    const alphaSoftMax = 8;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const sourceAlpha = data[i + 3];
+      if (sourceAlpha === 0) {
+        continue;
+      }
+
+      const deltaR = Math.abs(data[i] - backgroundPixels[i]);
+      const deltaG = Math.abs(data[i + 1] - backgroundPixels[i + 1]);
+      const deltaB = Math.abs(data[i + 2] - backgroundPixels[i + 2]);
+      const delta = Math.max(deltaR, deltaG, deltaB);
+      const visibility = THREE.MathUtils.clamp(
+        (delta - alphaSoftMin) / (alphaSoftMax - alphaSoftMin),
+        0,
+        1,
+      );
+      const nextAlpha = Math.round(sourceAlpha * visibility);
+      data[i + 3] = nextAlpha;
+      if (nextAlpha === 0) {
+        data[i] = 0;
+        data[i + 1] = 0;
+        data[i + 2] = 0;
+      }
+    }
+
+    context.putImageData(imageData, 0, 0);
   }
 
   private createGlyphTexture(
@@ -7195,7 +7325,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const useTiles =
       this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
     const textureKey = useTiles
-      ? `tile-billboard:${tileIndex}`
+      ? `tile-billboard:${tileIndex}|bg:${this.clientOptions.tilesetBackgroundTileId}`
       : `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
 
     const spriteKey = key;

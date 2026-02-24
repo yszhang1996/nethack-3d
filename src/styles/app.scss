@@ -22,9 +22,10 @@
     var(--nh3d-mobile-visible-bottom-offset, 0px)
   );
   --nh3d-mobile-overlay-max-height: calc(
-    var(--nh3d-mobile-visible-height, 100vh) -
-      var(--nh3d-mobile-overlay-top-inset) -
-      var(--nh3d-mobile-overlay-bottom-inset) - 16px
+    var(--nh3d-mobile-visible-height, 100vh) - var(
+        --nh3d-mobile-overlay-top-inset
+      ) - var(--nh3d-mobile-overlay-bottom-inset) -
+      16px
   );
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
@@ -777,7 +778,7 @@ canvas {
 .nh3d-dialog {
   @extend %custom-scrollbar;
   position: fixed;
-  top: 50%;
+  top: 57%;
   left: 50%;
   transform: translate(-50%, -50%);
   background: var(--nh3d-ui-panel-bg);
@@ -789,19 +790,10 @@ canvas {
   display: none;
 
   &.startup {
-    // Desktop startup flow keeps its original tuned visual placement.
-    @media (pointer: fine) {
-      top: 57%;
-    }
-
     // Mobile startup flow stays centered in the safe-zone frame, with a
     // deliberate downward bias to preserve onboarding composition.
     @media (pointer: coarse) {
       --nh3d-mobile-dialog-center-bias: clamp(28px, 6vh, 52px);
-    }
-
-    @media (max-width: 515px) and (pointer: fine) {
-      top: 50%;
     }
   }
 
@@ -1088,7 +1080,6 @@ canvas {
       margin-top: 0 !important;
     }
   }
-
 }
 
 .nh3d-dialog-text {

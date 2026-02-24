@@ -25,7 +25,11 @@ import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
-import { findNh3dTilesetByPath, nh3dTilesetCatalog } from "../game/tilesets";
+import {
+  findNh3dTilesetByPath,
+  nh3dTilesetCatalog,
+  resolveDefaultNh3dTilesetBackgroundTileId,
+} from "../game/tilesets";
 
 type DirectionChoice = {
   key?: string;
@@ -238,8 +242,131 @@ type TileAtlasState = {
 type TilePickerEntry = {
   tileId: number;
   glyphLabel: string;
-  isDefault: boolean;
 };
+
+type TilesetTilePickerDialogProps = {
+  visible: boolean;
+  dialogId: string;
+  title: string;
+  helperText?: string;
+  closeLabel: string;
+  selectedTileId: number;
+  defaultTileId: number;
+  selectedGlyphLabel: string;
+  statusText: string;
+  tileAtlasLoaded: boolean;
+  entries: TilePickerEntry[];
+  renderTilePreviewImage: (tileId: number) => JSX.Element | null;
+  onSelectTile: (tileId: number) => void;
+  onResetToDefault: () => void;
+  onDone: () => void;
+  renderMobileCloseButton: (
+    onClick: () => void,
+    label: string,
+  ) => JSX.Element | null;
+};
+
+function TilesetTilePickerDialog({
+  visible,
+  dialogId,
+  title,
+  helperText,
+  closeLabel,
+  selectedTileId,
+  defaultTileId,
+  selectedGlyphLabel,
+  statusText,
+  tileAtlasLoaded,
+  entries,
+  renderTilePreviewImage,
+  onSelectTile,
+  onResetToDefault,
+  onDone,
+  renderMobileCloseButton,
+}: TilesetTilePickerDialogProps): JSX.Element | null {
+  if (!visible) {
+    return null;
+  }
+
+  return (
+    <div
+      className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-dialog-tile-picker"
+      id={dialogId}
+    >
+      {renderMobileCloseButton(onDone, closeLabel)}
+      <div className="nh3d-options-title">{title}</div>
+      {helperText ? (
+        <div className="nh3d-option-description">{helperText}</div>
+      ) : null}
+      <div className="nh3d-dark-wall-picker-selected">
+        <span className="nh3d-dark-wall-picker-selected-preview">
+          {renderTilePreviewImage(selectedTileId)}
+        </span>
+        <div className="nh3d-dark-wall-picker-selected-copy">
+          <div className="nh3d-option-label">
+            Selected: tile #{selectedTileId}
+            {selectedTileId === defaultTileId ? " (default)" : ""}
+          </div>
+          <div className="nh3d-option-description">
+            Glyph {selectedGlyphLabel}
+          </div>
+        </div>
+      </div>
+      {!tileAtlasLoaded ? (
+        <div className="nh3d-dark-wall-picker-status">{statusText}</div>
+      ) : (
+        <div className="nh3d-dark-wall-tile-grid">
+          {entries.map((entry) => {
+            const isSelected = entry.tileId === selectedTileId;
+            const isDefault = entry.tileId === defaultTileId;
+            return (
+              <button
+                className={`nh3d-dark-wall-tile-card${
+                  isSelected ? " is-selected" : ""
+                }${isDefault ? " is-default" : ""}`}
+                key={entry.tileId}
+                onClick={() => onSelectTile(entry.tileId)}
+                type="button"
+              >
+                <span className="nh3d-dark-wall-tile-card-preview">
+                  {renderTilePreviewImage(entry.tileId)}
+                </span>
+                <span className="nh3d-dark-wall-tile-card-glyph">
+                  Glyph {entry.glyphLabel}
+                </span>
+                <span className="nh3d-dark-wall-tile-card-id">
+                  Tile {entry.tileId}
+                </span>
+                {isDefault ? (
+                  <span className="nh3d-dark-wall-tile-card-default">
+                    Default
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="nh3d-menu-actions">
+        <button
+          className="nh3d-menu-action-button"
+          disabled={selectedTileId === defaultTileId}
+          onClick={onResetToDefault}
+          type="button"
+        >
+          Reset to default
+        </button>
+        <button
+          className="nh3d-menu-action-button nh3d-menu-action-confirm"
+          onClick={onDone}
+          type="button"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function glyphCodePointToChar(codePoint: unknown): string | null {
   if (
@@ -423,6 +550,14 @@ type ClientOptionSelect = {
   }[];
 };
 
+type ClientOptionTilePicker = {
+  key: "tilesetBackgroundTileId";
+  label: string;
+  description: string;
+  type: "tile-picker";
+  disabled?: boolean;
+};
+
 type ClientOptionSlider = {
   key: "brightness" | "contrast" | "gamma";
   label: string;
@@ -443,6 +578,7 @@ type ClientOption =
   | ClientOptionGroupHeader
   | ClientOptionToggle
   | ClientOptionSelect
+  | ClientOptionTilePicker
   | ClientOptionSlider;
 
 type ClientOptionToggleKey =
@@ -666,6 +802,14 @@ const clientOptionsConfig: ClientOption[] = [
     description: "Tileset files discovered from public/assets/3.6.",
     type: "select",
     options: tilesetDropdownOptions,
+    disabled: !hasAnyTilesets,
+  },
+  {
+    key: "tilesetBackgroundTileId",
+    label: "Tileset Background Tile",
+    description:
+      "Pick the empty/background tile used to remove tileset backgrounds from billboards.",
+    type: "tile-picker",
     disabled: !hasAnyTilesets,
   },
   {
@@ -1013,6 +1157,10 @@ export default function App(): JSX.Element {
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
+  const [
+    isTilesetBackgroundTilePickerVisible,
+    setIsTilesetBackgroundTilePickerVisible,
+  ] = useState(false);
   const [tileAtlasImage, setTileAtlasImage] = useState<HTMLImageElement | null>(
     null,
   );
@@ -1172,6 +1320,30 @@ export default function App(): JSX.Element {
   const selectedDarkWallGlyphLabel = formatTileGlyphLabel(
     selectedDarkWallGlyphChar,
   );
+  const defaultTilesetBackgroundTileId = useMemo(
+    () =>
+      resolveDefaultNh3dTilesetBackgroundTileId(clientOptionsDraft.tilesetPath),
+    [clientOptionsDraft.tilesetPath],
+  );
+  const selectedTilesetBackgroundTileId = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedTileId = tilesetPath
+      ? clientOptionsDraft.tilesetBackgroundTileIdByTileset[tilesetPath]
+      : undefined;
+    if (typeof mappedTileId === "number" && Number.isFinite(mappedTileId)) {
+      return Math.max(0, Math.trunc(mappedTileId));
+    }
+    return defaultTilesetBackgroundTileId;
+  }, [
+    clientOptionsDraft.tilesetBackgroundTileIdByTileset,
+    clientOptionsDraft.tilesetPath,
+    defaultTilesetBackgroundTileId,
+  ]);
+  const selectedTilesetBackgroundGlyphChar =
+    representativeGlyphByTileId.get(selectedTilesetBackgroundTileId) ?? " ";
+  const selectedTilesetBackgroundGlyphLabel = formatTileGlyphLabel(
+    selectedTilesetBackgroundGlyphChar,
+  );
   const selectedTilesetEntry = useMemo(
     () => findNh3dTilesetByPath(clientOptionsDraft.tilesetPath),
     [clientOptionsDraft.tilesetPath],
@@ -1186,16 +1358,19 @@ export default function App(): JSX.Element {
       entries.push({
         tileId,
         glyphLabel: formatTileGlyphLabel(glyphChar),
-        isDefault: tileId === defaultDarkWallTileId,
       });
     }
     return entries;
   }, [
-    defaultDarkWallTileId,
     representativeGlyphByTileId,
     tileAtlasState.loaded,
     tileAtlasState.tileCount,
   ]);
+  const tilePickerStatusText = !selectedTilesetEntry
+    ? "No tileset atlas available."
+    : tileAtlasState.failed
+      ? "Unable to load tile atlas."
+      : "Loading tile atlas...";
   const tilePreviewDataUrlById = useMemo(() => {
     const previewByTileId = new Map<number, string>();
     if (
@@ -1720,12 +1895,14 @@ export default function App(): JSX.Element {
     setClientOptionsDraft({ ...clientOptions });
     setIsClientOptionsVisible(true);
     setIsDarkWallTilePickerVisible(false);
+    setIsTilesetBackgroundTilePickerVisible(false);
     controller?.dismissFpsCrosshairContextMenu();
   };
 
   const closeClientOptionsDialog = (): void => {
     setIsClientOptionsVisible(false);
     setIsDarkWallTilePickerVisible(false);
+    setIsTilesetBackgroundTilePickerVisible(false);
     setClientOptionsDraft({ ...clientOptions });
   };
 
@@ -1735,6 +1912,7 @@ export default function App(): JSX.Element {
     setClientOptionsDraft(next);
     setIsClientOptionsVisible(false);
     setIsDarkWallTilePickerVisible(false);
+    setIsTilesetBackgroundTilePickerVisible(false);
     controller?.setClientOptions(next);
   };
 
@@ -1756,17 +1934,27 @@ export default function App(): JSX.Element {
   const updateTilesetPathDraft = (rawTilesetPath: string): void => {
     const tilesetPath = String(rawTilesetPath || "").trim();
     setClientOptionsDraft((previous) => {
-      const mappedTileId = tilesetPath
+      const mappedDarkWallTileId = tilesetPath
         ? previous.darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
         : undefined;
+      const mappedBackgroundTileId = tilesetPath
+        ? previous.tilesetBackgroundTileIdByTileset[tilesetPath]
+        : undefined;
       const nextDarkWallTileId =
-        typeof mappedTileId === "number" && Number.isFinite(mappedTileId)
-          ? Math.max(0, Math.trunc(mappedTileId))
+        typeof mappedDarkWallTileId === "number" &&
+        Number.isFinite(mappedDarkWallTileId)
+          ? Math.max(0, Math.trunc(mappedDarkWallTileId))
           : defaultDarkWallTileId;
+      const nextBackgroundTileId =
+        typeof mappedBackgroundTileId === "number" &&
+        Number.isFinite(mappedBackgroundTileId)
+          ? Math.max(0, Math.trunc(mappedBackgroundTileId))
+          : resolveDefaultNh3dTilesetBackgroundTileId(tilesetPath);
       return {
         ...previous,
         tilesetPath,
         darkCorridorWallTileOverrideTileId: nextDarkWallTileId,
+        tilesetBackgroundTileId: nextBackgroundTileId,
       };
     });
   };
@@ -1830,6 +2018,26 @@ export default function App(): JSX.Element {
     });
   };
 
+  const updateTilesetBackgroundTileIdDraft = (rawTileId: number): void => {
+    const maxTileId =
+      tileAtlasState.tileCount > 0 ? tileAtlasState.tileCount - 1 : Infinity;
+    const nextTileId = Math.max(0, Math.min(maxTileId, Math.trunc(rawTileId)));
+    setClientOptionsDraft((previous) => {
+      const tilesetPath = String(previous.tilesetPath || "").trim();
+      const nextByTileset = {
+        ...previous.tilesetBackgroundTileIdByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = nextTileId;
+      }
+      return {
+        ...previous,
+        tilesetBackgroundTileId: nextTileId,
+        tilesetBackgroundTileIdByTileset: nextByTileset,
+      };
+    });
+  };
+
   useEffect(() => {
     if (!clientOptionsDraft.darkCorridorWallTileOverrideEnabled) {
       setIsDarkWallTilePickerVisible(false);
@@ -1841,6 +2049,12 @@ export default function App(): JSX.Element {
       setIsDarkWallTilePickerVisible(false);
     }
   }, [clientOptionsDraft.darkCorridorWalls367]);
+
+  useEffect(() => {
+    if (clientOptionsDraft.tilesetMode !== "tiles" || !selectedTilesetEntry) {
+      setIsTilesetBackgroundTilePickerVisible(false);
+    }
+  }, [clientOptionsDraft.tilesetMode, selectedTilesetEntry]);
 
   const renderMobileDialogCloseButton = (
     onClick: () => void,
@@ -2019,6 +2233,10 @@ export default function App(): JSX.Element {
           setIsDarkWallTilePickerVisible(false);
           return;
         }
+        if (isTilesetBackgroundTilePickerVisible) {
+          setIsTilesetBackgroundTilePickerVisible(false);
+          return;
+        }
         closeClientOptionsDialog();
         return;
       }
@@ -2042,6 +2260,7 @@ export default function App(): JSX.Element {
     hasGameplayOverlayOpen,
     isClientOptionsVisible,
     isDarkWallTilePickerVisible,
+    isTilesetBackgroundTilePickerVisible,
     isDesktopGameRunning,
     isMobileViewport,
   ]);
@@ -2506,6 +2725,12 @@ export default function App(): JSX.Element {
               ) {
                 return null;
               }
+              if (
+                option.type === "tile-picker" &&
+                clientOptionsDraft.tilesetMode !== "tiles"
+              ) {
+                return null;
+              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>
@@ -2705,6 +2930,43 @@ export default function App(): JSX.Element {
                   </div>
                 );
               }
+              if (option.type === "tile-picker") {
+                const disabled = Boolean(option.disabled || !selectedTilesetEntry);
+                return (
+                  <div className="nh3d-option-row" key={option.key}>
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">{option.label}</div>
+                      <div className="nh3d-option-description">
+                        {option.description}
+                      </div>
+                    </div>
+                    <div className="nh3d-option-toggle-controls">
+                      <button
+                        className={`nh3d-option-tile-picker-button${
+                          disabled ? " is-disabled" : ""
+                        }`}
+                        disabled={disabled}
+                        onClick={() =>
+                          setIsTilesetBackgroundTilePickerVisible(true)
+                        }
+                        type="button"
+                      >
+                        <span className="nh3d-option-tile-picker-preview">
+                          {renderTilePreviewImage(selectedTilesetBackgroundTileId)}
+                        </span>
+                        <span className="nh3d-option-tile-picker-copy">
+                          <span className="nh3d-option-tile-picker-glyph">
+                            {selectedTilesetBackgroundGlyphLabel}
+                          </span>
+                          <span className="nh3d-option-tile-picker-id">
+                            tile #{selectedTilesetBackgroundTileId}
+                          </span>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
               if (option.type === "slider") {
                 const sliderValue = clientOptionsDraft[option.key];
                 const sliderLabel =
@@ -2767,94 +3029,46 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {isClientOptionsVisible && isDarkWallTilePickerVisible ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-dialog-tile-picker"
-          id="nh3d-dark-wall-tile-picker-dialog"
-        >
-          {renderMobileDialogCloseButton(
-            () => setIsDarkWallTilePickerVisible(false),
-            "Close dark wall tile picker",
-          )}
-          <div className="nh3d-options-title">Dark Wall Tile Picker</div>
-          <div className="nh3d-dark-wall-picker-selected">
-            <span className="nh3d-dark-wall-picker-selected-preview">
-              {renderTilePreviewImage(selectedDarkWallTileId)}
-            </span>
-            <div className="nh3d-dark-wall-picker-selected-copy">
-              <div className="nh3d-option-label">
-                Selected: tile #{selectedDarkWallTileId}
-                {selectedDarkWallTileId === defaultDarkWallTileId
-                  ? " (default)"
-                  : ""}
-              </div>
-              <div className="nh3d-option-description">
-                Glyph {selectedDarkWallGlyphLabel}
-              </div>
-            </div>
-          </div>
-          {!tileAtlasState.loaded ? (
-            <div className="nh3d-dark-wall-picker-status">
-              {!selectedTilesetEntry
-                ? "No tileset atlas available."
-                : tileAtlasState.failed
-                  ? "Unable to load tile atlas."
-                  : "Loading tile atlas..."}
-            </div>
-          ) : (
-            <div className="nh3d-dark-wall-tile-grid">
-              {tilePickerEntries.map((entry) => (
-                <button
-                  className={`nh3d-dark-wall-tile-card${
-                    entry.tileId === selectedDarkWallTileId
-                      ? " is-selected"
-                      : ""
-                  }${entry.isDefault ? " is-default" : ""}`}
-                  key={entry.tileId}
-                  onClick={() =>
-                    updateDarkWallTileOverrideTileIdDraft(entry.tileId)
-                  }
-                  type="button"
-                >
-                  <span className="nh3d-dark-wall-tile-card-preview">
-                    {renderTilePreviewImage(entry.tileId)}
-                  </span>
-                  <span className="nh3d-dark-wall-tile-card-glyph">
-                    Glyph {entry.glyphLabel}
-                  </span>
-                  <span className="nh3d-dark-wall-tile-card-id">
-                    Tile {entry.tileId}
-                  </span>
-                  {entry.isDefault ? (
-                    <span className="nh3d-dark-wall-tile-card-default">
-                      Default
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="nh3d-menu-actions">
-            <button
-              className="nh3d-menu-action-button"
-              disabled={selectedDarkWallTileId === defaultDarkWallTileId}
-              onClick={() =>
-                updateDarkWallTileOverrideTileIdDraft(defaultDarkWallTileId)
-              }
-              type="button"
-            >
-              Reset to default
-            </button>
-            <button
-              className="nh3d-menu-action-button nh3d-menu-action-confirm"
-              onClick={() => setIsDarkWallTilePickerVisible(false)}
-              type="button"
-            >
-              Done
-            </button>
-          </div>
-        </div>
-      ) : null}
+      <TilesetTilePickerDialog
+        closeLabel="Close dark wall tile picker"
+        defaultTileId={defaultDarkWallTileId}
+        dialogId="nh3d-dark-wall-tile-picker-dialog"
+        entries={tilePickerEntries}
+        onDone={() => setIsDarkWallTilePickerVisible(false)}
+        onResetToDefault={() =>
+          updateDarkWallTileOverrideTileIdDraft(defaultDarkWallTileId)
+        }
+        onSelectTile={updateDarkWallTileOverrideTileIdDraft}
+        renderMobileCloseButton={renderMobileDialogCloseButton}
+        renderTilePreviewImage={renderTilePreviewImage}
+        selectedGlyphLabel={selectedDarkWallGlyphLabel}
+        selectedTileId={selectedDarkWallTileId}
+        statusText={tilePickerStatusText}
+        tileAtlasLoaded={tileAtlasState.loaded}
+        title="Dark Wall Tile Picker"
+        visible={isClientOptionsVisible && isDarkWallTilePickerVisible}
+      />
+
+      <TilesetTilePickerDialog
+        closeLabel="Close tileset background tile picker"
+        defaultTileId={defaultTilesetBackgroundTileId}
+        dialogId="nh3d-tileset-background-tile-picker-dialog"
+        entries={tilePickerEntries}
+        helperText="Used for removing shared tileset background from monster/loot billboards."
+        onDone={() => setIsTilesetBackgroundTilePickerVisible(false)}
+        onResetToDefault={() =>
+          updateTilesetBackgroundTileIdDraft(defaultTilesetBackgroundTileId)
+        }
+        onSelectTile={updateTilesetBackgroundTileIdDraft}
+        renderMobileCloseButton={renderMobileDialogCloseButton}
+        renderTilePreviewImage={renderTilePreviewImage}
+        selectedGlyphLabel={selectedTilesetBackgroundGlyphLabel}
+        selectedTileId={selectedTilesetBackgroundTileId}
+        statusText={tilePickerStatusText}
+        tileAtlasLoaded={tileAtlasState.loaded}
+        title="Tileset Background Tile Picker"
+        visible={isClientOptionsVisible && isTilesetBackgroundTilePickerVisible}
+      />
 
       {textInputRequest ? (
         <div
