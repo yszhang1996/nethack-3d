@@ -25,6 +25,7 @@ import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
+import { findNh3dTilesetByPath, nh3dTilesetCatalog } from "../game/tilesets";
 
 type DirectionChoice = {
   key?: string;
@@ -225,12 +226,10 @@ function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
   return getMenuSelectionInput(item).trim().length > 0;
 }
 
-const nh3dTilesetAtlasPath = "assets/nevanda-360.png";
-const nh3dTilesetTileSize = 32;
-
 type TileAtlasState = {
   loaded: boolean;
   failed: boolean;
+  tileSourceSize: number;
   columns: number;
   rows: number;
   tileCount: number;
@@ -259,10 +258,7 @@ function formatTileGlyphLabel(glyphChar: string): string {
     return "space";
   }
   const codePoint = glyphChar.codePointAt(0);
-  if (
-    typeof codePoint === "number" &&
-    (codePoint < 32 || codePoint === 127)
-  ) {
+  if (typeof codePoint === "number" && (codePoint < 32 || codePoint === 127)) {
     return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
   }
   return `'${glyphChar}'`;
@@ -316,7 +312,8 @@ function createIsolatedAtlasTilePreviewDataUrl(
   const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
   const tilesPerRow = Math.floor(width / tileSourceSize);
   const tileRows = Math.floor(height / tileSourceSize);
-  const tileCount = tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
+  const tileCount =
+    tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
   const safeTileId = Math.trunc(tileId);
   if (tileCount <= 0 || safeTileId < 0 || safeTileId >= tileCount) {
     return null;
@@ -415,12 +412,13 @@ type ClientOptionToggle = {
 };
 
 type ClientOptionSelect = {
-  key: "tilesetMode" | "antialiasing";
+  key: "tilesetMode" | "tilesetPath" | "antialiasing";
   label: string;
   description: string;
   type: "select";
+  disabled?: boolean;
   options: {
-    value: Nh3dClientOptions["tilesetMode"] | Nh3dClientOptions["antialiasing"];
+    value: string;
     label: string;
   }[];
 };
@@ -638,6 +636,13 @@ function getBlockedInventoryActionIdsForCategory(
 
 const mobileDefaultFpsLookSensitivity = 1.35;
 const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
+const hasAnyTilesets = nh3dTilesetCatalog.length > 0;
+const tilesetDropdownOptions = hasAnyTilesets
+  ? nh3dTilesetCatalog.map((tileset) => ({
+      value: tileset.path,
+      label: tileset.label,
+    }))
+  : [{ value: "", label: "No tilesets found" }];
 
 const clientOptionsConfig: ClientOption[] = [
   {
@@ -652,8 +657,16 @@ const clientOptionsConfig: ClientOption[] = [
     type: "select",
     options: [
       { value: "ascii", label: "ASCII" },
-      { value: "tiles", label: "Tiles (Nevanda)" },
+      { value: "tiles", label: "Tiles" },
     ],
+  },
+  {
+    key: "tilesetPath",
+    label: "Tileset",
+    description: "Tileset files discovered from public/assets/3.6.",
+    type: "select",
+    options: tilesetDropdownOptions,
+    disabled: !hasAnyTilesets,
   },
   {
     key: "antialiasing",
@@ -928,7 +941,6 @@ function resolveDeviceDefaultClientOptions(): Nh3dClientOptions {
       ...defaultNh3dClientOptions,
       fpsLookSensitivityX: mobileDefaultFpsLookSensitivity,
       fpsLookSensitivityY: mobileDefaultFpsLookSensitivity,
-      antialiasing: "fxaa",
     });
   }
   return normalizeNh3dClientOptions(defaultNh3dClientOptions);
@@ -1007,6 +1019,7 @@ export default function App(): JSX.Element {
   const [tileAtlasState, setTileAtlasState] = useState<TileAtlasState>({
     loaded: false,
     failed: false,
+    tileSourceSize: 32,
     columns: 0,
     rows: 0,
     tileCount: 0,
@@ -1138,14 +1151,30 @@ export default function App(): JSX.Element {
     0,
     Math.trunc(defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId),
   );
-  const selectedDarkWallTileId = Math.max(
-    0,
-    Math.trunc(clientOptionsDraft.darkCorridorWallTileOverrideTileId),
-  );
+  const selectedDarkWallTileId = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedTileId = tilesetPath
+      ? clientOptionsDraft.darkCorridorWallTileOverrideTileIdByTileset[
+          tilesetPath
+        ]
+      : undefined;
+    if (typeof mappedTileId === "number" && Number.isFinite(mappedTileId)) {
+      return Math.max(0, Math.trunc(mappedTileId));
+    }
+    return defaultDarkWallTileId;
+  }, [
+    clientOptionsDraft.darkCorridorWallTileOverrideTileIdByTileset,
+    clientOptionsDraft.tilesetPath,
+    defaultDarkWallTileId,
+  ]);
   const selectedDarkWallGlyphChar =
     representativeGlyphByTileId.get(selectedDarkWallTileId) ?? " ";
   const selectedDarkWallGlyphLabel = formatTileGlyphLabel(
     selectedDarkWallGlyphChar,
+  );
+  const selectedTilesetEntry = useMemo(
+    () => findNh3dTilesetByPath(clientOptionsDraft.tilesetPath),
+    [clientOptionsDraft.tilesetPath],
   );
   const tilePickerEntries = useMemo<TilePickerEntry[]>(() => {
     if (!tileAtlasState.loaded || tileAtlasState.tileCount <= 0) {
@@ -1169,14 +1198,18 @@ export default function App(): JSX.Element {
   ]);
   const tilePreviewDataUrlById = useMemo(() => {
     const previewByTileId = new Map<number, string>();
-    if (!tileAtlasState.loaded || !tileAtlasImage || tileAtlasState.tileCount <= 0) {
+    if (
+      !tileAtlasState.loaded ||
+      !tileAtlasImage ||
+      tileAtlasState.tileCount <= 0
+    ) {
       return previewByTileId;
     }
     for (let tileId = 0; tileId < tileAtlasState.tileCount; tileId += 1) {
       const dataUrl = createIsolatedAtlasTilePreviewDataUrl(
         tileAtlasImage,
         tileId,
-        nh3dTilesetTileSize,
+        tileAtlasState.tileSourceSize,
       );
       if (!dataUrl) {
         continue;
@@ -1184,7 +1217,12 @@ export default function App(): JSX.Element {
       previewByTileId.set(tileId, dataUrl);
     }
     return previewByTileId;
-  }, [tileAtlasImage, tileAtlasState.loaded, tileAtlasState.tileCount]);
+  }, [
+    tileAtlasImage,
+    tileAtlasState.loaded,
+    tileAtlasState.tileCount,
+    tileAtlasState.tileSourceSize,
+  ]);
   const getTilePreviewDataUrl = (tileId: number): string | null => {
     if (tileAtlasState.tileCount <= 0) {
       return null;
@@ -1242,8 +1280,24 @@ export default function App(): JSX.Element {
     if (typeof window === "undefined") {
       return;
     }
+    if (!selectedTilesetEntry) {
+      setTileAtlasState({
+        loaded: false,
+        failed: false,
+        tileSourceSize: 32,
+        columns: 0,
+        rows: 0,
+        tileCount: 0,
+      });
+      setTileAtlasImage(null);
+      return;
+    }
     let disposed = false;
     const atlasImage = new window.Image();
+    const tileSourceSize = Math.max(
+      1,
+      Math.trunc(selectedTilesetEntry.tileSize),
+    );
 
     const handleLoad = (): void => {
       if (disposed) {
@@ -1251,12 +1305,13 @@ export default function App(): JSX.Element {
       }
       const width = Math.max(0, Math.trunc(atlasImage.naturalWidth));
       const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
-      const columns = Math.max(0, Math.floor(width / nh3dTilesetTileSize));
-      const rows = Math.max(0, Math.floor(height / nh3dTilesetTileSize));
+      const columns = Math.max(0, Math.floor(width / tileSourceSize));
+      const rows = Math.max(0, Math.floor(height / tileSourceSize));
       const tileCount = columns > 0 && rows > 0 ? columns * rows : 0;
       setTileAtlasState({
         loaded: tileCount > 0,
         failed: tileCount <= 0,
+        tileSourceSize,
         columns,
         rows,
         tileCount,
@@ -1271,6 +1326,7 @@ export default function App(): JSX.Element {
       setTileAtlasState({
         loaded: false,
         failed: true,
+        tileSourceSize,
         columns: 0,
         rows: 0,
         tileCount: 0,
@@ -1280,14 +1336,14 @@ export default function App(): JSX.Element {
 
     atlasImage.addEventListener("load", handleLoad);
     atlasImage.addEventListener("error", handleError);
-    atlasImage.src = nh3dTilesetAtlasPath;
+    atlasImage.src = selectedTilesetEntry.path;
 
     return () => {
       disposed = true;
       atlasImage.removeEventListener("load", handleLoad);
       atlasImage.removeEventListener("error", handleError);
     };
-  }, []);
+  }, [selectedTilesetEntry]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) {
@@ -1674,8 +1730,9 @@ export default function App(): JSX.Element {
   };
 
   const confirmClientOptionsDialog = (): void => {
-    const next = { ...clientOptionsDraft };
+    const next = normalizeNh3dClientOptions(clientOptionsDraft);
     setClientOptions(next);
+    setClientOptionsDraft(next);
     setIsClientOptionsVisible(false);
     setIsDarkWallTilePickerVisible(false);
     controller?.setClientOptions(next);
@@ -1694,6 +1751,24 @@ export default function App(): JSX.Element {
       ...previous,
       [optionKey]: value,
     }));
+  };
+
+  const updateTilesetPathDraft = (rawTilesetPath: string): void => {
+    const tilesetPath = String(rawTilesetPath || "").trim();
+    setClientOptionsDraft((previous) => {
+      const mappedTileId = tilesetPath
+        ? previous.darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
+        : undefined;
+      const nextDarkWallTileId =
+        typeof mappedTileId === "number" && Number.isFinite(mappedTileId)
+          ? Math.max(0, Math.trunc(mappedTileId))
+          : defaultDarkWallTileId;
+      return {
+        ...previous,
+        tilesetPath,
+        darkCorridorWallTileOverrideTileId: nextDarkWallTileId,
+      };
+    });
   };
 
   const updateClientFovDraft = (rawValue: number): void => {
@@ -1738,14 +1813,21 @@ export default function App(): JSX.Element {
   const updateDarkWallTileOverrideTileIdDraft = (rawTileId: number): void => {
     const maxTileId =
       tileAtlasState.tileCount > 0 ? tileAtlasState.tileCount - 1 : Infinity;
-    const nextTileId = Math.max(
-      0,
-      Math.min(maxTileId, Math.trunc(rawTileId)),
-    );
-    setClientOptionsDraft((previous) => ({
-      ...previous,
-      darkCorridorWallTileOverrideTileId: nextTileId,
-    }));
+    const nextTileId = Math.max(0, Math.min(maxTileId, Math.trunc(rawTileId)));
+    setClientOptionsDraft((previous) => {
+      const tilesetPath = String(previous.tilesetPath || "").trim();
+      const nextByTileset = {
+        ...previous.darkCorridorWallTileOverrideTileIdByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = nextTileId;
+      }
+      return {
+        ...previous,
+        darkCorridorWallTileOverrideTileId: nextTileId,
+        darkCorridorWallTileOverrideTileIdByTileset: nextByTileset,
+      };
+    });
   };
 
   useEffect(() => {
@@ -2417,6 +2499,13 @@ export default function App(): JSX.Element {
               ) {
                 return null;
               }
+              if (
+                option.type === "select" &&
+                option.key === "tilesetPath" &&
+                clientOptionsDraft.tilesetMode !== "tiles"
+              ) {
+                return null;
+              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>
@@ -2587,6 +2676,7 @@ export default function App(): JSX.Element {
                     </div>
                     <select
                       className="nh3d-startup-config-select"
+                      disabled={Boolean(option.disabled)}
                       onChange={(event) => {
                         if (option.key === "tilesetMode") {
                           updateClientOptionDraft(
@@ -2595,12 +2685,16 @@ export default function App(): JSX.Element {
                           );
                           return;
                         }
+                        if (option.key === "tilesetPath") {
+                          updateTilesetPathDraft(event.target.value);
+                          return;
+                        }
                         updateClientOptionDraft(
                           option.key,
                           event.target.value === "taa" ? "taa" : "fxaa",
                         );
                       }}
-                      value={clientOptionsDraft[option.key]}
+                      value={String(clientOptionsDraft[option.key])}
                     >
                       {option.options.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -2644,7 +2738,9 @@ export default function App(): JSX.Element {
                         type="range"
                         value={sliderValue}
                       />
-                      <div className="nh3d-option-slider-value">{sliderLabel}</div>
+                      <div className="nh3d-option-slider-value">
+                        {sliderLabel}
+                      </div>
                     </div>
                   </div>
                 );
@@ -2699,16 +2795,20 @@ export default function App(): JSX.Element {
           </div>
           {!tileAtlasState.loaded ? (
             <div className="nh3d-dark-wall-picker-status">
-              {tileAtlasState.failed
-                ? "Unable to load tile atlas."
-                : "Loading tile atlas..."}
+              {!selectedTilesetEntry
+                ? "No tileset atlas available."
+                : tileAtlasState.failed
+                  ? "Unable to load tile atlas."
+                  : "Loading tile atlas..."}
             </div>
           ) : (
             <div className="nh3d-dark-wall-tile-grid">
               {tilePickerEntries.map((entry) => (
                 <button
                   className={`nh3d-dark-wall-tile-card${
-                    entry.tileId === selectedDarkWallTileId ? " is-selected" : ""
+                    entry.tileId === selectedDarkWallTileId
+                      ? " is-selected"
+                      : ""
                   }${entry.isDefault ? " is-default" : ""}`}
                   key={entry.tileId}
                   onClick={() =>
@@ -3027,9 +3127,7 @@ export default function App(): JSX.Element {
             </button>
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={() =>
-                setNewGamePrompt({ visible: false, reason: null })
-              }
+              onClick={() => setNewGamePrompt({ visible: false, reason: null })}
               type="button"
             >
               No

@@ -57,6 +57,7 @@ import {
   nh3dFpsLookSensitivityMin,
   normalizeNh3dClientOptions,
 } from "./ui-types";
+import { findNh3dTilesetByPath } from "./tilesets";
 
 type LightingGrid = {
   minX: number;
@@ -547,7 +548,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly maxRendererPixelRatio: number = 2;
   private readonly desktopTaaSampleLevel: number = 1;
   private tilesetTexture: THREE.Texture | null = null;
-  private readonly tileSourceSize = 32;
+  private tileSourceSize = 32;
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -1152,23 +1153,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    const textureLoader = new THREE.TextureLoader();
-    this.tilesetTexture = textureLoader.load("assets/nevanda-360.png");
-    this.tilesetTexture.magFilter = THREE.NearestFilter;
-    const tilesetWidth = this.tilesetTexture.image?.width ?? 0;
-    const tilesetHeight = this.tilesetTexture.image?.height ?? 0;
-    const canUseMipmaps =
-      this.renderer.capabilities.isWebGL2 ||
-      (THREE.MathUtils.isPowerOfTwo(tilesetWidth) &&
-        THREE.MathUtils.isPowerOfTwo(tilesetHeight));
-    this.tilesetTexture.minFilter = canUseMipmaps
-      ? THREE.NearestMipmapNearestFilter
-      : THREE.NearestFilter;
-    this.tilesetTexture.generateMipmaps = canUseMipmaps;
-    this.tilesetTexture.anisotropy = canUseMipmaps
-      ? Math.min(4, this.renderer.capabilities.getMaxAnisotropy())
-      : 1;
-    this.tilesetTexture.needsUpdate = true;
+    this.loadTilesetTexture(normalizeNh3dClientOptions(this.clientOptions));
 
     Object.values(this.materials).forEach((material) => {
       this.patchMaterialForVignette(material);
@@ -2000,6 +1985,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       previous.darkCorridorWallTileOverrideTileId !==
         normalized.darkCorridorWallTileOverrideTileId;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
+    const tilesetPathChanged = previous.tilesetPath !== normalized.tilesetPath;
     const antialiasingChanged =
       previous.antialiasing !== normalized.antialiasing;
     const brightnessChanged = previous.brightness !== normalized.brightness;
@@ -2027,6 +2013,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (bloodChanged && !normalized.blood) {
       this.clearBloodMistParticles();
     }
+    if (tilesetPathChanged) {
+      this.loadTilesetTexture(normalized);
+    }
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
     }
@@ -2041,6 +2030,79 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       this.markLightingDirty();
     }
+  }
+
+  private configureTilesetTextureSampling(texture: THREE.Texture): void {
+    texture.magFilter = THREE.NearestFilter;
+    const tilesetWidth = texture.image?.width ?? 0;
+    const tilesetHeight = texture.image?.height ?? 0;
+    const canUseMipmaps =
+      this.renderer.capabilities.isWebGL2 ||
+      (THREE.MathUtils.isPowerOfTwo(tilesetWidth) &&
+        THREE.MathUtils.isPowerOfTwo(tilesetHeight));
+    texture.minFilter = canUseMipmaps
+      ? THREE.NearestMipmapNearestFilter
+      : THREE.NearestFilter;
+    texture.generateMipmaps = canUseMipmaps;
+    texture.anisotropy = canUseMipmaps
+      ? Math.min(4, this.renderer.capabilities.getMaxAnisotropy())
+      : 1;
+    texture.needsUpdate = true;
+  }
+
+  private invalidateTilesetDependentCaches(): void {
+    for (const overlay of this.glyphOverlayMap.values()) {
+      this.disposeGlyphOverlay(overlay);
+    }
+    this.glyphOverlayMap.clear();
+    this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
+    this.glyphTextureCache.clear();
+
+    for (const key of Array.from(this.monsterBillboards.keys())) {
+      this.removeMonsterBillboard(key);
+    }
+    for (const entry of this.monsterBillboardTextures.values()) {
+      entry.texture.dispose();
+    }
+    this.monsterBillboardTextures.clear();
+    this.clearFpsWallChamferMaterialCaches();
+  }
+
+  private loadTilesetTexture(options: Nh3dClientOptions): void {
+    const tileset = findNh3dTilesetByPath(options.tilesetPath);
+    if (!tileset) {
+      this.tilesetTexture?.dispose();
+      this.tilesetTexture = null;
+      this.tileSourceSize = 32;
+      this.invalidateTilesetDependentCaches();
+      if (this.clientOptions.tilesetMode === "tiles") {
+        this.refreshTilesFromStateCache();
+      }
+      return;
+    }
+
+    this.tileSourceSize = Math.max(1, Math.trunc(tileset.tileSize));
+    const textureLoader = new THREE.TextureLoader();
+    let nextTexture: THREE.Texture;
+    nextTexture = textureLoader.load(
+      tileset.path,
+      () => {
+        this.configureTilesetTextureSampling(nextTexture);
+        this.invalidateTilesetDependentCaches();
+        if (this.clientOptions.tilesetMode === "tiles") {
+          this.refreshTilesFromStateCache();
+        }
+      },
+      undefined,
+      () => {
+        console.warn(`Failed to load tileset atlas: ${tileset.path}`);
+      },
+    );
+    this.configureTilesetTextureSampling(nextTexture);
+    if (this.tilesetTexture && this.tilesetTexture !== nextTexture) {
+      this.tilesetTexture.dispose();
+    }
+    this.tilesetTexture = nextTexture;
   }
 
   private isValidMinimapCoordinate(x: number, y: number): boolean {
@@ -2954,7 +3016,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "runtime_error":
-        this.handleRuntimeError(typeof data.error === "string" ? data.error : "");
+        this.handleRuntimeError(
+          typeof data.error === "string" ? data.error : "",
+        );
         break;
 
       default:
@@ -7567,10 +7631,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
-    const tileTextureIndex = this.resolveInferredDarkCorridorWallTileTextureIndex(
-      renderBehavior.effective.tileIndex,
-      isInferredDarkCorridorWall,
-    );
+    const tileTextureIndex =
+      this.resolveInferredDarkCorridorWallTileTextureIndex(
+        renderBehavior.effective.tileIndex,
+        isInferredDarkCorridorWall,
+      );
     mesh.userData.tileIndex = tileTextureIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
@@ -14804,7 +14869,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private initAntialiasingPipeline(): void {
     this.disposeAntialiasingPipeline();
     const composer = new EffectComposer(this.renderer);
-    composer.addPass(new RenderPass(this.scene, this.camera, undefined, 0x000000, 0));
+    composer.addPass(
+      new RenderPass(
+        this.scene,
+        this.camera,
+        undefined,
+        new THREE.Color(0x000000),
+        0,
+      ),
+    );
     if (this.clientOptions.antialiasing === "taa") {
       const taaRenderPass = new TAARenderPass(this.scene, this.camera);
       taaRenderPass.sampleLevel = this.desktopTaaSampleLevel;
@@ -14833,7 +14906,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.toneAdjustPass.uniforms["brightness"].value =
       this.clientOptions.brightness;
-    this.toneAdjustPass.uniforms["contrast"].value = this.clientOptions.contrast;
+    this.toneAdjustPass.uniforms["contrast"].value =
+      this.clientOptions.contrast;
     this.toneAdjustPass.uniforms["gamma"].value = this.clientOptions.gamma;
   }
 

@@ -1,4 +1,5 @@
 import type { NethackRuntimeVersion } from "../runtime/types";
+import { defaultNh3dTilesetPath, isNh3dTilesetPathAvailable } from "./tilesets";
 
 export type NethackConnectionState =
   | "disconnected"
@@ -91,6 +92,7 @@ export type FpsCrosshairContextState = {
 
 export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
+export type DarkCorridorWallTileOverrideByTileset = Record<string, number>;
 
 export type Nh3dClientOptions = {
   fpsMode: boolean;
@@ -107,7 +109,9 @@ export type Nh3dClientOptions = {
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
   darkCorridorWallTileOverrideTileId: number;
+  darkCorridorWallTileOverrideTileIdByTileset: DarkCorridorWallTileOverrideByTileset;
   tilesetMode: "ascii" | "tiles";
+  tilesetPath: string;
   antialiasing: Nh3dAntialiasingMode;
   brightness: number;
   contrast: number;
@@ -137,12 +141,34 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
   darkCorridorWallTileOverrideTileId: 850,
+  darkCorridorWallTileOverrideTileIdByTileset: {},
   tilesetMode: "tiles",
-  antialiasing: isMobile ? "fxaa" : "taa",
+  tilesetPath: defaultNh3dTilesetPath,
+  antialiasing: "taa",
   brightness: 0,
   contrast: 0,
   gamma: 1.5,
 };
+
+function normalizeDarkCorridorWallTileOverrideByTileset(
+  rawValue: unknown,
+): DarkCorridorWallTileOverrideByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: DarkCorridorWallTileOverrideByTileset = {};
+  for (const [rawPath, rawTileId] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    if (typeof rawTileId !== "number" || !Number.isFinite(rawTileId)) {
+      continue;
+    }
+    normalized[tilesetPath] = Math.max(0, Math.trunc(rawTileId));
+  }
+  return normalized;
+}
 
 export function normalizeNh3dClientOptions(
   overrides?: Partial<Nh3dClientOptions> | null,
@@ -199,15 +225,34 @@ export function normalizeNh3dClientOptions(
       ? overrides.gamma
       : defaultNh3dClientOptions.gamma;
   const gamma = Number(Math.max(0.5, Math.min(2.5, rawGamma)).toFixed(2));
-  const rawDarkCorridorWallTileOverrideTileId =
-    typeof overrides?.darkCorridorWallTileOverrideTileId === "number" &&
-    Number.isFinite(overrides.darkCorridorWallTileOverrideTileId)
-      ? Math.trunc(overrides.darkCorridorWallTileOverrideTileId)
+  const requestedTilesetPath =
+    typeof overrides?.tilesetPath === "string"
+      ? overrides.tilesetPath.trim()
+      : defaultNh3dClientOptions.tilesetPath;
+  const tilesetPathExists = isNh3dTilesetPathAvailable(requestedTilesetPath);
+  const tilesetPath = tilesetPathExists
+    ? requestedTilesetPath
+    : defaultNh3dClientOptions.tilesetPath;
+  const requestedTilesetMode =
+    overrides?.tilesetMode === "tiles"
+      ? "tiles"
+      : overrides?.tilesetMode === "ascii"
+        ? "ascii"
+        : defaultNh3dClientOptions.tilesetMode;
+  const tilesetMode =
+    requestedTilesetMode === "tiles" && tilesetPathExists ? "tiles" : "ascii";
+  const darkCorridorWallTileOverrideTileIdByTileset =
+    normalizeDarkCorridorWallTileOverrideByTileset(
+      overrides?.darkCorridorWallTileOverrideTileIdByTileset,
+    );
+  const selectedTilesetDarkWallOverrideTileId = tilesetPath
+    ? darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
+    : undefined;
+  const darkCorridorWallTileOverrideTileId =
+    typeof selectedTilesetDarkWallOverrideTileId === "number" &&
+    Number.isFinite(selectedTilesetDarkWallOverrideTileId)
+      ? Math.max(0, Math.trunc(selectedTilesetDarkWallOverrideTileId))
       : defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId;
-  const darkCorridorWallTileOverrideTileId = Math.max(
-    0,
-    rawDarkCorridorWallTileOverrideTileId,
-  );
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
@@ -253,7 +298,9 @@ export function normalizeNh3dClientOptions(
         ? overrides.darkCorridorWallTileOverrideEnabled
         : defaultNh3dClientOptions.darkCorridorWallTileOverrideEnabled,
     darkCorridorWallTileOverrideTileId,
-    tilesetMode: overrides?.tilesetMode === "tiles" ? "tiles" : "ascii",
+    darkCorridorWallTileOverrideTileIdByTileset,
+    tilesetMode,
+    tilesetPath,
     antialiasing,
     brightness,
     contrast,
