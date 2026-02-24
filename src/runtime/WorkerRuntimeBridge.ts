@@ -28,10 +28,26 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
       this.handleWorkerMessage(message.data);
     };
     this.worker.onerror = (error) => {
+      const errorMessage = this.extractWorkerErrorMessage(error);
       if (this.startReject) {
         this.startReject(error);
+        this.startResolve = null;
+        this.startReject = null;
+        return;
+      }
+      if (this.isNormalRuntimeTerminationError(errorMessage)) {
+        this.onEvent({
+          type: "runtime_terminated",
+          reason: errorMessage || "Program terminated with exit(0)",
+          exitCode: 0,
+        });
+        return;
       }
       console.error("Runtime worker error:", error);
+      this.onEvent({
+        type: "runtime_error",
+        error: errorMessage || "Runtime worker error",
+      });
     };
   }
 
@@ -103,6 +119,41 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     return /^[A-Za-z][A-Za-z0-9 _'-]*$/.test(trimmed);
   }
 
+  private isNormalRuntimeTerminationError(message: string): boolean {
+    const normalized = String(message || "").toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return (
+      (normalized.includes("exitstatus") && normalized.includes("exit(0)")) ||
+      normalized.includes("program terminated with exit(0)") ||
+      normalized.includes("asyncify wakeup failed")
+    );
+  }
+
+  private extractWorkerErrorMessage(error: unknown): string {
+    if (typeof error === "string") {
+      return error;
+    }
+    if (error && typeof error === "object") {
+      const candidate = error as {
+        message?: unknown;
+        error?: { message?: unknown } | unknown;
+      };
+      if (typeof candidate.message === "string" && candidate.message.trim()) {
+        return candidate.message;
+      }
+      if (
+        candidate.error &&
+        typeof candidate.error === "object" &&
+        typeof (candidate.error as { message?: unknown }).message === "string"
+      ) {
+        return String((candidate.error as { message?: unknown }).message);
+      }
+    }
+    return String(error ?? "");
+  }
+
   private handleWorkerMessage(message: RuntimeWorkerEnvelope): void {
     switch (message.type) {
       case "runtime_ready":
@@ -118,7 +169,19 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
           this.startResolve = null;
           this.startReject = null;
         } else {
+          if (this.isNormalRuntimeTerminationError(message.error)) {
+            this.onEvent({
+              type: "runtime_terminated",
+              reason: message.error,
+              exitCode: 0,
+            });
+            break;
+          }
           console.error("Runtime error:", message.error);
+          this.onEvent({
+            type: "runtime_error",
+            error: message.error,
+          });
         }
         break;
       case "runtime_event":

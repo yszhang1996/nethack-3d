@@ -70,6 +70,11 @@ export type TextInputRequestState = {
   placeholder?: string;
 };
 
+export type NewGamePromptState = {
+  visible: boolean;
+  reason: string | null;
+};
+
 export type FpsContextAction = {
   id: string;
   label: string;
@@ -85,6 +90,7 @@ export type FpsCrosshairContextState = {
 };
 
 export type PlayMode = "normal" | "fps";
+export type Nh3dAntialiasingMode = "taa" | "fxaa";
 
 export type Nh3dClientOptions = {
   fpsMode: boolean;
@@ -100,6 +106,10 @@ export type Nh3dClientOptions = {
   liveMessageLog: boolean;
   darkCorridorWalls367: boolean;
   tilesetMode: "ascii" | "tiles";
+  antialiasing: Nh3dAntialiasingMode;
+  brightness: number;
+  contrast: number;
+  gamma: number;
 };
 
 export const nh3dFpsLookSensitivityMin = 0.4;
@@ -124,6 +134,10 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageLog: true,
   darkCorridorWalls367: true,
   tilesetMode: "tiles",
+  antialiasing: isMobile ? "fxaa" : "taa",
+  brightness: 0,
+  contrast: 0,
+  gamma: 1.5,
 };
 
 export function normalizeNh3dClientOptions(
@@ -156,6 +170,31 @@ export function normalizeNh3dClientOptions(
       Math.min(nh3dFpsLookSensitivityMax, rawFpsLookSensitivityY),
     ).toFixed(2),
   );
+  const antialiasing =
+    overrides?.antialiasing === "taa" || overrides?.antialiasing === "fxaa"
+      ? overrides.antialiasing
+      : defaultNh3dClientOptions.antialiasing;
+  const rawBrightness =
+    typeof overrides?.brightness === "number" &&
+    Number.isFinite(overrides.brightness)
+      ? overrides.brightness
+      : defaultNh3dClientOptions.brightness;
+  const brightness = Number(
+    Math.max(-0.25, Math.min(0.25, rawBrightness)).toFixed(2),
+  );
+  const rawContrast =
+    typeof overrides?.contrast === "number" &&
+    Number.isFinite(overrides.contrast)
+      ? overrides.contrast
+      : defaultNh3dClientOptions.contrast;
+  const contrast = Number(
+    Math.max(-0.25, Math.min(0.25, rawContrast)).toFixed(2),
+  );
+  const rawGamma =
+    typeof overrides?.gamma === "number" && Number.isFinite(overrides.gamma)
+      ? overrides.gamma
+      : defaultNh3dClientOptions.gamma;
+  const gamma = Number(Math.max(0.5, Math.min(2.5, rawGamma)).toFixed(2));
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
@@ -197,6 +236,10 @@ export function normalizeNh3dClientOptions(
         ? overrides.darkCorridorWalls367
         : defaultNh3dClientOptions.darkCorridorWalls367,
     tilesetMode: overrides?.tilesetMode === "tiles" ? "tiles" : "ascii",
+    antialiasing,
+    brightness,
+    contrast,
+    gamma,
   };
 }
 
@@ -228,6 +271,7 @@ export interface Nethack3DEngineUIAdapter {
   setPositionRequest(text: string | null): void;
   setFpsCrosshairContext(state: FpsCrosshairContextState | null): void;
   setRepeatActionVisible(visible: boolean): void;
+  setNewGamePrompt(state: NewGamePromptState): void;
 }
 
 export interface Nethack3DEngineController {

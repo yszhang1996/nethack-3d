@@ -5,6 +5,7 @@ import type {
   Nethack3DEngineController,
   NethackConnectionState,
   FpsCrosshairContextState,
+  NewGamePromptState,
   PlayerStatsSnapshot,
   QuestionDialogState,
   TextInputRequestState,
@@ -58,6 +59,7 @@ type GameStore = {
   repeatActionVisible: boolean;
   extendedCommands: string[];
   positionRequest: string | null;
+  newGamePrompt: NewGamePromptState;
   engineController: Nethack3DEngineController | null;
   nextFloatingMessageId: number;
   setLoadingVisible: (visible: boolean) => void;
@@ -77,6 +79,7 @@ type GameStore = {
   setRepeatActionVisible: (visible: boolean) => void;
   setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
+  setNewGamePrompt: (prompt: NewGamePromptState) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
 };
 
@@ -101,6 +104,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   repeatActionVisible: false,
   extendedCommands: [],
   positionRequest: null,
+  newGamePrompt: { visible: false, reason: null },
   engineController: null,
   nextFloatingMessageId: 1,
   setLoadingVisible: (visible) => {
@@ -176,6 +180,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setPositionRequest: (text) => {
     set({ positionRequest: text });
+  },
+  setNewGamePrompt: (prompt) => {
+    set({ newGamePrompt: prompt });
   },
   setEngineController: (controller) => {
     set({ engineController: controller });

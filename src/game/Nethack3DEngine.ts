@@ -4,6 +4,11 @@
  */
 
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { FXAAPass } from "three/examples/jsm/postprocessing/FXAAPass.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.js";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
 import {
@@ -218,11 +223,48 @@ type TileUpdateOptions = {
   restartRevealFade?: boolean;
 };
 
+const toneAdjustShader = {
+  uniforms: {
+    tDiffuse: { value: null as THREE.Texture | null },
+    brightness: { value: 0 },
+    contrast: { value: 0 },
+    gamma: { value: 1 },
+  },
+  vertexShader: `
+    varying vec2 vUv;
+    void main() {
+      vUv = uv;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }
+  `,
+  fragmentShader: `
+    uniform sampler2D tDiffuse;
+    uniform float brightness;
+    uniform float contrast;
+    uniform float gamma;
+    varying vec2 vUv;
+
+    void main() {
+      vec4 texel = texture2D(tDiffuse, vUv);
+      vec3 color = texel.rgb;
+      color += vec3(brightness);
+      color = (color - 0.5) * (1.0 + contrast) + 0.5;
+      float safeGamma = max(gamma, 0.001);
+      color = pow(max(color, vec3(0.0)), vec3(1.0 / safeGamma));
+      gl_FragColor = vec4(color, texel.a);
+    }
+  `,
+};
+
 /**
  * The main game engine class. It encapsulates all the logic for the 3D client.
  */
 class Nethack3DEngine implements Nethack3DEngineController {
   private renderer!: THREE.WebGLRenderer;
+  private composer: EffectComposer | null = null;
+  private taaRenderPass: TAARenderPass | null = null;
+  private fxaaPass: FXAAPass | null = null;
+  private toneAdjustPass: ShaderPass | null = null;
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private readonly mountElement: HTMLElement | null;
@@ -293,6 +335,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private inventoryRefreshInFlight: boolean = false;
   private lastInventoryRefreshRequestedAtMs: number = 0;
   private readonly inventoryRefreshDebounceMs: number = 250;
+  private runtimeTerminationPromptShown: boolean = false;
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
   private isInventoryDialogVisible: boolean = false;
   private isInfoDialogVisible: boolean = false;
@@ -501,6 +544,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
+  private readonly desktopTaaSampleLevel: number = 1;
   private tilesetTexture: THREE.Texture | null = null;
   private readonly tileSourceSize = 32;
 
@@ -1088,30 +1132,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private initThreeJS(): void {
     // --- Basic Three.js setup ---
+    const viewport = this.getRendererViewportSize();
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(
       75,
-      window.innerWidth / window.innerHeight,
+      viewport.width / viewport.height,
       0.1,
       1000,
     );
     this.camera.up.set(0, 0, 1);
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    // Post-processing AA is driven by the client option (TAA/FXAA).
+    // Use transparent clear so post-processing can affect scene content only.
+    this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
+    this.initAntialiasingPipeline();
     this.updateRendererResolution();
-    this.renderer.setClearColor(0x000011); // Dark blue void background
+    this.renderer.setClearColor(0x000000, 0);
+    this.renderer.domElement.style.backgroundColor = "";
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     const textureLoader = new THREE.TextureLoader();
     this.tilesetTexture = textureLoader.load("assets/nevanda-360.png");
     this.tilesetTexture.magFilter = THREE.NearestFilter;
-    this.tilesetTexture.minFilter = THREE.NearestFilter;
+    const tilesetWidth = this.tilesetTexture.image?.width ?? 0;
+    const tilesetHeight = this.tilesetTexture.image?.height ?? 0;
+    const canUseMipmaps =
+      this.renderer.capabilities.isWebGL2 ||
+      (THREE.MathUtils.isPowerOfTwo(tilesetWidth) &&
+        THREE.MathUtils.isPowerOfTwo(tilesetHeight));
+    this.tilesetTexture.minFilter = canUseMipmaps
+      ? THREE.NearestMipmapNearestFilter
+      : THREE.NearestFilter;
+    this.tilesetTexture.generateMipmaps = canUseMipmaps;
+    this.tilesetTexture.anisotropy = canUseMipmaps
+      ? Math.min(4, this.renderer.capabilities.getMaxAnisotropy())
+      : 1;
+    this.tilesetTexture.needsUpdate = true;
 
     Object.values(this.materials).forEach((material) => {
       this.patchMaterialForVignette(material);
     });
 
     const host = this.mountElement ?? document.body;
+    host.style.backgroundColor = "#000011";
     host.appendChild(this.renderer.domElement);
     this.loadCameraSmoothingFromCSS();
 
@@ -1911,6 +1974,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const darkCorridorWallsChanged =
       previous.darkCorridorWalls367 !== normalized.darkCorridorWalls367;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
+    const antialiasingChanged =
+      previous.antialiasing !== normalized.antialiasing;
+    const brightnessChanged = previous.brightness !== normalized.brightness;
+    const contrastChanged = previous.contrast !== normalized.contrast;
+    const gammaChanged = previous.gamma !== normalized.gamma;
 
     this.clientOptions = normalized;
 
@@ -1935,6 +2003,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
+    }
+    if (antialiasingChanged) {
+      this.initAntialiasingPipeline();
+      this.updateRendererResolution();
+    }
+    if (brightnessChanged || contrastChanged || gammaChanged) {
+      this.updateToneAdjustPostProcess();
     }
     if (darkCorridorWallsChanged) {
       this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
@@ -2485,6 +2560,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
       this.uiAdapter.setLoadingVisible(true);
       this.uiAdapter.setExtendedCommands([]);
+      this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
       return;
     }
 
@@ -2501,6 +2577,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
+    this.runtimeTerminationPromptShown = false;
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
@@ -2842,6 +2919,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ) {
           this.triggerDamageEffectsAtTile(data.x, data.y, data.amount);
         }
+        break;
+
+      case "runtime_terminated":
+        this.handleRuntimeTermination(
+          typeof data.reason === "string" ? data.reason : "",
+        );
+        break;
+
+      case "runtime_error":
+        this.handleRuntimeError(typeof data.error === "string" ? data.error : "");
         break;
 
       default:
@@ -3291,7 +3378,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!context) {
       return null;
     }
-    if (nowMs - context.capturedAtMs > this.pointerAttackTargetContextMaxAgeMs) {
+    if (
+      nowMs - context.capturedAtMs >
+      this.pointerAttackTargetContextMaxAgeMs
+    ) {
       return null;
     }
     return { x: context.x, y: context.y };
@@ -3589,12 +3679,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const useMonsterBillboardFlash =
       this.shouldUseMonsterBillboardDamageFlash(key);
     const isPlayerTarget = x === this.playerPos.x && y === this.playerPos.y;
+    const suppressPlayerTileFlash =
+      isPlayerTarget && this.clientOptions.tilesetMode === "tiles";
+    const usePlayerBillboardFlash =
+      suppressPlayerTileFlash && this.monsterBillboards.has(key);
+    const useBillboardFlash =
+      useMonsterBillboardFlash || usePlayerBillboardFlash;
     if (variant === "hit" || variant === "defeat") {
-      if (useMonsterBillboardFlash) {
+      if (useBillboardFlash) {
         this.stopGlyphDamageFlash(key);
         this.startMonsterBillboardDamageFlash(key);
-      } else {
+      } else if (!suppressPlayerTileFlash) {
         this.startGlyphDamageFlash(key);
+      } else {
+        this.stopGlyphDamageFlash(key);
       }
     }
     if (
@@ -7763,6 +7861,66 @@ class Nethack3DEngine implements Nethack3DEngineController {
       connElement.innerHTML = status;
       connElement.setAttribute("data-state", state);
     }
+  }
+
+  private setNewGamePrompt(visible: boolean, reason: string | null): void {
+    if (this.uiAdapter) {
+      this.uiAdapter.setNewGamePrompt({
+        visible,
+        reason: reason && reason.trim() ? reason.trim() : null,
+      });
+      return;
+    }
+
+    if (!visible) {
+      return;
+    }
+    if (window.confirm("Game over. Start a new game?")) {
+      window.location.reload();
+    }
+  }
+
+  private handleRuntimeTermination(reason: string): void {
+    if (this.runtimeTerminationPromptShown) {
+      return;
+    }
+    this.runtimeTerminationPromptShown = true;
+
+    this.hideQuestion();
+    this.hideDirectionQuestion();
+    this.hideTextInputRequest();
+    this.hideInventoryDialog();
+    this.hideInfoMenuDialog();
+    this.uiAdapter?.setPositionRequest(null);
+    this.uiAdapter?.setFpsCrosshairContext(null);
+    this.uiAdapter?.setRepeatActionVisible(false);
+
+    this.updateConnectionStatus("Game ended", "error");
+    this.updateStatus("Game ended");
+    this.setLoadingVisible(false);
+    this.addGameMessage("Game ended.");
+    this.setNewGamePrompt(true, reason);
+  }
+
+  private handleRuntimeError(errorMessage: string): void {
+    const normalizedMessage =
+      typeof errorMessage === "string" && errorMessage.trim()
+        ? errorMessage.trim()
+        : "Runtime error";
+    const normalizedLower = normalizedMessage.toLowerCase();
+    const looksLikeNormalTermination =
+      (normalizedLower.includes("exitstatus") &&
+        normalizedLower.includes("exit(0)")) ||
+      normalizedLower.includes("program terminated with exit(0)") ||
+      normalizedLower.includes("asyncify wakeup failed");
+    if (looksLikeNormalTermination) {
+      this.handleRuntimeTermination(normalizedMessage);
+      return;
+    }
+    console.error("Runtime error:", normalizedMessage);
+    this.updateConnectionStatus("Error", "error");
+    this.updateStatus("Runtime error");
+    this.addGameMessage(normalizedMessage);
   }
 
   private setLoadingVisible(visible: boolean): void {
@@ -14561,19 +14719,97 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateRendererResolution(): void {
+    const viewport = this.getRendererViewportSize();
     const pixelRatio = THREE.MathUtils.clamp(
       window.devicePixelRatio || 1,
       1,
       this.maxRendererPixelRatio,
     );
     this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(viewport.width, viewport.height, false);
+    // Keep CSS presentation size aligned with logical viewport when updateStyle=false.
+    this.renderer.domElement.style.width = `${viewport.width}px`;
+    this.renderer.domElement.style.height = `${viewport.height}px`;
+    if (this.composer) {
+      this.composer.setPixelRatio(pixelRatio);
+      this.composer.setSize(viewport.width, viewport.height);
+      if (this.taaRenderPass) {
+        this.taaRenderPass.accumulate = false;
+      }
+    }
   }
 
   private onWindowResize(): void {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const viewport = this.getRendererViewportSize();
+    this.camera.aspect = viewport.width / viewport.height;
     this.camera.updateProjectionMatrix();
     this.updateRendererResolution();
+  }
+
+  private getRendererViewportSize(): { width: number; height: number } {
+    const hostWidth = this.mountElement?.clientWidth ?? 0;
+    const hostHeight = this.mountElement?.clientHeight ?? 0;
+    const width = hostWidth > 0 ? hostWidth : window.innerWidth;
+    const height = hostHeight > 0 ? hostHeight : window.innerHeight;
+    return {
+      width: Math.max(1, Math.round(width)),
+      height: Math.max(1, Math.round(height)),
+    };
+  }
+
+  private disposeAntialiasingPipeline(): void {
+    this.taaRenderPass?.dispose();
+    this.fxaaPass?.dispose();
+    this.toneAdjustPass?.dispose();
+    this.composer?.dispose();
+    this.taaRenderPass = null;
+    this.fxaaPass = null;
+    this.toneAdjustPass = null;
+    this.composer = null;
+  }
+
+  private initAntialiasingPipeline(): void {
+    this.disposeAntialiasingPipeline();
+    const composer = new EffectComposer(this.renderer);
+    composer.addPass(new RenderPass(this.scene, this.camera, undefined, 0x000000, 0));
+    if (this.clientOptions.antialiasing === "taa") {
+      const taaRenderPass = new TAARenderPass(this.scene, this.camera);
+      taaRenderPass.sampleLevel = this.desktopTaaSampleLevel;
+      taaRenderPass.unbiased = true;
+      // Keep TAA in non-accumulating mode so animated scene content continues updating.
+      taaRenderPass.accumulate = false;
+      composer.addPass(taaRenderPass);
+      this.taaRenderPass = taaRenderPass;
+      this.fxaaPass = null;
+    } else {
+      const fxaaPass = new FXAAPass();
+      composer.addPass(fxaaPass);
+      this.fxaaPass = fxaaPass;
+      this.taaRenderPass = null;
+    }
+    const toneAdjustPass = new ShaderPass(toneAdjustShader);
+    composer.addPass(toneAdjustPass);
+    this.toneAdjustPass = toneAdjustPass;
+    this.updateToneAdjustPostProcess();
+    this.composer = composer;
+  }
+
+  private updateToneAdjustPostProcess(): void {
+    if (!this.toneAdjustPass) {
+      return;
+    }
+    this.toneAdjustPass.uniforms["brightness"].value =
+      this.clientOptions.brightness;
+    this.toneAdjustPass.uniforms["contrast"].value = this.clientOptions.contrast;
+    this.toneAdjustPass.uniforms["gamma"].value = this.clientOptions.gamma;
+  }
+
+  private updateTaaState(): void {
+    const taaRenderPass = this.taaRenderPass;
+    if (!taaRenderPass) {
+      return;
+    }
+    taaRenderPass.accumulate = false;
   }
 
   private getMeshOverlayMaterial(
@@ -14689,6 +14925,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
     this.updateTileRevealFades(timeMs);
+    if (this.composer) {
+      this.updateTaaState();
+      this.composer.render(deltaSeconds);
+      return;
+    }
     this.renderer.render(this.scene, this.camera);
   }
 }

@@ -2545,6 +2545,39 @@ class LocalNetHackRuntime {
           }
           return this.resolveWasmAssetUrl(assetPath);
         },
+        quit: (status, toThrow) => {
+          const exitCode = Number.isFinite(status) ? Number(status) : 0;
+          const exitReason =
+            toThrow && typeof toThrow === "object" && toThrow.message
+              ? String(toThrow.message)
+              : `Program terminated with exit(${exitCode})`;
+          this.emit({
+            type: "runtime_terminated",
+            reason: exitReason,
+            exitCode,
+          });
+          if (toThrow && exitCode !== 0) {
+            throw toThrow;
+          }
+        },
+        onExit: (status) => {
+          const exitCode = Number.isFinite(status) ? Number(status) : 0;
+          this.emit({
+            type: "runtime_terminated",
+            reason: `Program terminated with exit(${exitCode})`,
+            exitCode,
+          });
+        },
+        onAbort: (reason) => {
+          const errorText =
+            typeof reason === "string" && reason.trim()
+              ? reason.trim()
+              : String(reason ?? "Runtime aborted");
+          this.emit({
+            type: "runtime_error",
+            error: errorText,
+          });
+        },
         preRun: [
           (mod) => {
             mod.ENV = mod.ENV || {};

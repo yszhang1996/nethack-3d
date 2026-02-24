@@ -292,11 +292,24 @@ type ClientOptionToggle = {
 };
 
 type ClientOptionSelect = {
-  key: "tilesetMode";
+  key: "tilesetMode" | "antialiasing";
   label: string;
   description: string;
   type: "select";
-  options: { value: "ascii" | "tiles"; label: string }[];
+  options: {
+    value: Nh3dClientOptions["tilesetMode"] | Nh3dClientOptions["antialiasing"];
+    label: string;
+  }[];
+};
+
+type ClientOptionSlider = {
+  key: "brightness" | "contrast" | "gamma";
+  label: string;
+  description: string;
+  type: "slider";
+  min: number;
+  max: number;
+  step: number;
 };
 
 type ClientOptionGroupHeader = {
@@ -308,7 +321,8 @@ type ClientOptionGroupHeader = {
 type ClientOption =
   | ClientOptionGroupHeader
   | ClientOptionToggle
-  | ClientOptionSelect;
+  | ClientOptionSelect
+  | ClientOptionSlider;
 
 type ClientOptionToggleKey =
   | "fpsMode"
@@ -516,6 +530,43 @@ const clientOptionsConfig: ClientOption[] = [
       { value: "ascii", label: "ASCII" },
       { value: "tiles", label: "Tiles (Nevanda)" },
     ],
+  },
+  {
+    key: "antialiasing",
+    label: "Antialiasing",
+    description: "Edge smoothing mode for 3D rendering.",
+    type: "select",
+    options: [
+      { value: "taa", label: "TAA" },
+      { value: "fxaa", label: "FXAA" },
+    ],
+  },
+  {
+    key: "brightness",
+    label: "Brightness",
+    description: "Adjust overall scene brightness.",
+    type: "slider",
+    min: -0.25,
+    max: 0.25,
+    step: 0.01,
+  },
+  {
+    key: "contrast",
+    label: "Contrast",
+    description: "Adjust global contrast of rendered scene content.",
+    type: "slider",
+    min: -0.25,
+    max: 0.25,
+    step: 0.01,
+  },
+  {
+    key: "gamma",
+    label: "Gamma",
+    description: "Adjust display gamma for rendered scene content.",
+    type: "slider",
+    min: 0.5,
+    max: 2.5,
+    step: 0.01,
   },
   {
     key: "minimap",
@@ -747,6 +798,7 @@ function resolveDeviceDefaultClientOptions(): Nh3dClientOptions {
       ...defaultNh3dClientOptions,
       fpsLookSensitivityX: mobileDefaultFpsLookSensitivity,
       fpsLookSensitivityY: mobileDefaultFpsLookSensitivity,
+      antialiasing: "fxaa",
     });
   }
   return normalizeNh3dClientOptions(defaultNh3dClientOptions);
@@ -830,6 +882,7 @@ export default function App(): JSX.Element {
     (state) => state.setEngineController,
   );
   const setPositionRequest = useGameStore((state) => state.setPositionRequest);
+  const setNewGamePrompt = useGameStore((state) => state.setNewGamePrompt);
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
   const statusText = useGameStore((state) => state.statusText);
@@ -854,6 +907,7 @@ export default function App(): JSX.Element {
   const connectionState = useGameStore((state) => state.connectionState);
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
+  const newGamePrompt = useGameStore((state) => state.newGamePrompt);
   const isFpsPlayMode = clientOptions.fpsMode;
   const fpsContextTitle = String(fpsCrosshairContext?.title || "");
   const shouldScrollFpsContextTitle = fpsContextTitle.length > 0;
@@ -1234,7 +1288,8 @@ export default function App(): JSX.Element {
     Boolean(textInputRequest) ||
     Boolean(positionRequest) ||
     Boolean(inventoryContextMenu) ||
-    Boolean(fpsCrosshairContext);
+    Boolean(fpsCrosshairContext) ||
+    newGamePrompt.visible;
 
   useEffect(() => {
     if (!isMobileGameRunning) {
@@ -1326,6 +1381,13 @@ export default function App(): JSX.Element {
     setTextInputValue("");
   };
 
+  const startNewGameFromPrompt = (): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.location.reload();
+  };
+
   const openClientOptionsDialog = (): void => {
     setClientOptionsDraft({ ...clientOptions });
     setIsClientOptionsVisible(true);
@@ -1344,9 +1406,14 @@ export default function App(): JSX.Element {
     controller?.setClientOptions(next);
   };
 
-  const updateClientOptionDraft = (
-    optionKey: ClientOptionToggleKey | "tilesetMode",
-    value: boolean | "ascii" | "tiles",
+  const updateClientOptionDraft = <
+    K extends
+      | ClientOptionToggleKey
+      | ClientOptionSelect["key"]
+      | ClientOptionSlider["key"],
+  >(
+    optionKey: K,
+    value: Nh3dClientOptions[K],
   ): void => {
     setClientOptionsDraft((previous) => ({
       ...previous,
@@ -1376,6 +1443,21 @@ export default function App(): JSX.Element {
       ...previous,
       [key]: clamped,
     }));
+  };
+
+  const updateClientSliderDraft = (
+    key: ClientOptionSlider["key"],
+    rawValue: number,
+  ): void => {
+    let clamped = rawValue;
+    if (key === "brightness") {
+      clamped = Math.max(-0.25, Math.min(0.25, rawValue));
+    } else if (key === "contrast") {
+      clamped = Math.max(-0.25, Math.min(0.25, rawValue));
+    } else {
+      clamped = Math.max(0.5, Math.min(2.5, rawValue));
+    }
+    updateClientOptionDraft(key, Number(clamped.toFixed(2)));
   };
 
   const renderMobileDialogCloseButton = (
@@ -2167,12 +2249,19 @@ export default function App(): JSX.Element {
                     </div>
                     <select
                       className="nh3d-startup-config-select"
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        if (option.key === "tilesetMode") {
+                          updateClientOptionDraft(
+                            option.key,
+                            event.target.value === "tiles" ? "tiles" : "ascii",
+                          );
+                          return;
+                        }
                         updateClientOptionDraft(
                           option.key,
-                          event.target.value as "ascii" | "tiles",
-                        )
-                      }
+                          event.target.value === "taa" ? "taa" : "fxaa",
+                        );
+                      }}
                       value={clientOptionsDraft[option.key]}
                     >
                       {option.options.map((opt) => (
@@ -2181,6 +2270,44 @@ export default function App(): JSX.Element {
                         </option>
                       ))}
                     </select>
+                  </div>
+                );
+              }
+              if (option.type === "slider") {
+                const sliderValue = clientOptionsDraft[option.key];
+                const sliderLabel =
+                  option.key === "gamma"
+                    ? `${sliderValue.toFixed(2)}x`
+                    : `${Math.round(sliderValue * 100)}%`;
+                return (
+                  <div
+                    className="nh3d-option-row nh3d-option-row-slider"
+                    key={option.key}
+                  >
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">{option.label}</div>
+                      <div className="nh3d-option-description">
+                        {option.description}
+                      </div>
+                    </div>
+                    <div className="nh3d-option-slider-control">
+                      <input
+                        aria-label={option.label}
+                        className="nh3d-option-slider"
+                        max={option.max}
+                        min={option.min}
+                        onChange={(event) =>
+                          updateClientSliderDraft(
+                            option.key,
+                            Number(event.target.value),
+                          )
+                        }
+                        step={option.step}
+                        type="range"
+                        value={sliderValue}
+                      />
+                      <div className="nh3d-option-slider-value">{sliderLabel}</div>
+                    </div>
                   </div>
                 );
               }
@@ -2453,6 +2580,37 @@ export default function App(): JSX.Element {
             {question.menuItems.length > 0 && questionMenuPageCount > 1
               ? "Use < and > to change pages. Press ESC to cancel"
               : "Press ESC to cancel"}
+          </div>
+        </div>
+      ) : null}
+
+      {newGamePrompt.visible ? (
+        <div
+          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game is-visible"
+          id="new-game-dialog"
+        >
+          {renderMobileDialogCloseButton(
+            () => setNewGamePrompt({ visible: false, reason: null }),
+            "Close new game prompt",
+          )}
+          <div className="nh3d-question-text">Start a new game?</div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={startNewGameFromPrompt}
+              type="button"
+            >
+              Yes
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() =>
+                setNewGamePrompt({ visible: false, reason: null })
+              }
+              type="button"
+            >
+              No
+            </button>
           </div>
         </div>
       ) : null}

@@ -1,6 +1,7 @@
 import type {
   Nethack3DEngineUIAdapter,
   NethackConnectionState,
+  NewGamePromptState,
   PlayerStatsSnapshot,
   QuestionDialogState,
   InfoMenuState,
@@ -61,6 +62,9 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     },
     setRepeatActionVisible(visible: boolean): void {
       useGameStore.getState().setRepeatActionVisible(visible);
+    },
+    setNewGamePrompt(state: NewGamePromptState): void {
+      useGameStore.getState().setNewGamePrompt(state);
     },
   };
 }
