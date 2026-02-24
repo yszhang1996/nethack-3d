@@ -12,6 +12,11 @@ export type GeneratedTilesetManifestEntry = {
 export const GENERATED_TILESET_MANIFEST: ReadonlyArray<GeneratedTilesetManifestEntry> =
   [
   {
+    "label": "Absurdly Evil 64",
+    "path": "assets/3.6/Absurdly Evil 64.png",
+    "tileSize": 64
+  },
+  {
     "label": "DawnHack",
     "path": "assets/3.6/DawnHack.bmp",
     "tileSize": 32

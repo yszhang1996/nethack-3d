@@ -2731,6 +2731,13 @@ export default function App(): JSX.Element {
               ) {
                 return null;
               }
+              if (
+                option.type === "tile-picker" &&
+                option.key === "tilesetBackgroundTileId" &&
+                !import.meta.env.DEV
+              ) {
+                return null;
+              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>

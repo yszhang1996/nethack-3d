@@ -270,8 +270,11 @@ export function normalizeNh3dClientOptions(
       : overrides?.tilesetMode === "ascii"
         ? "ascii"
         : defaultNh3dClientOptions.tilesetMode;
+  const resolvedTilesetPathExists = isNh3dTilesetPathAvailable(tilesetPath);
   const tilesetMode =
-    requestedTilesetMode === "tiles" && tilesetPathExists ? "tiles" : "ascii";
+    requestedTilesetMode === "tiles" && resolvedTilesetPathExists
+      ? "tiles"
+      : "ascii";
   const darkCorridorWallTileOverrideTileIdByTileset =
     normalizeDarkCorridorWallTileOverrideByTileset(
       overrides?.darkCorridorWallTileOverrideTileIdByTileset,

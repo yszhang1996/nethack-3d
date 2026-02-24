@@ -8,6 +8,7 @@ export type Nh3dTilesetEntry = GeneratedTilesetManifestEntry;
 const fallbackTileSize = 32;
 const fallbackBackgroundTileId = 0;
 const tilesetBackgroundTilePresetByLabel: Readonly<Record<string, number>> = {
+  "Absurdly Evil 64": 869,
   "DawnHack 16": 869,
   "DawnHack 24": 869,
   "DawnHack 32": 869,
@@ -42,8 +43,15 @@ for (const rawEntry of GENERATED_TILESET_MANIFEST) {
 
 export const nh3dTilesetCatalog: ReadonlyArray<Nh3dTilesetEntry> =
   dedupedTilesets;
+const preferredDefaultTilesetPath = "assets/3.6/Nevanda 3.6.png";
+const preferredDefaultTilesetLabel = "Nevanda 3.6";
 export const defaultNh3dTilesetPath: string =
-  nh3dTilesetCatalog[0]?.path ?? "";
+  nh3dTilesetCatalog.find((entry) => entry.path === preferredDefaultTilesetPath)
+    ?.path ??
+  nh3dTilesetCatalog.find((entry) => entry.label === preferredDefaultTilesetLabel)
+    ?.path ??
+  nh3dTilesetCatalog[0]?.path ??
+  "";
 
 const tilesetByPath = new Map(
   nh3dTilesetCatalog.map((entry) => [entry.path, entry]),

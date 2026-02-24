@@ -4656,11 +4656,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const data = imageData.data;
     // Per-channel color-difference threshold where background removal begins.
     // Pixels with max(R/G/B delta) <= this are treated as pure background (fully transparent).
-    const alphaSoftMin = 4;
+    const alphaSoftMin = 12;
     // Per-channel color-difference threshold where background removal stops.
     // Pixels with max(R/G/B delta) >= this are treated as full foreground (keep full alpha).
     // Values between min/max are linearly feathered for smoother edges.
-    const alphaSoftMax = 8;
+    const alphaSoftMax = 40;
 
     for (let i = 0; i < data.length; i += 4) {
       const sourceAlpha = data[i + 3];
