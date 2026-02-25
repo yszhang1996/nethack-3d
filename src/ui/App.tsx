@@ -3009,6 +3009,7 @@ export default function App(): JSX.Element {
         });
         await refreshUserTilesetCatalog(false);
         openTilesetManagerEditor(getNh3dUserTilesetPath(savedRecord.id));
+        setTilesetManagerName(label);
       } else if (selectedTilesetManagerEditUserRecord) {
         const nextFile = file ?? selectedTilesetManagerEditUserRecord.blob;
         const nextFileName = file
@@ -3028,6 +3029,7 @@ export default function App(): JSX.Element {
         openTilesetManagerEditor(
           getNh3dUserTilesetPath(selectedTilesetManagerEditUserRecord.id),
         );
+        setTilesetManagerName(label);
       }
       saveTilesetManagerSettingsDraft();
     } catch (error) {
