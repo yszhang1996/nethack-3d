@@ -1630,6 +1630,13 @@ canvas {
 .nh3d-dialog-tileset-manager {
   width: min(94vw, 780px);
   max-height: min(88vh, 860px);
+  min-height: 0;
+
+  @media (pointer: coarse) {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
 }
 
 .nh3d-dark-wall-picker-selected {
@@ -1679,6 +1686,13 @@ canvas {
   border: 1px solid rgba(76, 111, 160, 0.55);
   border-radius: 8px;
   background: rgba(10, 22, 36, 0.82);
+  min-height: 0;
+
+  @media (pointer: coarse) {
+    max-height: min(42vh, 420px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .nh3d-tileset-manager-header {
@@ -1763,6 +1777,14 @@ canvas {
   max-height: min(34vh, 320px);
   overflow-y: auto;
   padding-right: 2px;
+  min-height: 0;
+
+  @media (pointer: coarse) {
+    min-height: 120px;
+    max-height: min(30vh, 280px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 .nh3d-tileset-manager-item {
