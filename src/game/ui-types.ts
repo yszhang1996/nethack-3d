@@ -98,6 +98,12 @@ export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
 export type DarkCorridorWallTileOverrideByTileset = Record<string, number>;
 export type TilesetBackgroundTileByTileset = Record<string, number>;
+export type TilesetBackgroundRemovalMode = "tile" | "solid";
+export type TilesetBackgroundRemovalModeByTileset = Record<
+  string,
+  TilesetBackgroundRemovalMode
+>;
+export type TilesetSolidChromaKeyColorHexByTileset = Record<string, string>;
 
 export type Nh3dClientOptions = {
   fpsMode: boolean;
@@ -117,6 +123,10 @@ export type Nh3dClientOptions = {
   darkCorridorWallTileOverrideTileIdByTileset: DarkCorridorWallTileOverrideByTileset;
   tilesetBackgroundTileId: number;
   tilesetBackgroundTileIdByTileset: TilesetBackgroundTileByTileset;
+  tilesetBackgroundRemovalMode: TilesetBackgroundRemovalMode;
+  tilesetBackgroundRemovalModeByTileset: TilesetBackgroundRemovalModeByTileset;
+  tilesetSolidChromaKeyColorHex: string;
+  tilesetSolidChromaKeyColorHexByTileset: TilesetSolidChromaKeyColorHexByTileset;
   tilesetMode: "ascii" | "tiles";
   tilesetPath: string;
   antialiasing: Nh3dAntialiasingMode;
@@ -132,6 +142,7 @@ const isMobilePortrait = window.matchMedia(
   "(orientation: portrait) and (pointer: coarse)",
 );
 const isMobile = window.matchMedia("(pointer: coarse)");
+const defaultTilesetSolidChromaKeyColorHex = "#466d6c";
 
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
@@ -153,6 +164,10 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
     defaultNh3dTilesetPath,
   ),
   tilesetBackgroundTileIdByTileset: {},
+  tilesetBackgroundRemovalMode: "tile",
+  tilesetBackgroundRemovalModeByTileset: {},
+  tilesetSolidChromaKeyColorHex: defaultTilesetSolidChromaKeyColorHex,
+  tilesetSolidChromaKeyColorHexByTileset: {},
   tilesetMode: "tiles",
   tilesetPath: defaultNh3dTilesetPath,
   antialiasing: "taa",
@@ -197,6 +212,55 @@ function normalizeTilesetBackgroundTileIdByTileset(
       continue;
     }
     normalized[tilesetPath] = Math.max(0, Math.trunc(rawTileId));
+  }
+  return normalized;
+}
+
+function normalizeTilesetBackgroundRemovalMode(
+  rawValue: unknown,
+): TilesetBackgroundRemovalMode {
+  return rawValue === "solid" ? "solid" : "tile";
+}
+
+function normalizeTilesetBackgroundRemovalModeByTileset(
+  rawValue: unknown,
+): TilesetBackgroundRemovalModeByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: TilesetBackgroundRemovalModeByTileset = {};
+  for (const [rawPath, rawMode] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] = normalizeTilesetBackgroundRemovalMode(rawMode);
+  }
+  return normalized;
+}
+
+function normalizeTilesetSolidChromaKeyColorHex(rawValue: unknown): string {
+  const normalized = String(rawValue || "").trim();
+  const match = normalized.match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) {
+    return defaultTilesetSolidChromaKeyColorHex;
+  }
+  return `#${match[1].toLowerCase()}`;
+}
+
+function normalizeTilesetSolidChromaKeyColorHexByTileset(
+  rawValue: unknown,
+): TilesetSolidChromaKeyColorHexByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: TilesetSolidChromaKeyColorHexByTileset = {};
+  for (const [rawPath, rawHex] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] = normalizeTilesetSolidChromaKeyColorHex(rawHex);
   }
   return normalized;
 }
@@ -283,11 +347,25 @@ export function normalizeNh3dClientOptions(
     normalizeTilesetBackgroundTileIdByTileset(
       overrides?.tilesetBackgroundTileIdByTileset,
     );
+  const tilesetBackgroundRemovalModeByTileset =
+    normalizeTilesetBackgroundRemovalModeByTileset(
+      overrides?.tilesetBackgroundRemovalModeByTileset,
+    );
+  const tilesetSolidChromaKeyColorHexByTileset =
+    normalizeTilesetSolidChromaKeyColorHexByTileset(
+      overrides?.tilesetSolidChromaKeyColorHexByTileset,
+    );
   const selectedTilesetDarkWallOverrideTileId = tilesetPath
     ? darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
     : undefined;
   const selectedTilesetBackgroundTileId = tilesetPath
     ? tilesetBackgroundTileIdByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetBackgroundRemovalMode = tilesetPath
+    ? tilesetBackgroundRemovalModeByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetSolidChromaKeyColorHex = tilesetPath
+    ? tilesetSolidChromaKeyColorHexByTileset[tilesetPath]
     : undefined;
   const darkCorridorWallTileOverrideTileId =
     typeof selectedTilesetDarkWallOverrideTileId === "number" &&
@@ -299,6 +377,12 @@ export function normalizeNh3dClientOptions(
     Number.isFinite(selectedTilesetBackgroundTileId)
       ? Math.max(0, Math.trunc(selectedTilesetBackgroundTileId))
       : resolveDefaultNh3dTilesetBackgroundTileId(tilesetPath);
+  const tilesetBackgroundRemovalMode = normalizeTilesetBackgroundRemovalMode(
+    selectedTilesetBackgroundRemovalMode,
+  );
+  const tilesetSolidChromaKeyColorHex = normalizeTilesetSolidChromaKeyColorHex(
+    selectedTilesetSolidChromaKeyColorHex,
+  );
   return {
     fpsMode:
       typeof overrides?.fpsMode === "boolean"
@@ -347,6 +431,10 @@ export function normalizeNh3dClientOptions(
     darkCorridorWallTileOverrideTileIdByTileset,
     tilesetBackgroundTileId,
     tilesetBackgroundTileIdByTileset,
+    tilesetBackgroundRemovalMode,
+    tilesetBackgroundRemovalModeByTileset,
+    tilesetSolidChromaKeyColorHex,
+    tilesetSolidChromaKeyColorHexByTileset,
     tilesetMode,
     tilesetPath,
     antialiasing,

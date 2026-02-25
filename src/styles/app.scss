@@ -1334,6 +1334,10 @@ canvas {
   background: rgba(11, 28, 46, 0.72);
 }
 
+.nh3d-option-row-mode-inactive {
+  opacity: 0.62;
+}
+
 .nh3d-option-copy {
   min-width: 0;
   flex: 1;
@@ -1388,6 +1392,11 @@ canvas {
       background: #e8fff0;
     }
   }
+
+  &:disabled {
+    opacity: 0.52;
+    cursor: default;
+  }
 }
 
 .nh3d-option-toggle-controls {
@@ -1427,6 +1436,28 @@ canvas {
     border-color: rgba(88, 104, 130, 0.55);
     background: rgba(14, 24, 34, 0.76);
   }
+}
+
+.nh3d-option-solid-color-preview {
+  width: 36px;
+  height: 36px;
+  border-radius: 4px;
+  border: 1px solid rgba(126, 153, 184, 0.55);
+  background-color: rgba(8, 17, 27, 0.95);
+  flex: 0 0 auto;
+}
+
+.nh3d-option-solid-color-input {
+  width: 104px;
+  border-radius: 6px;
+  border: 1px solid rgba(108, 166, 226, 0.45);
+  background: rgba(8, 18, 29, 0.96);
+  color: var(--nh3d-ui-accent-soft);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.02em;
+  padding: 7px 8px;
+  text-transform: uppercase;
 }
 
 .nh3d-option-tile-picker-preview {
@@ -1500,6 +1531,11 @@ canvas {
   max-height: min(88vh, 860px);
 }
 
+.nh3d-dialog-solid-chroma-picker {
+  width: min(96vw, 980px);
+  max-height: min(90vh, 900px);
+}
+
 .nh3d-dark-wall-picker-selected {
   display: flex;
   align-items: center;
@@ -1519,6 +1555,15 @@ canvas {
   overflow: hidden;
 }
 
+.nh3d-solid-chroma-selected-color-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px solid rgba(126, 153, 184, 0.55);
+  background-color: rgba(8, 17, 27, 0.95);
+  flex: 0 0 auto;
+}
+
 .nh3d-dark-wall-picker-selected-copy {
   min-width: 0;
 }
@@ -1527,6 +1572,70 @@ canvas {
   padding: 10px;
   color: var(--nh3d-ui-text-muted);
   font-size: 12px;
+}
+
+.nh3d-solid-chroma-picker-atlas-shell {
+  margin-top: 8px;
+  border: 1px solid rgba(76, 111, 160, 0.55);
+  border-radius: 8px;
+  background: rgba(10, 22, 36, 0.9);
+  padding: 8px;
+  max-height: min(58vh, 620px);
+  overflow: auto;
+}
+
+.nh3d-solid-chroma-picker-atlas-canvas {
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  cursor: crosshair;
+}
+
+.nh3d-solid-chroma-picker-hover {
+  position: fixed;
+  z-index: 2500;
+  pointer-events: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(121, 182, 241, 0.68);
+  background: rgba(6, 15, 25, 0.96);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+}
+
+.nh3d-solid-chroma-picker-hover-zoom {
+  width: 112px;
+  height: 112px;
+  border-radius: 4px;
+  border: 1px solid rgba(121, 182, 241, 0.68);
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.nh3d-solid-chroma-picker-hover-copy {
+  min-width: 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.nh3d-solid-chroma-picker-hover-hex {
+  color: var(--nh3d-ui-accent-soft);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.nh3d-solid-chroma-picker-hover-color {
+  width: 50px;
+  height: 32px;
+  border-radius: 4px;
+  border: 1px solid rgba(121, 182, 241, 0.68);
+  background: transparent;
 }
 
 .nh3d-dark-wall-tile-grid {

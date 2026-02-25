@@ -1988,6 +1988,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         normalized.darkCorridorWallTileOverrideTileId;
     const tilesetBackgroundTileChanged =
       previous.tilesetBackgroundTileId !== normalized.tilesetBackgroundTileId;
+    const tilesetBackgroundRemovalModeChanged =
+      previous.tilesetBackgroundRemovalMode !==
+      normalized.tilesetBackgroundRemovalMode;
+    const tilesetSolidChromaKeyColorHexChanged =
+      previous.tilesetSolidChromaKeyColorHex !==
+      normalized.tilesetSolidChromaKeyColorHex;
     const tilesetModeChanged = previous.tilesetMode !== normalized.tilesetMode;
     const tilesetPathChanged = previous.tilesetPath !== normalized.tilesetPath;
     const antialiasingChanged =
@@ -2020,7 +2026,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (tilesetPathChanged) {
       this.loadTilesetTexture(normalized);
     }
-    if (tilesetBackgroundTileChanged) {
+    if (
+      tilesetBackgroundTileChanged ||
+      tilesetBackgroundRemovalModeChanged ||
+      tilesetSolidChromaKeyColorHexChanged
+    ) {
       this.invalidateBillboardTextureCaches();
       this.refreshTilesFromStateCache();
     }
@@ -4542,7 +4552,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
 
       if (applyChromaKey) {
-        this.applyTilesetBackgroundRemoval(
+        this.applyTilesetBillboardBackgroundRemoval(
           context,
           img,
           size,
@@ -4578,6 +4588,67 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
 
     return texture;
+  }
+
+  private parseSolidChromaKeyColorHex(
+    rawHex: string,
+  ): { r: number; g: number; b: number } | null {
+    const match = String(rawHex || "")
+      .trim()
+      .match(/^#?([0-9a-fA-F]{6})$/);
+    if (!match) {
+      return null;
+    }
+    const hex = match[1];
+    return {
+      r: Number.parseInt(hex.slice(0, 2), 16),
+      g: Number.parseInt(hex.slice(2, 4), 16),
+      b: Number.parseInt(hex.slice(4, 6), 16),
+    };
+  }
+
+  private applySolidColorChromaKey(
+    context: CanvasRenderingContext2D,
+    tileSize: number,
+  ): void {
+    const solidColor = this.parseSolidChromaKeyColorHex(
+      this.clientOptions.tilesetSolidChromaKeyColorHex,
+    );
+    if (!solidColor) {
+      return;
+    }
+    const imageData = context.getImageData(0, 0, tileSize, tileSize);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (
+        data[i] === solidColor.r &&
+        data[i + 1] === solidColor.g &&
+        data[i + 2] === solidColor.b
+      ) {
+        data[i + 3] = 0;
+      }
+    }
+    context.putImageData(imageData, 0, 0);
+  }
+
+  private applyTilesetBillboardBackgroundRemoval(
+    context: CanvasRenderingContext2D,
+    atlasImage: HTMLImageElement,
+    tileSize: number,
+    tileCount: number,
+    tilesPerRow: number,
+  ): void {
+    if (this.clientOptions.tilesetBackgroundRemovalMode === "solid") {
+      this.applySolidColorChromaKey(context, tileSize);
+      return;
+    }
+    this.applyTilesetBackgroundRemoval(
+      context,
+      atlasImage,
+      tileSize,
+      tileCount,
+      tilesPerRow,
+    );
   }
 
   private getTilesetBackgroundTilePixels(
@@ -7324,8 +7395,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     const useTiles =
       this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+    const backgroundRemovalTextureKey =
+      this.clientOptions.tilesetBackgroundRemovalMode === "solid"
+        ? `solid:${this.clientOptions.tilesetSolidChromaKeyColorHex}`
+        : `tile:${this.clientOptions.tilesetBackgroundTileId}`;
     const textureKey = useTiles
-      ? `tile-billboard:${tileIndex}|bg:${this.clientOptions.tilesetBackgroundTileId}`
+      ? `tile-billboard:${tileIndex}|bg:${backgroundRemovalTextureKey}`
       : `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
 
     const spriteKey = key;
