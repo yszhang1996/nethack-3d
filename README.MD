@@ -15,12 +15,16 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 ## Current Features
 
 - Play NetHack in a 3D dungeon view while keeping core game rules and depth.
+- Two play styles: classic top-down and first-person (FPS) mode.
 - Minimap for full-level awareness, with viewport box and drag-to-center camera navigation.
 - Camera panning and rotation.
 - Crisp ASCII monsters and items.
-- Tiles coming, maybe more ;) FPS mode anyone?
+- Built-in graphical tilesets: Absurdly Evil, DawnHack, NetHack Modern, Nevanda, and Vanilla NetHack Tiles.
+- Upload and manage your own custom tilesets directly in-game.
+- Per-tileset background cleanup controls (tile selection, chroma key, and removal mode tuning).
 - Dynamic darkness and lighting around your hero.
 - Combat feedback effects (screen-space and tile effects)
+- Optional floating damage/heal numbers and blood mist combat particles.
 - Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon depth.
 - Live message log plus on-screen message popups
 - Full mobile touch support for NetHack prompts: yes/no, directional actions, text entry, and tile targeting/look mode.
@@ -28,12 +32,15 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 - Fast character start: random hero or manual setup (name, role, race, gender, alignment).
 - Extended command support with `#` so advanced playstyles are available, with all commands available via buttons on mobile.
 - Desktop-friendly controls: keyboard-first with mouse support for map interaction and camera control.
-- Mobile-friendly controls: tap/swipe movement, quick actions, extended command sheet, and mobile log view.
+- Mobile-friendly controls: tap/swipe movement, quick actions, extended command sheet, mobile log view, and FPS touch-look/touch-run gestures.
+- Inventory context actions for common item interactions without typing command sequences.
+- Adjustable client options including FPS FOV, look sensitivity, inverted look, antialiasing, and minimap visibility.
 
 ## Extras
 
 - Quick reopen for the latest info panel with `Ctrl+M`.
 - Power-user debug tools in browser devtools for tile refresh, status inspection, and game updates.
+- Optional Windows desktop packaging via Electron + `electron-builder`.
 
 ## Run Locally
 
