@@ -31,27 +31,12 @@ const tilesetBackgroundTilePresetByLabel: Readonly<Record<string, number>> = {
   "Nevanda 3.6": 1476,
   "Vanilla NetHack Tiles": 1476,
 };
-const tilesetBackgroundTilePresetByPath: Readonly<Record<string, number>> = {
-  "assets/3.6/Absurdly Evil.png": 869,
-  "assets/3.6/DawnHack.bmp": 869,
-  "assets/3.6/DawnHack 16.bmp": 869,
-  "assets/3.6/DawnHack 24.bmp": 869,
-  "assets/3.6/DawnHack 32.bmp": 869,
-  "assets/3.6/Nevanda 3.6.png": 1476,
-  "assets/3.6/Vanilla NetHack Tiles": 1476,
-};
 const tilesetSolidChromaKeyPresetByLabel: Readonly<Record<string, string>> = {
   "Absurdly Evil 64": "#466d6c",
   "Absurdly Evil": "#466d6c",
   DawnHack: "#466d6c",
   "Nevanda 3.6": "#466d6c",
   "Vanilla NetHack Tiles": "#476C6C",
-};
-const tilesetSolidChromaKeyPresetByPath: Readonly<Record<string, string>> = {
-  "assets/3.6/Absurdly Evil.png": "#466d6c",
-  "assets/3.6/DawnHack.bmp": "#466d6c",
-  "assets/3.6/Nevanda 3.6.png": "#466d6c",
-  "assets/3.6/Vanilla NetHack Tiles": "#476C6C",
 };
 // Tile width in pixels (NetHack community convention: 16/24/32/64...).
 const tilesetTileWidthPresetByLabel: Readonly<Record<string, number>> = {
@@ -60,22 +45,11 @@ const tilesetTileWidthPresetByLabel: Readonly<Record<string, number>> = {
   "Nevanda 3.6": 32,
   "Vanilla NetHack Tiles": 16,
 };
-const tilesetTileWidthPresetByPath: Readonly<Record<string, number>> = {
-  "assets/3.6/Absurdly Evil.png": 64,
-  "assets/3.6/DawnHack.bmp": 32,
-  "assets/3.6/Nevanda 3.6.png": 32,
-  "assets/3.6/Vanilla NetHack Tiles.png": 16,
-};
 
 function resolveConfiguredTilesetTileSize(
-  path: string,
   label: string,
   fallbackValue: number,
 ): number {
-  const presetByPath = tilesetTileWidthPresetByPath[path];
-  if (typeof presetByPath === "number" && Number.isFinite(presetByPath)) {
-    return Math.max(1, Math.trunc(presetByPath));
-  }
   const presetByLabel = tilesetTileWidthPresetByLabel[label];
   if (typeof presetByLabel === "number" && Number.isFinite(presetByLabel)) {
     return Math.max(1, Math.trunc(presetByLabel));
@@ -89,7 +63,6 @@ for (const rawEntry of GENERATED_TILESET_MANIFEST) {
   const path = String(rawEntry?.path || "").trim();
   const label = String(rawEntry?.label || "").trim();
   const tileSize = resolveConfiguredTilesetTileSize(
-    path,
     label || path,
     Number.isFinite(rawEntry?.tileSize) ? rawEntry.tileSize : 32,
   );
@@ -272,14 +245,10 @@ export function resolveDefaultNh3dTilesetSolidChromaKeyColorHex(
   if (!tileset) {
     return fallbackSolidChromaKeyColorHex;
   }
-  const presetByPath = tilesetSolidChromaKeyPresetByPath[tileset.path];
-  if (typeof presetByPath === "string" && presetByPath.trim()) {
-    return normalizeHexColorOrFallback(
-      presetByPath,
-      fallbackSolidChromaKeyColorHex,
-    );
-  }
-  const presetByLabel = tilesetSolidChromaKeyPresetByLabel[tileset.label];
+  const presetByLabel =
+    tileset.source === "builtin"
+      ? tilesetSolidChromaKeyPresetByLabel[tileset.label]
+      : undefined;
   if (typeof presetByLabel === "string" && presetByLabel.trim()) {
     return normalizeHexColorOrFallback(
       presetByLabel,
@@ -306,11 +275,10 @@ export function resolveDefaultNh3dTilesetBackgroundTileId(
   if (!tileset) {
     return fallbackBackgroundTileId;
   }
-  const presetByPath = tilesetBackgroundTilePresetByPath[tileset.path];
-  if (typeof presetByPath === "number" && Number.isFinite(presetByPath)) {
-    return Math.max(0, Math.trunc(presetByPath));
-  }
-  const presetByLabel = tilesetBackgroundTilePresetByLabel[tileset.label];
+  const presetByLabel =
+    tileset.source === "builtin"
+      ? tilesetBackgroundTilePresetByLabel[tileset.label]
+      : undefined;
   if (typeof presetByLabel === "number" && Number.isFinite(presetByLabel)) {
     return Math.max(0, Math.trunc(presetByLabel));
   }
