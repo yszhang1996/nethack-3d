@@ -66,17 +66,6 @@ import {
   resolveNh3dTilesetAssetUrl,
 } from "./tilesets";
 
-type LightingGrid = {
-  minX: number;
-  maxX: number;
-  minY: number;
-  maxY: number;
-  width: number;
-  height: number;
-  knownMask: Uint8Array;
-  wallMask: Uint8Array;
-};
-
 type FloatingMessageEntry = {
   container: HTMLDivElement;
   text: HTMLDivElement;
@@ -445,7 +434,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
   private clientOptions: Nh3dClientOptions = normalizeNh3dClientOptions();
   private playMode: PlayMode = "normal";
-  private characterCreationMode: "random" | "create" = "create";
   private readonly questionMenuPageAccelerators: string[] =
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
   private altOrMetaHeld: boolean = false;
@@ -465,7 +453,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsDiagonalAimBias = 0.035;
   private fpsPointerLockActive: boolean = false;
   private fpsPointerLockRestorePending: boolean = false;
-  private fpsCurrentAimDirection: AimDirection | null = null;
   private fpsForwardHighlight: THREE.Mesh | null = null;
   private fpsForwardHighlightMaterial: THREE.MeshBasicMaterial | null = null;
   private fpsForwardHighlightTexture: THREE.CanvasTexture | null = null;
@@ -490,9 +477,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsCrosshairGlanceIssuedThisOpen: boolean = false;
   private fpsCrosshairGlancePending: FpsCrosshairGlancePending | null = null;
   private fpsCrosshairGlanceRequestSequence: number = 0;
-  private readonly fpsCrosshairGlanceCacheTtlMs: number = 4500;
   private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
-  private readonly fpsCrosshairGlancePostResolveGraceMs: number = 420;
   private fpsWallChamferGeometryCache: Map<string, THREE.BufferGeometry> =
     new Map();
   private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
@@ -509,7 +494,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsWallChamferInset = TILE_SIZE * 0.25;
   private readonly fpsWallChamferFloorZ = 0.0;
   private readonly elevatedMonsterZ = WALL_HEIGHT * 0.58;
-  private readonly elevatedLootZ = WALL_HEIGHT * 0.42;
   private entityBlobShadows: Map<string, THREE.Mesh> = new Map();
   private entityBlobShadowTexture: THREE.CanvasTexture | null = null;
   private monsterBillboards: Map<string, THREE.Sprite> = new Map();
@@ -661,7 +645,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   );
   private pendingMinimapCellUpdates: Map<number, number> = new Map();
   private minimapFlushScheduled: boolean = false;
-  private minimapViewportRect: MinimapViewportRect | null = null;
   private minimapDragPointerId: number | null = null;
   private readonly minimapPalette: string[] = [
     "rgba(10, 16, 28, 0.82)",
@@ -681,11 +664,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   // Pre-create geometries and materials
   private floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
-  private wallGeometry = this.createUprightWallBlockGeometry("none");
-  private fpsWallBaseGeometryCache: Map<
-    FpsChamferWallUvRotation,
-    THREE.BoxGeometry
-  > = new Map();
+  private wallGeometry = this.createUprightWallBlockGeometry();
 
   // Materials for different glyph types
   private materials = {
@@ -769,28 +748,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
   private lightingOverlayMesh: THREE.Mesh | null = null;
   private lightingOverlayTexture: THREE.CanvasTexture | null = null;
-  private lightingOverlayCanvas: HTMLCanvasElement | null = null;
-  private lightingOverlayContext: CanvasRenderingContext2D | null = null;
   private lightingWallOverlayMesh: THREE.Mesh | null = null;
   private lightingWallOverlayTexture: THREE.CanvasTexture | null = null;
-  private lightingWallOverlayCanvas: HTMLCanvasElement | null = null;
-  private lightingWallOverlayContext: CanvasRenderingContext2D | null = null;
-  private lightingOverlayGridMeta: {
-    minX: number;
-    maxX: number;
-    minY: number;
-    maxY: number;
-    width: number;
-    height: number;
-    tilePixels: number;
-  } | null = null;
-  private lightingDirty: boolean = true;
-  private readonly lightingRadiusTiles: number = 14;
-  private readonly lightingTilePixels: number = 30;
-  private readonly lightingFloorFalloffPower: number = 1.08;
-  private readonly lightingMaxDarkAlpha: number = 0.82;
-  private readonly lightingFloorOverlayZ: number = 0.03;
-  private readonly lightingWallOverlayZ: number = WALL_HEIGHT + 0;
   private readonly lightingCenterHalfLifeMs: number = 95;
   private readonly lightingCenterEpsilonTiles: number = 0.001;
   private lightingCenterCurrent = new THREE.Vector2();
@@ -812,68 +771,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private markLightingDirty(): void {
-    this.lightingDirty = true;
+    // Lighting currently tracks from shared vignette uniforms, so this is a no-op.
   }
 
   private isUndiscoveredKind(kind: string): boolean {
     return kind === "unexplored" || kind === "nothing";
-  }
-
-  private buildLightingGrid(): LightingGrid | null {
-    if (this.tileMap.size === 0) {
-      return null;
-    }
-
-    const minX = 0;
-    const minY = 0;
-    const width = MINIMAP_WIDTH_TILES;
-    const height = MINIMAP_HEIGHT_TILES;
-    const maxX = minX + width - 1;
-    const maxY = minY + height - 1;
-    const knownMask = new Uint8Array(width * height);
-    const wallMask = new Uint8Array(width * height);
-
-    for (const mesh of this.tileMap.values()) {
-      const tileX = Number(mesh.userData?.tileX);
-      const tileY = Number(mesh.userData?.tileY);
-      if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
-        continue;
-      }
-
-      const cellX = tileX - minX;
-      const cellY = tileY - minY;
-      if (cellX < 0 || cellX >= width || cellY < 0 || cellY >= height) {
-        continue;
-      }
-      const cellIndex = cellY * width + cellX;
-      knownMask[cellIndex] = 1;
-      if (mesh.userData?.isWall) {
-        wallMask[cellIndex] = 1;
-      }
-    }
-
-    return {
-      minX,
-      maxX,
-      minY,
-      maxY,
-      width,
-      height,
-      knownMask,
-      wallMask,
-    };
-  }
-
-  private worldToLightingPixel(
-    grid: LightingGrid,
-    worldX: number,
-    worldY: number,
-  ): { x: number; y: number } {
-    const tilePixels = this.lightingTilePixels;
-    return {
-      x: (worldX - (grid.minX - 0.5)) * tilePixels,
-      y: (worldY - (grid.minY - 0.5)) * tilePixels,
-    };
   }
 
   private updateLightingCenter(deltaSeconds: number): void {
@@ -959,11 +861,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lightingWallOverlayTexture = null;
     }
 
-    this.lightingOverlayCanvas = null;
-    this.lightingOverlayContext = null;
-    this.lightingWallOverlayCanvas = null;
-    this.lightingWallOverlayContext = null;
-    this.lightingOverlayGridMeta = null;
   }
 
   private configureBaseLightingForPlayMode(): void {
@@ -1014,9 +911,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // --- Shader Uniforms for Vignette ---
   private vignetteUniforms = {
     uLightingCenter: { value: new THREE.Vector3(0, 0, 0) },
-    uLightingRadius: { value: 20.0 * TILE_SIZE }, // matches this.lightingRadiusTiles
-    uFalloffPower: { value: 1.08 }, // matches this.lightingFloorFalloffPower
-    uMaxDarkAlpha: { value: 0.82 }, // matches this.lightingMaxDarkAlpha
+    uLightingRadius: { value: 20.0 * TILE_SIZE },
+    uFalloffPower: { value: 1.08 },
+    uMaxDarkAlpha: { value: 0.82 },
     uIsFpsMode: { value: false },
   };
 
@@ -1127,7 +1024,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
-    this.characterCreationMode = this.characterCreationConfig.mode;
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -1332,7 +1228,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private resetMinimap(): void {
     this.pendingMinimapCellUpdates.clear();
     this.minimapFlushScheduled = false;
-    this.minimapViewportRect = null;
     this.minimapCells.fill(0);
     this.stopMinimapDrag();
 
@@ -1965,7 +1860,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
       }
-      this.fpsCurrentAimDirection = null;
       this.fpsFireSuppressionUntilMs = 0;
       this.fpsCrosshairGlancePending = null;
       this.fpsCrosshairContextSignature = "";
@@ -2343,7 +2237,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const viewport = this.computeMinimapViewportRect();
-    this.minimapViewportRect = viewport;
     const fpsMode = this.isFpsMode();
 
     const context = this.minimapViewportContext;
@@ -2991,7 +2884,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           const pendingDialogOptions = this.pendingInventoryDialogOptions;
           this.pendingInventoryDialogOptions = null;
           this.showInventoryDialog(pendingDialogOptions ?? undefined);
-        } else if (this.gameOverState.active && !this.isInventoryDialogVisible) {
+        } else if (
+          this.gameOverState.active &&
+          !this.isInventoryDialogVisible
+        ) {
           this.showInventoryDialog({
             contextActionsEnabled: false,
           });
@@ -4595,7 +4491,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const textureKey = `tile:${tileIndex}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
     const needsTextureRefresh =
-      overlay.textureKey !== textureKey || !this.glyphTextureCache.has(textureKey);
+      overlay.textureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey);
     if (needsTextureRefresh) {
       if (overlay.textureKey) {
         this.releaseGlyphTexture(overlay.textureKey);
@@ -6483,10 +6380,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const cornerWallSideBaseTileIndex =
       this.resolveCornerWallSideBaseTileIndex(tileIndex);
     const shouldOverrideCornerWallSideTiles =
-      useTiles &&
-      isWall &&
-      !isDoorWall &&
-      cornerWallSideBaseTileIndex !== null;
+      useTiles && isWall && !isDoorWall && cornerWallSideBaseTileIndex !== null;
     const shouldOverrideVerticalWallSideTiles =
       useTiles &&
       isWall &&
@@ -6512,9 +6406,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ? (cornerWallSideBaseTileIndex ?? -1)
       : shouldOverrideVerticalWallSideTiles
         ? tileIndex + 1
-      : shouldRotateHorizontalWallSideTiles || shouldRotateVerticalDoorSideTiles
-        ? tileIndex
-        : -1;
+        : shouldRotateHorizontalWallSideTiles ||
+            shouldRotateVerticalDoorSideTiles
+          ? tileIndex
+          : -1;
     const wallSideOverrideRotation: WallSideTileRotation = "cw90";
     const wallSideOverrideMaterial =
       wallSideOverrideTileIndex >= 0
@@ -6528,16 +6423,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     const wallSideFrontBackOverrideMaterial =
       shouldOverrideVerticalWallSideTiles || shouldOverrideCornerWallSideTiles
-      ? this.ensureWallSideTileOverlayMaterial(
-          mesh,
-          shouldOverrideCornerWallSideTiles
-            ? (cornerWallSideBaseTileIndex ?? -1)
-            : tileIndex + 1,
-          clampedDarken,
-          overlay.material.opacity,
-          "none",
-        )
-      : null;
+        ? this.ensureWallSideTileOverlayMaterial(
+            mesh,
+            shouldOverrideCornerWallSideTiles
+              ? (cornerWallSideBaseTileIndex ?? -1)
+              : tileIndex + 1,
+            clampedDarken,
+            overlay.material.opacity,
+            "none",
+          )
+        : null;
     const chamferSideOverrideMaterial =
       wallSideOverrideTileIndex >= 0
         ? this.ensureWallSideTileOverlayMaterial(
@@ -6568,7 +6463,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
         // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
         mesh.material = chamferSideOverrideMaterial
-          ? [overlay.material, chamferSideOverrideMaterial, chamferSideOverrideMaterial]
+          ? [
+              overlay.material,
+              chamferSideOverrideMaterial,
+              chamferSideOverrideMaterial,
+            ]
           : [overlay.material, overlay.material, overlay.material];
       } else {
         // In ASCII mode, keep chamfer cuts floor-tinted for diagonal readability.
@@ -6733,35 +6632,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     wallMaterialKind: TileMaterialKind,
   ): TileMaterialKind {
     return wallMaterialKind === "dark_wall" ? "dark" : "floor";
-  }
-
-  private getFpsWallChamferDisplayBaseHex(
-    materialKind: TileMaterialKind,
-  ): string {
-    const baseColorHex =
-      this.getMaterialByKind(materialKind).color.getHexString();
-    const tonedBackground = this.toneColor(baseColorHex, 0.8);
-    return this.ensureTextContrast(tonedBackground, "#F4F4F4");
-  }
-
-  private getFpsWallChamferFaceMaterial(
-    materialKind: TileMaterialKind,
-  ): THREE.MeshBasicMaterial {
-    const cached = this.fpsWallChamferFaceMaterialCache.get(materialKind);
-    if (cached) {
-      return cached;
-    }
-
-    const displayHex = this.getFpsWallChamferDisplayBaseHex(materialKind);
-    const material = new THREE.MeshBasicMaterial({
-      color: Number.parseInt(displayHex, 16),
-    });
-
-    // Patch the dynamically created wall face material
-    this.patchMaterialForVignette(material);
-
-    this.fpsWallChamferFaceMaterialCache.set(materialKind, material);
-    return material;
   }
 
   private getFpsWallChamferFloorMaterial(
@@ -7037,8 +6907,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         let v = vertical;
         // Chamfered wall side UVs are custom-projected; use one shared rotation
         // mode for all side faces rather than splitting by face direction.
-        const rotateQuarterTurns =
-          sideUvRotation === "none" ? 0 : 1;
+        const rotateQuarterTurns = sideUvRotation === "none" ? 0 : 1;
         if (rotateQuarterTurns === 1) {
           // Rotate selected chamfer side faces 90deg counterclockwise.
           const rotatedU = v;
@@ -7393,7 +7262,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     console.log("🧹 Clearing all tiles and glyph overlays from 3D scene");
 
     // Clear all tile meshes
-    this.tileMap.forEach((mesh, key) => {
+    this.tileMap.forEach((mesh) => {
       this.disposeWallSideTileOverlay(mesh);
       this.scene.remove(mesh);
     });
@@ -7428,7 +7297,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsForwardHighlightTexture.dispose();
       this.fpsForwardHighlightTexture = null;
     }
-    this.fpsCurrentAimDirection = null;
     this.fpsAimLinePulseUntilMs = 0;
     this.fpsFireSuppressionUntilMs = 0;
     this.fpsStepCameraActive = false;
@@ -9026,7 +8894,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // Log inventory items for debugging
     console.log("📦 Current inventory:");
-    nextInventory.forEach((item, index) => {
+    nextInventory.forEach((item) => {
       if (item.isCategory) {
         console.log(`  📁 ${item.text}`);
       } else {
@@ -10617,58 +10485,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }, 3000);
   }
 
-  private showNameRequest(text: string, maxLength: number): void {
-    // Create or get name dialog
-    let nameDialog = document.getElementById("name-dialog");
-    if (!nameDialog) {
-      nameDialog = document.createElement("div");
-      nameDialog.id = "name-dialog";
-      nameDialog.className = "nh3d-dialog nh3d-dialog-name";
-      document.body.appendChild(nameDialog);
-    }
-
-    // Clear previous content
-    nameDialog.innerHTML = "";
-
-    // Add question text
-    const questionText = document.createElement("div");
-    questionText.className = "nh3d-name-question";
-    questionText.textContent = text;
-    nameDialog.appendChild(questionText);
-
-    // Add input field
-    const nameInput = document.createElement("input");
-    nameInput.type = "text";
-    nameInput.maxLength = maxLength;
-    nameInput.placeholder = "Enter your name";
-    nameInput.className = "nh3d-name-input";
-    nameDialog.appendChild(nameInput);
-
-    // Add submit button
-    const submitButton = document.createElement("button");
-    submitButton.textContent = "OK";
-    submitButton.className = "nh3d-name-submit";
-
-    const submitName = () => {
-      const name = nameInput.value.trim() || "Adventurer";
-      this.sendInput(name);
-      nameDialog.classList.remove("is-visible");
-    };
-
-    submitButton.onclick = submitName;
-    nameInput.onkeydown = (e) => {
-      if (e.key === "Enter") {
-        submitName();
-      }
-    };
-
-    nameDialog.appendChild(submitButton);
-
-    // Show dialog and focus input
-    nameDialog.classList.add("is-visible");
-    nameInput.focus();
-  }
-
   private showTextInputRequest(text: string, maxLength = 256): void {
     this.isInQuestion = true;
     this.isTextInputActive = true;
@@ -10733,7 +10549,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private createPickupDialog(
     questionDialog: HTMLElement,
     menuItems: any[],
-    question: string,
+    _question: string,
   ): void {
     const selectableItemCount = menuItems.filter((item) =>
       this.isSelectableQuestionMenuItem(item),
@@ -12266,7 +12082,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       nowMs,
     );
     const glanceHint = glanceEntry?.hint ?? null;
-    const glanceText = String(glanceEntry?.sourceText || "").toLowerCase();
     const materialKind =
       typeof target.mesh.userData?.materialKind === "string"
         ? target.mesh.userData.materialKind
@@ -13299,7 +13114,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
       }
-      this.fpsCurrentAimDirection = null;
       return;
     }
 
@@ -13321,7 +13135,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       return;
     }
-    this.fpsCurrentAimDirection = aim;
     this.ensureFpsAimVisuals();
 
     let targetX = this.playerPos.x + aim.dx;

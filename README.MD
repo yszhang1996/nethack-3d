@@ -45,7 +45,11 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, righ
 
 - `npm run dev` - Start Vite dev server.
 - `npm run build` - Build production bundles.
+- `npm run build:electron` - Build bundles with Electron-safe relative asset paths.
 - `npm run preview` - Preview production build locally.
+- `npm run electron:dev` - Run Electron against the Vite dev server.
+- `npm run electron:dist:win` - Build and package a Windows NSIS `.exe` installer (x64) to `release/`.
+- `npm run electron:dist:win:portable` - Build and package a portable Windows `.exe` (x64) to `release/`.
 - `npm run glyphs:generate` - Regenerate glyph catalog from runtime artifacts.
 - `npm run glyphs:check` - Verify checked-in glyph catalog is up to date.
 

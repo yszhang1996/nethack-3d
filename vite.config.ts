@@ -52,10 +52,11 @@ function tilesetManifestPlugin() {
 }
 
 const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
+const isElectronBuild = process.env.BUILD_TARGET === "electron";
 
 export default defineConfig({
   plugins: [copyWasmPlugin(), tilesetManifestPlugin(), react()],
-  base: isGitHubActions ? "/nethack-3d/" : "/",
+  base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",
   server: {
     allowedHosts: true,
   },
