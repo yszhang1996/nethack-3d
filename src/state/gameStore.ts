@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  GameOverState,
   InfoMenuState,
   InventoryDialogState,
   Nethack3DEngineController,
@@ -60,6 +61,7 @@ type GameStore = {
   extendedCommands: string[];
   positionRequest: string | null;
   newGamePrompt: NewGamePromptState;
+  gameOver: GameOverState;
   engineController: Nethack3DEngineController | null;
   nextFloatingMessageId: number;
   setLoadingVisible: (visible: boolean) => void;
@@ -80,6 +82,7 @@ type GameStore = {
   setExtendedCommands: (commands: string[]) => void;
   setPositionRequest: (text: string | null) => void;
   setNewGamePrompt: (prompt: NewGamePromptState) => void;
+  setGameOver: (state: GameOverState) => void;
   setEngineController: (controller: Nethack3DEngineController | null) => void;
 };
 
@@ -98,13 +101,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   directionQuestion: null,
   numberPadModeEnabled: true,
   infoMenu: null,
-  inventory: { visible: false, items: [] },
+  inventory: {
+    visible: false,
+    items: [],
+    contextActionsEnabled: true,
+  },
   textInput: null,
   fpsCrosshairContext: null,
   repeatActionVisible: false,
   extendedCommands: [],
   positionRequest: null,
   newGamePrompt: { visible: false, reason: null },
+  gameOver: { active: false, deathMessage: null },
   engineController: null,
   nextFloatingMessageId: 1,
   setLoadingVisible: (visible) => {
@@ -183,6 +191,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
   setNewGamePrompt: (prompt) => {
     set({ newGamePrompt: prompt });
+  },
+  setGameOver: (state) => {
+    set({ gameOver: state });
   },
   setEngineController: (controller) => {
     set({ engineController: controller });

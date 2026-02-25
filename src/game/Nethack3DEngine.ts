@@ -43,6 +43,8 @@ import type {
   CharacterCreationConfig,
   FpsContextAction,
   FpsCrosshairContextState,
+  GameOverState,
+  InventoryDialogState,
   Nh3dClientOptions,
   Nethack3DEngineController,
   Nethack3DEngineOptions,
@@ -162,6 +164,10 @@ type CharacterCreationQuestionPayload = {
   choices: string;
   defaultChoice: string;
   menuItems: any[];
+};
+
+type InventoryDialogOptions = {
+  contextActionsEnabled?: boolean;
 };
 
 const MINIMAP_WIDTH_TILES = 79;
@@ -339,6 +345,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
+  private pendingInventoryDialogOptions: InventoryDialogOptions | null = null;
   private inventoryRefreshInFlight: boolean = false;
   private lastInventoryRefreshRequestedAtMs: number = 0;
   private readonly inventoryRefreshDebounceMs: number = 250;
@@ -346,6 +353,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private runtimeConnectionState: NethackConnectionState = "disconnected";
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
   private isInventoryDialogVisible: boolean = false;
+  private inventoryContextActionsEnabled: boolean = true;
+  private gameOverState: GameOverState = {
+    active: false,
+    deathMessage: null,
+  };
   private isInfoDialogVisible: boolean = false;
   private pendingInventoryContextPromptCloseRequestedAtMs: number = 0;
   private readonly inventoryContextPromptCloseWindowMs: number = 2200;
@@ -1114,6 +1126,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.uiAdapter) {
       this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
       this.uiAdapter.setRepeatActionVisible(false);
+      this.uiAdapter.setGameOver({ ...this.gameOverState });
     }
 
     if (this.playMode === "fps") {
@@ -2699,6 +2712,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.uiAdapter.setLoadingVisible(true);
       this.uiAdapter.setExtendedCommands([]);
       this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
+      this.uiAdapter.setGameOver({ ...this.gameOverState });
       return;
     }
 
@@ -2716,6 +2730,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
     this.runtimeTerminationPromptShown = false;
+    this.setGameOverState(false, null);
+    this.inventoryContextActionsEnabled = true;
+    this.pendingInventoryDialog = false;
+    this.pendingInventoryDialogOptions = null;
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
@@ -2897,6 +2915,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.shouldCloseInventoryForPendingContextPrompt()) {
           this.hideInventoryDialog();
         }
+        if (
+          this.isGameOverPossessionsIdentifyQuestion(String(data.text || ""))
+        ) {
+          this.setGameOverState(true, null);
+        }
         if (this.isCharacterCreationQuestion(String(data.text || ""))) {
           const payload = this.toCharacterCreationQuestionPayload(data);
           this.isInQuestion = true;
@@ -2955,7 +2978,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.pendingInventoryDialog) {
           console.log("📦 Showing inventory dialog with fresh data");
           this.pendingInventoryDialog = false;
-          this.showInventoryDialog();
+          const pendingDialogOptions = this.pendingInventoryDialogOptions;
+          this.pendingInventoryDialogOptions = null;
+          this.showInventoryDialog(pendingDialogOptions ?? undefined);
+        } else if (this.gameOverState.active && !this.isInventoryDialogVisible) {
+          this.showInventoryDialog({
+            contextActionsEnabled: false,
+          });
         }
 
         // Update inventory display if we have an inventory UI element
@@ -3108,6 +3137,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
         .replace(/\r/g, "")
         .trimEnd(),
     );
+  }
+
+  private setGameOverState(active: boolean, deathMessage: string | null): void {
+    this.gameOverState = {
+      active: Boolean(active),
+      deathMessage: deathMessage && deathMessage.trim() ? deathMessage : null,
+    };
+    this.uiAdapter?.setGameOver({ ...this.gameOverState });
+    if (this.uiAdapter && this.isInventoryDialogVisible) {
+      this.uiAdapter.setInventory(this.buildInventoryDialogState());
+    }
+  }
+
+  private isGameOverPossessionsIdentifyQuestion(questionText: string): boolean {
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized.includes("do you want your possessions identified");
   }
 
   private isDamageFlashableBehavior(behavior: TileBehaviorResult): boolean {
@@ -8593,10 +8643,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.currentInventory = nextInventory;
 
     if (this.uiAdapter) {
-      this.uiAdapter.setInventory({
-        visible: this.isInventoryDialogVisible,
-        items: [...nextInventory],
-      });
+      this.uiAdapter.setInventory(this.buildInventoryDialogState());
       return;
     }
 
@@ -8617,6 +8664,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(`  ${item.accelerator || "?"}) ${item.text}`);
       }
     });
+  }
+
+  private buildInventoryDialogState(): InventoryDialogState {
+    return {
+      visible: this.isInventoryDialogVisible,
+      items: [...this.currentInventory],
+      contextActionsEnabled:
+        this.inventoryContextActionsEnabled && !this.gameOverState.active,
+    };
   }
 
   private isMultiSelectLootQuestion(question: string): boolean {
@@ -9479,7 +9535,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     questionDialog.classList.add("is-visible");
   }
 
-  private showQuestion(
+  private setActiveQuestionState(
     question: string,
     choices: string,
     defaultChoice: string,
@@ -9500,6 +9556,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionActionFocusIndex = -1;
     this.activeQuestionMenuPageIndex = 0;
     this.rebuildActiveQuestionMenuPagination();
+  }
+
+  private showQuestion(
+    question: string,
+    choices: string,
+    defaultChoice: string,
+    menuItems: any[],
+  ): void {
+    this.setActiveQuestionState(question, choices, defaultChoice, menuItems);
     this.syncFpsPointerLockForUiState(false);
 
     if (this.uiAdapter) {
@@ -9620,6 +9685,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
       (choice) => choice.length === 1 && allowedChoices.has(choice),
     );
     return hasYes && hasNo && onlySimpleChoices;
+  }
+
+  private isActiveSimpleYesNoQuestionPrompt(): boolean {
+    if (
+      !this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.activeQuestionIsPickupDialog
+    ) {
+      return false;
+    }
+    if (this.activeQuestionMenuItems.length > 0) {
+      return false;
+    }
+    const parsedChoices = this.parseQuestionChoices(
+      this.activeQuestionText,
+      this.activeQuestionChoices,
+    );
+    return this.isSimpleYesNoChoicePrompt(parsedChoices);
   }
 
   private expandChoiceSpec(spec: string): string[] {
@@ -9995,14 +10078,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private showInventoryDialog(): void {
+  private showInventoryDialog(options?: InventoryDialogOptions): void {
     this.isInventoryDialogVisible = true;
+    const shouldDisableForGameOver = this.gameOverState.active;
+    this.inventoryContextActionsEnabled = shouldDisableForGameOver
+      ? false
+      : options?.contextActionsEnabled !== false;
+    this.pendingInventoryDialogOptions = null;
     this.syncFpsPointerLockForUiState(false);
     if (this.uiAdapter) {
-      this.uiAdapter.setInventory({
-        visible: true,
-        items: [...this.currentInventory],
-      });
+      this.uiAdapter.setInventory(this.buildInventoryDialogState());
       return;
     }
 
@@ -10092,11 +10177,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInventoryDialogVisible = false;
     this.pendingInventoryContextPromptCloseRequestedAtMs = 0;
     this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
+    this.inventoryContextActionsEnabled = true;
+    this.pendingInventoryDialogOptions = null;
     if (this.uiAdapter) {
-      this.uiAdapter.setInventory({
-        visible: false,
-        items: [...this.currentInventory],
-      });
+      this.uiAdapter.setInventory(this.buildInventoryDialogState());
       this.pendingInventoryDialog = false;
       this.syncFpsPointerLockForUiState(true);
       return;
@@ -12001,6 +12085,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.submitTextInput("");
         return;
       }
+      if (this.isActiveSimpleYesNoQuestionPrompt()) {
+        event.preventDefault();
+        this.sendInput("n");
+        this.hideQuestion();
+        return;
+      }
       if (this.isInventoryDialogVisible) {
         this.hideInventoryDialog();
         return;
@@ -12055,7 +12145,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (event.key === "Enter") {
+    if (event.key === "Enter" || event.key === "NumpadEnter") {
+      if (this.isActiveSimpleYesNoQuestionPrompt()) {
+        event.preventDefault();
+        this.sendInput("y");
+        this.hideQuestion();
+        return;
+      }
       if (this.isInventoryDialogVisible) {
         this.hideInventoryDialog();
         return;

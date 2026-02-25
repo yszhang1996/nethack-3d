@@ -2372,6 +2372,12 @@ canvas {
   flex-wrap: wrap;
 }
 
+.nh3d-inventory-item-disabled {
+  opacity: 0.62;
+  cursor: default;
+  border-left-color: rgba(131, 154, 182, 0.45);
+}
+
 .nh3d-inventory-item-active {
   border-left-color: #f7e86c;
   box-shadow: 0 0 0 1px rgba(247, 232, 108, 0.32);

@@ -1,4 +1,5 @@
 import type {
+  GameOverState,
   Nethack3DEngineUIAdapter,
   NethackConnectionState,
   NewGamePromptState,
@@ -65,6 +66,9 @@ export function createEngineUiAdapter(): Nethack3DEngineUIAdapter {
     },
     setNewGamePrompt(state: NewGamePromptState): void {
       useGameStore.getState().setNewGamePrompt(state);
+    },
+    setGameOver(state: GameOverState): void {
+      useGameStore.getState().setGameOver(state);
     },
   };
 }

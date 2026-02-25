@@ -36,6 +36,7 @@ class LocalNetHackRuntime {
     this.lastEndedMenuWindow = null;
     this.lastEndedMenuHadQuestion = false;
     this.windowTextBuffers = new Map();
+    this.pendingGameOverPossessionsInventoryFlow = false;
 
     this.inputBroker = new RuntimeInputBroker();
     this.farLookMode = "none"; // none | armed | active
@@ -469,6 +470,17 @@ class LocalNetHackRuntime {
     }
 
     const normalizedInput = this.normalizeInputKey(input);
+    if (
+      this.pendingGameOverPossessionsInventoryFlow &&
+      this.isGameOverPossessionsIdentifyQuestion(this.lastQuestionText)
+    ) {
+      const normalizedYesNoInput = String(normalizedInput || "")
+        .trim()
+        .toLowerCase();
+      if (normalizedYesNoInput !== "y") {
+        this.pendingGameOverPossessionsInventoryFlow = false;
+      }
+    }
 
     if (
       !this.isInMultiPickup &&
@@ -1575,6 +1587,14 @@ class LocalNetHackRuntime {
       return "";
     }
     return question.trim().toLowerCase();
+  }
+
+  isGameOverPossessionsIdentifyQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    if (!normalized) {
+      return false;
+    }
+    return normalized.includes("do you want your possessions identified");
   }
 
   isNumberPadModeQuestion(question) {
@@ -2685,6 +2705,8 @@ class LocalNetHackRuntime {
     );
 
     this.lastQuestionText = question;
+    this.pendingGameOverPossessionsInventoryFlow =
+      this.isGameOverPossessionsIdentifyQuestion(question);
 
     if (this.isContainerLootTypeQuestion(question)) {
       console.log('Auto-answering container loot type question with "a"');
@@ -3552,6 +3574,17 @@ class LocalNetHackRuntime {
           this.currentMenuItems.some((item) => item && !item.isCategory);
 
         if (shouldAwaitQuestionlessInventoryPickOne) {
+          if (this.pendingGameOverPossessionsInventoryFlow) {
+            console.log(
+              "Suppressing questionless WIN_INVEN PICK_ONE prompt during game-over possessions flow; returning 0",
+            );
+            this.pendingGameOverPossessionsInventoryFlow = false;
+            this.writeMenuSelectionResult(menuListPtrPtr, 0);
+            this.menuSelections.clear();
+            this.isInMultiPickup = false;
+            return 0;
+          }
+
           console.log(
             "PICK_ONE for questionless WIN_INVEN menu - waiting for async selection...",
           );

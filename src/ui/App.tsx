@@ -2741,6 +2741,11 @@ export default function App(): JSX.Element {
   const showPickupActionButtons =
     Boolean(question?.isPickupDialog) &&
     (questionSelectableMenuItemCount > 1 || isMobileViewport);
+  const inventoryContextActionsEnabled =
+    inventory.contextActionsEnabled !== false;
+  const inventoryCloseInstructionText = inventoryContextActionsEnabled
+    ? "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close"
+    : "Press ENTER, ESC, or 'i' to close.";
   const mobileExtendedCommandNames = useMemo(() => {
     const rawCommands =
       Array.isArray(extendedCommands) && extendedCommands.length > 0
@@ -3365,6 +3370,9 @@ export default function App(): JSX.Element {
     clientX: number,
     clientY: number,
   ): void => {
+    if (!inventoryContextActionsEnabled) {
+      return;
+    }
     if (typeof item.accelerator !== "string") {
       return;
     }
@@ -3403,6 +3411,13 @@ export default function App(): JSX.Element {
       setInventoryContextMenu(null);
     }
   }, [inventory.visible]);
+
+  useEffect(() => {
+    if (inventoryContextActionsEnabled) {
+      return;
+    }
+    setInventoryContextMenu(null);
+  }, [inventoryContextActionsEnabled]);
 
   useEffect(() => {
     if (!newGamePrompt.visible) {
@@ -5220,12 +5235,19 @@ export default function App(): JSX.Element {
                 ) : (
                   <div
                     className={`nh3d-inventory-item${
+                      !inventoryContextActionsEnabled
+                        ? " nh3d-inventory-item-disabled"
+                        : ""
+                    }${
                       inventoryContextMenu?.accelerator === item.accelerator
                         ? " nh3d-inventory-item-active"
                         : ""
                     }`}
                     key={`item-${index}`}
                     onClick={(event) => {
+                      if (!inventoryContextActionsEnabled) {
+                        return;
+                      }
                       openInventoryContextMenu(
                         item,
                         event.clientX,
@@ -5233,6 +5255,9 @@ export default function App(): JSX.Element {
                       );
                     }}
                     onContextMenu={(event) => {
+                      if (!inventoryContextActionsEnabled) {
+                        return;
+                      }
                       event.preventDefault();
                       openInventoryContextMenu(
                         item,
@@ -5241,6 +5266,9 @@ export default function App(): JSX.Element {
                       );
                     }}
                     onKeyDown={(event) => {
+                      if (!inventoryContextActionsEnabled) {
+                        return;
+                      }
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         const target =
@@ -5252,8 +5280,8 @@ export default function App(): JSX.Element {
                         );
                       }
                     }}
-                    role={"button"}
-                    tabIndex={0}
+                    role={inventoryContextActionsEnabled ? "button" : undefined}
+                    tabIndex={inventoryContextActionsEnabled ? 0 : -1}
                   >
                     <span className="nh3d-inventory-key">
                       {item.accelerator || "?"})
@@ -5267,8 +5295,7 @@ export default function App(): JSX.Element {
             )}
           </div>
           <div className="nh3d-inventory-close">
-            Select an item to open contextual commands. Press ENTER, ESC, or 'i'
-            to close
+            {inventoryCloseInstructionText}
           </div>
           <div className="nh3d-menu-actions">
             <button
@@ -5282,7 +5309,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {inventoryContextMenu ? (
+      {inventoryContextMenu && inventoryContextActionsEnabled ? (
         <div
           className="nh3d-context-menu nh3d-inventory-context-menu"
           onContextMenu={(event) => event.preventDefault()}

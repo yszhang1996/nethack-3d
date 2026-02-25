@@ -68,6 +68,12 @@ export type InfoMenuState = {
 export type InventoryDialogState = {
   visible: boolean;
   items: NethackMenuItem[];
+  contextActionsEnabled?: boolean;
+};
+
+export type GameOverState = {
+  active: boolean;
+  deathMessage: string | null;
 };
 
 export type TextInputRequestState = {
@@ -483,6 +489,7 @@ export interface Nethack3DEngineUIAdapter {
   setFpsCrosshairContext(state: FpsCrosshairContextState | null): void;
   setRepeatActionVisible(visible: boolean): void;
   setNewGamePrompt(state: NewGamePromptState): void;
+  setGameOver(state: GameOverState): void;
 }
 
 export interface Nethack3DEngineController {
