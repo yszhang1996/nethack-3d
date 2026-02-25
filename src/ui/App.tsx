@@ -31,7 +31,8 @@ import type { NethackRuntimeVersion } from "../runtime/types";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 import {
   findNh3dTilesetByPath,
-  resolveConfiguredNh3dTilesetAtlasWidth,
+  inferNh3dTilesetTileSizeFromAtlasWidth,
+  nh3dTilesetAtlasTileColumns,
   getNh3dTilesetCatalog,
   getNh3dUserTilesetPath,
   resolveDefaultNh3dTilesetBackgroundTileId,
@@ -1643,22 +1644,48 @@ function toUserTilesetRegistrations(
   }));
 }
 
-function inferTilesetTileSizeFromImageDimensions(
-  width: number,
-  height: number,
-): number {
-  const safeWidth = Math.max(0, Math.trunc(width));
-  const safeHeight = Math.max(0, Math.trunc(height));
-  if (safeWidth <= 0 || safeHeight <= 0) {
+async function inferTilesetTileSizeFromBlob(blob: Blob): Promise<number> {
+  if (typeof window === "undefined") {
     return 32;
   }
-  const candidates = [64, 48, 32, 24, 16, 8];
-  for (const size of candidates) {
-    if (safeWidth % size === 0 && safeHeight % size === 0) {
-      return size;
-    }
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    const size = await new Promise<number>((resolve, reject) => {
+      const image = new window.Image();
+      image.onload = () =>
+        resolve(inferNh3dTilesetTileSizeFromAtlasWidth(image.naturalWidth));
+      image.onerror = () => reject(new Error("Failed to read tileset image."));
+      image.src = objectUrl;
+    });
+    return size;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
   }
-  return 32;
+}
+
+async function normalizeUserTilesetTileSizes(
+  records: ReadonlyArray<StoredUserTilesetRecord>,
+): Promise<StoredUserTilesetRecord[]> {
+  return Promise.all(
+    records.map(async (record) => {
+      const fallbackTileSize = Math.max(
+        1,
+        Math.trunc(Number.isFinite(record.tileSize) ? record.tileSize : 32),
+      );
+      try {
+        const tileSize = await inferTilesetTileSizeFromBlob(record.blob);
+        return {
+          ...record,
+          tileSize,
+        };
+      } catch {
+        return {
+          ...record,
+          tileSize: fallbackTileSize,
+        };
+      }
+    }),
+  );
 }
 
 export default function App(): JSX.Element {
@@ -1708,7 +1735,6 @@ export default function App(): JSX.Element {
     [],
   );
   const [tilesetManagerName, setTilesetManagerName] = useState("");
-  const [tilesetManagerTileSize, setTilesetManagerTileSize] = useState("32");
   const [tilesetManagerFile, setTilesetManagerFile] = useState<File | null>(
     null,
   );
@@ -2093,13 +2119,6 @@ export default function App(): JSX.Element {
     }
     let disposed = false;
     const atlasImage = new window.Image();
-    const tileSourceSize = Math.max(
-      1,
-      Math.trunc(selectedTilesetEntry.tileSize),
-    );
-    const configuredAtlasWidth = resolveConfiguredNh3dTilesetAtlasWidth(
-      selectedTilesetEntry.path,
-    );
     const tilesetAssetUrl =
       resolveNh3dTilesetAssetUrl(selectedTilesetEntry.path) ??
       selectedTilesetEntry.path;
@@ -2109,17 +2128,9 @@ export default function App(): JSX.Element {
         return;
       }
       const naturalWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
-      const width =
-        typeof configuredAtlasWidth === "number" &&
-        Number.isFinite(configuredAtlasWidth) &&
-        configuredAtlasWidth > 0
-          ? Math.max(
-              tileSourceSize,
-              Math.min(naturalWidth, Math.trunc(configuredAtlasWidth)),
-            )
-          : naturalWidth;
+      const tileSourceSize = inferNh3dTilesetTileSizeFromAtlasWidth(naturalWidth);
       const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
-      const columns = Math.max(0, Math.floor(width / tileSourceSize));
+      const columns = nh3dTilesetAtlasTileColumns;
       const rows = Math.max(0, Math.floor(height / tileSourceSize));
       const tileCount = columns > 0 && rows > 0 ? columns * rows : 0;
       setTileAtlasState({
@@ -2140,7 +2151,7 @@ export default function App(): JSX.Element {
       setTileAtlasState({
         loaded: false,
         failed: true,
-        tileSourceSize,
+        tileSourceSize: 32,
         columns: 0,
         rows: 0,
         tileCount: 0,
@@ -2544,8 +2555,9 @@ export default function App(): JSX.Element {
     async (rehydrateFromStorage: boolean): Promise<void> => {
       try {
         const records = await listStoredUserTilesets();
-        setUserTilesets(records);
-        setNh3dUserTilesets(toUserTilesetRegistrations(records));
+        const normalizedRecords = await normalizeUserTilesetTileSizes(records);
+        setUserTilesets(normalizedRecords);
+        setNh3dUserTilesets(toUserTilesetRegistrations(normalizedRecords));
         if (rehydrateFromStorage) {
           const nextOptions = resolveInitialClientOptionsFromPersisted(
             initialPersistedClientOptionsRef.current,
@@ -2589,26 +2601,6 @@ export default function App(): JSX.Element {
     if (!tilesetManagerName.trim()) {
       setTilesetManagerName(strippedName || "User Tileset");
     }
-    if (typeof window === "undefined") {
-      return;
-    }
-    const objectUrl = URL.createObjectURL(file);
-    const image = new window.Image();
-    image.onload = () => {
-      const inferredSize = inferTilesetTileSizeFromImageDimensions(
-        image.naturalWidth,
-        image.naturalHeight,
-      );
-      const currentValue = String(tilesetManagerTileSize || "").trim();
-      if (!currentValue || currentValue === "32") {
-        setTilesetManagerTileSize(String(inferredSize));
-      }
-      URL.revokeObjectURL(objectUrl);
-    };
-    image.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-    image.src = objectUrl;
   };
 
   const addUserTileset = async (): Promise<void> => {
@@ -2622,17 +2614,10 @@ export default function App(): JSX.Element {
       setTilesetManagerError("Provide a name for this tileset.");
       return;
     }
-    const tileSize = Math.max(
-      1,
-      Math.trunc(Number.parseInt(tilesetManagerTileSize, 10) || 0),
-    );
-    if (!Number.isFinite(tileSize) || tileSize <= 0) {
-      setTilesetManagerError("Tile size must be a positive integer.");
-      return;
-    }
     setTilesetManagerBusy(true);
     setTilesetManagerError("");
     try {
+      const tileSize = await inferTilesetTileSizeFromBlob(file);
       await saveStoredUserTileset({
         label,
         tileSize,
@@ -2642,7 +2627,6 @@ export default function App(): JSX.Element {
       await refreshUserTilesetCatalog(false);
       setTilesetManagerFile(null);
       setTilesetManagerName("");
-      setTilesetManagerTileSize("32");
       if (tilesetManagerFileInputRef.current) {
         tilesetManagerFileInputRef.current.value = "";
       }
@@ -4109,25 +4093,6 @@ export default function App(): JSX.Element {
                 placeholder="My Tileset"
                 type="text"
                 value={tilesetManagerName}
-              />
-            </div>
-            <div className="nh3d-tileset-manager-upload-row">
-              <label
-                className="nh3d-option-label"
-                htmlFor="nh3d-tileset-tile-size"
-              >
-                Tile Size (px)
-              </label>
-              <input
-                className="nh3d-text-input nh3d-tileset-manager-input nh3d-tileset-manager-input-tile-size"
-                id="nh3d-tileset-tile-size"
-                min={1}
-                onChange={(event) =>
-                  setTilesetManagerTileSize(event.target.value)
-                }
-                step={1}
-                type="number"
-                value={tilesetManagerTileSize}
               />
             </div>
             <div className="nh3d-tileset-manager-upload-row">

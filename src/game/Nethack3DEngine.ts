@@ -59,7 +59,7 @@ import {
 } from "./ui-types";
 import {
   findNh3dTilesetByPath,
-  resolveConfiguredNh3dTilesetAtlasWidth,
+  inferNh3dTilesetTileSizeFromAtlasWidth,
   resolveNh3dTilesetAssetUrl,
 } from "./tilesets";
 
@@ -2116,12 +2116,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    this.tileSourceSize = Math.max(1, Math.trunc(tileset.tileSize));
+    this.tileSourceSize = 32;
     const textureLoader = new THREE.TextureLoader();
     let nextTexture: THREE.Texture;
     nextTexture = textureLoader.load(
       tilesetAssetUrl || tileset.path,
       () => {
+        const atlasWidth = Math.max(
+          0,
+          Math.trunc(Number(nextTexture.image?.width) || 0),
+        );
+        this.tileSourceSize = inferNh3dTilesetTileSizeFromAtlasWidth(atlasWidth);
         this.configureTilesetTextureSampling(nextTexture);
         this.invalidateTilesetDependentCaches();
         if (this.clientOptions.tilesetMode === "tiles") {
@@ -4546,25 +4551,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tilesetTexture.image.width > 0
     ) {
       const img = this.tilesetTexture.image;
-      const configuredAtlasWidth = resolveConfiguredNh3dTilesetAtlasWidth(
-        this.clientOptions.tilesetPath,
-      );
-      const width =
-        typeof configuredAtlasWidth === "number" &&
-        Number.isFinite(configuredAtlasWidth) &&
-        configuredAtlasWidth > 0
-          ? Math.max(
-              size,
-              Math.min(Math.trunc(img.width), Math.trunc(configuredAtlasWidth)),
-            )
-          : Math.trunc(img.width);
+      const width = Math.trunc(img.width);
       const tilesPerRow = Math.floor(width / size);
       const tileRows = Math.floor(img.height / size);
       const tileCount =
         tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
       if (tilesPerRow <= 0 || tileCount <= 0) {
-        context.fillStyle = "#ff00ff";
-        context.fillRect(0, 0, size, size);
+        // Leave transparent if atlas geometry is not yet usable.
       } else {
         const sx = (tileIndex % tilesPerRow) * size;
         const sy = Math.floor(tileIndex / tilesPerRow) * size;
@@ -4583,9 +4576,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
       }
     } else {
-      // Fallback if texture not loaded yet
-      context.fillStyle = "#ff00ff"; // Magenta debug color
-      context.fillRect(0, 0, size, size);
+      // Leave transparent until the tileset texture has loaded.
     }
 
     // Apply darkening if needed (for shadows/fog of war)

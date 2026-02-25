@@ -20,41 +20,29 @@ export type Nh3dUserTilesetRegistration = {
 const fallbackTileSize = 32;
 const fallbackBackgroundTileId = 0;
 const fallbackSolidChromaKeyColorHex = "#466d6c";
-const defaultTilesetAtlasTileColumns = 40;
+export const nh3dTilesetAtlasTileColumns = 40;
 const userTilesetPathPrefix = "user:";
 const tilesetBackgroundTilePresetByLabel: Readonly<Record<string, number>> = {
   "Absurdly Evil": 869,
   DawnHack: 869,
-  "DawnHack 16": 869,
-  "DawnHack 24": 869,
-  "DawnHack 32": 869,
-  "Nevanda 3.6": 1476,
+  Nevanda: 1476,
   "Vanilla NetHack Tiles": 1476,
+  "NetHack Modern": 850,
 };
 const tilesetSolidChromaKeyPresetByLabel: Readonly<Record<string, string>> = {
-  "Absurdly Evil 64": "#466d6c",
   "Absurdly Evil": "#466d6c",
   DawnHack: "#466d6c",
-  "Nevanda 3.6": "#466d6c",
+  Nevanda: "#466d6c",
   "Vanilla NetHack Tiles": "#476C6C",
-};
-// Tile width in pixels (NetHack community convention: 16/24/32/64...).
-const tilesetTileWidthPresetByLabel: Readonly<Record<string, number>> = {
-  "Absurdly Evil": 64,
-  DawnHack: 32,
-  "Nevanda 3.6": 32,
-  "Vanilla NetHack Tiles": 16,
+  "NetHack Modern": "#000000",
 };
 
-function resolveConfiguredTilesetTileSize(
-  label: string,
-  fallbackValue: number,
-): number {
-  const presetByLabel = tilesetTileWidthPresetByLabel[label];
-  if (typeof presetByLabel === "number" && Number.isFinite(presetByLabel)) {
-    return Math.max(1, Math.trunc(presetByLabel));
+export function inferNh3dTilesetTileSizeFromAtlasWidth(width: number): number {
+  const safeWidth = Math.max(0, Math.trunc(width));
+  if (safeWidth <= 0) {
+    return fallbackTileSize;
   }
-  return Math.max(1, Math.trunc(fallbackValue));
+  return Math.max(1, Math.trunc(safeWidth / nh3dTilesetAtlasTileColumns));
 }
 
 const builtinTilesets: Nh3dTilesetEntry[] = [];
@@ -62,10 +50,7 @@ const seenPaths = new Set<string>();
 for (const rawEntry of GENERATED_TILESET_MANIFEST) {
   const path = String(rawEntry?.path || "").trim();
   const label = String(rawEntry?.label || "").trim();
-  const tileSize = resolveConfiguredTilesetTileSize(
-    label || path,
-    Number.isFinite(rawEntry?.tileSize) ? rawEntry.tileSize : 32,
-  );
+  const tileSize = fallbackTileSize;
   if (!path || seenPaths.has(path)) {
     continue;
   }
@@ -256,16 +241,6 @@ export function resolveDefaultNh3dTilesetSolidChromaKeyColorHex(
     );
   }
   return fallbackSolidChromaKeyColorHex;
-}
-
-export function resolveConfiguredNh3dTilesetAtlasWidth(
-  path: string | null | undefined,
-): number | null {
-  const tileset = findNh3dTilesetByPath(path);
-  if (!tileset || tileset.source !== "builtin") {
-    return null;
-  }
-  return defaultTilesetAtlasTileColumns * tileset.tileSize;
 }
 
 export function resolveDefaultNh3dTilesetBackgroundTileId(

@@ -22,8 +22,13 @@ export const GENERATED_TILESET_MANIFEST: ReadonlyArray<GeneratedTilesetManifestE
     "tileSize": 32
   },
   {
-    "label": "Nevanda 3.6",
-    "path": "assets/3.6/Nevanda 3.6.png",
+    "label": "NetHack Modern",
+    "path": "assets/3.6/NetHack Modern.bmp",
+    "tileSize": 32
+  },
+  {
+    "label": "Nevanda",
+    "path": "assets/3.6/Nevanda.png",
     "tileSize": 32
   },
   {
