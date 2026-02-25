@@ -8,8 +8,7 @@
   --nh3d-mobile-visible-bottom-offset: 0px;
   --nh3d-mobile-bottom-bar-bottom-offset: 0px;
   --nh3d-mobile-bottom-bar-clearance: 68px;
-  // Shared mobile overlay frame: keep dialogs/logs below the stats bar and
-  // above the fixed mobile action bar (including browser UI offsets).
+  // Shared mobile overlay frame for non-modal overlays (for example, log).
   --nh3d-mobile-overlay-top-inset: calc(
     var(--nh3d-mobile-visible-top-offset, 0px) + var(--nh3d-safe-area-top) +
       var(--nh3d-stats-bar-height, 0px) + 10px
@@ -26,6 +25,34 @@
         --nh3d-mobile-overlay-top-inset
       ) - var(--nh3d-mobile-overlay-bottom-inset) -
       16px
+  );
+  // Modal frame: center in viewport safe areas only (ignore app chrome).
+  --nh3d-modal-safe-top-inset: calc(var(--nh3d-safe-area-top) + 12px);
+  --nh3d-modal-safe-bottom-inset: calc(var(--nh3d-safe-area-bottom) + 12px);
+  --nh3d-modal-safe-left-inset: calc(env(safe-area-inset-left, 0px) + 12px);
+  --nh3d-modal-safe-right-inset: calc(env(safe-area-inset-right, 0px) + 12px);
+  --nh3d-modal-safe-max-height: calc(
+    var(--nh3d-mobile-visible-height, 100vh) - var(
+        --nh3d-modal-safe-top-inset
+      ) - var(--nh3d-modal-safe-bottom-inset)
+  );
+  --nh3d-modal-safe-center-x: calc(
+    (
+        var(--nh3d-modal-safe-left-inset) +
+          (100vw - var(--nh3d-modal-safe-right-inset))
+      ) /
+      2
+  );
+  --nh3d-modal-safe-center-y: calc(
+    (
+        var(--nh3d-modal-safe-top-inset) +
+          (
+            var(--nh3d-mobile-visible-height, 100vh) - var(
+                --nh3d-modal-safe-bottom-inset
+              )
+          )
+      ) /
+      2
   );
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
@@ -777,8 +804,9 @@ canvas {
 
 .nh3d-dialog {
   @extend %custom-scrollbar;
+  --nh3d-modal-surface-shadow: var(--nh3d-ui-shadow);
   position: fixed;
-  top: 57%;
+  top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   background: var(--nh3d-ui-panel-bg);
@@ -789,16 +817,16 @@ canvas {
   font-family: "Courier New", monospace;
   display: none;
 
-  &.startup {
-    // Mobile startup flow stays centered in the safe-zone frame, with a
-    // deliberate downward bias to preserve onboarding composition.
-    @media (pointer: coarse) {
-      --nh3d-mobile-dialog-center-bias: clamp(28px, 6vh, 52px);
-    }
-  }
-
   &.is-visible {
     display: block;
+  }
+
+  &.is-visible:not(.nh3d-dialog-direction-fps, .startup) {
+    box-shadow:
+      var(--nh3d-modal-surface-shadow),
+      0 0 56px 24px rgba(1, 7, 16, 0.3),
+      0 0 50px 39px rgba(1, 7, 16, 0.42),
+      0 0 50px 38px rgba(1, 7, 16, 0.56);
   }
 
   &.nh3d-dialog-inventory {
@@ -815,7 +843,7 @@ canvas {
     }
 
     @media (pointer: coarse) {
-      max-height: var(--nh3d-mobile-overlay-max-height, 80vh);
+      max-height: var(--nh3d-modal-safe-max-height, 80vh);
 
       .nh3d-inventory-items {
         padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -825,22 +853,18 @@ canvas {
 
   @media (pointer: coarse) {
     --nh3d-dialog-mobile-padding: 9px;
-    --nh3d-mobile-dialog-center-bias: 0px;
-
-    // Center dialogs inside the safe-zone frame, not the full viewport.
-    top: calc(
-      var(--nh3d-mobile-overlay-top-inset) +
-        (var(--nh3d-mobile-overlay-max-height) / 2) +
-        var(--nh3d-mobile-dialog-center-bias)
-    );
-    left: 50%;
+    top: var(--nh3d-modal-safe-center-y);
+    left: var(--nh3d-modal-safe-center-x);
     transform: translate(-50%, -50%);
     box-sizing: border-box;
     width: max-content;
-    max-width: calc(100vw - 50px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
 
-    // Keep mobile dialogs within the same top and bottom bounds.
-    max-height: var(--nh3d-mobile-overlay-max-height);
+    max-height: var(--nh3d-modal-safe-max-height);
 
     padding: var(--nh3d-dialog-mobile-padding);
     border-radius: 8px;
@@ -879,25 +903,22 @@ canvas {
       border-bottom-right-radius: inherit;
       background-clip: padding-box;
     }
-  }
 
-  @media (orientation: landscape) and (pointer: coarse) {
-    &:not(.nh3d-dialog-direction-fps):not(#character-setup-dialog) {
-      top: calc(
-        var(--nh3d-mobile-overlay-top-inset) +
-          (var(--nh3d-mobile-overlay-max-height) / 2)
-      );
-      transform: translate(-50%, -50%);
-      max-height: var(--nh3d-mobile-overlay-max-height);
+    &.is-visible:not(.nh3d-dialog-direction-fps, .startup) {
+      box-shadow:
+        var(--nh3d-modal-surface-shadow),
+        0 0 56px 24px rgba(1, 7, 16, 0.3),
+        0 0 50px 39px rgba(1, 7, 16, 0.42),
+        0 0 50px 38px rgba(1, 7, 16, 0.56);
     }
   }
 }
 
 @media (pointer: coarse) {
   // Ensure specialized dialog classes that set their own heights still clamp
-  // to the shared mobile safe-zone frame.
-  .nh3d-dialog:not(.nh3d-dialog-direction-fps) {
-    max-height: var(--nh3d-mobile-overlay-max-height);
+  // to the shared mobile modal frame.
+  .nh3d-dialog:not(.nh3d-dialog-direction-fps, .startup) {
+    max-height: var(--nh3d-modal-safe-max-height);
   }
 }
 
@@ -1058,23 +1079,15 @@ canvas {
 
   @media (pointer: coarse) {
     min-width: 0;
-    max-width: calc(100vw - 20px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
   }
 }
 
 .nh3d-dialog-new-game {
-  // Desktop new-game prompt retains its established vertical emphasis.
-  top: 62%;
-
-  // Mobile new-game prompt stays centered in the safe-zone frame, but lower.
-  @media (pointer: coarse) {
-    --nh3d-mobile-dialog-center-bias: clamp(56px, 10vh, 92px);
-  }
-
-  @media (orientation: landscape) and (pointer: coarse) {
-    --nh3d-mobile-dialog-center-bias: clamp(40px, 8vh, 72px);
-  }
-
   .nh3d-menu-actions {
     @media (pointer: coarse) {
       margin-top: 0 !important;
@@ -1090,7 +1103,11 @@ canvas {
 
   @media (pointer: coarse) {
     min-width: 0;
-    max-width: calc(100vw - 20px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
   }
 }
 
@@ -1159,11 +1176,13 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    // Character setup remains centered in-frame with a mild downward bias.
-    --nh3d-mobile-dialog-center-bias: clamp(10px, 2.5vh, 24px);
     width: min(92vw, 680px);
-    max-width: calc(100vw - 16px);
-    max-height: var(--nh3d-mobile-overlay-max-height);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
+    max-height: var(--nh3d-modal-safe-max-height);
     padding: 12px;
     box-sizing: border-box;
     overflow-x: hidden;
@@ -1197,8 +1216,7 @@ canvas {
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
-    --nh3d-mobile-dialog-center-bias: clamp(6px, 1.8vh, 16px);
-    max-height: var(--nh3d-mobile-overlay-max-height);
+    max-height: var(--nh3d-modal-safe-max-height);
   }
 }
 
@@ -1210,7 +1228,11 @@ canvas {
 
   @media (pointer: coarse) {
     min-width: 0;
-    max-width: calc(100vw - 20px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
   }
 }
 
@@ -1272,7 +1294,11 @@ canvas {
 
   @media (pointer: coarse) {
     min-width: 0;
-    max-width: calc(100vw - 20px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
   }
 }
 
@@ -1283,7 +1309,11 @@ canvas {
 
   @media (pointer: coarse) {
     min-width: 0;
-    max-width: calc(100vw - 20px);
+    max-width: calc(
+      100vw - var(--nh3d-modal-safe-left-inset) - var(
+          --nh3d-modal-safe-right-inset
+        )
+    );
   }
 }
 
@@ -2003,7 +2033,7 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    // Position prompt uses the same top/max-height frame as dialogs.
+    // Position prompt remains anchored to gameplay overlay bounds.
     top: var(--nh3d-mobile-overlay-top-inset);
     max-width: calc(100vw - 16px);
     max-height: var(--nh3d-mobile-overlay-max-height);
