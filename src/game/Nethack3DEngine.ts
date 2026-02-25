@@ -57,7 +57,7 @@ import {
   nh3dFpsLookSensitivityMin,
   normalizeNh3dClientOptions,
 } from "./ui-types";
-import { findNh3dTilesetByPath } from "./tilesets";
+import { findNh3dTilesetByPath, resolveNh3dTilesetAssetUrl } from "./tilesets";
 
 type LightingGrid = {
   minX: number;
@@ -2100,6 +2100,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private loadTilesetTexture(options: Nh3dClientOptions): void {
     const tileset = findNh3dTilesetByPath(options.tilesetPath);
+    const tilesetAssetUrl = resolveNh3dTilesetAssetUrl(options.tilesetPath);
     if (!tileset) {
       this.tilesetTexture?.dispose();
       this.tilesetTexture = null;
@@ -2115,7 +2116,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const textureLoader = new THREE.TextureLoader();
     let nextTexture: THREE.Texture;
     nextTexture = textureLoader.load(
-      tileset.path,
+      tilesetAssetUrl || tileset.path,
       () => {
         this.configureTilesetTextureSampling(nextTexture);
         this.invalidateTilesetDependentCaches();

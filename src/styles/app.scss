@@ -1407,6 +1407,31 @@ canvas {
   flex-wrap: wrap;
 }
 
+.nh3d-option-select-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+
+  @media (pointer: coarse) {
+    width: 100%;
+    align-items: stretch;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+.nh3d-option-select-controls-tileset {
+  .nh3d-startup-config-select {
+    min-width: 220px;
+  }
+  @media (pointer: coarse) {
+    .nh3d-startup-config-select {
+      min-width: 0;
+    }
+  }
+}
+
 .nh3d-option-tile-picker-button {
   display: inline-flex;
   align-items: center;
@@ -1536,6 +1561,11 @@ canvas {
   max-height: min(90vh, 900px);
 }
 
+.nh3d-dialog-tileset-manager {
+  width: min(94vw, 780px);
+  max-height: min(88vh, 860px);
+}
+
 .nh3d-dark-wall-picker-selected {
   display: flex;
   align-items: center;
@@ -1572,6 +1602,130 @@ canvas {
   padding: 10px;
   color: var(--nh3d-ui-text-muted);
   font-size: 12px;
+}
+
+.nh3d-tileset-manager-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid rgba(76, 111, 160, 0.55);
+  border-radius: 8px;
+  background: rgba(10, 22, 36, 0.82);
+}
+
+.nh3d-tileset-manager-upload-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nh3d-tileset-manager-input {
+  width: 100%;
+}
+
+.nh3d-tileset-manager-input-tile-size {
+  max-width: 140px;
+}
+
+.nh3d-tileset-manager-file-input {
+  font-size: 12px;
+  color: var(--nh3d-ui-text-muted);
+
+  &::file-selector-button {
+    margin-right: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--nh3d-ui-button-border);
+    background: var(--nh3d-ui-button-alt-bg);
+    color: var(--nh3d-ui-text);
+    font-size: 12px;
+    font-weight: bold;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease;
+  }
+
+  &::-webkit-file-upload-button {
+    margin-right: 10px;
+    border-radius: 6px;
+    border: 1px solid var(--nh3d-ui-button-border);
+    background: var(--nh3d-ui-button-alt-bg);
+    color: var(--nh3d-ui-text);
+    font-size: 12px;
+    font-weight: bold;
+    padding: 6px 10px;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease;
+  }
+
+  &:hover::file-selector-button,
+  &:hover::-webkit-file-upload-button {
+    background: var(--nh3d-ui-button-bg-hover);
+  }
+}
+
+.nh3d-tileset-manager-upload-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.nh3d-tileset-manager-error {
+  margin-top: 10px;
+  color: #ffd3d3;
+  font-size: 12px;
+}
+
+.nh3d-tileset-manager-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(34vh, 320px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.nh3d-tileset-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(74, 112, 164, 0.54);
+  border-radius: 8px;
+  background: rgba(12, 31, 48, 0.66);
+}
+
+.nh3d-tileset-manager-item-copy {
+  min-width: 0;
+}
+
+.nh3d-tileset-manager-delete {
+  width: 30px;
+  height: 30px;
+  border-radius: 6px;
+  border: 1px solid var(--nh3d-ui-cancel-border);
+  background: var(--nh3d-ui-cancel-bg);
+  color: var(--nh3d-ui-text);
+  font-weight: bold;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+
+  &:hover {
+    background: var(--nh3d-ui-cancel-bg-hover);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
 }
 
 .nh3d-solid-chroma-picker-atlas-shell {
