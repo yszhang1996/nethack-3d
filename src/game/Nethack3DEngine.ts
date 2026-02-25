@@ -2571,6 +2571,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (this.isFpsMode()) {
+      const canvasRect = this.renderer.domElement.getBoundingClientRect();
+      const anchorX = canvasRect.left + canvasRect.width * 0.5;
+      const anchorY = canvasRect.top + Math.max(54, canvasRect.height * 0.2);
+      this.metaCommandModal.style.visibility = "visible";
+      this.metaCommandModal.style.left = `${Math.round(anchorX)}px`;
+      this.metaCommandModal.style.top = `${Math.round(anchorY)}px`;
+      return;
+    }
+
     const projected = this.projectWorldToScreen(
       this.playerPos.x * TILE_SIZE,
       -this.playerPos.y * TILE_SIZE,
@@ -11218,6 +11228,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private isMetaCommandTriggerKey(event: KeyboardEvent): boolean {
+    if (event.key === "#") {
+      return true;
+    }
+    return event.shiftKey && event.code === "Digit3";
+  }
+
   private startMetaCommandMode(): void {
     if (!this.canStartMetaCommandMode()) {
       return;
@@ -12239,7 +12256,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (event.key === "#" && this.canStartMetaCommandMode()) {
+    if (this.isMetaCommandTriggerKey(event) && this.canStartMetaCommandMode()) {
       event.preventDefault();
       this.startMetaCommandMode();
       return;
