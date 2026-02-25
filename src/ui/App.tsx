@@ -1629,6 +1629,17 @@ function isRunningOnLocalhost(): boolean {
   );
 }
 
+function stripUserTilesetNameSuffix(value: string): string {
+  return String(value || "")
+    .replace(/\s*\(user\)\s*$/i, "")
+    .trim();
+}
+
+function appendUserTilesetNameSuffix(value: string): string {
+  const normalized = stripUserTilesetNameSuffix(value);
+  return normalized ? `${normalized} (user)` : "User Tileset (user)";
+}
+
 function toUserTilesetRegistrations(
   records: ReadonlyArray<StoredUserTilesetRecord>,
 ): ReadonlyArray<{
@@ -2838,7 +2849,11 @@ export default function App(): JSX.Element {
     const userRecord = userTilesetRecordByPath.get(tilesetPath);
     setTilesetManagerMode("edit");
     setTilesetManagerEditPath(tilesetPath);
-    setTilesetManagerName(userRecord?.label ?? tilesetEntry.label);
+    setTilesetManagerName(
+      userRecord
+        ? stripUserTilesetNameSuffix(userRecord.label)
+        : tilesetEntry.label,
+    );
     resetTilesetManagerSelectedFile();
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
@@ -2960,7 +2975,8 @@ export default function App(): JSX.Element {
 
   const saveTilesetManager = async (): Promise<void> => {
     const file = tilesetManagerFile;
-    const label = String(tilesetManagerName || "").trim();
+    const label = stripUserTilesetNameSuffix(tilesetManagerName);
+    const userLabel = appendUserTilesetNameSuffix(label);
     if (tilesetManagerInNewMode) {
       if (!file) {
         setTilesetManagerError("Choose a PNG/BMP/GIF/JPEG tileset file.");
@@ -2986,7 +3002,7 @@ export default function App(): JSX.Element {
       if (tilesetManagerInNewMode) {
         const tileSize = await inferTilesetTileSizeFromBlob(file as File);
         const savedRecord = await saveStoredUserTileset({
-          label,
+          label: userLabel,
           tileSize,
           fileName: (file as File).name,
           file: file as File,
@@ -3003,7 +3019,7 @@ export default function App(): JSX.Element {
           : selectedTilesetManagerEditUserRecord.tileSize;
         await saveStoredUserTileset({
           id: selectedTilesetManagerEditUserRecord.id,
-          label,
+          label: userLabel,
           tileSize: nextTileSize,
           fileName: nextFileName,
           file: nextFile,
@@ -4605,7 +4621,7 @@ export default function App(): JSX.Element {
             onClick={openTilesetManagerNewEditor}
             type="button"
           >
-            Add Tile Set
+            + Import New Tile Set
           </button>
           <div className="nh3d-tileset-manager-list">
             {tilesetManagerListTilesets.length === 0 ? (
