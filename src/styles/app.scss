@@ -1139,6 +1139,7 @@ canvas {
     display: flex;
     align-items: center;
     justify-content: center;
+    margin-top: 5px;
 
     &:last-of-type {
       margin-bottom: 20px;
@@ -2146,14 +2147,8 @@ canvas {
   }
 
   &.nh3d-choice-button-default {
-    background: var(--nh3d-ui-confirm-bg);
-    border-color: var(--nh3d-ui-confirm-border);
-    color: var(--nh3d-ui-confirm-text);
-
-    &:hover {
-      background: var(--nh3d-ui-confirm-bg-hover);
-      border-color: var(--nh3d-ui-confirm-border);
-    }
+    border-style: dashed;
+    opacity: 0.92;
   }
 }
 
@@ -2752,11 +2747,6 @@ canvas {
     background: var(--nh3d-ui-button-warm-bg-hover);
   }
 
-  &.nh3d-action-button-active {
-    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
-    filter: brightness(1.08);
-  }
-
   &.nh3d-menu-action-confirm,
   &.nh3d-pickup-action-confirm {
     border-color: var(--nh3d-ui-confirm-border);
@@ -2857,10 +2847,25 @@ canvas {
     border-color: var(--nh3d-ui-button-warm-border);
     box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
   }
+}
 
+.nh3d-dialog button,
+.nh3d-dialog [role="button"][tabindex="0"],
+#position-dialog button,
+.nh3d-menu-action-button,
+.nh3d-pickup-action-button,
+.nh3d-menu-button,
+.nh3d-choice-button,
+.nh3d-direction-button,
+.nh3d-question-page-button {
+  &:focus-visible,
+  &.nh3d-action-button-active,
   &.nh3d-menu-button-active {
-    border-color: var(--nh3d-ui-button-warm-border);
-    box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
+    outline: none;
+    box-shadow:
+      0 0 0 1px var(--nh3d-ui-button-warm-ring),
+      0 0 0 2px rgba(102, 204, 255, 0.22);
+    filter: brightness(1.08);
   }
 }
 

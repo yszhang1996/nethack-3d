@@ -2746,6 +2746,74 @@ export default function App(): JSX.Element {
   const inventoryCloseInstructionText = inventoryContextActionsEnabled
     ? "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close"
     : "Press ENTER, ESC, or 'i' to close.";
+
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const visibleDialogs = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        ".nh3d-dialog.is-visible, #position-dialog.is-visible",
+      ),
+    );
+    if (visibleDialogs.length === 0) {
+      return;
+    }
+
+    const selectableButtonSelector = [
+      "button:not(:disabled):not(.nh3d-mobile-dialog-close)",
+      '[role="button"][tabindex="0"]',
+    ].join(", ");
+
+    const topDialog = visibleDialogs[visibleDialogs.length - 1];
+    if (topDialog.id === "text-input-dialog") {
+      return;
+    }
+
+    const explicitActiveTarget = topDialog.querySelector<HTMLElement>(
+      ".nh3d-menu-button.nh3d-menu-button-active, .nh3d-menu-action-button.nh3d-action-button-active, .nh3d-pickup-action-button.nh3d-action-button-active",
+    );
+    const firstSelectableButton = topDialog.querySelector<HTMLElement>(
+      selectableButtonSelector,
+    );
+    const activeElement =
+      typeof document.activeElement === "object" &&
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    const activeElementInDialog =
+      activeElement &&
+      topDialog.contains(activeElement) &&
+      activeElement.matches(selectableButtonSelector)
+        ? activeElement
+        : null;
+    const targetButton =
+      activeElementInDialog ?? explicitActiveTarget ?? firstSelectableButton;
+    if (!targetButton) {
+      return;
+    }
+    if (activeElementInDialog) {
+      return;
+    }
+    targetButton.focus({ preventScroll: true });
+  }, [
+    characterCreationConfig,
+    directionQuestion,
+    infoMenu,
+    inventory.visible,
+    inventory.items,
+    inventory.contextActionsEnabled,
+    isClientOptionsVisible,
+    isDarkWallTilePickerVisible,
+    isTilesetBackgroundTilePickerVisible,
+    isTilesetManagerVisible,
+    isTilesetSolidColorPickerVisible,
+    newGamePrompt.visible,
+    question,
+    textInputRequest,
+  ]);
+
   const mobileExtendedCommandNames = useMemo(() => {
     const rawCommands =
       Array.isArray(extendedCommands) && extendedCommands.length > 0

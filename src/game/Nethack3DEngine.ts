@@ -9687,24 +9687,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return hasYes && hasNo && onlySimpleChoices;
   }
 
-  private isActiveSimpleYesNoQuestionPrompt(): boolean {
-    if (
-      !this.isInQuestion ||
-      this.isInDirectionQuestion ||
-      this.activeQuestionIsPickupDialog
-    ) {
-      return false;
-    }
-    if (this.activeQuestionMenuItems.length > 0) {
-      return false;
-    }
-    const parsedChoices = this.parseQuestionChoices(
-      this.activeQuestionText,
-      this.activeQuestionChoices,
-    );
-    return this.isSimpleYesNoChoicePrompt(parsedChoices);
-  }
-
   private expandChoiceSpec(spec: string): string[] {
     const normalized = (spec || "")
       .replace(/[\u0000-\u001f\u007f]/g, "")
@@ -12085,12 +12067,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.submitTextInput("");
         return;
       }
-      if (this.isActiveSimpleYesNoQuestionPrompt()) {
-        event.preventDefault();
-        this.sendInput("n");
-        this.hideQuestion();
-        return;
-      }
       if (this.isInventoryDialogVisible) {
         this.hideInventoryDialog();
         return;
@@ -12146,12 +12122,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (event.key === "Enter" || event.key === "NumpadEnter") {
-      if (this.isActiveSimpleYesNoQuestionPrompt()) {
-        event.preventDefault();
-        this.sendInput("y");
-        this.hideQuestion();
-        return;
-      }
       if (this.isInventoryDialogVisible) {
         this.hideInventoryDialog();
         return;
