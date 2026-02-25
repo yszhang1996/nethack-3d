@@ -1756,6 +1756,12 @@ export default function App(): JSX.Element {
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
   const newGamePrompt = useGameStore((state) => state.newGamePrompt);
+  const [
+    reopenNewGamePromptOnInteraction,
+    setReopenNewGamePromptOnInteraction,
+  ] = useState(false);
+  const [deferredNewGamePromptReason, setDeferredNewGamePromptReason] =
+    useState<string | null>(null);
   const tilesetCatalog = useMemo(() => getNh3dTilesetCatalog(), [userTilesets]);
   const hasAnyTilesets = tilesetCatalog.length > 0;
   const tilesetDropdownOptions = useMemo(
@@ -2500,6 +2506,16 @@ export default function App(): JSX.Element {
     window.location.reload();
   };
 
+  const dismissNewGamePromptUntilInteraction = (): void => {
+    const nextReason =
+      typeof newGamePrompt.reason === "string" && newGamePrompt.reason.trim()
+        ? newGamePrompt.reason.trim()
+        : deferredNewGamePromptReason;
+    setDeferredNewGamePromptReason(nextReason ?? null);
+    setReopenNewGamePromptOnInteraction(true);
+    setNewGamePrompt({ visible: false, reason: null });
+  };
+
   const refreshUserTilesetCatalog = useCallback(
     async (rehydrateFromStorage: boolean): Promise<void> => {
       try {
@@ -2939,6 +2955,58 @@ export default function App(): JSX.Element {
       setInventoryContextMenu(null);
     }
   }, [inventory.visible]);
+
+  useEffect(() => {
+    if (!newGamePrompt.visible) {
+      return;
+    }
+    setReopenNewGamePromptOnInteraction(false);
+    if (
+      typeof newGamePrompt.reason === "string" &&
+      newGamePrompt.reason.trim().length > 0
+    ) {
+      setDeferredNewGamePromptReason(newGamePrompt.reason.trim());
+    }
+  }, [newGamePrompt.reason, newGamePrompt.visible]);
+
+  useEffect(() => {
+    if (
+      !reopenNewGamePromptOnInteraction ||
+      newGamePrompt.visible ||
+      typeof window === "undefined"
+    ) {
+      return;
+    }
+    let handled = false;
+    const handleFirstInteraction = (): void => {
+      if (handled) {
+        return;
+      }
+      handled = true;
+      setReopenNewGamePromptOnInteraction(false);
+      setNewGamePrompt({
+        visible: true,
+        reason: deferredNewGamePromptReason,
+      });
+    };
+    const handleEnterKey = (event: KeyboardEvent): void => {
+      if (event.key !== "Enter" && event.key !== "NumpadEnter") {
+        return;
+      }
+      handleFirstInteraction();
+    };
+    window.addEventListener("pointerdown", handleFirstInteraction, true);
+    window.addEventListener("keydown", handleEnterKey, true);
+    return () => {
+      window.removeEventListener("pointerdown", handleFirstInteraction, true);
+      window.removeEventListener("keydown", handleEnterKey, true);
+    };
+  }, [
+    deferredNewGamePromptReason,
+    newGamePrompt.visible,
+    reopenNewGamePromptOnInteraction,
+    setNewGamePrompt,
+  ]);
 
   useEffect(() => {
     if (!inventoryContextMenu) {
@@ -4446,7 +4514,7 @@ export default function App(): JSX.Element {
             </button>
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={() => setNewGamePrompt({ visible: false, reason: null })}
+              onClick={dismissNewGamePromptUntilInteraction}
               type="button"
             >
               No
