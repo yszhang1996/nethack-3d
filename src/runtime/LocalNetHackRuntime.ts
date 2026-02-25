@@ -2432,6 +2432,25 @@ class LocalNetHackRuntime {
       typeof import.meta.env.BASE_URL === "string"
         ? import.meta.env.BASE_URL
         : "/";
+
+    // In packaged Electron (file://), Vite worker bundles are emitted into
+    // dist/assets while wasm files are copied to dist/. A BASE_URL of "./"
+    // would otherwise resolve relative to dist/assets and miss the wasm file.
+    const workerLocationHref =
+      typeof globalThis !== "undefined" &&
+      globalThis.location &&
+      typeof globalThis.location.href === "string"
+        ? globalThis.location.href
+        : "";
+    const isFileWorker = workerLocationHref.startsWith("file:");
+    if (isFileWorker && (baseUrl === "./" || baseUrl === ".")) {
+      try {
+        return new URL(`../${normalizedAsset}`, workerLocationHref).toString();
+      } catch {
+        // Fall through to default base handling.
+      }
+    }
+
     const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
     return `${normalizedBase}${normalizedAsset}`;
   }

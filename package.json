@@ -22,10 +22,13 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "NetHack 3D desktop build",
   "build": {
     "appId": "com.nethack3d.app",
     "productName": "NetHack 3D",
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
     "directories": {
       "output": "release"
     },
@@ -35,6 +38,7 @@
       "package.json"
     ],
     "win": {
+      "icon": "public/NetHack3D.ico",
       "target": [
         {
           "target": "nsis",
