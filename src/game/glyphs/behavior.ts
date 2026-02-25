@@ -80,6 +80,11 @@ export function isDoorwayCmapGlyph(glyph: number): boolean {
   );
 }
 
+export function isVerticalDoorCmapGlyph(glyph: number): boolean {
+  const cmapIndex = getCmapIndex(glyph);
+  return cmapIndex === 13 || cmapIndex === 15;
+}
+
 export function isSinkCmapGlyph(glyph: number): boolean {
   // drawing.c: cmap index 30 is sink (S_sink).
   return getCmapIndex(glyph) === 30;

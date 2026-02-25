@@ -26,8 +26,9 @@ import {
   isDarkCorridorCmapGlyph,
   isDoorwayCmapGlyph,
   isSinkCmapGlyph,
+  isVerticalDoorCmapGlyph,
 } from "./glyphs/behavior";
-import { setActiveGlyphCatalog } from "./glyphs/registry";
+import { getGlyphCatalogEntry, setActiveGlyphCatalog } from "./glyphs/registry";
 import type {
   TileBehaviorResult,
   TileEffectKind,
@@ -233,6 +234,13 @@ type TileUpdateOptions = {
   inferredDarkCorridorWall?: boolean;
   restartRevealFade?: boolean;
 };
+
+type WallSideTileOverlay = {
+  textureKey: string;
+  material: THREE.MeshBasicMaterial;
+};
+type WallSideTileRotation = "none" | "cw90" | "ccw90";
+type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
 const toneAdjustShader = {
   uniforms: {
@@ -673,11 +681,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   // Pre-create geometries and materials
   private floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
-  private wallGeometry = new THREE.BoxGeometry(
-    TILE_SIZE,
-    TILE_SIZE,
-    WALL_HEIGHT,
-  );
+  private wallGeometry = this.createUprightWallBlockGeometry("none");
+  private fpsWallBaseGeometryCache: Map<
+    FpsChamferWallUvRotation,
+    THREE.BoxGeometry
+  > = new Map();
 
   // Materials for different glyph types
   private materials = {
@@ -1729,6 +1737,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.disposeWallSideTileOverlay(mesh);
     this.scene.remove(mesh);
     this.tileMap.delete(key);
     this.tileRevealStartMs.delete(key);
@@ -2095,6 +2104,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private invalidateTilesetDependentCaches(): void {
+    this.disposeAllWallSideTileOverlays();
     for (const overlay of this.glyphOverlayMap.values()) {
       this.disposeGlyphOverlay(overlay);
     }
@@ -4503,6 +4513,175 @@ class Nethack3DEngine implements Nethack3DEngineController {
     overlay.material.dispose();
   }
 
+  private getAllWallSideTileOverlays(mesh: THREE.Mesh): WallSideTileOverlay[] {
+    const overlays = mesh.userData?.wallSideTileOverlays as
+      | Partial<Record<WallSideTileRotation, WallSideTileOverlay>>
+      | undefined;
+    if (!overlays) {
+      return [];
+    }
+    const results: WallSideTileOverlay[] = [];
+    for (const rotation of ["none", "cw90", "ccw90"] as const) {
+      const overlay = overlays[rotation];
+      if (
+        overlay &&
+        overlay.material instanceof THREE.MeshBasicMaterial &&
+        !results.includes(overlay)
+      ) {
+        results.push(overlay);
+      }
+    }
+    return results;
+  }
+
+  private disposeWallSideTileOverlay(
+    mesh: THREE.Mesh,
+    rotation?: WallSideTileRotation,
+  ): void {
+    if (rotation) {
+      const overlays = mesh.userData?.wallSideTileOverlays as
+        | Partial<Record<WallSideTileRotation, WallSideTileOverlay>>
+        | undefined;
+      const overlay = overlays?.[rotation];
+      if (overlay) {
+        this.releaseGlyphTexture(overlay.textureKey);
+        overlay.material.dispose();
+        if (overlays) {
+          delete overlays[rotation];
+          if (!overlays.none && !overlays.cw90 && !overlays.ccw90) {
+            delete mesh.userData.wallSideTileOverlays;
+          }
+        }
+      }
+      return;
+    }
+
+    for (const overlay of this.getAllWallSideTileOverlays(mesh)) {
+      this.releaseGlyphTexture(overlay.textureKey);
+      overlay.material.dispose();
+    }
+    delete mesh.userData.wallSideTileOverlays;
+  }
+
+  private ensureWallSideTileOverlayMaterial(
+    mesh: THREE.Mesh,
+    tileIndex: number,
+    darkenFactor: number,
+    opacity: number,
+    rotation: WallSideTileRotation = "cw90",
+  ): THREE.MeshBasicMaterial {
+    let overlays = mesh.userData?.wallSideTileOverlays as
+      | Partial<Record<WallSideTileRotation, WallSideTileOverlay>>
+      | undefined;
+    if (!overlays) {
+      overlays = {};
+      mesh.userData.wallSideTileOverlays = overlays;
+    }
+
+    let overlay = overlays[rotation];
+    if (!overlay) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1,
+      });
+      this.patchMaterialForVignette(material);
+      overlay = {
+        textureKey: "",
+        material,
+      };
+      overlays[rotation] = overlay;
+    }
+
+    const textureKey = `tile:${tileIndex}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
+    const needsTextureRefresh =
+      overlay.textureKey !== textureKey || !this.glyphTextureCache.has(textureKey);
+    if (needsTextureRefresh) {
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
+      }
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(tileIndex, darkenFactor, false),
+      );
+      texture.center.set(0.5, 0.5);
+      texture.rotation =
+        rotation === "cw90"
+          ? -Math.PI / 2
+          : rotation === "ccw90"
+            ? Math.PI / 2
+            : 0;
+      texture.needsUpdate = true;
+      overlay.material.map = texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
+    }
+
+    overlay.material.color.set("#ffffff");
+    overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    return overlay.material;
+  }
+
+  private disposeAllWallSideTileOverlays(): void {
+    this.tileMap.forEach((mesh) => {
+      this.disposeWallSideTileOverlay(mesh);
+    });
+  }
+
+  private resolveWallOrientationChar(
+    glyphChar: string,
+    sourceGlyph: number | null,
+  ): "|" | "-" | null {
+    if (glyphChar === "|" || glyphChar === "-") {
+      return glyphChar;
+    }
+    if (sourceGlyph === null) {
+      return null;
+    }
+    const glyphEntry = getGlyphCatalogEntry(sourceGlyph);
+    if (!glyphEntry || typeof glyphEntry.ch !== "number") {
+      return null;
+    }
+    const catalogChar = String.fromCodePoint(glyphEntry.ch);
+    if (catalogChar === "|" || catalogChar === "-") {
+      return catalogChar;
+    }
+    return null;
+  }
+
+  private resolveCornerWallSideBaseTileIndex(tileIndex: number): number | null {
+    const normalizedTileIndex = Math.trunc(tileIndex);
+    if (normalizedTileIndex < 0) {
+      return null;
+    }
+
+    // Corner-wall variants follow a base+offset pattern:
+    // base+1 (top-left), base+2 (top-right), base+3 (bottom-left), base+4 (bottom-right).
+    // Side faces should use the base tile while top keeps the corner tile.
+    for (const baseTileIndex of [852, 1039, 1050, 1061, 1072]) {
+      const offset = normalizedTileIndex - baseTileIndex;
+      if (offset >= 1 && offset <= 4) {
+        return baseTileIndex;
+      }
+    }
+
+    return null;
+  }
+
+  private resolveFpsChamferWallUvRotation(
+    glyphChar: string,
+    sourceGlyph: number | null,
+  ): FpsChamferWallUvRotation {
+    const wallOrientationChar = this.resolveWallOrientationChar(
+      glyphChar,
+      sourceGlyph,
+    );
+    if (this.clientOptions.tilesetMode === "tiles") {
+      return "none";
+    }
+    // Preserve existing ASCII behavior where vertical walls use rotated chamfer sides.
+    return wallOrientationChar === "|" ? "lr_ccw" : "none";
+  }
+
   private toneColor(hex: string, factor: number): string {
     const color = new THREE.Color(`#${hex}`);
     color.multiplyScalar(THREE.MathUtils.clamp(factor, 0, 1));
@@ -6292,12 +6471,105 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.material.opacity = 1;
     }
 
+    const isDoorWall = mesh.userData?.materialKind === "door";
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number"
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    const wallOrientationChar = this.resolveWallOrientationChar(
+      glyphChar,
+      sourceGlyph,
+    );
+    const cornerWallSideBaseTileIndex =
+      this.resolveCornerWallSideBaseTileIndex(tileIndex);
+    const shouldOverrideCornerWallSideTiles =
+      useTiles &&
+      isWall &&
+      !isDoorWall &&
+      cornerWallSideBaseTileIndex !== null;
+    const shouldOverrideVerticalWallSideTiles =
+      useTiles &&
+      isWall &&
+      !isDoorWall &&
+      !shouldOverrideCornerWallSideTiles &&
+      wallOrientationChar === "|" &&
+      tileIndex >= 0;
+    const shouldRotateHorizontalWallSideTiles =
+      useTiles &&
+      isWall &&
+      !isDoorWall &&
+      !shouldOverrideCornerWallSideTiles &&
+      wallOrientationChar === "-" &&
+      tileIndex >= 0;
+    const shouldRotateVerticalDoorSideTiles =
+      useTiles &&
+      isWall &&
+      isDoorWall &&
+      sourceGlyph !== null &&
+      isVerticalDoorCmapGlyph(sourceGlyph) &&
+      tileIndex >= 0;
+    const wallSideOverrideTileIndex = shouldOverrideCornerWallSideTiles
+      ? (cornerWallSideBaseTileIndex ?? -1)
+      : shouldOverrideVerticalWallSideTiles
+        ? tileIndex + 1
+      : shouldRotateHorizontalWallSideTiles || shouldRotateVerticalDoorSideTiles
+        ? tileIndex
+        : -1;
+    const wallSideOverrideRotation: WallSideTileRotation = "cw90";
+    const wallSideOverrideMaterial =
+      wallSideOverrideTileIndex >= 0
+        ? this.ensureWallSideTileOverlayMaterial(
+            mesh,
+            wallSideOverrideTileIndex,
+            clampedDarken,
+            overlay.material.opacity,
+            wallSideOverrideRotation,
+          )
+        : null;
+    const wallSideFrontBackOverrideMaterial =
+      shouldOverrideVerticalWallSideTiles || shouldOverrideCornerWallSideTiles
+      ? this.ensureWallSideTileOverlayMaterial(
+          mesh,
+          shouldOverrideCornerWallSideTiles
+            ? (cornerWallSideBaseTileIndex ?? -1)
+            : tileIndex + 1,
+          clampedDarken,
+          overlay.material.opacity,
+          "none",
+        )
+      : null;
+    const chamferSideOverrideMaterial =
+      wallSideOverrideTileIndex >= 0
+        ? this.ensureWallSideTileOverlayMaterial(
+            mesh,
+            wallSideOverrideTileIndex,
+            clampedDarken,
+            overlay.material.opacity,
+            "none",
+          )
+        : null;
+    const neededWallSideRotations = new Set<WallSideTileRotation>();
+    if (wallSideOverrideMaterial) {
+      neededWallSideRotations.add(wallSideOverrideRotation);
+      neededWallSideRotations.add("none");
+    }
+    if (wallSideFrontBackOverrideMaterial) {
+      neededWallSideRotations.add("none");
+    }
+    for (const rotation of ["none", "cw90", "ccw90"] as const) {
+      if (!neededWallSideRotations.has(rotation)) {
+        this.disposeWallSideTileOverlay(mesh, rotation);
+      }
+    }
+
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
       if (useTiles) {
         // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
-        // In tileset mode, apply the wall tile to every visible face group.
-        mesh.material = [overlay.material, overlay.material, overlay.material];
+        // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
+        mesh.material = chamferSideOverrideMaterial
+          ? [overlay.material, chamferSideOverrideMaterial, chamferSideOverrideMaterial]
+          : [overlay.material, overlay.material, overlay.material];
       } else {
         // In ASCII mode, keep chamfer cuts floor-tinted for diagonal readability.
         const chamferKind =
@@ -6310,24 +6582,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
         mesh.material = [overlay.material, baseMaterial, chamferMaterial];
       }
     } else if (isWall) {
-      if (mesh.userData.materialKind === "door" && useTiles) {
-        mesh.material = [
-          overlay.material, // right edge
-          overlay.material, // left edge
-          overlay.material, // front
-          overlay.material, // back
-          overlay.material, // top edge
-          baseMaterial, // bottom edge
-        ];
+      if (isDoorWall && useTiles) {
+        mesh.material = wallSideOverrideMaterial
+          ? [
+              wallSideOverrideMaterial, // right edge
+              wallSideOverrideMaterial, // left edge
+              wallSideOverrideMaterial, // front
+              wallSideOverrideMaterial, // back
+              overlay.material, // top edge
+              baseMaterial, // bottom edge
+            ]
+          : [
+              overlay.material, // right edge
+              overlay.material, // left edge
+              overlay.material, // front
+              overlay.material, // back
+              overlay.material, // top edge
+              baseMaterial, // bottom edge
+            ];
       } else if (useTiles) {
-        mesh.material = [
-          overlay.material,
-          overlay.material,
-          overlay.material,
-          overlay.material,
-          overlay.material,
-          baseMaterial,
-        ];
+        const leftRightWallMaterial =
+          wallSideOverrideMaterial ?? overlay.material;
+        const frontBackWallMaterial =
+          wallSideFrontBackOverrideMaterial ??
+          (shouldRotateHorizontalWallSideTiles
+            ? overlay.material
+            : leftRightWallMaterial);
+        mesh.material = wallSideOverrideMaterial
+          ? [
+              leftRightWallMaterial,
+              leftRightWallMaterial,
+              frontBackWallMaterial,
+              frontBackWallMaterial,
+              overlay.material,
+              baseMaterial,
+            ]
+          : [
+              overlay.material,
+              overlay.material,
+              overlay.material,
+              overlay.material,
+              overlay.material,
+              baseMaterial,
+            ];
       } else {
         mesh.material = [
           baseMaterial,
@@ -6339,6 +6636,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ];
       }
     } else {
+      this.disposeWallSideTileOverlay(mesh);
       mesh.material = overlay.material;
     }
   }
@@ -6605,9 +6903,68 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return geometry;
   }
 
+  private createUprightWallBlockGeometry(): THREE.BoxGeometry {
+    const geometry = new THREE.BoxGeometry(TILE_SIZE, TILE_SIZE, WALL_HEIGHT);
+    const position = geometry.getAttribute("position");
+    const normal = geometry.getAttribute("normal");
+    const uv = geometry.getAttribute("uv");
+    if (
+      !(position instanceof THREE.BufferAttribute) ||
+      !(normal instanceof THREE.BufferAttribute) ||
+      !(uv instanceof THREE.BufferAttribute)
+    ) {
+      return geometry;
+    }
+
+    const half = TILE_SIZE / 2;
+    const halfWall = WALL_HEIGHT / 2;
+    for (let i = 0; i < position.count; i += 1) {
+      const x = position.getX(i);
+      const y = position.getY(i);
+      const z = position.getZ(i);
+      const nx = normal.getX(i);
+      const ny = normal.getY(i);
+      const nz = normal.getZ(i);
+
+      let u = 0.5;
+      let v = 0.5;
+      if (Math.abs(nz) >= 0.9) {
+        u = (x + half) / TILE_SIZE;
+        v = (y + half) / TILE_SIZE;
+      } else {
+        const vertical = (z + halfWall) / WALL_HEIGHT;
+        const isLeftRightFace = Math.abs(nx) >= Math.abs(ny);
+        const horizontal = isLeftRightFace
+          ? nx >= 0
+            ? 1 - (y + half) / TILE_SIZE
+            : (y + half) / TILE_SIZE
+          : ny >= 0
+            ? (x + half) / TILE_SIZE
+            : 1 - (x + half) / TILE_SIZE;
+        u = horizontal;
+        v = vertical;
+        if (isLeftRightFace) {
+          // Rotate X-facing sides 90deg CCW in UV space.
+          const rotatedU = v;
+          const rotatedV = 1 - u;
+          u = rotatedU;
+          v = rotatedV;
+        }
+      }
+
+      uv.setXY(
+        i,
+        THREE.MathUtils.clamp(u, 0, 1),
+        THREE.MathUtils.clamp(v, 0, 1),
+      );
+    }
+    uv.needsUpdate = true;
+    return geometry;
+  }
+
   private remapFpsChamferWallUVs(
     geometry: THREE.BufferGeometry,
-    rotateSideFaces: boolean,
+    sideUvRotation: FpsChamferWallUvRotation,
   ): THREE.BufferGeometry {
     const workingGeometry = geometry.index ? geometry.toNonIndexed() : geometry;
     const position = workingGeometry.getAttribute("position");
@@ -6644,7 +7001,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         for (let j = 0; j < 3; j += 1) {
           const p = vertices[j];
           const u = (p.x + half) / TILE_SIZE;
-          const v = 1 - (p.y + half) / TILE_SIZE;
+          const v = (p.y + half) / TILE_SIZE;
           writeUv(i + j, u, v);
         }
         continue;
@@ -6674,13 +7031,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
           projectedRange > 0.000001
             ? (projected[j] - projectedMin) / projectedRange
             : 0.5;
-        const vertical = 1 - (p.z + halfWall) / WALL_HEIGHT;
-        let u = vertical;
-        let v = horizontal;
-        if (rotateSideFaces) {
-          // 90deg clockwise rotation in UV space.
-          u = 1 - horizontal;
-          v = vertical;
+        // Keep side faces upright so the tile's top edge meets the block top.
+        const vertical = (p.z + halfWall) / WALL_HEIGHT;
+        let u = horizontal;
+        let v = vertical;
+        // Chamfered wall side UVs are custom-projected; use one shared rotation
+        // mode for all side faces rather than splitting by face direction.
+        const rotateQuarterTurns =
+          sideUvRotation === "none" ? 0 : 1;
+        if (rotateQuarterTurns === 1) {
+          // Rotate selected chamfer side faces 90deg counterclockwise.
+          const rotatedU = v;
+          const rotatedV = 1 - u;
+          u = rotatedU;
+          v = rotatedV;
         }
         writeUv(i + j, u, v);
       }
@@ -6688,13 +7052,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     workingGeometry.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
     return workingGeometry;
-  }
-
-  private shouldRotateFpsChamferWallUv(glyphChar: string): boolean {
-    // NetHack uses '-' for horizontal room walls and '|' for vertical walls.
-    // In tiles mode these frequently map to different wall textures; only the
-    // horizontal-wall variant should be rotated for chamfered wall faces.
-    return glyphChar === "-";
   }
 
   private remapFpsChamferFloorUVs(geometry: THREE.ShapeGeometry): void {
@@ -6720,7 +7077,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private createFpsChamferedWallGeometry(
     mask: number,
-    rotateSideFaces: boolean,
+    sideUvRotation: FpsChamferWallUvRotation,
   ): THREE.BufferGeometry {
     const half = TILE_SIZE / 2;
     const inset = Math.min(this.fpsWallChamferInset, half - 0.01);
@@ -6770,7 +7127,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     extrudedGeometry.translate(0, 0, -WALL_HEIGHT / 2);
     const geometry = this.remapFpsChamferWallUVs(
       extrudedGeometry,
-      rotateSideFaces,
+      sideUvRotation,
     );
     if (geometry !== extrudedGeometry) {
       extrudedGeometry.dispose();
@@ -6783,17 +7140,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getFpsWallGeometry(
     mask: number,
-    rotateSideFaces: boolean = false,
+    sideUvRotation: FpsChamferWallUvRotation = "none",
   ): THREE.BufferGeometry {
     if (mask === 0) {
       return this.wallGeometry;
     }
-    const cacheKey = `${mask}:${rotateSideFaces ? 1 : 0}`;
+    const cacheKey = `${mask}:${sideUvRotation}`;
     const cached = this.fpsWallChamferGeometryCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const geometry = this.createFpsChamferedWallGeometry(mask, rotateSideFaces);
+    const geometry = this.createFpsChamferedWallGeometry(mask, sideUvRotation);
     this.fpsWallChamferGeometryCache.set(cacheKey, geometry);
     return geometry;
   }
@@ -6949,14 +7306,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.glyphChar === "string"
         ? mesh.userData.glyphChar
         : " ";
-    const rotateChamferSideFaces =
-      nextMask > 0 ? this.shouldRotateFpsChamferWallUv(glyphChar) : false;
-    const previousRotateChamferSideFaces = Boolean(
-      mesh.userData?.fpsWallChamferRotateUv,
-    );
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number"
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    const chamferSideUvRotation =
+      nextMask > 0
+        ? this.resolveFpsChamferWallUvRotation(glyphChar, sourceGlyph)
+        : "none";
+    const previousChamferSideUvRotation =
+      typeof mesh.userData?.fpsWallChamferRotateUv === "string"
+        ? (mesh.userData.fpsWallChamferRotateUv as FpsChamferWallUvRotation)
+        : "none";
     const nextGeometry = this.getFpsWallGeometry(
       nextMask,
-      rotateChamferSideFaces,
+      chamferSideUvRotation,
     );
     const geometryChanged = mesh.geometry !== nextGeometry;
     if (geometryChanged) {
@@ -6964,11 +7328,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     mesh.userData.fpsWallChamferMask = nextMask;
     mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
-    mesh.userData.fpsWallChamferRotateUv = rotateChamferSideFaces;
+    mesh.userData.fpsWallChamferRotateUv = chamferSideUvRotation;
     this.upsertFpsWallChamferFloorMesh(tileX, tileY, nextMask, nextChamferKind);
     const chamferKindChanged = previousChamferKind !== nextChamferKind;
     const chamferRotateChanged =
-      previousRotateChamferSideFaces !== rotateChamferSideFaces;
+      previousChamferSideUvRotation !== chamferSideUvRotation;
     if (
       !geometryChanged &&
       previousMask === nextMask &&
@@ -7030,6 +7394,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     // Clear all tile meshes
     this.tileMap.forEach((mesh, key) => {
+      this.disposeWallSideTileOverlay(mesh);
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
@@ -7636,6 +8001,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (isUndiscovered) {
       if (mesh) {
+        this.disposeWallSideTileOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
@@ -7662,6 +8028,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (!tileMesh.userData?.isPlayerGlyph) {
           continue;
         }
+        this.disposeWallSideTileOverlay(tileMesh);
         this.scene.remove(tileMesh);
         this.tileMap.delete(tileKey);
         this.tileRevealStartMs.delete(tileKey);
@@ -7674,6 +8041,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.removeMonsterBillboard(key);
       if (mesh && mesh.userData?.isPlayerGlyph) {
+        this.disposeWallSideTileOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
         this.tileStateCache.delete(key);
@@ -7848,10 +8216,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       wallChamferMask > 0
         ? this.getFpsChamferMaterialKindForWall(renderBehavior.materialKind)
         : null;
-    const wallChamferRotateUv =
+    const wallChamferRotateUv: FpsChamferWallUvRotation =
       wallChamferMask > 0
-        ? this.shouldRotateFpsChamferWallUv(tileGlyphChar)
-        : false;
+        ? this.resolveFpsChamferWallUvRotation(tileGlyphChar, glyph)
+        : "none";
     const geometry =
       renderBehavior.geometryKind === "wall"
         ? this.getFpsWallGeometry(wallChamferMask, wallChamferRotateUv)
@@ -7892,6 +8260,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.isDamageFlashableCharacter =
       this.isDamageFlashableBehavior(behavior);
     mesh.userData.glyphChar = behavior.glyphChar;
+    mesh.userData.sourceGlyph = glyph;
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
@@ -15278,9 +15647,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const eased = 1 - Math.pow(1 - t, 3);
 
       overlay.material.opacity = eased;
+      const mesh = this.tileMap.get(key);
+      const sideOverlays = mesh ? this.getAllWallSideTileOverlays(mesh) : [];
+      for (const sideOverlay of sideOverlays) {
+        sideOverlay.material.opacity = eased;
+      }
 
       if (t >= 1) {
         overlay.material.opacity = 1;
+        for (const sideOverlay of sideOverlays) {
+          sideOverlay.material.opacity = 1;
+        }
         staleKeys.push(key);
       }
     }
