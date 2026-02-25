@@ -1605,9 +1605,10 @@ function persistClientOptions(options: Nh3dClientOptions): void {
   }
 }
 
-function resolveInitialClientOptions(): Nh3dClientOptions {
+function resolveInitialClientOptionsFromPersisted(
+  persisted: Partial<Nh3dClientOptions> | null,
+): Nh3dClientOptions {
   const deviceDefaults = resolveDeviceDefaultClientOptions();
-  const persisted = readPersistedClientOptions();
   if (!persisted) {
     return deviceDefaults;
   }
@@ -1665,11 +1666,23 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
+  const initialPersistedClientOptionsRef = useRef<
+    Partial<Nh3dClientOptions> | null
+  >(readPersistedClientOptions());
+  const initialClientOptions = useMemo(
+    () =>
+      resolveInitialClientOptionsFromPersisted(
+        initialPersistedClientOptionsRef.current,
+      ),
+    [],
+  );
   const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(() =>
-    resolveInitialClientOptions(),
+    initialClientOptions,
   );
   const [clientOptionsDraft, setClientOptionsDraft] =
-    useState<Nh3dClientOptions>(() => resolveInitialClientOptions());
+    useState<Nh3dClientOptions>(() => initialClientOptions);
+  const [hasHydratedUserTilesets, setHasHydratedUserTilesets] =
+    useState(false);
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
@@ -2038,8 +2051,11 @@ export default function App(): JSX.Element {
   }, [controller, clientOptions]);
 
   useEffect(() => {
+    if (!hasHydratedUserTilesets) {
+      return;
+    }
     persistClientOptions(clientOptions);
-  }, [clientOptions]);
+  }, [clientOptions, hasHydratedUserTilesets]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -2486,17 +2502,25 @@ export default function App(): JSX.Element {
 
   const refreshUserTilesetCatalog = useCallback(
     async (rehydrateFromStorage: boolean): Promise<void> => {
-      const records = await listStoredUserTilesets();
-      setUserTilesets(records);
-      setNh3dUserTilesets(toUserTilesetRegistrations(records));
-      if (rehydrateFromStorage) {
-        const nextOptions = resolveInitialClientOptions();
-        setClientOptions(nextOptions);
-        setClientOptionsDraft(nextOptions);
-        return;
+      try {
+        const records = await listStoredUserTilesets();
+        setUserTilesets(records);
+        setNh3dUserTilesets(toUserTilesetRegistrations(records));
+        if (rehydrateFromStorage) {
+          const nextOptions = resolveInitialClientOptionsFromPersisted(
+            initialPersistedClientOptionsRef.current,
+          );
+          setClientOptions(nextOptions);
+          setClientOptionsDraft(nextOptions);
+          return;
+        }
+        setClientOptions((previous) => normalizeNh3dClientOptions(previous));
+        setClientOptionsDraft((previous) => normalizeNh3dClientOptions(previous));
+      } finally {
+        if (rehydrateFromStorage) {
+          setHasHydratedUserTilesets(true);
+        }
       }
-      setClientOptions((previous) => normalizeNh3dClientOptions(previous));
-      setClientOptionsDraft((previous) => normalizeNh3dClientOptions(previous));
     },
     [],
   );
