@@ -57,7 +57,11 @@ import {
   nh3dFpsLookSensitivityMin,
   normalizeNh3dClientOptions,
 } from "./ui-types";
-import { findNh3dTilesetByPath, resolveNh3dTilesetAssetUrl } from "./tilesets";
+import {
+  findNh3dTilesetByPath,
+  resolveConfiguredNh3dTilesetAtlasWidth,
+  resolveNh3dTilesetAssetUrl,
+} from "./tilesets";
 
 type LightingGrid = {
   minX: number;
@@ -4542,24 +4546,41 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tilesetTexture.image.width > 0
     ) {
       const img = this.tilesetTexture.image;
-      const tilesPerRow = Math.floor(img.width / size);
+      const configuredAtlasWidth = resolveConfiguredNh3dTilesetAtlasWidth(
+        this.clientOptions.tilesetPath,
+      );
+      const width =
+        typeof configuredAtlasWidth === "number" &&
+        Number.isFinite(configuredAtlasWidth) &&
+        configuredAtlasWidth > 0
+          ? Math.max(
+              size,
+              Math.min(Math.trunc(img.width), Math.trunc(configuredAtlasWidth)),
+            )
+          : Math.trunc(img.width);
+      const tilesPerRow = Math.floor(width / size);
       const tileRows = Math.floor(img.height / size);
       const tileCount =
         tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
-      const sx = (tileIndex % tilesPerRow) * size;
-      const sy = Math.floor(tileIndex / tilesPerRow) * size;
+      if (tilesPerRow <= 0 || tileCount <= 0) {
+        context.fillStyle = "#ff00ff";
+        context.fillRect(0, 0, size, size);
+      } else {
+        const sx = (tileIndex % tilesPerRow) * size;
+        const sy = Math.floor(tileIndex / tilesPerRow) * size;
 
-      // Draw the specific tile from the atlas
-      context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
+        // Draw the specific tile from the atlas
+        context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
 
-      if (applyChromaKey) {
-        this.applyTilesetBillboardBackgroundRemoval(
-          context,
-          img,
-          size,
-          tileCount,
-          tilesPerRow,
-        );
+        if (applyChromaKey) {
+          this.applyTilesetBillboardBackgroundRemoval(
+            context,
+            img,
+            size,
+            tileCount,
+            tilesPerRow,
+          );
+        }
       }
     } else {
       // Fallback if texture not loaded yet

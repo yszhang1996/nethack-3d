@@ -1332,10 +1332,25 @@ canvas {
   border: 1px solid rgba(75, 106, 155, 0.55);
   border-radius: 8px;
   background: rgba(11, 28, 46, 0.72);
+
+  @media (pointer: coarse) {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+  }
 }
 
 .nh3d-option-row-mode-inactive {
   opacity: 0.62;
+}
+
+.nh3d-option-row-inline-toggle {
+  flex-wrap: wrap;
+}
+
+.nh3d-option-inline-switch {
+  margin-left: auto;
 }
 
 .nh3d-option-copy {
@@ -1405,6 +1420,15 @@ canvas {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+
+  @media (pointer: coarse) {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 10px;
+    flex-wrap: nowrap;
+  }
 }
 
 .nh3d-option-select-controls {
@@ -1415,9 +1439,11 @@ canvas {
 
   @media (pointer: coarse) {
     width: 100%;
+    flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
-    flex-wrap: wrap;
+    gap: 10px;
+    flex-wrap: nowrap;
   }
 }
 
@@ -1483,6 +1509,11 @@ canvas {
   letter-spacing: 0.02em;
   padding: 7px 8px;
   text-transform: uppercase;
+
+  @media (pointer: coarse) {
+    width: 100%;
+    box-sizing: border-box;
+  }
 }
 
 .nh3d-option-tile-picker-preview {
@@ -1511,6 +1542,41 @@ canvas {
   font-size: 11px;
   color: var(--nh3d-ui-accent-soft);
   text-transform: lowercase;
+}
+
+@media (pointer: coarse) {
+  .nh3d-option-row-inline-toggle {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .nh3d-option-row-inline-toggle .nh3d-option-copy {
+    order: 1;
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .nh3d-option-row-inline-toggle .nh3d-option-inline-switch {
+    order: 2;
+    margin-left: auto;
+    align-self: flex-start;
+    flex: 0 0 auto;
+  }
+
+  .nh3d-option-row-inline-toggle.nh3d-option-row-has-secondary-controls
+    .nh3d-option-secondary-controls {
+    order: 3;
+    width: 100%;
+  }
+
+  .nh3d-option-select-controls .nh3d-startup-config-select,
+  .nh3d-option-select-controls .nh3d-menu-action-button,
+  .nh3d-option-toggle-controls .nh3d-option-tile-picker-button {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
 }
 
 .nh3d-option-row-slider {

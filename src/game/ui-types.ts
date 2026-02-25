@@ -3,6 +3,7 @@ import {
   defaultNh3dTilesetPath,
   isNh3dTilesetPathAvailable,
   resolveDefaultNh3dTilesetBackgroundTileId,
+  resolveDefaultNh3dTilesetSolidChromaKeyColorHex,
 } from "./tilesets";
 
 export type NethackConnectionState =
@@ -142,7 +143,6 @@ const isMobilePortrait = window.matchMedia(
   "(orientation: portrait) and (pointer: coarse)",
 );
 const isMobile = window.matchMedia("(pointer: coarse)");
-const defaultTilesetSolidChromaKeyColorHex = "#466d6c";
 
 export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsMode: false,
@@ -166,7 +166,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   tilesetBackgroundTileIdByTileset: {},
   tilesetBackgroundRemovalMode: "tile",
   tilesetBackgroundRemovalModeByTileset: {},
-  tilesetSolidChromaKeyColorHex: defaultTilesetSolidChromaKeyColorHex,
+  tilesetSolidChromaKeyColorHex:
+    resolveDefaultNh3dTilesetSolidChromaKeyColorHex(defaultNh3dTilesetPath),
   tilesetSolidChromaKeyColorHexByTileset: {},
   tilesetMode: "tiles",
   tilesetPath: defaultNh3dTilesetPath,
@@ -239,11 +240,14 @@ function normalizeTilesetBackgroundRemovalModeByTileset(
   return normalized;
 }
 
-function normalizeTilesetSolidChromaKeyColorHex(rawValue: unknown): string {
+function normalizeTilesetSolidChromaKeyColorHex(
+  rawValue: unknown,
+  fallback: string,
+): string {
   const normalized = String(rawValue || "").trim();
   const match = normalized.match(/^#?([0-9a-fA-F]{6})$/);
   if (!match) {
-    return defaultTilesetSolidChromaKeyColorHex;
+    return fallback;
   }
   return `#${match[1].toLowerCase()}`;
 }
@@ -260,7 +264,10 @@ function normalizeTilesetSolidChromaKeyColorHexByTileset(
     if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
       continue;
     }
-    normalized[tilesetPath] = normalizeTilesetSolidChromaKeyColorHex(rawHex);
+    normalized[tilesetPath] = normalizeTilesetSolidChromaKeyColorHex(
+      rawHex,
+      resolveDefaultNh3dTilesetSolidChromaKeyColorHex(tilesetPath),
+    );
   }
   return normalized;
 }
@@ -380,8 +387,11 @@ export function normalizeNh3dClientOptions(
   const tilesetBackgroundRemovalMode = normalizeTilesetBackgroundRemovalMode(
     selectedTilesetBackgroundRemovalMode,
   );
+  const defaultSolidChromaKeyForTileset =
+    resolveDefaultNh3dTilesetSolidChromaKeyColorHex(tilesetPath);
   const tilesetSolidChromaKeyColorHex = normalizeTilesetSolidChromaKeyColorHex(
     selectedTilesetSolidChromaKeyColorHex,
+    defaultSolidChromaKeyForTileset,
   );
   return {
     fpsMode:

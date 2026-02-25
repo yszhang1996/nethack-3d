@@ -31,9 +31,11 @@ import type { NethackRuntimeVersion } from "../runtime/types";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 import {
   findNh3dTilesetByPath,
+  resolveConfiguredNh3dTilesetAtlasWidth,
   getNh3dTilesetCatalog,
   getNh3dUserTilesetPath,
   resolveDefaultNh3dTilesetBackgroundTileId,
+  resolveDefaultNh3dTilesetSolidChromaKeyColorHex,
   resolveNh3dTilesetAssetUrl,
   setNh3dUserTilesets,
 } from "../game/tilesets";
@@ -401,6 +403,7 @@ type TilesetSolidColorPickerDialogProps = {
   statusText: string;
   tileAtlasLoaded: boolean;
   tileSourceSize: number;
+  atlasWidthPx: number;
   atlasImage: HTMLImageElement | null;
   onSelectColorHex: (hexValue: string) => void;
   onDone: () => void;
@@ -453,6 +456,7 @@ function TilesetSolidColorPickerDialog({
   statusText,
   tileAtlasLoaded,
   tileSourceSize,
+  atlasWidthPx,
   atlasImage,
   onSelectColorHex,
   onDone,
@@ -479,7 +483,12 @@ function TilesetSolidColorPickerDialog({
       return;
     }
 
-    const sourceWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+    const naturalWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+    const configuredWidth = Math.max(0, Math.trunc(atlasWidthPx));
+    const sourceWidth =
+      configuredWidth > 0
+        ? Math.min(naturalWidth, configuredWidth)
+        : naturalWidth;
     const sourceHeight = Math.max(0, Math.trunc(atlasImage.naturalHeight));
     if (sourceWidth <= 0 || sourceHeight <= 0) {
       sourceCanvasRef.current = null;
@@ -570,7 +579,7 @@ function TilesetSolidColorPickerDialog({
     }
 
     setHoverState(null);
-  }, [atlasImage, tileAtlasLoaded, tileSourceSize, visible]);
+  }, [atlasImage, atlasWidthPx, tileAtlasLoaded, tileSourceSize, visible]);
 
   const drawZoomPreview = (sourceX: number, sourceY: number): void => {
     const sourceCanvas = sourceCanvasRef.current;
@@ -913,6 +922,8 @@ function createIsolatedAtlasTilePreviewDataUrl(
   atlasImage: HTMLImageElement,
   tileId: number,
   tileSourceSize: number,
+  tileColumns: number,
+  tileRows: number,
 ): string | null {
   if (
     typeof document === "undefined" ||
@@ -922,12 +933,10 @@ function createIsolatedAtlasTilePreviewDataUrl(
   ) {
     return null;
   }
-  const width = Math.max(0, Math.trunc(atlasImage.naturalWidth));
-  const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
-  const tilesPerRow = Math.floor(width / tileSourceSize);
-  const tileRows = Math.floor(height / tileSourceSize);
+  const tilesPerRow = Math.max(0, Math.trunc(tileColumns));
+  const rows = Math.max(0, Math.trunc(tileRows));
   const tileCount =
-    tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
+    tilesPerRow > 0 && rows > 0 ? tilesPerRow * rows : 0;
   const safeTileId = Math.trunc(tileId);
   if (tileCount <= 0 || safeTileId < 0 || safeTileId >= tileCount) {
     return null;
@@ -1937,6 +1946,7 @@ export default function App(): JSX.Element {
     }
     return normalizeSolidChromaKeyHex(
       clientOptionsDraft.tilesetSolidChromaKeyColorHex,
+      resolveDefaultNh3dTilesetSolidChromaKeyColorHex(tilesetPath),
     );
   }, [
     clientOptionsDraft.tilesetPath,
@@ -1994,6 +2004,8 @@ export default function App(): JSX.Element {
         tileAtlasImage,
         tileId,
         tileAtlasState.tileSourceSize,
+        tileAtlasState.columns,
+        tileAtlasState.rows,
       );
       if (!dataUrl) {
         continue;
@@ -2085,6 +2097,9 @@ export default function App(): JSX.Element {
       1,
       Math.trunc(selectedTilesetEntry.tileSize),
     );
+    const configuredAtlasWidth = resolveConfiguredNh3dTilesetAtlasWidth(
+      selectedTilesetEntry.path,
+    );
     const tilesetAssetUrl =
       resolveNh3dTilesetAssetUrl(selectedTilesetEntry.path) ??
       selectedTilesetEntry.path;
@@ -2093,7 +2108,16 @@ export default function App(): JSX.Element {
       if (disposed) {
         return;
       }
-      const width = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+      const naturalWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+      const width =
+        typeof configuredAtlasWidth === "number" &&
+        Number.isFinite(configuredAtlasWidth) &&
+        configuredAtlasWidth > 0
+          ? Math.max(
+              tileSourceSize,
+              Math.min(naturalWidth, Math.trunc(configuredAtlasWidth)),
+            )
+          : naturalWidth;
       const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
       const columns = Math.max(0, Math.floor(width / tileSourceSize));
       const rows = Math.max(0, Math.floor(height / tileSourceSize));
@@ -2737,7 +2761,7 @@ export default function App(): JSX.Element {
       const nextSolidColorHex = normalizeSolidChromaKeyHex(
         typeof mappedSolidColorHex === "string"
           ? mappedSolidColorHex
-          : defaultSolidChromaKeyHex,
+          : resolveDefaultNh3dTilesetSolidChromaKeyColorHex(tilesetPath),
       );
       return {
         ...previous,
@@ -3647,15 +3671,21 @@ export default function App(): JSX.Element {
                   option.key === "darkCorridorWallTileOverrideEnabled";
                 return (
                   <Fragment key={option.key}>
-                    <div className="nh3d-option-row">
+                    <div
+                      className={`nh3d-option-row nh3d-option-row-inline-toggle${
+                        isDarkWallTileOverrideOption
+                          ? " nh3d-option-row-has-secondary-controls"
+                          : ""
+                      }`}
+                    >
                       <div className="nh3d-option-copy">
                         <div className="nh3d-option-label">{option.label}</div>
                         <div className="nh3d-option-description">
                           {option.description}
                         </div>
                       </div>
-                      <div className="nh3d-option-toggle-controls">
-                        {isDarkWallTileOverrideOption ? (
+                      {isDarkWallTileOverrideOption ? (
+                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                           <button
                             className={`nh3d-option-tile-picker-button${
                               enabled ? "" : " is-disabled"
@@ -3676,19 +3706,21 @@ export default function App(): JSX.Element {
                               </span>
                             </span>
                           </button>
-                        ) : null}
-                        <button
-                          aria-checked={enabled}
-                          className={`nh3d-option-switch${enabled ? " is-on" : ""}`}
-                          onClick={() =>
-                            updateClientOptionDraft(option.key, !enabled)
-                          }
-                          role="switch"
-                          type="button"
-                        >
-                          <span className="nh3d-option-switch-thumb" />
-                        </button>
-                      </div>
+                        </div>
+                      ) : null}
+                      <button
+                        aria-checked={enabled}
+                        className={`nh3d-option-switch nh3d-option-inline-switch${
+                          enabled ? " is-on" : ""
+                        }`}
+                        onClick={() =>
+                          updateClientOptionDraft(option.key, !enabled)
+                        }
+                        role="switch"
+                        type="button"
+                      >
+                        <span className="nh3d-option-switch-thumb" />
+                      </button>
                     </div>
                     {option.key === "fpsMode" && clientOptionsDraft.fpsMode ? (
                       <>
@@ -3868,7 +3900,7 @@ export default function App(): JSX.Element {
                 return (
                   <Fragment key={option.key}>
                     <div
-                      className={`nh3d-option-row${
+                      className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
                         isTileModeActive ? "" : " nh3d-option-row-mode-inactive"
                       }`}
                     >
@@ -3881,7 +3913,7 @@ export default function App(): JSX.Element {
                           background removal.
                         </div>
                       </div>
-                      <div className="nh3d-option-toggle-controls">
+                      <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                         <button
                           className={`nh3d-option-tile-picker-button${
                             tilePickerDisabled ? " is-disabled" : ""
@@ -3904,24 +3936,24 @@ export default function App(): JSX.Element {
                             </span>
                           </span>
                         </button>
-                        <button
-                          aria-checked={isTileModeActive}
-                          className={`nh3d-option-switch${
-                            isTileModeActive ? " is-on" : ""
-                          }`}
-                          disabled={baseDisabled}
-                          onClick={() =>
-                            updateTilesetBackgroundRemovalModeDraft("tile")
-                          }
-                          role="switch"
-                          type="button"
-                        >
-                          <span className="nh3d-option-switch-thumb" />
-                        </button>
                       </div>
+                      <button
+                        aria-checked={isTileModeActive}
+                        className={`nh3d-option-switch nh3d-option-inline-switch${
+                          isTileModeActive ? " is-on" : ""
+                        }`}
+                        disabled={baseDisabled}
+                        onClick={() =>
+                          updateTilesetBackgroundRemovalModeDraft("tile")
+                        }
+                        role="switch"
+                        type="button"
+                      >
+                        <span className="nh3d-option-switch-thumb" />
+                      </button>
                     </div>
                     <div
-                      className={`nh3d-option-row${
+                      className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
                         isSolidModeActive ? "" : " nh3d-option-row-mode-inactive"
                       }`}
                     >
@@ -3934,7 +3966,7 @@ export default function App(): JSX.Element {
                           removal.
                         </div>
                       </div>
-                      <div className="nh3d-option-toggle-controls">
+                      <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                         <button
                           className={`nh3d-option-tile-picker-button${
                             solidColorPickerDisabled ? " is-disabled" : ""
@@ -3971,21 +4003,21 @@ export default function App(): JSX.Element {
                             selectedTilesetSolidChromaKeyColorHex,
                           )}
                         />
-                        <button
-                          aria-checked={isSolidModeActive}
-                          className={`nh3d-option-switch${
-                            isSolidModeActive ? " is-on" : ""
-                          }`}
-                          disabled={baseDisabled}
-                          onClick={() =>
-                            updateTilesetBackgroundRemovalModeDraft("solid")
-                          }
-                          role="switch"
-                          type="button"
-                        >
-                          <span className="nh3d-option-switch-thumb" />
-                        </button>
                       </div>
+                      <button
+                        aria-checked={isSolidModeActive}
+                        className={`nh3d-option-switch nh3d-option-inline-switch${
+                          isSolidModeActive ? " is-on" : ""
+                        }`}
+                        disabled={baseDisabled}
+                        onClick={() =>
+                          updateTilesetBackgroundRemovalModeDraft("solid")
+                        }
+                        role="switch"
+                        type="button"
+                      >
+                        <span className="nh3d-option-switch-thumb" />
+                      </button>
                     </div>
                   </Fragment>
                 );
@@ -4230,6 +4262,7 @@ export default function App(): JSX.Element {
 
       <TilesetSolidColorPickerDialog
         atlasImage={tileAtlasImage}
+        atlasWidthPx={tileAtlasState.columns * tileAtlasState.tileSourceSize}
         closeLabel="Close solid chroma key color picker"
         dialogId="nh3d-tileset-solid-color-picker-dialog"
         onDone={() => setIsTilesetSolidColorPickerVisible(false)}
