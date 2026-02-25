@@ -2054,21 +2054,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private shouldUseDesktopTextureAnisotropy(): boolean {
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return true;
+    }
+    return !window.matchMedia("(pointer: coarse)").matches;
+  }
+
+  private resolveTextureAnisotropyLevel(): number {
+    const maxAnisotropy = Math.max(
+      1,
+      this.renderer.capabilities.getMaxAnisotropy(),
+    );
+    const targetAnisotropy = this.shouldUseDesktopTextureAnisotropy() ? 8 : 2;
+    return Math.min(targetAnisotropy, maxAnisotropy);
+  }
+
   private configureTilesetTextureSampling(texture: THREE.Texture): void {
     texture.magFilter = THREE.NearestFilter;
-    const tilesetWidth = texture.image?.width ?? 0;
-    const tilesetHeight = texture.image?.height ?? 0;
-    const canUseMipmaps =
-      this.renderer.capabilities.isWebGL2 ||
-      (THREE.MathUtils.isPowerOfTwo(tilesetWidth) &&
-        THREE.MathUtils.isPowerOfTwo(tilesetHeight));
-    texture.minFilter = canUseMipmaps
-      ? THREE.NearestMipmapNearestFilter
-      : THREE.NearestFilter;
-    texture.generateMipmaps = canUseMipmaps;
-    texture.anisotropy = canUseMipmaps
-      ? Math.min(4, this.renderer.capabilities.getMaxAnisotropy())
-      : 1;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     texture.needsUpdate = true;
   }
 
@@ -2126,7 +2135,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
           0,
           Math.trunc(Number(nextTexture.image?.width) || 0),
         );
-        this.tileSourceSize = inferNh3dTilesetTileSizeFromAtlasWidth(atlasWidth);
+        this.tileSourceSize =
+          inferNh3dTilesetTileSizeFromAtlasWidth(atlasWidth);
         this.configureTilesetTextureSampling(nextTexture);
         this.invalidateTilesetDependentCaches();
         if (this.clientOptions.tilesetMode === "tiles") {
@@ -4593,12 +4603,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.magFilter = THREE.NearestFilter; // Keep pixel art sharp
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
 
     return texture;
   }
@@ -4800,12 +4807,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
 
     return texture;
   }
@@ -4911,12 +4916,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
         const texture = new THREE.CanvasTexture(canvas);
         texture.needsUpdate = true;
-        texture.anisotropy = Math.min(
-          4,
-          this.renderer.capabilities.getMaxAnisotropy(),
-        );
+        texture.anisotropy = this.resolveTextureAnisotropyLevel();
         texture.magFilter = THREE.LinearFilter;
-        texture.minFilter = THREE.LinearMipmapLinearFilter;
+        texture.minFilter = THREE.LinearFilter;
+        texture.generateMipmaps = false;
 
         state = {
           key,
@@ -5385,12 +5388,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
 
     return { texture, aspectRatio };
   }
@@ -7183,13 +7184,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.generateMipmaps = true;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
     return texture;
   }
 
@@ -7224,11 +7222,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     this.entityBlobShadowTexture = texture;
     return texture;
   }
@@ -12826,11 +12822,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
     texture.magFilter = THREE.LinearFilter;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
-    texture.anisotropy = Math.min(
-      4,
-      this.renderer.capabilities.getMaxAnisotropy(),
-    );
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = this.resolveTextureAnisotropyLevel();
     this.fpsForwardHighlightTexture = texture;
     return texture;
   }
