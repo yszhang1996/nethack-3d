@@ -32,6 +32,7 @@ import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog
 import {
   findNh3dTilesetByPath,
   inferNh3dTilesetTileSizeFromAtlasWidth,
+  isNh3dTilesetPathAvailable,
   nh3dTilesetAtlasTileColumns,
   getNh3dTilesetCatalog,
   getNh3dUserTilesetPath,
@@ -470,9 +471,8 @@ function TilesetSolidColorPickerDialog({
   const sourceHeightRef = useRef(0);
   const sourcePixelsRef = useRef<Uint8ClampedArray | null>(null);
   const [displayScale, setDisplayScale] = useState(1);
-  const [hoverState, setHoverState] = useState<SolidColorPickerHoverState | null>(
-    null,
-  );
+  const [hoverState, setHoverState] =
+    useState<SolidColorPickerHoverState | null>(null);
 
   useEffect(() => {
     if (!visible || !tileAtlasLoaded || !atlasImage) {
@@ -681,7 +681,10 @@ function TilesetSolidColorPickerDialog({
     }
     const normalizedX = (event.clientX - rect.left) / rect.width;
     const normalizedY = (event.clientY - rect.top) / rect.height;
-    const canvasX = Math.max(0, Math.min(canvas.width - 1, normalizedX * canvas.width));
+    const canvasX = Math.max(
+      0,
+      Math.min(canvas.width - 1, normalizedX * canvas.width),
+    );
     const canvasY = Math.max(
       0,
       Math.min(canvas.height - 1, normalizedY * canvas.height),
@@ -701,7 +704,9 @@ function TilesetSolidColorPickerDialog({
     });
   };
 
-  const handleAtlasClick = (event: ReactMouseEvent<HTMLCanvasElement>): void => {
+  const handleAtlasClick = (
+    event: ReactMouseEvent<HTMLCanvasElement>,
+  ): void => {
     const canvas = event.currentTarget;
     const rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) {
@@ -709,7 +714,10 @@ function TilesetSolidColorPickerDialog({
     }
     const normalizedX = (event.clientX - rect.left) / rect.width;
     const normalizedY = (event.clientY - rect.top) / rect.height;
-    const canvasX = Math.max(0, Math.min(canvas.width - 1, normalizedX * canvas.width));
+    const canvasX = Math.max(
+      0,
+      Math.min(canvas.width - 1, normalizedX * canvas.width),
+    );
     const canvasY = Math.max(
       0,
       Math.min(canvas.height - 1, normalizedY * canvas.height),
@@ -778,7 +786,9 @@ function TilesetSolidColorPickerDialog({
         <span
           aria-hidden="true"
           className="nh3d-solid-chroma-selected-color-preview"
-          style={{ backgroundColor: normalizeSolidChromaKeyHex(selectedColorHex) }}
+          style={{
+            backgroundColor: normalizeSolidChromaKeyHex(selectedColorHex),
+          }}
         />
         <div className="nh3d-dark-wall-picker-selected-copy">
           <div className="nh3d-option-label">
@@ -905,10 +915,7 @@ function buildRepresentativeGlyphNumberByTileId(
       representativeByTile.set(tileId, { glyphChar, glyph });
       continue;
     }
-    if (
-      existing.glyphChar.trim().length === 0 &&
-      glyphChar.trim().length > 0
-    ) {
+    if (existing.glyphChar.trim().length === 0 && glyphChar.trim().length > 0) {
       representativeByTile.set(tileId, { glyphChar, glyph });
     }
   }
@@ -936,8 +943,7 @@ function createIsolatedAtlasTilePreviewDataUrl(
   }
   const tilesPerRow = Math.max(0, Math.trunc(tileColumns));
   const rows = Math.max(0, Math.trunc(tileRows));
-  const tileCount =
-    tilesPerRow > 0 && rows > 0 ? tilesPerRow * rows : 0;
+  const tileCount = tilesPerRow > 0 && rows > 0 ? tilesPerRow * rows : 0;
   const safeTileId = Math.trunc(tileId);
   if (tileCount <= 0 || safeTileId < 0 || safeTileId >= tileCount) {
     return null;
@@ -1049,14 +1055,6 @@ type ClientOptionSelect = {
   }[];
 };
 
-type ClientOptionTilePicker = {
-  key: "tilesetBackgroundTileId";
-  label: string;
-  description: string;
-  type: "tile-picker";
-  disabled?: boolean;
-};
-
 type ClientOptionSlider = {
   key: "brightness" | "contrast" | "gamma";
   label: string;
@@ -1077,7 +1075,6 @@ type ClientOption =
   | ClientOptionGroupHeader
   | ClientOptionToggle
   | ClientOptionSelect
-  | ClientOptionTilePicker
   | ClientOptionSlider;
 
 type ClientOptionToggleKey =
@@ -1274,6 +1271,23 @@ const nh3dClientOptionsStorageKey = "nh3d-client-options:v1";
 
 const clientOptionsConfig: ClientOption[] = [
   {
+    key: "group-controls",
+    label: "First-person mode",
+    type: "group",
+  },
+  {
+    key: "fpsMode",
+    label: "FPS mode",
+    description: "Use first-person controls and mouselook.",
+    type: "boolean",
+  },
+  {
+    key: "invertLookYAxis",
+    label: "Invert Y-axis look",
+    description: "Invert vertical mouselook and touch-look direction.",
+    type: "boolean",
+  },
+  {
     key: "group-display",
     label: "Interface & display",
     type: "group",
@@ -1294,14 +1308,6 @@ const clientOptionsConfig: ClientOption[] = [
     description: "Built-in and uploaded tilesets.",
     type: "select",
     options: [],
-    disabled: false,
-  },
-  {
-    key: "tilesetBackgroundTileId",
-    label: "Billboard Background Removal",
-    description:
-      "Choose either tile-based background removal or a solid chroma key color.",
-    type: "tile-picker",
     disabled: false,
   },
   {
@@ -1351,23 +1357,6 @@ const clientOptionsConfig: ClientOption[] = [
     key: "liveMessageLog",
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
-    type: "boolean",
-  },
-  {
-    key: "group-controls",
-    label: "First-person mode",
-    type: "group",
-  },
-  {
-    key: "fpsMode",
-    label: "FPS mode",
-    description: "Use first-person controls and mouselook.",
-    type: "boolean",
-  },
-  {
-    key: "invertLookYAxis",
-    label: "Invert Y-axis look",
-    description: "Invert vertical mouselook and touch-look direction.",
     type: "boolean",
   },
   {
@@ -1628,6 +1617,18 @@ function resolveInitialClientOptionsFromPersisted(
   });
 }
 
+function isRunningOnLocalhost(): boolean {
+  if (typeof window === "undefined") {
+    return false;
+  }
+  const hostname = String(window.location.hostname || "")
+    .trim()
+    .toLowerCase();
+  return (
+    hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
+  );
+}
+
 function toUserTilesetRegistrations(
   records: ReadonlyArray<StoredUserTilesetRecord>,
 ): ReadonlyArray<{
@@ -1702,9 +1703,8 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
-  const initialPersistedClientOptionsRef = useRef<
-    Partial<Nh3dClientOptions> | null
-  >(readPersistedClientOptions());
+  const initialPersistedClientOptionsRef =
+    useRef<Partial<Nh3dClientOptions> | null>(readPersistedClientOptions());
   const initialClientOptions = useMemo(
     () =>
       resolveInitialClientOptionsFromPersisted(
@@ -1712,13 +1712,12 @@ export default function App(): JSX.Element {
       ),
     [],
   );
-  const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(() =>
-    initialClientOptions,
+  const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(
+    () => initialClientOptions,
   );
   const [clientOptionsDraft, setClientOptionsDraft] =
     useState<Nh3dClientOptions>(() => initialClientOptions);
-  const [hasHydratedUserTilesets, setHasHydratedUserTilesets] =
-    useState(false);
+  const [hasHydratedUserTilesets, setHasHydratedUserTilesets] = useState(false);
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
@@ -1734,7 +1733,11 @@ export default function App(): JSX.Element {
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
+  const [tilesetManagerMode, setTilesetManagerMode] = useState<"edit" | "new">(
+    "edit",
+  );
   const [tilesetManagerName, setTilesetManagerName] = useState("");
+  const [tilesetManagerEditPath, setTilesetManagerEditPath] = useState("");
   const [tilesetManagerFile, setTilesetManagerFile] = useState<File | null>(
     null,
   );
@@ -1752,6 +1755,17 @@ export default function App(): JSX.Element {
     rows: 0,
     tileCount: 0,
   });
+  const [tilesetManagerAtlasImage, setTilesetManagerAtlasImage] =
+    useState<HTMLImageElement | null>(null);
+  const [tilesetManagerAtlasState, setTilesetManagerAtlasState] =
+    useState<TileAtlasState>({
+      loaded: false,
+      failed: false,
+      tileSourceSize: 32,
+      columns: 0,
+      rows: 0,
+      tileCount: 0,
+    });
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -1798,6 +1812,25 @@ export default function App(): JSX.Element {
   const [deferredNewGamePromptReason, setDeferredNewGamePromptReason] =
     useState<string | null>(null);
   const tilesetCatalog = useMemo(() => getNh3dTilesetCatalog(), [userTilesets]);
+  const showBuiltInTilesetsInTilesetManagerList = useMemo(
+    () => isRunningOnLocalhost(),
+    [],
+  );
+  const userTilesetRecordByPath = useMemo(() => {
+    const recordByPath = new Map<string, StoredUserTilesetRecord>();
+    for (const record of userTilesets) {
+      recordByPath.set(getNh3dUserTilesetPath(record.id), record);
+    }
+    return recordByPath;
+  }, [userTilesets]);
+  const tilesetManagerListTilesets = useMemo(
+    () =>
+      tilesetCatalog.filter(
+        (tileset) =>
+          tileset.source === "user" || showBuiltInTilesetsInTilesetManagerList,
+      ),
+    [showBuiltInTilesetsInTilesetManagerList, tilesetCatalog],
+  );
   const hasAnyTilesets = tilesetCatalog.length > 0;
   const tilesetDropdownOptions = useMemo(
     () =>
@@ -1925,45 +1958,34 @@ export default function App(): JSX.Element {
   );
   const selectedDarkWallGlyphNumber =
     representativeGlyphNumberByTileId.get(selectedDarkWallTileId) ?? null;
-  const defaultTilesetBackgroundTileId = useMemo(
-    () =>
-      resolveDefaultNh3dTilesetBackgroundTileId(clientOptionsDraft.tilesetPath),
-    [clientOptionsDraft.tilesetPath, tilesetCatalog],
-  );
-  const selectedTilesetBackgroundTileId = useMemo(() => {
-    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+  const resolveDraftBackgroundTileIdByTilesetPath = (
+    rawTilesetPath: string | null | undefined,
+  ): number => {
+    const tilesetPath = String(rawTilesetPath || "").trim();
     const mappedTileId = tilesetPath
       ? clientOptionsDraft.tilesetBackgroundTileIdByTileset[tilesetPath]
       : undefined;
     if (typeof mappedTileId === "number" && Number.isFinite(mappedTileId)) {
       return Math.max(0, Math.trunc(mappedTileId));
     }
-    return defaultTilesetBackgroundTileId;
-  }, [
-    clientOptionsDraft.tilesetBackgroundTileIdByTileset,
-    clientOptionsDraft.tilesetPath,
-    defaultTilesetBackgroundTileId,
-  ]);
-  const selectedTilesetBackgroundRemovalMode = useMemo<
-    TilesetBackgroundRemovalMode
-  >(() => {
-    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    return resolveDefaultNh3dTilesetBackgroundTileId(tilesetPath);
+  };
+  const resolveDraftBackgroundRemovalModeByTilesetPath = (
+    rawTilesetPath: string | null | undefined,
+  ): TilesetBackgroundRemovalMode => {
+    const tilesetPath = String(rawTilesetPath || "").trim();
     const mappedMode = tilesetPath
       ? clientOptionsDraft.tilesetBackgroundRemovalModeByTileset[tilesetPath]
       : undefined;
     if (mappedMode === "solid" || mappedMode === "tile") {
       return mappedMode;
     }
-    return clientOptionsDraft.tilesetBackgroundRemovalMode === "solid"
-      ? "solid"
-      : "tile";
-  }, [
-    clientOptionsDraft.tilesetBackgroundRemovalMode,
-    clientOptionsDraft.tilesetBackgroundRemovalModeByTileset,
-    clientOptionsDraft.tilesetPath,
-  ]);
-  const selectedTilesetSolidChromaKeyColorHex = useMemo(() => {
-    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    return "tile";
+  };
+  const resolveDraftSolidChromaKeyByTilesetPath = (
+    rawTilesetPath: string | null | undefined,
+  ): string => {
+    const tilesetPath = String(rawTilesetPath || "").trim();
     const mappedColorHex = tilesetPath
       ? clientOptionsDraft.tilesetSolidChromaKeyColorHexByTileset[tilesetPath]
       : undefined;
@@ -1971,21 +1993,65 @@ export default function App(): JSX.Element {
       return normalizeSolidChromaKeyHex(mappedColorHex);
     }
     return normalizeSolidChromaKeyHex(
-      clientOptionsDraft.tilesetSolidChromaKeyColorHex,
       resolveDefaultNh3dTilesetSolidChromaKeyColorHex(tilesetPath),
     );
-  }, [
-    clientOptionsDraft.tilesetPath,
-    clientOptionsDraft.tilesetSolidChromaKeyColorHex,
-    clientOptionsDraft.tilesetSolidChromaKeyColorHexByTileset,
-  ]);
-  const selectedTilesetBackgroundGlyphChar =
-    representativeGlyphByTileId.get(selectedTilesetBackgroundTileId) ?? " ";
-  const selectedTilesetBackgroundGlyphLabel = formatTileGlyphLabel(
-    selectedTilesetBackgroundGlyphChar,
+  };
+  const selectedTilesetManagerEditPath = String(
+    tilesetManagerEditPath || "",
+  ).trim();
+  const selectedTilesetManagerEditEntry = useMemo(
+    () => findNh3dTilesetByPath(selectedTilesetManagerEditPath),
+    [selectedTilesetManagerEditPath, tilesetCatalog],
   );
-  const selectedTilesetBackgroundGlyphNumber =
-    representativeGlyphNumberByTileId.get(selectedTilesetBackgroundTileId) ??
+  const selectedTilesetManagerEditUserRecord = useMemo(
+    () => userTilesetRecordByPath.get(selectedTilesetManagerEditPath) ?? null,
+    [selectedTilesetManagerEditPath, userTilesetRecordByPath],
+  );
+  const tilesetManagerInNewMode = tilesetManagerMode === "new";
+  const tilesetManagerNameInputDisabled =
+    !tilesetManagerInNewMode && !selectedTilesetManagerEditUserRecord;
+  const tilesetManagerDefaultBackgroundTileId = useMemo(
+    () =>
+      resolveDefaultNh3dTilesetBackgroundTileId(selectedTilesetManagerEditPath),
+    [selectedTilesetManagerEditPath, tilesetCatalog],
+  );
+  const tilesetManagerBackgroundTileId = useMemo(
+    () =>
+      resolveDraftBackgroundTileIdByTilesetPath(selectedTilesetManagerEditPath),
+    [
+      clientOptionsDraft.tilesetBackgroundTileIdByTileset,
+      selectedTilesetManagerEditPath,
+      tilesetCatalog,
+    ],
+  );
+  const tilesetManagerBackgroundRemovalMode =
+    useMemo<TilesetBackgroundRemovalMode>(
+      () =>
+        resolveDraftBackgroundRemovalModeByTilesetPath(
+          selectedTilesetManagerEditPath,
+        ),
+      [
+        clientOptionsDraft.tilesetBackgroundRemovalModeByTileset,
+        selectedTilesetManagerEditPath,
+        tilesetCatalog,
+      ],
+    );
+  const tilesetManagerSolidChromaKeyColorHex = useMemo(
+    () =>
+      resolveDraftSolidChromaKeyByTilesetPath(selectedTilesetManagerEditPath),
+    [
+      clientOptionsDraft.tilesetSolidChromaKeyColorHexByTileset,
+      selectedTilesetManagerEditPath,
+      tilesetCatalog,
+    ],
+  );
+  const tilesetManagerBackgroundGlyphChar =
+    representativeGlyphByTileId.get(tilesetManagerBackgroundTileId) ?? " ";
+  const tilesetManagerBackgroundGlyphLabel = formatTileGlyphLabel(
+    tilesetManagerBackgroundGlyphChar,
+  );
+  const tilesetManagerBackgroundGlyphNumber =
+    representativeGlyphNumberByTileId.get(tilesetManagerBackgroundTileId) ??
     null;
   const selectedTilesetEntry = useMemo(
     () => findNh3dTilesetByPath(clientOptionsDraft.tilesetPath),
@@ -2069,6 +2135,99 @@ export default function App(): JSX.Element {
       />
     );
   };
+  const tilesetManagerTilePickerEntries = useMemo<TilePickerEntry[]>(() => {
+    if (
+      !tilesetManagerAtlasState.loaded ||
+      tilesetManagerAtlasState.tileCount <= 0
+    ) {
+      return [];
+    }
+    const entries: TilePickerEntry[] = [];
+    for (
+      let tileId = 0;
+      tileId < tilesetManagerAtlasState.tileCount;
+      tileId += 1
+    ) {
+      const glyphChar = representativeGlyphByTileId.get(tileId) ?? " ";
+      entries.push({
+        tileId,
+        glyphLabel: formatTileGlyphLabel(glyphChar),
+        glyphNumber: representativeGlyphNumberByTileId.get(tileId) ?? null,
+      });
+    }
+    return entries;
+  }, [
+    representativeGlyphByTileId,
+    representativeGlyphNumberByTileId,
+    tilesetManagerAtlasState.loaded,
+    tilesetManagerAtlasState.tileCount,
+  ]);
+  const tilesetManagerTilePickerStatusText = !selectedTilesetManagerEditEntry
+    ? "No tileset atlas available."
+    : tilesetManagerAtlasState.failed
+      ? "Unable to load tile atlas."
+      : "Loading tile atlas...";
+  const tilesetManagerTilePreviewDataUrlById = useMemo(() => {
+    const previewByTileId = new Map<number, string>();
+    if (
+      !tilesetManagerAtlasState.loaded ||
+      !tilesetManagerAtlasImage ||
+      tilesetManagerAtlasState.tileCount <= 0
+    ) {
+      return previewByTileId;
+    }
+    for (
+      let tileId = 0;
+      tileId < tilesetManagerAtlasState.tileCount;
+      tileId += 1
+    ) {
+      const dataUrl = createIsolatedAtlasTilePreviewDataUrl(
+        tilesetManagerAtlasImage,
+        tileId,
+        tilesetManagerAtlasState.tileSourceSize,
+        tilesetManagerAtlasState.columns,
+        tilesetManagerAtlasState.rows,
+      );
+      if (!dataUrl) {
+        continue;
+      }
+      previewByTileId.set(tileId, dataUrl);
+    }
+    return previewByTileId;
+  }, [
+    tilesetManagerAtlasImage,
+    tilesetManagerAtlasState.loaded,
+    tilesetManagerAtlasState.tileCount,
+    tilesetManagerAtlasState.tileSourceSize,
+  ]);
+  const getTilesetManagerTilePreviewDataUrl = (
+    tileId: number,
+  ): string | null => {
+    if (tilesetManagerAtlasState.tileCount <= 0) {
+      return null;
+    }
+    const clampedTileId = Math.max(
+      0,
+      Math.min(tilesetManagerAtlasState.tileCount - 1, Math.trunc(tileId)),
+    );
+    return tilesetManagerTilePreviewDataUrlById.get(clampedTileId) ?? null;
+  };
+  const renderTilesetManagerTilePreviewImage = (
+    tileId: number,
+  ): JSX.Element | null => {
+    const tilePreviewDataUrl = getTilesetManagerTilePreviewDataUrl(tileId);
+    if (!tilePreviewDataUrl) {
+      return null;
+    }
+    return (
+      <img
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        src={tilePreviewDataUrl}
+      />
+    );
+  };
 
   useEffect(() => {
     if (!canvasRootRef.current || !characterCreationConfig) {
@@ -2128,7 +2287,8 @@ export default function App(): JSX.Element {
         return;
       }
       const naturalWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
-      const tileSourceSize = inferNh3dTilesetTileSizeFromAtlasWidth(naturalWidth);
+      const tileSourceSize =
+        inferNh3dTilesetTileSizeFromAtlasWidth(naturalWidth);
       const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
       const columns = nh3dTilesetAtlasTileColumns;
       const rows = Math.max(0, Math.floor(height / tileSourceSize));
@@ -2169,6 +2329,76 @@ export default function App(): JSX.Element {
       atlasImage.removeEventListener("error", handleError);
     };
   }, [selectedTilesetEntry]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!selectedTilesetManagerEditEntry) {
+      setTilesetManagerAtlasState({
+        loaded: false,
+        failed: false,
+        tileSourceSize: 32,
+        columns: 0,
+        rows: 0,
+        tileCount: 0,
+      });
+      setTilesetManagerAtlasImage(null);
+      return;
+    }
+    let disposed = false;
+    const atlasImage = new window.Image();
+    const tilesetAssetUrl =
+      resolveNh3dTilesetAssetUrl(selectedTilesetManagerEditEntry.path) ??
+      selectedTilesetManagerEditEntry.path;
+
+    const handleLoad = (): void => {
+      if (disposed) {
+        return;
+      }
+      const naturalWidth = Math.max(0, Math.trunc(atlasImage.naturalWidth));
+      const tileSourceSize =
+        inferNh3dTilesetTileSizeFromAtlasWidth(naturalWidth);
+      const height = Math.max(0, Math.trunc(atlasImage.naturalHeight));
+      const columns = nh3dTilesetAtlasTileColumns;
+      const rows = Math.max(0, Math.floor(height / tileSourceSize));
+      const tileCount = columns > 0 && rows > 0 ? columns * rows : 0;
+      setTilesetManagerAtlasState({
+        loaded: tileCount > 0,
+        failed: tileCount <= 0,
+        tileSourceSize,
+        columns,
+        rows,
+        tileCount,
+      });
+      setTilesetManagerAtlasImage(tileCount > 0 ? atlasImage : null);
+    };
+
+    const handleError = (): void => {
+      if (disposed) {
+        return;
+      }
+      setTilesetManagerAtlasState({
+        loaded: false,
+        failed: true,
+        tileSourceSize: 32,
+        columns: 0,
+        rows: 0,
+        tileCount: 0,
+      });
+      setTilesetManagerAtlasImage(null);
+    };
+
+    atlasImage.addEventListener("load", handleLoad);
+    atlasImage.addEventListener("error", handleError);
+    atlasImage.src = tilesetAssetUrl;
+
+    return () => {
+      disposed = true;
+      atlasImage.removeEventListener("load", handleLoad);
+      atlasImage.removeEventListener("error", handleError);
+    };
+  }, [selectedTilesetManagerEditEntry]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !window.matchMedia) {
@@ -2567,7 +2797,9 @@ export default function App(): JSX.Element {
           return;
         }
         setClientOptions((previous) => normalizeNh3dClientOptions(previous));
-        setClientOptionsDraft((previous) => normalizeNh3dClientOptions(previous));
+        setClientOptionsDraft((previous) =>
+          normalizeNh3dClientOptions(previous),
+        );
       } finally {
         if (rehydrateFromStorage) {
           setHasHydratedUserTilesets(true);
@@ -2577,13 +2809,67 @@ export default function App(): JSX.Element {
     [],
   );
 
-  const openTilesetManager = (): void => {
+  const resetTilesetManagerSelectedFile = (): void => {
+    setTilesetManagerFile(null);
+    if (tilesetManagerFileInputRef.current) {
+      tilesetManagerFileInputRef.current.value = "";
+    }
+  };
+
+  const openTilesetManagerNewEditor = (): void => {
+    setTilesetManagerMode("new");
+    setTilesetManagerEditPath("");
+    setTilesetManagerName("");
+    resetTilesetManagerSelectedFile();
+    setIsTilesetBackgroundTilePickerVisible(false);
+    setIsTilesetSolidColorPickerVisible(false);
     setTilesetManagerError("");
+  };
+
+  const openTilesetManagerEditor = (rawTilesetPath: string): void => {
+    const tilesetPath = String(rawTilesetPath || "").trim();
+    if (!tilesetPath) {
+      return;
+    }
+    const tilesetEntry = findNh3dTilesetByPath(tilesetPath);
+    if (!tilesetEntry) {
+      return;
+    }
+    const userRecord = userTilesetRecordByPath.get(tilesetPath);
+    setTilesetManagerMode("edit");
+    setTilesetManagerEditPath(tilesetPath);
+    setTilesetManagerName(userRecord?.label ?? tilesetEntry.label);
+    resetTilesetManagerSelectedFile();
+    setIsTilesetBackgroundTilePickerVisible(false);
+    setIsTilesetSolidColorPickerVisible(false);
+    setTilesetManagerError("");
+  };
+
+  const openTilesetManager = (): void => {
+    const activeTilesetPath = String(
+      clientOptionsDraft.tilesetPath || "",
+    ).trim();
+    const fallbackTilesetPath = tilesetCatalog[0]?.path ?? "";
+    const nextEditPath =
+      (activeTilesetPath && isNh3dTilesetPathAvailable(activeTilesetPath)
+        ? activeTilesetPath
+        : "") || fallbackTilesetPath;
+    if (nextEditPath) {
+      openTilesetManagerEditor(nextEditPath);
+    } else {
+      openTilesetManagerNewEditor();
+    }
     setIsTilesetManagerVisible(true);
   };
 
   const closeTilesetManager = (): void => {
     setIsTilesetManagerVisible(false);
+    setTilesetManagerMode("edit");
+    setTilesetManagerEditPath("");
+    setTilesetManagerName("");
+    resetTilesetManagerSelectedFile();
+    setIsTilesetBackgroundTilePickerVisible(false);
+    setIsTilesetSolidColorPickerVisible(false);
     setTilesetManagerError("");
   };
 
@@ -2603,42 +2889,6 @@ export default function App(): JSX.Element {
     }
   };
 
-  const addUserTileset = async (): Promise<void> => {
-    const file = tilesetManagerFile;
-    if (!file) {
-      setTilesetManagerError("Choose a PNG/BMP/GIF/JPEG tileset file.");
-      return;
-    }
-    const label = String(tilesetManagerName || "").trim();
-    if (!label) {
-      setTilesetManagerError("Provide a name for this tileset.");
-      return;
-    }
-    setTilesetManagerBusy(true);
-    setTilesetManagerError("");
-    try {
-      const tileSize = await inferTilesetTileSizeFromBlob(file);
-      await saveStoredUserTileset({
-        label,
-        tileSize,
-        fileName: file.name,
-        file,
-      });
-      await refreshUserTilesetCatalog(false);
-      setTilesetManagerFile(null);
-      setTilesetManagerName("");
-      if (tilesetManagerFileInputRef.current) {
-        tilesetManagerFileInputRef.current.value = "";
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Failed to add tileset.";
-      setTilesetManagerError(message);
-    } finally {
-      setTilesetManagerBusy(false);
-    }
-  };
-
   const removeUserTileset = async (
     record: StoredUserTilesetRecord,
   ): Promise<void> => {
@@ -2654,9 +2904,119 @@ export default function App(): JSX.Element {
     try {
       await deleteStoredUserTileset(record.id);
       await refreshUserTilesetCatalog(false);
+      const deletedPath = getNh3dUserTilesetPath(record.id);
+      if (selectedTilesetManagerEditPath === deletedPath) {
+        const activeTilesetPath = String(
+          clientOptionsDraft.tilesetPath || "",
+        ).trim();
+        const fallbackTilesetPath = getNh3dTilesetCatalog()[0]?.path ?? "";
+        const nextEditPath =
+          (activeTilesetPath &&
+          activeTilesetPath !== deletedPath &&
+          isNh3dTilesetPathAvailable(activeTilesetPath)
+            ? activeTilesetPath
+            : "") || fallbackTilesetPath;
+        if (nextEditPath && nextEditPath !== deletedPath) {
+          openTilesetManagerEditor(nextEditPath);
+        } else {
+          openTilesetManagerNewEditor();
+        }
+      }
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to delete tileset.";
+      setTilesetManagerError(message);
+    } finally {
+      setTilesetManagerBusy(false);
+    }
+  };
+
+  const saveTilesetManagerSettingsDraft = (): void => {
+    const next = normalizeNh3dClientOptions({
+      ...clientOptions,
+      tilesetBackgroundTileIdByTileset:
+        clientOptionsDraft.tilesetBackgroundTileIdByTileset,
+      tilesetBackgroundRemovalModeByTileset:
+        clientOptionsDraft.tilesetBackgroundRemovalModeByTileset,
+      tilesetSolidChromaKeyColorHexByTileset:
+        clientOptionsDraft.tilesetSolidChromaKeyColorHexByTileset,
+    });
+    setClientOptions(next);
+    setClientOptionsDraft((previous) =>
+      normalizeNh3dClientOptions({
+        ...previous,
+        tilesetBackgroundTileIdByTileset: next.tilesetBackgroundTileIdByTileset,
+        tilesetBackgroundRemovalModeByTileset:
+          next.tilesetBackgroundRemovalModeByTileset,
+        tilesetSolidChromaKeyColorHexByTileset:
+          next.tilesetSolidChromaKeyColorHexByTileset,
+        tilesetBackgroundTileId: next.tilesetBackgroundTileId,
+        tilesetBackgroundRemovalMode: next.tilesetBackgroundRemovalMode,
+        tilesetSolidChromaKeyColorHex: next.tilesetSolidChromaKeyColorHex,
+      }),
+    );
+    controller?.setClientOptions(next);
+  };
+
+  const saveTilesetManager = async (): Promise<void> => {
+    const file = tilesetManagerFile;
+    const label = String(tilesetManagerName || "").trim();
+    if (tilesetManagerInNewMode) {
+      if (!file) {
+        setTilesetManagerError("Choose a PNG/BMP/GIF/JPEG tileset file.");
+        return;
+      }
+      if (!label) {
+        setTilesetManagerError("Provide a name for this tileset.");
+        return;
+      }
+    }
+    if (
+      !tilesetManagerInNewMode &&
+      selectedTilesetManagerEditUserRecord &&
+      !label
+    ) {
+      setTilesetManagerError("Provide a name for this tileset.");
+      return;
+    }
+
+    setTilesetManagerBusy(true);
+    setTilesetManagerError("");
+    try {
+      if (tilesetManagerInNewMode) {
+        const tileSize = await inferTilesetTileSizeFromBlob(file as File);
+        const savedRecord = await saveStoredUserTileset({
+          label,
+          tileSize,
+          fileName: (file as File).name,
+          file: file as File,
+        });
+        await refreshUserTilesetCatalog(false);
+        openTilesetManagerEditor(getNh3dUserTilesetPath(savedRecord.id));
+      } else if (selectedTilesetManagerEditUserRecord) {
+        const nextFile = file ?? selectedTilesetManagerEditUserRecord.blob;
+        const nextFileName = file
+          ? file.name
+          : selectedTilesetManagerEditUserRecord.fileName;
+        const nextTileSize = file
+          ? await inferTilesetTileSizeFromBlob(file)
+          : selectedTilesetManagerEditUserRecord.tileSize;
+        await saveStoredUserTileset({
+          id: selectedTilesetManagerEditUserRecord.id,
+          label,
+          tileSize: nextTileSize,
+          fileName: nextFileName,
+          file: nextFile,
+        });
+        await refreshUserTilesetCatalog(false);
+        openTilesetManagerEditor(
+          getNh3dUserTilesetPath(selectedTilesetManagerEditUserRecord.id),
+        );
+      }
+      saveTilesetManagerSettingsDraft();
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save tileset.";
       setTilesetManagerError(message);
     } finally {
       setTilesetManagerBusy(false);
@@ -2817,12 +3177,19 @@ export default function App(): JSX.Element {
     });
   };
 
-  const updateTilesetBackgroundTileIdDraft = (rawTileId: number): void => {
+  const updateTilesetBackgroundTileIdDraft = (
+    rawTileId: number,
+    rawTilesetPath?: string,
+    tileCountHint?: number,
+  ): void => {
     const maxTileId =
-      tileAtlasState.tileCount > 0 ? tileAtlasState.tileCount - 1 : Infinity;
+      Number.isFinite(tileCountHint) && Number(tileCountHint) > 0
+        ? Number(tileCountHint) - 1
+        : Infinity;
     const nextTileId = Math.max(0, Math.min(maxTileId, Math.trunc(rawTileId)));
     setClientOptionsDraft((previous) => {
-      const tilesetPath = String(previous.tilesetPath || "").trim();
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
       const nextByTileset = {
         ...previous.tilesetBackgroundTileIdByTileset,
       };
@@ -2831,7 +3198,10 @@ export default function App(): JSX.Element {
       }
       return {
         ...previous,
-        tilesetBackgroundTileId: nextTileId,
+        tilesetBackgroundTileId:
+          tilesetPath && tilesetPath === selectedTilesetPath
+            ? nextTileId
+            : previous.tilesetBackgroundTileId,
         tilesetBackgroundTileIdByTileset: nextByTileset,
       };
     });
@@ -2839,11 +3209,13 @@ export default function App(): JSX.Element {
 
   const updateTilesetBackgroundRemovalModeDraft = (
     mode: TilesetBackgroundRemovalMode,
+    rawTilesetPath?: string,
   ): void => {
     const resolvedMode: TilesetBackgroundRemovalMode =
       mode === "solid" ? "solid" : "tile";
     setClientOptionsDraft((previous) => {
-      const tilesetPath = String(previous.tilesetPath || "").trim();
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
       const nextByTileset = {
         ...previous.tilesetBackgroundRemovalModeByTileset,
       };
@@ -2852,16 +3224,23 @@ export default function App(): JSX.Element {
       }
       return {
         ...previous,
-        tilesetBackgroundRemovalMode: resolvedMode,
+        tilesetBackgroundRemovalMode:
+          tilesetPath && tilesetPath === selectedTilesetPath
+            ? resolvedMode
+            : previous.tilesetBackgroundRemovalMode,
         tilesetBackgroundRemovalModeByTileset: nextByTileset,
       };
     });
   };
 
-  const updateTilesetSolidChromaKeyColorHexDraft = (rawHex: string): void => {
+  const updateTilesetSolidChromaKeyColorHexDraft = (
+    rawHex: string,
+    rawTilesetPath?: string,
+  ): void => {
     const normalizedHex = normalizeSolidChromaKeyHex(rawHex);
     setClientOptionsDraft((previous) => {
-      const tilesetPath = String(previous.tilesetPath || "").trim();
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
       const nextByTileset = {
         ...previous.tilesetSolidChromaKeyColorHexByTileset,
       };
@@ -2870,7 +3249,10 @@ export default function App(): JSX.Element {
       }
       return {
         ...previous,
-        tilesetSolidChromaKeyColorHex: normalizedHex,
+        tilesetSolidChromaKeyColorHex:
+          tilesetPath && tilesetPath === selectedTilesetPath
+            ? normalizedHex
+            : previous.tilesetSolidChromaKeyColorHex,
         tilesetSolidChromaKeyColorHexByTileset: nextByTileset,
       };
     });
@@ -2897,13 +3279,53 @@ export default function App(): JSX.Element {
   }, [clientOptionsDraft.tilesetMode, selectedTilesetEntry]);
 
   useEffect(() => {
-    if (selectedTilesetBackgroundRemovalMode !== "tile") {
+    if (!isTilesetManagerVisible || !selectedTilesetManagerEditPath) {
+      setIsTilesetBackgroundTilePickerVisible(false);
+      setIsTilesetSolidColorPickerVisible(false);
+      return;
+    }
+    if (tilesetManagerBackgroundRemovalMode !== "tile") {
       setIsTilesetBackgroundTilePickerVisible(false);
     }
-    if (selectedTilesetBackgroundRemovalMode !== "solid") {
+    if (tilesetManagerBackgroundRemovalMode !== "solid") {
       setIsTilesetSolidColorPickerVisible(false);
     }
-  }, [selectedTilesetBackgroundRemovalMode]);
+  }, [
+    isTilesetManagerVisible,
+    selectedTilesetManagerEditPath,
+    tilesetManagerBackgroundRemovalMode,
+  ]);
+
+  useEffect(() => {
+    if (!isTilesetManagerVisible || tilesetManagerMode !== "edit") {
+      return;
+    }
+    const hasActiveEditTileset =
+      selectedTilesetManagerEditPath &&
+      isNh3dTilesetPathAvailable(selectedTilesetManagerEditPath);
+    if (hasActiveEditTileset) {
+      return;
+    }
+    const activeTilesetPath = String(
+      clientOptionsDraft.tilesetPath || "",
+    ).trim();
+    const fallbackTilesetPath = tilesetCatalog[0]?.path ?? "";
+    const nextEditPath =
+      (activeTilesetPath && isNh3dTilesetPathAvailable(activeTilesetPath)
+        ? activeTilesetPath
+        : "") || fallbackTilesetPath;
+    if (nextEditPath) {
+      openTilesetManagerEditor(nextEditPath);
+      return;
+    }
+    openTilesetManagerNewEditor();
+  }, [
+    clientOptionsDraft.tilesetPath,
+    isTilesetManagerVisible,
+    selectedTilesetManagerEditPath,
+    tilesetManagerMode,
+    tilesetCatalog,
+  ]);
 
   const renderMobileDialogCloseButton = (
     onClick: () => void,
@@ -3636,12 +4058,6 @@ export default function App(): JSX.Element {
               ) {
                 return null;
               }
-              if (
-                option.type === "tile-picker" &&
-                clientOptionsDraft.tilesetMode !== "tiles"
-              ) {
-                return null;
-              }
               if (option.type === "group") {
                 return (
                   <div className="nh3d-options-group-title" key={option.key}>
@@ -3848,7 +4264,9 @@ export default function App(): JSX.Element {
                           if (option.key === "tilesetMode") {
                             updateClientOptionDraft(
                               option.key,
-                              event.target.value === "tiles" ? "tiles" : "ascii",
+                              event.target.value === "tiles"
+                                ? "tiles"
+                                : "ascii",
                             );
                             return;
                           }
@@ -3871,139 +4289,6 @@ export default function App(): JSX.Element {
                       </select>
                     </div>
                   </div>
-                );
-              }
-              if (option.type === "tile-picker") {
-                const baseDisabled = Boolean(option.disabled || !selectedTilesetEntry);
-                const isTileModeActive =
-                  selectedTilesetBackgroundRemovalMode === "tile";
-                const isSolidModeActive =
-                  selectedTilesetBackgroundRemovalMode === "solid";
-                const tilePickerDisabled = baseDisabled || !isTileModeActive;
-                const solidColorPickerDisabled = baseDisabled || !isSolidModeActive;
-                return (
-                  <Fragment key={option.key}>
-                    <div
-                      className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                        isTileModeActive ? "" : " nh3d-option-row-mode-inactive"
-                      }`}
-                    >
-                      <div className="nh3d-option-copy">
-                        <div className="nh3d-option-label">
-                          Background Tile Removal
-                        </div>
-                        <div className="nh3d-option-description">
-                          Use a selected atlas background tile for billboard
-                          background removal.
-                        </div>
-                      </div>
-                      <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                        <button
-                          className={`nh3d-option-tile-picker-button${
-                            tilePickerDisabled ? " is-disabled" : ""
-                          }`}
-                          disabled={tilePickerDisabled}
-                          onClick={() =>
-                            setIsTilesetBackgroundTilePickerVisible(true)
-                          }
-                          type="button"
-                        >
-                          <span className="nh3d-option-tile-picker-preview">
-                            {renderTilePreviewImage(selectedTilesetBackgroundTileId)}
-                          </span>
-                          <span className="nh3d-option-tile-picker-copy">
-                            <span className="nh3d-option-tile-picker-glyph">
-                              {selectedTilesetBackgroundGlyphLabel}
-                            </span>
-                            <span className="nh3d-option-tile-picker-id">
-                              tile #{selectedTilesetBackgroundTileId}
-                            </span>
-                          </span>
-                        </button>
-                      </div>
-                      <button
-                        aria-checked={isTileModeActive}
-                        className={`nh3d-option-switch nh3d-option-inline-switch${
-                          isTileModeActive ? " is-on" : ""
-                        }`}
-                        disabled={baseDisabled}
-                        onClick={() =>
-                          updateTilesetBackgroundRemovalModeDraft("tile")
-                        }
-                        role="switch"
-                        type="button"
-                      >
-                        <span className="nh3d-option-switch-thumb" />
-                      </button>
-                    </div>
-                    <div
-                      className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                        isSolidModeActive ? "" : " nh3d-option-row-mode-inactive"
-                      }`}
-                    >
-                      <div className="nh3d-option-copy">
-                        <div className="nh3d-option-label">
-                          Solid Color Chroma Key
-                        </div>
-                        <div className="nh3d-option-description">
-                          Use a single solid RGB color for billboard background
-                          removal.
-                        </div>
-                      </div>
-                      <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                        <button
-                          className={`nh3d-option-tile-picker-button${
-                            solidColorPickerDisabled ? " is-disabled" : ""
-                          }`}
-                          disabled={solidColorPickerDisabled}
-                          onClick={() => setIsTilesetSolidColorPickerVisible(true)}
-                          type="button"
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="nh3d-option-solid-color-preview"
-                            style={{
-                              backgroundColor: normalizeSolidChromaKeyHex(
-                                selectedTilesetSolidChromaKeyColorHex,
-                              ),
-                            }}
-                          />
-                          <span className="nh3d-option-tile-picker-copy">
-                            <span className="nh3d-option-tile-picker-glyph">
-                              {formatSolidChromaKeyHex(
-                                selectedTilesetSolidChromaKeyColorHex,
-                              )}
-                            </span>
-                            <span className="nh3d-option-tile-picker-id">
-                              click to pick from atlas
-                            </span>
-                          </span>
-                        </button>
-                        <input
-                          className="nh3d-option-solid-color-input"
-                          readOnly
-                          type="text"
-                          value={formatSolidChromaKeyHex(
-                            selectedTilesetSolidChromaKeyColorHex,
-                          )}
-                        />
-                      </div>
-                      <button
-                        aria-checked={isSolidModeActive}
-                        className={`nh3d-option-switch nh3d-option-inline-switch${
-                          isSolidModeActive ? " is-on" : ""
-                        }`}
-                        disabled={baseDisabled}
-                        onClick={() =>
-                          updateTilesetBackgroundRemovalModeDraft("solid")
-                        }
-                        role="switch"
-                        type="button"
-                      >
-                        <span className="nh3d-option-switch-thumb" />
-                      </button>
-                    </div>
-                  </Fragment>
                 );
               }
               if (option.type === "slider") {
@@ -4079,9 +4364,18 @@ export default function App(): JSX.Element {
           )}
           <div className="nh3d-options-title">Manage Tile Sets</div>
           <div className="nh3d-option-description">
-            Upload custom tilesets to IndexedDB and manage them locally.
+            Add tile sets and edit per-tileset background/chroma settings.
           </div>
           <div className="nh3d-tileset-manager-upload">
+            <div className="nh3d-tileset-manager-header">
+              <div className="nh3d-option-label">
+                {tilesetManagerInNewMode
+                  ? "Create New Tile Set"
+                  : selectedTilesetManagerEditEntry
+                    ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
+                    : "Edit Tile Set"}
+              </div>
+            </div>
             <div className="nh3d-tileset-manager-upload-row">
               <label className="nh3d-option-label" htmlFor="nh3d-tileset-name">
                 Tile Set Name
@@ -4091,78 +4385,282 @@ export default function App(): JSX.Element {
                 id="nh3d-tileset-name"
                 onChange={(event) => setTilesetManagerName(event.target.value)}
                 placeholder="My Tileset"
+                readOnly={tilesetManagerNameInputDisabled}
                 type="text"
                 value={tilesetManagerName}
               />
+              {tilesetManagerNameInputDisabled ? (
+                <div className="nh3d-option-description">
+                  Built-in tile set names cannot be changed.
+                </div>
+              ) : null}
             </div>
-            <div className="nh3d-tileset-manager-upload-row">
-              <label
-                className="nh3d-option-label"
-                htmlFor="nh3d-tileset-upload-file"
-              >
-                Tileset Image
-              </label>
-              <input
-                accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
-                className="nh3d-tileset-manager-file-input"
-                id="nh3d-tileset-upload-file"
-                onChange={handleTilesetManagerFileChange}
-                ref={tilesetManagerFileInputRef}
-                type="file"
-              />
-              <div className="nh3d-option-description">
-                {tilesetManagerFile
-                  ? `Selected: ${tilesetManagerFile.name}`
-                  : "Choose a tileset image file."}
+            {tilesetManagerInNewMode || selectedTilesetManagerEditUserRecord ? (
+              <div className="nh3d-tileset-manager-upload-row">
+                <label
+                  className="nh3d-option-label"
+                  htmlFor="nh3d-tileset-upload-file"
+                >
+                  {tilesetManagerInNewMode
+                    ? "Tileset Image"
+                    : "Tileset Image (optional replacement)"}
+                </label>
+                <input
+                  accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
+                  className="nh3d-tileset-manager-file-input"
+                  id="nh3d-tileset-upload-file"
+                  onChange={handleTilesetManagerFileChange}
+                  ref={tilesetManagerFileInputRef}
+                  type="file"
+                />
+                <div className="nh3d-option-description">
+                  {tilesetManagerFile
+                    ? `Selected: ${tilesetManagerFile.name}`
+                    : tilesetManagerInNewMode
+                      ? "Choose a tileset image file."
+                      : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
+                </div>
               </div>
-            </div>
+            ) : null}
+            {selectedTilesetManagerEditEntry ? (
+              <Fragment>
+                <div className="nh3d-option-description">
+                  Configure billboard background removal for this tileset.
+                </div>
+                <div
+                  className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
+                    tilesetManagerBackgroundRemovalMode === "tile"
+                      ? ""
+                      : " nh3d-option-row-mode-inactive"
+                  }`}
+                >
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">
+                      Background Tile Removal
+                    </div>
+                    <div className="nh3d-option-description">
+                      Use a selected atlas tile for billboard background
+                      removal.
+                    </div>
+                  </div>
+                  <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                    <button
+                      className={`nh3d-option-tile-picker-button${
+                        tilesetManagerBackgroundRemovalMode === "tile"
+                          ? ""
+                          : " is-disabled"
+                      }`}
+                      disabled={tilesetManagerBackgroundRemovalMode !== "tile"}
+                      onClick={() =>
+                        setIsTilesetBackgroundTilePickerVisible(true)
+                      }
+                      type="button"
+                    >
+                      <span className="nh3d-option-tile-picker-preview">
+                        {renderTilesetManagerTilePreviewImage(
+                          tilesetManagerBackgroundTileId,
+                        )}
+                      </span>
+                      <span className="nh3d-option-tile-picker-copy">
+                        <span className="nh3d-option-tile-picker-glyph">
+                          {tilesetManagerBackgroundGlyphLabel}
+                        </span>
+                        <span className="nh3d-option-tile-picker-id">
+                          tile #{tilesetManagerBackgroundTileId}
+                        </span>
+                      </span>
+                    </button>
+                  </div>
+                  <button
+                    aria-checked={
+                      tilesetManagerBackgroundRemovalMode === "tile"
+                    }
+                    className={`nh3d-option-switch nh3d-option-inline-switch${
+                      tilesetManagerBackgroundRemovalMode === "tile"
+                        ? " is-on"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      updateTilesetBackgroundRemovalModeDraft(
+                        "tile",
+                        selectedTilesetManagerEditPath,
+                      )
+                    }
+                    role="switch"
+                    type="button"
+                  >
+                    <span className="nh3d-option-switch-thumb" />
+                  </button>
+                </div>
+                <div
+                  className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
+                    tilesetManagerBackgroundRemovalMode === "solid"
+                      ? ""
+                      : " nh3d-option-row-mode-inactive"
+                  }`}
+                >
+                  <div className="nh3d-option-copy">
+                    <div className="nh3d-option-label">
+                      Solid Color Chroma Key
+                    </div>
+                    <div className="nh3d-option-description">
+                      Use a single solid RGB color for billboard background
+                      removal.
+                    </div>
+                  </div>
+                  <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                    <button
+                      className={`nh3d-option-tile-picker-button${
+                        tilesetManagerBackgroundRemovalMode === "solid"
+                          ? ""
+                          : " is-disabled"
+                      }`}
+                      disabled={tilesetManagerBackgroundRemovalMode !== "solid"}
+                      onClick={() => setIsTilesetSolidColorPickerVisible(true)}
+                      type="button"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="nh3d-option-solid-color-preview"
+                        style={{
+                          backgroundColor: normalizeSolidChromaKeyHex(
+                            tilesetManagerSolidChromaKeyColorHex,
+                          ),
+                        }}
+                      />
+                      <span className="nh3d-option-tile-picker-copy">
+                        <span className="nh3d-option-tile-picker-glyph">
+                          {formatSolidChromaKeyHex(
+                            tilesetManagerSolidChromaKeyColorHex,
+                          )}
+                        </span>
+                        <span className="nh3d-option-tile-picker-id">
+                          click to pick from atlas
+                        </span>
+                      </span>
+                    </button>
+                    <input
+                      className="nh3d-option-solid-color-input"
+                      readOnly
+                      type="text"
+                      value={formatSolidChromaKeyHex(
+                        tilesetManagerSolidChromaKeyColorHex,
+                      )}
+                    />
+                  </div>
+                  <button
+                    aria-checked={
+                      tilesetManagerBackgroundRemovalMode === "solid"
+                    }
+                    className={`nh3d-option-switch nh3d-option-inline-switch${
+                      tilesetManagerBackgroundRemovalMode === "solid"
+                        ? " is-on"
+                        : ""
+                    }`}
+                    onClick={() =>
+                      updateTilesetBackgroundRemovalModeDraft(
+                        "solid",
+                        selectedTilesetManagerEditPath,
+                      )
+                    }
+                    role="switch"
+                    type="button"
+                  >
+                    <span className="nh3d-option-switch-thumb" />
+                  </button>
+                </div>
+              </Fragment>
+            ) : (
+              <div className="nh3d-option-description">
+                Save the new tile set first, then edit background/chroma
+                settings.
+              </div>
+            )}
             <div className="nh3d-tileset-manager-upload-actions">
               <button
                 className="nh3d-menu-action-button nh3d-menu-action-confirm"
                 disabled={tilesetManagerBusy}
                 onClick={() => {
-                  void addUserTileset();
+                  void saveTilesetManager();
                 }}
                 type="button"
               >
-                Save Tile Set
+                {tilesetManagerInNewMode
+                  ? "Create Tile Set"
+                  : selectedTilesetManagerEditUserRecord
+                    ? "Save Tile Set"
+                    : "Save Tile Settings"}
               </button>
             </div>
           </div>
           {tilesetManagerError ? (
-            <div className="nh3d-tileset-manager-error">{tilesetManagerError}</div>
+            <div className="nh3d-tileset-manager-error">
+              {tilesetManagerError}
+            </div>
           ) : null}
+          <div className="nh3d-tileset-manager-divider" />
+          <button
+            className="nh3d-menu-action-button"
+            disabled={tilesetManagerBusy}
+            onClick={openTilesetManagerNewEditor}
+            type="button"
+          >
+            Add Tile Set
+          </button>
           <div className="nh3d-tileset-manager-list">
-            {userTilesets.length === 0 ? (
+            {tilesetManagerListTilesets.length === 0 ? (
               <div className="nh3d-option-description">
-                No uploaded tilesets yet.
+                No uploaded tilesets available.
               </div>
             ) : (
-              userTilesets.map((record) => {
-                const userPath = getNh3dUserTilesetPath(record.id);
-                const isSelected = clientOptionsDraft.tilesetPath === userPath;
+              tilesetManagerListTilesets.map((tileset) => {
+                const tilesetPath = String(tileset.path || "").trim();
+                const isSelected =
+                  clientOptionsDraft.tilesetPath === tilesetPath;
+                const isEditing =
+                  !tilesetManagerInNewMode &&
+                  selectedTilesetManagerEditPath === tilesetPath;
+                const userRecord = userTilesetRecordByPath.get(tilesetPath);
+                const isUserTileset = tileset.source === "user";
                 return (
-                  <div className="nh3d-tileset-manager-item" key={record.id}>
+                  <div className="nh3d-tileset-manager-item" key={tilesetPath}>
                     <div className="nh3d-tileset-manager-item-copy">
                       <div className="nh3d-option-label">
-                        {record.label}
+                        {tileset.label}
                         {isSelected ? " (selected)" : ""}
+                        {isEditing ? " (editing)" : ""}
                       </div>
                       <div className="nh3d-option-description">
-                        {record.fileName} | {record.tileSize}px tiles
+                        {isUserTileset
+                          ? `${userRecord?.fileName || tilesetPath} | uploaded`
+                          : `${tilesetPath} | built-in`}
                       </div>
                     </div>
-                    <button
-                      aria-label={`Delete ${record.label}`}
-                      className="nh3d-tileset-manager-delete"
-                      disabled={tilesetManagerBusy}
-                      onClick={() => {
-                        void removeUserTileset(record);
-                      }}
-                      type="button"
-                    >
-                      X
-                    </button>
+                    <div className="nh3d-tileset-manager-item-actions">
+                      <button
+                        className="nh3d-menu-action-button"
+                        onClick={() => openTilesetManagerEditor(tilesetPath)}
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                      {isUserTileset ? (
+                        <button
+                          aria-label={`Delete ${tileset.label}`}
+                          className="nh3d-tileset-manager-delete"
+                          disabled={tilesetManagerBusy || !userRecord}
+                          onClick={() => {
+                            if (!userRecord) {
+                              return;
+                            }
+                            void removeUserTileset(userRecord);
+                          }}
+                          type="button"
+                        >
+                          X
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })
@@ -4204,41 +4702,77 @@ export default function App(): JSX.Element {
 
       <TilesetTilePickerDialog
         closeLabel="Close tileset background tile picker"
-        defaultTileId={defaultTilesetBackgroundTileId}
+        defaultTileId={tilesetManagerDefaultBackgroundTileId}
         dialogId="nh3d-tileset-background-tile-picker-dialog"
-        entries={tilePickerEntries}
+        entries={tilesetManagerTilePickerEntries}
         helperText="Used for removing shared tileset background from monster/loot billboards."
         onDone={() => setIsTilesetBackgroundTilePickerVisible(false)}
         onResetToDefault={() =>
-          updateTilesetBackgroundTileIdDraft(defaultTilesetBackgroundTileId)
+          updateTilesetBackgroundTileIdDraft(
+            tilesetManagerDefaultBackgroundTileId,
+            selectedTilesetManagerEditPath,
+            tilesetManagerAtlasState.tileCount,
+          )
         }
-        onSelectTile={updateTilesetBackgroundTileIdDraft}
+        onSelectTile={(tileId) =>
+          updateTilesetBackgroundTileIdDraft(
+            tileId,
+            selectedTilesetManagerEditPath,
+            tilesetManagerAtlasState.tileCount,
+          )
+        }
         renderMobileCloseButton={renderMobileDialogCloseButton}
-        renderTilePreviewImage={renderTilePreviewImage}
-        selectedGlyphLabel={selectedTilesetBackgroundGlyphLabel}
-        selectedGlyphNumber={selectedTilesetBackgroundGlyphNumber}
-        selectedTileId={selectedTilesetBackgroundTileId}
+        renderTilePreviewImage={renderTilesetManagerTilePreviewImage}
+        selectedGlyphLabel={tilesetManagerBackgroundGlyphLabel}
+        selectedGlyphNumber={tilesetManagerBackgroundGlyphNumber}
+        selectedTileId={tilesetManagerBackgroundTileId}
         showGlyphNumber={showTilePickerGlyphNumber}
-        statusText={tilePickerStatusText}
-        tileAtlasLoaded={tileAtlasState.loaded}
-        title="Tileset Background Tile Picker"
-        visible={isClientOptionsVisible && isTilesetBackgroundTilePickerVisible}
+        statusText={tilesetManagerTilePickerStatusText}
+        tileAtlasLoaded={tilesetManagerAtlasState.loaded}
+        title={
+          selectedTilesetManagerEditEntry
+            ? `Tileset Background Tile Picker: ${selectedTilesetManagerEditEntry.label}`
+            : "Tileset Background Tile Picker"
+        }
+        visible={
+          isClientOptionsVisible &&
+          isTilesetManagerVisible &&
+          Boolean(selectedTilesetManagerEditPath) &&
+          isTilesetBackgroundTilePickerVisible
+        }
       />
 
       <TilesetSolidColorPickerDialog
-        atlasImage={tileAtlasImage}
-        atlasWidthPx={tileAtlasState.columns * tileAtlasState.tileSourceSize}
+        atlasImage={tilesetManagerAtlasImage}
+        atlasWidthPx={
+          tilesetManagerAtlasState.columns *
+          tilesetManagerAtlasState.tileSourceSize
+        }
         closeLabel="Close solid chroma key color picker"
         dialogId="nh3d-tileset-solid-color-picker-dialog"
         onDone={() => setIsTilesetSolidColorPickerVisible(false)}
-        onSelectColorHex={updateTilesetSolidChromaKeyColorHexDraft}
+        onSelectColorHex={(rawHex) =>
+          updateTilesetSolidChromaKeyColorHexDraft(
+            rawHex,
+            selectedTilesetManagerEditPath,
+          )
+        }
         renderMobileCloseButton={renderMobileDialogCloseButton}
-        selectedColorHex={selectedTilesetSolidChromaKeyColorHex}
-        statusText={tilePickerStatusText}
-        tileAtlasLoaded={tileAtlasState.loaded}
-        tileSourceSize={tileAtlasState.tileSourceSize}
-        title="Solid Color Chroma Key Picker"
-        visible={isClientOptionsVisible && isTilesetSolidColorPickerVisible}
+        selectedColorHex={tilesetManagerSolidChromaKeyColorHex}
+        statusText={tilesetManagerTilePickerStatusText}
+        tileAtlasLoaded={tilesetManagerAtlasState.loaded}
+        tileSourceSize={tilesetManagerAtlasState.tileSourceSize}
+        title={
+          selectedTilesetManagerEditEntry
+            ? `Solid Color Chroma Key Picker: ${selectedTilesetManagerEditEntry.label}`
+            : "Solid Color Chroma Key Picker"
+        }
+        visible={
+          isClientOptionsVisible &&
+          isTilesetManagerVisible &&
+          Boolean(selectedTilesetManagerEditPath) &&
+          isTilesetSolidColorPickerVisible
+        }
       />
 
       {textInputRequest ? (

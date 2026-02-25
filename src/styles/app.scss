@@ -1681,6 +1681,14 @@ canvas {
   background: rgba(10, 22, 36, 0.82);
 }
 
+.nh3d-tileset-manager-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .nh3d-tileset-manager-upload-row {
   display: flex;
   flex-direction: column;
@@ -1689,10 +1697,6 @@ canvas {
 
 .nh3d-tileset-manager-input {
   width: 100%;
-}
-
-.nh3d-tileset-manager-input-tile-size {
-  max-width: 140px;
 }
 
 .nh3d-tileset-manager-file-input {
@@ -1746,6 +1750,11 @@ canvas {
   font-size: 12px;
 }
 
+.nh3d-tileset-manager-divider {
+  margin: 12px 0;
+  border-top: 1px solid rgba(96, 134, 186, 0.4);
+}
+
 .nh3d-tileset-manager-list {
   margin-top: 10px;
   display: flex;
@@ -1769,6 +1778,12 @@ canvas {
 
 .nh3d-tileset-manager-item-copy {
   min-width: 0;
+}
+
+.nh3d-tileset-manager-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .nh3d-tileset-manager-delete {

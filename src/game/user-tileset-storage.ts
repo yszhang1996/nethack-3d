@@ -127,24 +127,32 @@ export async function saveStoredUserTileset(
   if (!blob) {
     throw new Error("Tileset file is required.");
   }
+  const normalizedId = String(input.id || "").trim();
+  const id = normalizedId || generateUserTilesetId();
   const now = Date.now();
-  const record: StoredUserTilesetRecord = {
-    id: String(input.id || "").trim() || generateUserTilesetId(),
-    label,
-    tileSize,
-    fileName: String(
-      input.fileName || (input.file instanceof File ? input.file.name : `${label}.png`),
-    ).trim(),
-    mimeType: String(blob.type || "application/octet-stream"),
-    blob,
-    createdAt: now,
-    updatedAt: now,
-  };
 
   const db = await openDatabase();
   try {
     const transaction = db.transaction(storeName, "readwrite");
     const store = transaction.objectStore(storeName);
+    const existingRecord = normalizedId
+      ? normalizeStoredRecord(await idbRequestToPromise(store.get(normalizedId)))
+      : null;
+    const record: StoredUserTilesetRecord = {
+      id,
+      label,
+      tileSize,
+      fileName: String(
+        input.fileName ||
+          (input.file instanceof File
+            ? input.file.name
+            : existingRecord?.fileName || `${label}.png`),
+      ).trim(),
+      mimeType: String(blob.type || "application/octet-stream"),
+      blob,
+      createdAt: existingRecord?.createdAt ?? now,
+      updatedAt: now,
+    };
     await idbRequestToPromise(store.put(record));
     await idbTransactionDone(transaction);
     return record;
