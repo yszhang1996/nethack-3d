@@ -62,7 +62,7 @@ const tilesetTileWidthPresetByLabel: Readonly<Record<string, number>> = {
 };
 const tilesetTileWidthPresetByPath: Readonly<Record<string, number>> = {
   "assets/3.6/Absurdly Evil.png": 64,
-  "assets/3.6/DawnHack.bmp": 16,
+  "assets/3.6/DawnHack.bmp": 32,
   "assets/3.6/Nevanda 3.6.png": 32,
   "assets/3.6/Vanilla NetHack Tiles.png": 16,
 };
