@@ -6723,30 +6723,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private isFloorMaterialKindForBlockAmbientOcclusion(
-    kind: TileMaterialKind | null,
-  ): boolean {
-    return true;
-    // switch (kind) {
-    //   case "floor":
-    //   case "dark":
-    //   case "stairs_up":
-    //   case "stairs_down":
-    //   case "water":
-    //   case "fountain":
-    //   case "trap":
-    //   case "feature":
-    //   case "player":
-    //   case "monster_hostile":
-    //   case "monster_friendly":
-    //   case "monster_neutral":
-    //   case "item":
-    //     return true;
-    //   default:
-    //     return false;
-    // }
-  }
-
   private isWallTileAt(tileX: number, tileY: number): boolean {
     const neighbor = this.tileMap.get(`${tileX},${tileY}`);
     return Boolean(neighbor?.userData?.isWall);
@@ -6925,7 +6901,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Make ambient occlusion darker in FPS mode
       const maxAlpha = this.isFpsMode() ? 0.55 : 0.24;
       const edgeTrim = Math.max(24, Math.floor(depth * 0.95));
-      const taper = Math.max(12, Math.floor(depth * 0.7));
+      const taper = Math.max(24, Math.floor(depth * 1.4));
       const terminalTaper = Math.max(10, Math.floor(depth * 0.5));
       const applyHorizontalEndTaper = (
         startX: number,
@@ -7276,10 +7252,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.materialKind === "string"
         ? (mesh.userData.materialKind as TileMaterialKind)
         : null;
-    if (!this.isFloorMaterialKindForBlockAmbientOcclusion(materialKind)) {
-      this.removeFloorBlockAmbientOcclusionOverlay(key);
-      return;
-    }
 
     const { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask } =
       this.computeFloorBlockAmbientOcclusionMasks(tileX, tileY);
@@ -7933,7 +7905,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const x = position.getX(i);
       const y = position.getY(i);
       const u = THREE.MathUtils.clamp((x + half) / TILE_SIZE, 0, 1);
-      const v = THREE.MathUtils.clamp(1 - (y + half) / TILE_SIZE, 0, 1);
+      const v = THREE.MathUtils.clamp((y + half) / TILE_SIZE, 0, 1);
       uv.setXY(i, u, v);
     }
     uv.needsUpdate = true;
