@@ -6726,19 +6726,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isFloorMaterialKindForBlockAmbientOcclusion(
     kind: TileMaterialKind | null,
   ): boolean {
-    switch (kind) {
-      case "floor":
-      case "dark":
-      case "stairs_up":
-      case "stairs_down":
-      case "water":
-      case "fountain":
-      case "trap":
-      case "feature":
-        return true;
-      default:
-        return false;
-    }
+    return true;
+    // switch (kind) {
+    //   case "floor":
+    //   case "dark":
+    //   case "stairs_up":
+    //   case "stairs_down":
+    //   case "water":
+    //   case "fountain":
+    //   case "trap":
+    //   case "feature":
+    //   case "player":
+    //   case "monster_hostile":
+    //   case "monster_friendly":
+    //   case "monster_neutral":
+    //   case "item":
+    //     return true;
+    //   default:
+    //     return false;
+    // }
   }
 
   private isWallTileAt(tileX: number, tileY: number): boolean {
@@ -7638,7 +7644,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const texture = useTiles
       ? this.createTileTexture(
           tileIndex,
-          materialKind === "dark" ? 0.6 : 1,
+          1, // No artificial darkening for chamfer floors
           false,
         )
       : this.createGlyphTexture(
