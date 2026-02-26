@@ -11453,20 +11453,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (this.currentInventory && this.currentInventory.length > 0) {
-      console.log("📦 Showing inventory dialog with existing data");
-      this.showInventoryDialog();
-      return;
-    }
-
-    if (!this.session) {
-      return;
-    }
-
     console.log("📦 Requesting current inventory from NetHack...");
     this.inventoryRefreshInFlight = true;
     this.lastInventoryRefreshRequestedAtMs = Date.now();
-    this.sendInput("i");
+    this.runExtendedCommand("inventory");
     this.pendingInventoryDialog = true;
   }
 
