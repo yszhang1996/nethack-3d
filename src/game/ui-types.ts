@@ -142,6 +142,7 @@ export type Nh3dClientOptions = {
   tileShakeOnHit: boolean;
   blood: boolean;
   liveMessageLog: boolean;
+  blockAmbientOcclusion: boolean;
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
   darkCorridorWallTileOverrideEnabledByTileset: DarkCorridorWallTileOverrideEnabledByTileset;
@@ -191,6 +192,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
+  blockAmbientOcclusion: true,
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
   darkCorridorWallTileOverrideEnabledByTileset: {},
@@ -200,7 +202,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   },
   darkCorridorWallSolidColorOverrideEnabled: true,
   darkCorridorWallSolidColorOverrideEnabledByTileset: {},
-  darkCorridorWallSolidColorHex: "#9aa9c6",
+  darkCorridorWallSolidColorHex: "#C7DAFF",
   darkCorridorWallSolidColorHexByTileset: {},
   darkCorridorWallSolidColorHexFps: "#0e131f",
   darkCorridorWallSolidColorHexFpsByTileset: {},
@@ -664,6 +666,10 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
+    blockAmbientOcclusion:
+      typeof overrides?.blockAmbientOcclusion === "boolean"
+        ? overrides.blockAmbientOcclusion
+        : defaultNh3dClientOptions.blockAmbientOcclusion,
     darkCorridorWalls367:
       typeof overrides?.darkCorridorWalls367 === "boolean"
         ? overrides.darkCorridorWalls367

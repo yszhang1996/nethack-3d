@@ -284,6 +284,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     { material: THREE.MeshLambertMaterial; texture: THREE.CanvasTexture | null }
   > = new Map();
+  private floorBlockAmbientOcclusionTextureCache: Map<
+    number,
+    THREE.CanvasTexture
+  > = new Map();
+  private floorBlockAmbientOcclusionOverlays: Map<string, THREE.Mesh> =
+    new Map();
+  private readonly floorBlockAmbientOcclusionOverlayZ: number = 0.014;
+  private fpsWallChamferFloorAmbientOcclusionOverlays: Map<string, THREE.Mesh> =
+    new Map();
+  private readonly fpsWallChamferFloorAmbientOcclusionOverlayZ: number = 0.001;
   // Fade-in animation state for newly discovered tiles.
   private tileRevealStartMs: Map<string, number> = new Map();
   private tileRevealDurationMs: number = 225;
@@ -1955,6 +1965,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileShakeChanged =
       previous.tileShakeOnHit !== normalized.tileShakeOnHit;
     const bloodChanged = previous.blood !== normalized.blood;
+    const blockAmbientOcclusionChanged =
+      previous.blockAmbientOcclusion !== normalized.blockAmbientOcclusion;
     const darkCorridorWallsChanged =
       previous.darkCorridorWalls367 !== normalized.darkCorridorWalls367;
     const darkCorridorWallTileOverrideChanged =
@@ -2022,6 +2034,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
+    }
+    if (blockAmbientOcclusionChanged) {
+      this.refreshAllFloorBlockAmbientOcclusion();
     }
     if (antialiasingChanged) {
       this.initAntialiasingPipeline();
@@ -6707,6 +6722,721 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private isFloorMaterialKindForBlockAmbientOcclusion(
+    kind: TileMaterialKind | null,
+  ): boolean {
+    switch (kind) {
+      case "floor":
+      case "dark":
+      case "stairs_up":
+      case "stairs_down":
+      case "water":
+      case "fountain":
+      case "trap":
+      case "feature":
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private isWallTileAt(tileX: number, tileY: number): boolean {
+    const neighbor = this.tileMap.get(`${tileX},${tileY}`);
+    return Boolean(neighbor?.userData?.isWall);
+  }
+
+  private getWallChamferMaskAt(tileX: number, tileY: number): number {
+    const mesh = this.tileMap.get(`${tileX},${tileY}`);
+    if (!mesh?.userData?.isWall) {
+      return 0;
+    }
+    if (typeof mesh.userData?.fpsWallChamferMask !== "number") {
+      return 0;
+    }
+    return Math.max(0, Math.min(15, Math.trunc(mesh.userData.fpsWallChamferMask)));
+  }
+
+  private computeFloorBlockAmbientOcclusionMasks(
+    tileX: number,
+    tileY: number,
+  ): {
+    edgeMask: number;
+    cornerMask: number;
+    edgeCutMask: number;
+    edgeTerminalMask: number;
+  } {
+    let edgeMask = 0;
+    // Bit layout: 1 = north, 2 = east, 4 = south, 8 = west.
+    const hasNorth = this.isWallTileAt(tileX, tileY - 1);
+    const hasEast = this.isWallTileAt(tileX + 1, tileY);
+    const hasSouth = this.isWallTileAt(tileX, tileY + 1);
+    const hasWest = this.isWallTileAt(tileX - 1, tileY);
+    if (hasNorth) {
+      edgeMask |= 1;
+    }
+    if (hasEast) {
+      edgeMask |= 2;
+    }
+    if (hasSouth) {
+      edgeMask |= 4;
+    }
+    if (hasWest) {
+      edgeMask |= 8;
+    }
+    const hasNorthWest = this.isWallTileAt(tileX - 1, tileY - 1);
+    const hasNorthEast = this.isWallTileAt(tileX + 1, tileY - 1);
+    const hasSouthEast = this.isWallTileAt(tileX + 1, tileY + 1);
+    const hasSouthWest = this.isWallTileAt(tileX - 1, tileY + 1);
+
+    const northChamferMask = hasNorth
+      ? this.getWallChamferMaskAt(tileX, tileY - 1)
+      : 0;
+    const eastChamferMask = hasEast
+      ? this.getWallChamferMaskAt(tileX + 1, tileY)
+      : 0;
+    const southChamferMask = hasSouth
+      ? this.getWallChamferMaskAt(tileX, tileY + 1)
+      : 0;
+    const westChamferMask = hasWest
+      ? this.getWallChamferMaskAt(tileX - 1, tileY)
+      : 0;
+
+    // Bit layout:
+    // 1 = north-left, 2 = north-right,
+    // 4 = east-top, 8 = east-bottom,
+    // 16 = south-right, 32 = south-left,
+    // 64 = west-bottom, 128 = west-top.
+    let edgeCutMask = 0;
+    if (northChamferMask & 8) {
+      edgeCutMask |= 1;
+    }
+    if (northChamferMask & 4) {
+      edgeCutMask |= 2;
+    }
+    if (eastChamferMask & 1) {
+      edgeCutMask |= 4;
+    }
+    if (eastChamferMask & 8) {
+      edgeCutMask |= 8;
+    }
+    if (southChamferMask & 2) {
+      edgeCutMask |= 16;
+    }
+    if (southChamferMask & 1) {
+      edgeCutMask |= 32;
+    }
+    if (westChamferMask & 4) {
+      edgeCutMask |= 64;
+    }
+    if (westChamferMask & 2) {
+      edgeCutMask |= 128;
+    }
+
+    let cornerMask = 0;
+    // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
+    if (hasNorth && hasWest && (edgeCutMask & 1) === 0 && (edgeCutMask & 128) === 0) {
+      cornerMask |= 1;
+    }
+    if (hasNorth && hasEast && (edgeCutMask & 2) === 0 && (edgeCutMask & 4) === 0) {
+      cornerMask |= 2;
+    }
+    if (
+      hasSouth &&
+      hasEast &&
+      (edgeCutMask & 16) === 0 &&
+      (edgeCutMask & 8) === 0
+    ) {
+      cornerMask |= 4;
+    }
+    if (
+      hasSouth &&
+      hasWest &&
+      (edgeCutMask & 32) === 0 &&
+      (edgeCutMask & 64) === 0
+    ) {
+      cornerMask |= 8;
+    }
+
+    // Bit layout matches edgeCutMask endpoint bits so texture generation can
+    // apply smooth falloff to true segment endpoints without breaking runs.
+    let edgeTerminalMask = 0;
+    if (hasNorth && !hasWest && !hasNorthWest && (edgeCutMask & 1) === 0) {
+      edgeTerminalMask |= 1;
+    }
+    if (hasNorth && !hasEast && !hasNorthEast && (edgeCutMask & 2) === 0) {
+      edgeTerminalMask |= 2;
+    }
+    if (hasEast && !hasNorth && !hasNorthEast && (edgeCutMask & 4) === 0) {
+      edgeTerminalMask |= 4;
+    }
+    if (hasEast && !hasSouth && !hasSouthEast && (edgeCutMask & 8) === 0) {
+      edgeTerminalMask |= 8;
+    }
+    if (hasSouth && !hasEast && !hasSouthEast && (edgeCutMask & 16) === 0) {
+      edgeTerminalMask |= 16;
+    }
+    if (hasSouth && !hasWest && !hasSouthWest && (edgeCutMask & 32) === 0) {
+      edgeTerminalMask |= 32;
+    }
+    if (hasWest && !hasSouth && !hasSouthWest && (edgeCutMask & 64) === 0) {
+      edgeTerminalMask |= 64;
+    }
+    if (hasWest && !hasNorth && !hasNorthWest && (edgeCutMask & 128) === 0) {
+      edgeTerminalMask |= 128;
+    }
+
+    return { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask };
+  }
+
+  private createFloorBlockAmbientOcclusionTexture(
+    edgeMask: number,
+    cornerMask: number,
+    edgeCutMask: number,
+    edgeTerminalMask: number,
+  ): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    const size = 256;
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext("2d");
+    if (context) {
+      context.clearRect(0, 0, size, size);
+      const depth = Math.max(16, Math.floor(size * 0.4));
+      const maxAlpha = 0.24;
+      const edgeTrim = Math.max(24, Math.floor(depth * 0.95));
+      const taper = Math.max(12, Math.floor(depth * 0.7));
+      const terminalTaper = Math.max(10, Math.floor(depth * 0.5));
+      const applyHorizontalEndTaper = (
+        startX: number,
+        y: number,
+        width: number,
+        height: number,
+        fadeStart: boolean,
+      ): void => {
+        if (width <= 0 || height <= 0) {
+          return;
+        }
+        context.save();
+        context.globalCompositeOperation = "destination-out";
+        const gradient = context.createLinearGradient(startX, 0, startX + width, 0);
+        if (fadeStart) {
+          gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
+          gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        } else {
+          gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+          gradient.addColorStop(1, "rgba(0, 0, 0, 1)");
+        }
+        context.fillStyle = gradient;
+        context.fillRect(startX, y, width, height);
+        context.restore();
+      };
+      const applyVerticalEndTaper = (
+        x: number,
+        startY: number,
+        width: number,
+        height: number,
+        fadeStart: boolean,
+      ): void => {
+        if (width <= 0 || height <= 0) {
+          return;
+        }
+        context.save();
+        context.globalCompositeOperation = "destination-out";
+        const gradient = context.createLinearGradient(0, startY, 0, startY + height);
+        if (fadeStart) {
+          gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
+          gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        } else {
+          gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+          gradient.addColorStop(1, "rgba(0, 0, 0, 1)");
+        }
+        context.fillStyle = gradient;
+        context.fillRect(x, startY, width, height);
+        context.restore();
+      };
+      if (edgeMask & 1) {
+        const leftTrim = edgeCutMask & 1 ? edgeTrim : 0;
+        const rightTrim = edgeCutMask & 2 ? edgeTrim : 0;
+        const width = size - leftTrim - rightTrim;
+        if (width > 0) {
+          const northGradient = context.createLinearGradient(0, 0, 0, depth);
+          northGradient.addColorStop(0, `rgba(0, 0, 0, ${maxAlpha})`);
+          northGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+          context.fillStyle = northGradient;
+          context.fillRect(leftTrim, 0, width, depth);
+          if (leftTrim > 0 || (edgeTerminalMask & 1) !== 0) {
+            const taperWidth = Math.min(
+              leftTrim > 0 ? taper : terminalTaper,
+              width,
+            );
+            applyHorizontalEndTaper(leftTrim, 0, taperWidth, depth, true);
+          }
+          if (rightTrim > 0 || (edgeTerminalMask & 2) !== 0) {
+            const taperWidth = Math.min(
+              rightTrim > 0 ? taper : terminalTaper,
+              width,
+            );
+            applyHorizontalEndTaper(
+              leftTrim + width - taperWidth,
+              0,
+              taperWidth,
+              depth,
+              false,
+            );
+          }
+        }
+      }
+      if (edgeMask & 2) {
+        const topTrim = edgeCutMask & 4 ? edgeTrim : 0;
+        const bottomTrim = edgeCutMask & 8 ? edgeTrim : 0;
+        const height = size - topTrim - bottomTrim;
+        if (height > 0) {
+          const eastGradient = context.createLinearGradient(
+            size,
+            0,
+            size - depth,
+            0,
+          );
+          eastGradient.addColorStop(0, `rgba(0, 0, 0, ${maxAlpha})`);
+          eastGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+          context.fillStyle = eastGradient;
+          context.fillRect(size - depth, topTrim, depth, height);
+          if (topTrim > 0 || (edgeTerminalMask & 4) !== 0) {
+            const taperHeight = Math.min(
+              topTrim > 0 ? taper : terminalTaper,
+              height,
+            );
+            applyVerticalEndTaper(size - depth, topTrim, depth, taperHeight, true);
+          }
+          if (bottomTrim > 0 || (edgeTerminalMask & 8) !== 0) {
+            const taperHeight = Math.min(
+              bottomTrim > 0 ? taper : terminalTaper,
+              height,
+            );
+            applyVerticalEndTaper(
+              size - depth,
+              topTrim + height - taperHeight,
+              depth,
+              taperHeight,
+              false,
+            );
+          }
+        }
+      }
+      if (edgeMask & 4) {
+        const rightTrim = edgeCutMask & 16 ? edgeTrim : 0;
+        const leftTrim = edgeCutMask & 32 ? edgeTrim : 0;
+        const width = size - leftTrim - rightTrim;
+        if (width > 0) {
+          const southGradient = context.createLinearGradient(
+            0,
+            size,
+            0,
+            size - depth,
+          );
+          southGradient.addColorStop(0, `rgba(0, 0, 0, ${maxAlpha})`);
+          southGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+          context.fillStyle = southGradient;
+          context.fillRect(leftTrim, size - depth, width, depth);
+          if (leftTrim > 0 || (edgeTerminalMask & 32) !== 0) {
+            const taperWidth = Math.min(
+              leftTrim > 0 ? taper : terminalTaper,
+              width,
+            );
+            applyHorizontalEndTaper(
+              leftTrim,
+              size - depth,
+              taperWidth,
+              depth,
+              true,
+            );
+          }
+          if (rightTrim > 0 || (edgeTerminalMask & 16) !== 0) {
+            const taperWidth = Math.min(
+              rightTrim > 0 ? taper : terminalTaper,
+              width,
+            );
+            applyHorizontalEndTaper(
+              leftTrim + width - taperWidth,
+              size - depth,
+              taperWidth,
+              depth,
+              false,
+            );
+          }
+        }
+      }
+      if (edgeMask & 8) {
+        const bottomTrim = edgeCutMask & 64 ? edgeTrim : 0;
+        const topTrim = edgeCutMask & 128 ? edgeTrim : 0;
+        const height = size - topTrim - bottomTrim;
+        if (height > 0) {
+          const westGradient = context.createLinearGradient(0, 0, depth, 0);
+          westGradient.addColorStop(0, `rgba(0, 0, 0, ${maxAlpha})`);
+          westGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+          context.fillStyle = westGradient;
+          context.fillRect(0, topTrim, depth, height);
+          if (topTrim > 0 || (edgeTerminalMask & 128) !== 0) {
+            const taperHeight = Math.min(
+              topTrim > 0 ? taper : terminalTaper,
+              height,
+            );
+            applyVerticalEndTaper(0, topTrim, depth, taperHeight, true);
+          }
+          if (bottomTrim > 0 || (edgeTerminalMask & 64) !== 0) {
+            const taperHeight = Math.min(
+              bottomTrim > 0 ? taper : terminalTaper,
+              height,
+            );
+            applyVerticalEndTaper(
+              0,
+              topTrim + height - taperHeight,
+              depth,
+              taperHeight,
+              false,
+            );
+          }
+        }
+      }
+
+      const cornerRadius = Math.max(depth, Math.floor(size * 0.46));
+      const cornerAlpha = 0.2;
+      if (cornerMask & 1) {
+        const nwGradient = context.createRadialGradient(
+          0,
+          0,
+          0,
+          0,
+          0,
+          cornerRadius,
+        );
+        nwGradient.addColorStop(0, `rgba(0, 0, 0, ${cornerAlpha})`);
+        nwGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = nwGradient;
+        context.fillRect(0, 0, cornerRadius, cornerRadius);
+      }
+      if (cornerMask & 2) {
+        const neGradient = context.createRadialGradient(
+          size,
+          0,
+          0,
+          size,
+          0,
+          cornerRadius,
+        );
+        neGradient.addColorStop(0, `rgba(0, 0, 0, ${cornerAlpha})`);
+        neGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = neGradient;
+        context.fillRect(size - cornerRadius, 0, cornerRadius, cornerRadius);
+      }
+      if (cornerMask & 4) {
+        const seGradient = context.createRadialGradient(
+          size,
+          size,
+          0,
+          size,
+          size,
+          cornerRadius,
+        );
+        seGradient.addColorStop(0, `rgba(0, 0, 0, ${cornerAlpha})`);
+        seGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = seGradient;
+        context.fillRect(
+          size - cornerRadius,
+          size - cornerRadius,
+          cornerRadius,
+          cornerRadius,
+        );
+      }
+      if (cornerMask & 8) {
+        const swGradient = context.createRadialGradient(
+          0,
+          size,
+          0,
+          0,
+          size,
+          cornerRadius,
+        );
+        swGradient.addColorStop(0, `rgba(0, 0, 0, ${cornerAlpha})`);
+        swGradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+        context.fillStyle = swGradient;
+        context.fillRect(0, size - cornerRadius, cornerRadius, cornerRadius);
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private getFloorBlockAmbientOcclusionTexture(
+    edgeMask: number,
+    cornerMask: number,
+    edgeCutMask: number,
+    edgeTerminalMask: number,
+  ): THREE.CanvasTexture {
+    const clampedEdgeMask = Math.max(0, Math.min(15, Math.trunc(edgeMask)));
+    const clampedCornerMask = Math.max(0, Math.min(15, Math.trunc(cornerMask)));
+    const clampedEdgeCutMask = Math.max(
+      0,
+      Math.min(255, Math.trunc(edgeCutMask)),
+    );
+    const clampedEdgeTerminalMask = Math.max(
+      0,
+      Math.min(255, Math.trunc(edgeTerminalMask)),
+    );
+    const cacheKey =
+      clampedEdgeMask |
+      (clampedCornerMask << 4) |
+      (clampedEdgeCutMask << 8) |
+      (clampedEdgeTerminalMask << 16);
+    const cached = this.floorBlockAmbientOcclusionTextureCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const created = this.createFloorBlockAmbientOcclusionTexture(
+      clampedEdgeMask,
+      clampedCornerMask,
+      clampedEdgeCutMask,
+      clampedEdgeTerminalMask,
+    );
+    this.floorBlockAmbientOcclusionTextureCache.set(cacheKey, created);
+    return created;
+  }
+
+  private removeFloorBlockAmbientOcclusionOverlay(key: string): void {
+    const overlay = this.floorBlockAmbientOcclusionOverlays.get(key);
+    if (!overlay) {
+      return;
+    }
+    this.scene.remove(overlay);
+    if (overlay.material instanceof THREE.MeshBasicMaterial) {
+      overlay.material.dispose();
+    }
+    this.floorBlockAmbientOcclusionOverlays.delete(key);
+  }
+
+  private refreshFloorBlockAmbientOcclusionAt(tileX: number, tileY: number): void {
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh || this.clientOptions.blockAmbientOcclusion !== true) {
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
+      return;
+    }
+    if (mesh.userData?.isWall) {
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
+      return;
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    if (!this.isFloorMaterialKindForBlockAmbientOcclusion(materialKind)) {
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
+      return;
+    }
+
+    const { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask } =
+      this.computeFloorBlockAmbientOcclusionMasks(tileX, tileY);
+    if (edgeMask === 0 && cornerMask === 0) {
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
+      return;
+    }
+
+    const texture = this.getFloorBlockAmbientOcclusionTexture(
+      edgeMask,
+      cornerMask,
+      edgeCutMask,
+      edgeTerminalMask,
+    );
+    let overlay = this.floorBlockAmbientOcclusionOverlays.get(key);
+    if (!overlay) {
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+      });
+      this.patchMaterialForVignette(material);
+      overlay = new THREE.Mesh(this.floorGeometry, material);
+      overlay.castShadow = false;
+      overlay.receiveShadow = false;
+      overlay.renderOrder = 112;
+      this.scene.add(overlay);
+      this.floorBlockAmbientOcclusionOverlays.set(key, overlay);
+    } else if (
+      overlay.material instanceof THREE.MeshBasicMaterial &&
+      overlay.material.map !== texture
+    ) {
+      overlay.material.map = texture;
+      overlay.material.needsUpdate = true;
+    }
+
+    overlay.position.set(
+      mesh.position.x,
+      mesh.position.y,
+      mesh.position.z + this.floorBlockAmbientOcclusionOverlayZ,
+    );
+    overlay.scale.copy(mesh.scale);
+  }
+
+  private refreshFloorBlockAmbientOcclusionNear(tileX: number, tileY: number): void {
+    this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY - 1);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX + 1, tileY);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY + 1);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX - 1, tileY);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX - 1, tileY - 1);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX + 1, tileY - 1);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX + 1, tileY + 1);
+    this.refreshFloorBlockAmbientOcclusionAt(tileX - 1, tileY + 1);
+  }
+
+  private removeFpsWallChamferFloorAmbientOcclusionOverlay(key: string): void {
+    const overlay = this.fpsWallChamferFloorAmbientOcclusionOverlays.get(key);
+    if (!overlay) {
+      return;
+    }
+    this.scene.remove(overlay);
+    if (overlay.material instanceof THREE.MeshBasicMaterial) {
+      overlay.material.dispose();
+    }
+    this.fpsWallChamferFloorAmbientOcclusionOverlays.delete(key);
+  }
+
+  private refreshFpsWallChamferFloorAmbientOcclusionAt(
+    tileX: number,
+    tileY: number,
+  ): void {
+    const key = `${tileX},${tileY}`;
+    const chamferFloor = this.fpsWallChamferFloorMeshes.get(key);
+    if (
+      !chamferFloor ||
+      this.clientOptions.blockAmbientOcclusion !== true ||
+      !this.isFpsMode()
+    ) {
+      this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
+      return;
+    }
+
+    const { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask } =
+      this.computeFloorBlockAmbientOcclusionMasks(tileX, tileY);
+    if (edgeMask === 0 && cornerMask === 0) {
+      this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
+      return;
+    }
+
+    const texture = this.getFloorBlockAmbientOcclusionTexture(
+      edgeMask,
+      cornerMask,
+      edgeCutMask,
+      edgeTerminalMask,
+    );
+    let overlay = this.fpsWallChamferFloorAmbientOcclusionOverlays.get(key);
+    if (!overlay) {
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+      });
+      this.patchMaterialForVignette(material);
+      overlay = new THREE.Mesh(chamferFloor.geometry, material);
+      overlay.castShadow = false;
+      overlay.receiveShadow = false;
+      overlay.renderOrder = chamferFloor.renderOrder + 1;
+      this.scene.add(overlay);
+      this.fpsWallChamferFloorAmbientOcclusionOverlays.set(key, overlay);
+    } else {
+      if (overlay.geometry !== chamferFloor.geometry) {
+        overlay.geometry = chamferFloor.geometry;
+      }
+      if (
+        overlay.material instanceof THREE.MeshBasicMaterial &&
+        overlay.material.map !== texture
+      ) {
+        overlay.material.map = texture;
+        overlay.material.needsUpdate = true;
+      }
+    }
+
+    overlay.position.set(
+      chamferFloor.position.x,
+      chamferFloor.position.y,
+      chamferFloor.position.z + this.fpsWallChamferFloorAmbientOcclusionOverlayZ,
+    );
+    overlay.scale.copy(chamferFloor.scale);
+  }
+
+  private refreshFpsWallChamferFloorAmbientOcclusionNear(
+    tileX: number,
+    tileY: number,
+  ): void {
+    for (let dy = -1; dy <= 1; dy += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        this.refreshFpsWallChamferFloorAmbientOcclusionAt(
+          tileX + dx,
+          tileY + dy,
+        );
+      }
+    }
+  }
+
+  private refreshAllFloorBlockAmbientOcclusion(): void {
+    if (this.clientOptions.blockAmbientOcclusion !== true) {
+      for (const key of Array.from(this.floorBlockAmbientOcclusionOverlays.keys())) {
+        this.removeFloorBlockAmbientOcclusionOverlay(key);
+      }
+      for (const key of Array.from(
+        this.fpsWallChamferFloorAmbientOcclusionOverlays.keys(),
+      )) {
+        this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
+      }
+      return;
+    }
+    for (const mesh of this.tileMap.values()) {
+      const tileX =
+        typeof mesh.userData?.tileX === "number"
+          ? Math.trunc(mesh.userData.tileX)
+          : null;
+      const tileY =
+        typeof mesh.userData?.tileY === "number"
+          ? Math.trunc(mesh.userData.tileY)
+          : null;
+      if (tileX === null || tileY === null) {
+        continue;
+      }
+      this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY);
+    }
+    for (const key of this.fpsWallChamferFloorMeshes.keys()) {
+      const [rawX, rawY] = key.split(",");
+      const tileX = Number.parseInt(rawX, 10);
+      const tileY = Number.parseInt(rawY, 10);
+      if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+        continue;
+      }
+      this.refreshFpsWallChamferFloorAmbientOcclusionAt(tileX, tileY);
+    }
+  }
+
+  private clearFloorBlockAmbientOcclusion(): void {
+    for (const key of Array.from(this.floorBlockAmbientOcclusionOverlays.keys())) {
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
+    }
+    for (const key of Array.from(
+      this.fpsWallChamferFloorAmbientOcclusionOverlays.keys(),
+    )) {
+      this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
+    }
+    for (const texture of this.floorBlockAmbientOcclusionTextureCache.values()) {
+      texture.dispose();
+    }
+    this.floorBlockAmbientOcclusionTextureCache.clear();
+  }
+
   private createInferredDarkWallSolidColorGridTexture(
     colorHex: string,
     darknessPercent: number,
@@ -7307,10 +8037,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private removeFpsWallChamferFloorMesh(key: string): void {
     const mesh = this.fpsWallChamferFloorMeshes.get(key);
     if (!mesh) {
+      this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
       return;
     }
     this.scene.remove(mesh);
     this.fpsWallChamferFloorMeshes.delete(key);
+    this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
   }
 
   private upsertFpsWallChamferFloorMesh(
@@ -7343,8 +8075,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       mesh.castShadow = false;
       mesh.receiveShadow = true;
       mesh.renderOrder = 108;
+      mesh.userData.tileX = tileX;
+      mesh.userData.tileY = tileY;
+      mesh.userData.fpsWallChamferMask = mask;
       this.scene.add(mesh);
       this.fpsWallChamferFloorMeshes.set(key, mesh);
+      this.refreshFpsWallChamferFloorAmbientOcclusionAt(tileX, tileY);
       return;
     }
 
@@ -7359,6 +8095,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       -tileY * TILE_SIZE,
       this.fpsWallChamferFloorZ,
     );
+    mesh.userData.tileX = tileX;
+    mesh.userData.tileY = tileY;
+    mesh.userData.fpsWallChamferMask = mask;
+    this.refreshFpsWallChamferFloorAmbientOcclusionAt(tileX, tileY);
   }
 
   private refreshFpsWallChamferGeometryAt(tileX: number, tileY: number): void {
@@ -7369,6 +8109,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const mesh = this.tileMap.get(key);
     if (!mesh || !mesh.userData?.isWall) {
       this.removeFpsWallChamferFloorMesh(key);
+      this.refreshFpsWallChamferFloorAmbientOcclusionNear(tileX, tileY);
       return;
     }
     const materialKind =
@@ -7377,6 +8118,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     if (!materialKind || materialKind === "door") {
       this.removeFpsWallChamferFloorMesh(key);
+      this.refreshFpsWallChamferFloorAmbientOcclusionNear(tileX, tileY);
       return;
     }
 
@@ -7416,6 +8158,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.fpsWallChamferMaterialKind = nextChamferKind;
     mesh.userData.fpsWallChamferRotateUv = chamferSideUvRotation;
     this.upsertFpsWallChamferFloorMesh(tileX, tileY, nextMask, nextChamferKind);
+    this.refreshFpsWallChamferFloorAmbientOcclusionNear(tileX, tileY);
     const chamferKindChanged = previousChamferKind !== nextChamferKind;
     const chamferRotateChanged =
       previousChamferSideUvRotation !== chamferSideUvRotation;
@@ -7499,6 +8242,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
+    this.clearFloorBlockAmbientOcclusion();
     this.fpsWallChamferFloorMeshes.forEach((mesh) => {
       this.scene.remove(mesh);
     });
@@ -8110,6 +8854,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
+      this.removeFloorBlockAmbientOcclusionOverlay(key);
       this.fpsFlatFeatureUnderPlayerCache.delete(key);
       this.removeMonsterBillboard(key);
       this.activeEffectTileKeys.delete(key);
@@ -8120,6 +8865,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.queueMinimapTileUpdate(x, y, behavior, true);
       this.refreshFpsWallChamferGeometryNear(x, y);
+      this.refreshFloorBlockAmbientOcclusionNear(x, y);
       this.markLightingDirty();
       return;
     }
@@ -8149,6 +8895,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.disposeWallSideTileOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
+        this.removeFloorBlockAmbientOcclusionOverlay(key);
         this.tileStateCache.delete(key);
         this.tileRevealStartMs.delete(key);
       }
@@ -8177,6 +8924,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else {
         this.updateTile(x, y, getDefaultFloorGlyph(), ".", undefined);
       }
+      this.refreshFloorBlockAmbientOcclusionNear(oldPos.x, oldPos.y);
+      this.refreshFloorBlockAmbientOcclusionNear(x, y);
       this.markLightingDirty();
       return;
     }
@@ -8448,6 +9197,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.queueMinimapTileUpdate(x, y, behavior, false);
     this.refreshFpsWallChamferGeometryNear(x, y);
+    this.refreshFloorBlockAmbientOcclusionNear(x, y);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {

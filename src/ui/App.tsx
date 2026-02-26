@@ -1090,6 +1090,7 @@ type ClientOptionToggleKey =
   | "tileShakeOnHit"
   | "blood"
   | "liveMessageLog"
+  | "blockAmbientOcclusion"
   | "darkCorridorWalls367"
   | "darkCorridorWallTileOverrideEnabled"
   | "darkCorridorWallSolidColorOverrideEnabled";
@@ -1362,6 +1363,12 @@ const clientOptionsConfig: ClientOption[] = [
     key: "liveMessageLog",
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
+    type: "boolean",
+  },
+  {
+    key: "blockAmbientOcclusion",
+    label: "Ambient occlusion",
+    description: "Adds subtle contact shadowing between floor and wall blocks.",
     type: "boolean",
   },
   {
@@ -1695,7 +1702,10 @@ export default function App(): JSX.Element {
   const [createName, setCreateName] = useState("Web_user");
   const initialPersistedClientOptionsRef =
     useRef<Partial<Nh3dClientOptions> | null>(null);
-  const initialClientOptions = useMemo(() => resolveDeviceDefaultClientOptions(), []);
+  const initialClientOptions = useMemo(
+    () => resolveDeviceDefaultClientOptions(),
+    [],
+  );
   const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(
     () => initialClientOptions,
   );
@@ -2923,9 +2933,8 @@ export default function App(): JSX.Element {
               nh3dClientOptionsStorageKey,
             );
           initialPersistedClientOptionsRef.current = persistedOptions;
-          const nextOptions = resolveInitialClientOptionsFromPersisted(
-            persistedOptions,
-          );
+          const nextOptions =
+            resolveInitialClientOptionsFromPersisted(persistedOptions);
           setClientOptions(nextOptions);
           setClientOptionsDraft(nextOptions);
           return;
@@ -4560,7 +4569,9 @@ export default function App(): JSX.Element {
                             <div className="nh3d-dark-wall-grid-controls">
                               <label className="nh3d-dark-wall-grid-toggle">
                                 <input
-                                  checked={selectedDarkWallSolidColorGridEnabled}
+                                  checked={
+                                    selectedDarkWallSolidColorGridEnabled
+                                  }
                                   disabled={!enabled}
                                   onChange={(event) =>
                                     updateDarkWallSolidColorGridEnabledDraft(
