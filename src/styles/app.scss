@@ -817,6 +817,10 @@ canvas {
   font-family: "Courier New", monospace;
   display: none;
 
+  &.startup {
+    top: 57vh;
+  }
+
   &.is-visible {
     display: block;
   }
@@ -1042,6 +1046,11 @@ canvas {
     height: 24px;
     font-size: 19px;
   }
+}
+
+.nh3d-exit-look-button {
+  @extend .option-button;
+  margin-top: 10px;
 }
 
 .nh3d-dialog-question {
