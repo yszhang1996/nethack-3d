@@ -1529,6 +1529,22 @@ canvas {
   flex: 0 0 auto;
 }
 
+.nh3d-option-solid-color-native-picker {
+  width: 44px;
+  height: 36px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px solid rgba(108, 166, 226, 0.45);
+  background: rgba(8, 18, 29, 0.96);
+  cursor: pointer;
+  flex: 0 0 auto;
+
+  &:disabled {
+    opacity: 0.48;
+    cursor: default;
+  }
+}
+
 .nh3d-option-solid-color-input {
   width: 104px;
   border-radius: 6px;
@@ -1545,6 +1561,110 @@ canvas {
     width: 100%;
     box-sizing: border-box;
   }
+}
+
+.nh3d-dark-wall-solid-color-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.nh3d-dark-wall-solid-color-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+
+  @media (pointer: coarse) {
+    align-items: stretch;
+  }
+}
+
+.nh3d-dark-wall-mode-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--nh3d-ui-accent-soft);
+  min-width: 100px;
+}
+
+.nh3d-dark-wall-grid-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--nh3d-ui-accent-soft);
+  user-select: none;
+
+  input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--nh3d-ui-accent);
+
+    &:disabled {
+      opacity: 0.48;
+      cursor: default;
+    }
+  }
+}
+
+.nh3d-dark-wall-grid-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+
+  @media (pointer: coarse) {
+    align-items: stretch;
+    gap: 10px;
+  }
+}
+
+.nh3d-dark-wall-grid-darkness {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--nh3d-ui-accent-soft);
+  min-width: 138px;
+}
+
+.nh3d-dark-wall-grid-darkness-input-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.nh3d-dark-wall-grid-darkness-input {
+  width: 58px;
+  border-radius: 6px;
+  border: 1px solid rgba(108, 166, 226, 0.45);
+  background: rgba(8, 18, 29, 0.96);
+  color: var(--nh3d-ui-text);
+  font-size: 12px;
+  padding: 3px 18px 3px 6px;
+  text-align: right;
+
+  @media (pointer: coarse) {
+    width: 76px;
+  }
+}
+
+.nh3d-dark-wall-grid-darkness-suffix {
+  position: absolute;
+  right: 6px;
+  font-size: 11px;
+  color: var(--nh3d-ui-text-muted);
+  line-height: 1;
+  pointer-events: none;
+}
+
+.nh3d-dark-wall-grid-toggle {
+  min-width: 116px;
 }
 
 .nh3d-option-tile-picker-preview {

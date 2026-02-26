@@ -47,6 +47,10 @@ import {
   saveStoredUserTileset,
   type StoredUserTilesetRecord,
 } from "../game/user-tileset-storage";
+import {
+  loadPersistedNh3dClientOptionsWithMigration,
+  persistNh3dClientOptionsToIndexedDb,
+} from "../storage/client-options-storage";
 
 type DirectionChoice = {
   key?: string;
@@ -1087,7 +1091,8 @@ type ClientOptionToggleKey =
   | "blood"
   | "liveMessageLog"
   | "darkCorridorWalls367"
-  | "darkCorridorWallTileOverrideEnabled";
+  | "darkCorridorWallTileOverrideEnabled"
+  | "darkCorridorWallSolidColorOverrideEnabled";
 
 type ClientOptionLookSensitivityKey =
   | "fpsLookSensitivityX"
@@ -1409,7 +1414,14 @@ const clientOptionsConfig: ClientOption[] = [
   {
     key: "darkCorridorWallTileOverrideEnabled",
     label: "Override inferred dark wall tile",
-    description: "Use a custom atlas tile for inferred dark corridor walls.",
+    description:
+      "Use a custom atlas tile for inferred dark corridor walls, saved per tileset.",
+    type: "boolean",
+  },
+  {
+    key: "darkCorridorWallSolidColorOverrideEnabled",
+    label: "Use solid color for inferred dark walls",
+    description: "Use a picked RGB color instead of a tileset tile.",
     type: "boolean",
   },
 ];
@@ -1571,39 +1583,6 @@ function resolveDeviceDefaultClientOptions(): Nh3dClientOptions {
   return normalizeNh3dClientOptions(defaultNh3dClientOptions);
 }
 
-function readPersistedClientOptions(): Partial<Nh3dClientOptions> | null {
-  if (typeof window === "undefined" || !window.localStorage) {
-    return null;
-  }
-  try {
-    const raw = window.localStorage.getItem(nh3dClientOptionsStorageKey);
-    if (!raw) {
-      return null;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    return parsed as Partial<Nh3dClientOptions>;
-  } catch {
-    return null;
-  }
-}
-
-function persistClientOptions(options: Nh3dClientOptions): void {
-  if (typeof window === "undefined" || !window.localStorage) {
-    return;
-  }
-  try {
-    window.localStorage.setItem(
-      nh3dClientOptionsStorageKey,
-      JSON.stringify(options),
-    );
-  } catch {
-    // Ignore write failures (private mode/quota/security policy).
-  }
-}
-
 function resolveInitialClientOptionsFromPersisted(
   persisted: Partial<Nh3dClientOptions> | null,
 ): Nh3dClientOptions {
@@ -1715,14 +1694,8 @@ export default function App(): JSX.Element {
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
   const initialPersistedClientOptionsRef =
-    useRef<Partial<Nh3dClientOptions> | null>(readPersistedClientOptions());
-  const initialClientOptions = useMemo(
-    () =>
-      resolveInitialClientOptionsFromPersisted(
-        initialPersistedClientOptionsRef.current,
-      ),
-    [],
-  );
+    useRef<Partial<Nh3dClientOptions> | null>(null);
+  const initialClientOptions = useMemo(() => resolveDeviceDefaultClientOptions(), []);
   const [clientOptions, setClientOptions] = useState<Nh3dClientOptions>(
     () => initialClientOptions,
   );
@@ -1946,6 +1919,12 @@ export default function App(): JSX.Element {
     0,
     Math.trunc(defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId),
   );
+  const defaultDarkWallSolidColorHex = normalizeSolidChromaKeyHex(
+    defaultNh3dClientOptions.darkCorridorWallSolidColorHex,
+  );
+  const defaultDarkWallSolidColorHexFps = normalizeSolidChromaKeyHex(
+    defaultNh3dClientOptions.darkCorridorWallSolidColorHexFps,
+  );
   const selectedDarkWallTileId = useMemo(() => {
     const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
     const mappedTileId = tilesetPath
@@ -1961,6 +1940,70 @@ export default function App(): JSX.Element {
     clientOptionsDraft.darkCorridorWallTileOverrideTileIdByTileset,
     clientOptionsDraft.tilesetPath,
     defaultDarkWallTileId,
+  ]);
+  const selectedDarkWallSolidColorHex = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedColorHex = tilesetPath
+      ? clientOptionsDraft.darkCorridorWallSolidColorHexByTileset[tilesetPath]
+      : undefined;
+    if (typeof mappedColorHex === "string") {
+      return normalizeSolidChromaKeyHex(mappedColorHex);
+    }
+    return defaultDarkWallSolidColorHex;
+  }, [
+    clientOptionsDraft.darkCorridorWallSolidColorHexByTileset,
+    clientOptionsDraft.tilesetPath,
+    defaultDarkWallSolidColorHex,
+  ]);
+  const selectedDarkWallSolidColorHexFps = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedColorHex = tilesetPath
+      ? clientOptionsDraft.darkCorridorWallSolidColorHexFpsByTileset[
+          tilesetPath
+        ]
+      : undefined;
+    if (typeof mappedColorHex === "string") {
+      return normalizeSolidChromaKeyHex(mappedColorHex);
+    }
+    return defaultDarkWallSolidColorHexFps;
+  }, [
+    clientOptionsDraft.darkCorridorWallSolidColorHexFpsByTileset,
+    clientOptionsDraft.tilesetPath,
+    defaultDarkWallSolidColorHexFps,
+  ]);
+  const selectedDarkWallSolidColorGridEnabled = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedEnabled = tilesetPath
+      ? clientOptionsDraft.darkCorridorWallSolidColorGridEnabledByTileset[
+          tilesetPath
+        ]
+      : undefined;
+    if (typeof mappedEnabled === "boolean") {
+      return mappedEnabled;
+    }
+    return Boolean(clientOptionsDraft.darkCorridorWallSolidColorGridEnabled);
+  }, [
+    clientOptionsDraft.darkCorridorWallSolidColorGridEnabled,
+    clientOptionsDraft.darkCorridorWallSolidColorGridEnabledByTileset,
+    clientOptionsDraft.tilesetPath,
+  ]);
+  const selectedDarkWallSolidColorGridDarknessPercent = useMemo(() => {
+    const tilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    const mappedPercent = tilesetPath
+      ? clientOptionsDraft
+          .darkCorridorWallSolidColorGridDarknessPercentByTileset[tilesetPath]
+      : undefined;
+    const fallback =
+      clientOptionsDraft.darkCorridorWallSolidColorGridDarknessPercent;
+    const source =
+      typeof mappedPercent === "number" && Number.isFinite(mappedPercent)
+        ? mappedPercent
+        : fallback;
+    return Math.max(0, Math.min(100, Math.round(source)));
+  }, [
+    clientOptionsDraft.darkCorridorWallSolidColorGridDarknessPercent,
+    clientOptionsDraft.darkCorridorWallSolidColorGridDarknessPercentByTileset,
+    clientOptionsDraft.tilesetPath,
   ]);
   const selectedDarkWallGlyphChar =
     representativeGlyphByTileId.get(selectedDarkWallTileId) ?? " ";
@@ -2268,7 +2311,9 @@ export default function App(): JSX.Element {
     if (!hasHydratedUserTilesets) {
       return;
     }
-    persistClientOptions(clientOptions);
+    persistNh3dClientOptionsToIndexedDb(clientOptions).catch((error) => {
+      console.warn("Failed to persist client options to IndexedDB:", error);
+    });
   }, [clientOptions, hasHydratedUserTilesets]);
 
   useEffect(() => {
@@ -2873,8 +2918,13 @@ export default function App(): JSX.Element {
         setUserTilesets(normalizedRecords);
         setNh3dUserTilesets(toUserTilesetRegistrations(normalizedRecords));
         if (rehydrateFromStorage) {
+          const persistedOptions =
+            await loadPersistedNh3dClientOptionsWithMigration(
+              nh3dClientOptionsStorageKey,
+            );
+          initialPersistedClientOptionsRef.current = persistedOptions;
           const nextOptions = resolveInitialClientOptionsFromPersisted(
-            initialPersistedClientOptionsRef.current,
+            persistedOptions,
           );
           setClientOptions(nextOptions);
           setClientOptionsDraft(nextOptions);
@@ -3169,8 +3219,30 @@ export default function App(): JSX.Element {
   const updateTilesetPathDraft = (rawTilesetPath: string): void => {
     const tilesetPath = String(rawTilesetPath || "").trim();
     setClientOptionsDraft((previous) => {
+      const mappedDarkWallTileOverrideEnabled = tilesetPath
+        ? previous.darkCorridorWallTileOverrideEnabledByTileset[tilesetPath]
+        : undefined;
       const mappedDarkWallTileId = tilesetPath
         ? previous.darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
+        : undefined;
+      const mappedDarkWallSolidColorOverrideEnabled = tilesetPath
+        ? previous.darkCorridorWallSolidColorOverrideEnabledByTileset[
+            tilesetPath
+          ]
+        : undefined;
+      const mappedDarkWallSolidColorHex = tilesetPath
+        ? previous.darkCorridorWallSolidColorHexByTileset[tilesetPath]
+        : undefined;
+      const mappedDarkWallSolidColorHexFps = tilesetPath
+        ? previous.darkCorridorWallSolidColorHexFpsByTileset[tilesetPath]
+        : undefined;
+      const mappedDarkWallSolidColorGridEnabled = tilesetPath
+        ? previous.darkCorridorWallSolidColorGridEnabledByTileset[tilesetPath]
+        : undefined;
+      const mappedDarkWallSolidColorGridDarknessPercent = tilesetPath
+        ? previous.darkCorridorWallSolidColorGridDarknessPercentByTileset[
+            tilesetPath
+          ]
         : undefined;
       const mappedBackgroundTileId = tilesetPath
         ? previous.tilesetBackgroundTileIdByTileset[tilesetPath]
@@ -3186,6 +3258,46 @@ export default function App(): JSX.Element {
         Number.isFinite(mappedDarkWallTileId)
           ? Math.max(0, Math.trunc(mappedDarkWallTileId))
           : defaultDarkWallTileId;
+      const nextDarkWallTileOverrideEnabled =
+        typeof mappedDarkWallTileOverrideEnabled === "boolean"
+          ? mappedDarkWallTileOverrideEnabled
+          : Boolean(previous.darkCorridorWallTileOverrideEnabled);
+      let nextDarkWallSolidColorOverrideEnabled =
+        typeof mappedDarkWallSolidColorOverrideEnabled === "boolean"
+          ? mappedDarkWallSolidColorOverrideEnabled
+          : Boolean(previous.darkCorridorWallSolidColorOverrideEnabled);
+      if (
+        nextDarkWallTileOverrideEnabled &&
+        nextDarkWallSolidColorOverrideEnabled
+      ) {
+        nextDarkWallSolidColorOverrideEnabled = false;
+      }
+      const nextDarkWallSolidColorHex = normalizeSolidChromaKeyHex(
+        typeof mappedDarkWallSolidColorHex === "string"
+          ? mappedDarkWallSolidColorHex
+          : defaultDarkWallSolidColorHex,
+      );
+      const nextDarkWallSolidColorHexFps = normalizeSolidChromaKeyHex(
+        typeof mappedDarkWallSolidColorHexFps === "string"
+          ? mappedDarkWallSolidColorHexFps
+          : defaultDarkWallSolidColorHexFps,
+      );
+      const nextDarkWallSolidColorGridEnabled =
+        typeof mappedDarkWallSolidColorGridEnabled === "boolean"
+          ? mappedDarkWallSolidColorGridEnabled
+          : Boolean(previous.darkCorridorWallSolidColorGridEnabled);
+      const nextDarkWallSolidColorGridDarknessPercent = Math.max(
+        0,
+        Math.min(
+          100,
+          Math.round(
+            typeof mappedDarkWallSolidColorGridDarknessPercent === "number" &&
+              Number.isFinite(mappedDarkWallSolidColorGridDarknessPercent)
+              ? mappedDarkWallSolidColorGridDarknessPercent
+              : previous.darkCorridorWallSolidColorGridDarknessPercent,
+          ),
+        ),
+      );
       const nextBackgroundTileId =
         typeof mappedBackgroundTileId === "number" &&
         Number.isFinite(mappedBackgroundTileId)
@@ -3201,7 +3313,16 @@ export default function App(): JSX.Element {
       return {
         ...previous,
         tilesetPath,
+        darkCorridorWallTileOverrideEnabled: nextDarkWallTileOverrideEnabled,
         darkCorridorWallTileOverrideTileId: nextDarkWallTileId,
+        darkCorridorWallSolidColorOverrideEnabled:
+          nextDarkWallSolidColorOverrideEnabled,
+        darkCorridorWallSolidColorHex: nextDarkWallSolidColorHex,
+        darkCorridorWallSolidColorHexFps: nextDarkWallSolidColorHexFps,
+        darkCorridorWallSolidColorGridEnabled:
+          nextDarkWallSolidColorGridEnabled,
+        darkCorridorWallSolidColorGridDarknessPercent:
+          nextDarkWallSolidColorGridDarknessPercent,
         tilesetBackgroundTileId: nextBackgroundTileId,
         tilesetBackgroundRemovalMode: nextBackgroundRemovalMode,
         tilesetSolidChromaKeyColorHex: nextSolidColorHex,
@@ -3248,6 +3369,43 @@ export default function App(): JSX.Element {
     updateClientOptionDraft(key, Number(clamped.toFixed(2)));
   };
 
+  const updateDarkWallTileOverrideEnabledDraft = (
+    enabled: boolean,
+    rawTilesetPath?: string,
+  ): void => {
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextTileByTileset = {
+        ...previous.darkCorridorWallTileOverrideEnabledByTileset,
+      };
+      const nextSolidByTileset = {
+        ...previous.darkCorridorWallSolidColorOverrideEnabledByTileset,
+      };
+      if (tilesetPath) {
+        nextTileByTileset[tilesetPath] = enabled;
+        if (enabled) {
+          nextSolidByTileset[tilesetPath] = false;
+        }
+      }
+      const appliesToSelected =
+        Boolean(tilesetPath) && tilesetPath === selectedTilesetPath;
+      return {
+        ...previous,
+        darkCorridorWallTileOverrideEnabled: appliesToSelected
+          ? enabled
+          : previous.darkCorridorWallTileOverrideEnabled,
+        darkCorridorWallTileOverrideEnabledByTileset: nextTileByTileset,
+        darkCorridorWallSolidColorOverrideEnabled: appliesToSelected
+          ? enabled
+            ? false
+            : previous.darkCorridorWallSolidColorOverrideEnabled
+          : previous.darkCorridorWallSolidColorOverrideEnabled,
+        darkCorridorWallSolidColorOverrideEnabledByTileset: nextSolidByTileset,
+      };
+    });
+  };
+
   const updateDarkWallTileOverrideTileIdDraft = (rawTileId: number): void => {
     const maxTileId =
       tileAtlasState.tileCount > 0 ? tileAtlasState.tileCount - 1 : Infinity;
@@ -3264,6 +3422,148 @@ export default function App(): JSX.Element {
         ...previous,
         darkCorridorWallTileOverrideTileId: nextTileId,
         darkCorridorWallTileOverrideTileIdByTileset: nextByTileset,
+      };
+    });
+  };
+
+  const updateDarkWallSolidColorOverrideEnabledDraft = (
+    enabled: boolean,
+    rawTilesetPath?: string,
+  ): void => {
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextSolidByTileset = {
+        ...previous.darkCorridorWallSolidColorOverrideEnabledByTileset,
+      };
+      const nextTileByTileset = {
+        ...previous.darkCorridorWallTileOverrideEnabledByTileset,
+      };
+      if (tilesetPath) {
+        nextSolidByTileset[tilesetPath] = enabled;
+        if (enabled) {
+          nextTileByTileset[tilesetPath] = false;
+        }
+      }
+      const appliesToSelected =
+        Boolean(tilesetPath) && tilesetPath === selectedTilesetPath;
+      return {
+        ...previous,
+        darkCorridorWallSolidColorOverrideEnabled: appliesToSelected
+          ? enabled
+          : previous.darkCorridorWallSolidColorOverrideEnabled,
+        darkCorridorWallSolidColorOverrideEnabledByTileset: nextSolidByTileset,
+        darkCorridorWallTileOverrideEnabled: appliesToSelected
+          ? enabled
+            ? false
+            : previous.darkCorridorWallTileOverrideEnabled
+          : previous.darkCorridorWallTileOverrideEnabled,
+        darkCorridorWallTileOverrideEnabledByTileset: nextTileByTileset,
+      };
+    });
+  };
+
+  const updateDarkWallSolidColorHexDraft = (
+    rawHex: string,
+    rawTilesetPath?: string,
+  ): void => {
+    const normalizedHex = normalizeSolidChromaKeyHex(rawHex);
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextByTileset = {
+        ...previous.darkCorridorWallSolidColorHexByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = normalizedHex;
+      }
+      return {
+        ...previous,
+        darkCorridorWallSolidColorHex:
+          tilesetPath && tilesetPath === selectedTilesetPath
+            ? normalizedHex
+            : previous.darkCorridorWallSolidColorHex,
+        darkCorridorWallSolidColorHexByTileset: nextByTileset,
+      };
+    });
+  };
+
+  const updateDarkWallSolidColorHexFpsDraft = (
+    rawHex: string,
+    rawTilesetPath?: string,
+  ): void => {
+    const normalizedHex = normalizeSolidChromaKeyHex(rawHex);
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextByTileset = {
+        ...previous.darkCorridorWallSolidColorHexFpsByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = normalizedHex;
+      }
+      return {
+        ...previous,
+        darkCorridorWallSolidColorHexFps:
+          tilesetPath && tilesetPath === selectedTilesetPath
+            ? normalizedHex
+            : previous.darkCorridorWallSolidColorHexFps,
+        darkCorridorWallSolidColorHexFpsByTileset: nextByTileset,
+      };
+    });
+  };
+
+  const updateDarkWallSolidColorGridEnabledDraft = (
+    enabled: boolean,
+    rawTilesetPath?: string,
+  ): void => {
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextByTileset = {
+        ...previous.darkCorridorWallSolidColorGridEnabledByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = enabled;
+      }
+      const appliesToSelected =
+        Boolean(tilesetPath) && tilesetPath === selectedTilesetPath;
+      return {
+        ...previous,
+        darkCorridorWallSolidColorGridEnabled: appliesToSelected
+          ? enabled
+          : previous.darkCorridorWallSolidColorGridEnabled,
+        darkCorridorWallSolidColorGridEnabledByTileset: nextByTileset,
+      };
+    });
+  };
+
+  const updateDarkWallSolidColorGridDarknessPercentDraft = (
+    rawPercent: number,
+    rawTilesetPath?: string,
+  ): void => {
+    const parsed =
+      typeof rawPercent === "number" && Number.isFinite(rawPercent)
+        ? rawPercent
+        : defaultNh3dClientOptions.darkCorridorWallSolidColorGridDarknessPercent;
+    const percent = Math.max(0, Math.min(100, Math.round(parsed)));
+    setClientOptionsDraft((previous) => {
+      const selectedTilesetPath = String(previous.tilesetPath || "").trim();
+      const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
+      const nextByTileset = {
+        ...previous.darkCorridorWallSolidColorGridDarknessPercentByTileset,
+      };
+      if (tilesetPath) {
+        nextByTileset[tilesetPath] = percent;
+      }
+      const appliesToSelected =
+        Boolean(tilesetPath) && tilesetPath === selectedTilesetPath;
+      return {
+        ...previous,
+        darkCorridorWallSolidColorGridDarknessPercent: appliesToSelected
+          ? percent
+          : previous.darkCorridorWallSolidColorGridDarknessPercent,
+        darkCorridorWallSolidColorGridDarknessPercentByTileset: nextByTileset,
       };
     });
   };
@@ -4147,7 +4447,8 @@ export default function App(): JSX.Element {
               }
               if (
                 option.type === "boolean" &&
-                option.key === "darkCorridorWallTileOverrideEnabled" &&
+                (option.key === "darkCorridorWallTileOverrideEnabled" ||
+                  option.key === "darkCorridorWallSolidColorOverrideEnabled") &&
                 !clientOptionsDraft.darkCorridorWalls367
               ) {
                 return null;
@@ -4170,12 +4471,21 @@ export default function App(): JSX.Element {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
                 const isDarkWallTileOverrideOption =
                   option.key === "darkCorridorWallTileOverrideEnabled";
+                const isDarkWallSolidColorOverrideOption =
+                  option.key === "darkCorridorWallSolidColorOverrideEnabled";
+                const isDarkWallOverrideOption =
+                  isDarkWallTileOverrideOption ||
+                  isDarkWallSolidColorOverrideOption;
                 return (
                   <Fragment key={option.key}>
                     <div
                       className={`nh3d-option-row nh3d-option-row-inline-toggle${
-                        isDarkWallTileOverrideOption
+                        isDarkWallOverrideOption
                           ? " nh3d-option-row-has-secondary-controls"
+                          : ""
+                      }${
+                        isDarkWallOverrideOption && !enabled
+                          ? " nh3d-option-row-mode-inactive"
                           : ""
                       }`}
                     >
@@ -4208,15 +4518,111 @@ export default function App(): JSX.Element {
                             </span>
                           </button>
                         </div>
+                      ) : isDarkWallSolidColorOverrideOption ? (
+                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                          <div className="nh3d-dark-wall-solid-color-controls">
+                            <div className="nh3d-dark-wall-solid-color-input-row">
+                              <label className="nh3d-dark-wall-mode-color">
+                                <span>Normal</span>
+                                <input
+                                  aria-label="Dark wall solid color (normal mode)"
+                                  className="nh3d-option-solid-color-native-picker"
+                                  disabled={!enabled}
+                                  onChange={(event) =>
+                                    updateDarkWallSolidColorHexDraft(
+                                      event.target.value,
+                                    )
+                                  }
+                                  type="color"
+                                  value={normalizeSolidChromaKeyHex(
+                                    selectedDarkWallSolidColorHex,
+                                  )}
+                                />
+                              </label>
+                              <label className="nh3d-dark-wall-mode-color">
+                                <span>FPS</span>
+                                <input
+                                  aria-label="Dark wall solid color (FPS mode)"
+                                  className="nh3d-option-solid-color-native-picker"
+                                  disabled={!enabled}
+                                  onChange={(event) =>
+                                    updateDarkWallSolidColorHexFpsDraft(
+                                      event.target.value,
+                                    )
+                                  }
+                                  type="color"
+                                  value={normalizeSolidChromaKeyHex(
+                                    selectedDarkWallSolidColorHexFps,
+                                  )}
+                                />
+                              </label>
+                            </div>
+                            <div className="nh3d-dark-wall-grid-controls">
+                              <label className="nh3d-dark-wall-grid-toggle">
+                                <input
+                                  checked={selectedDarkWallSolidColorGridEnabled}
+                                  disabled={!enabled}
+                                  onChange={(event) =>
+                                    updateDarkWallSolidColorGridEnabledDraft(
+                                      event.target.checked,
+                                    )
+                                  }
+                                  type="checkbox"
+                                />
+                                <span>Grid lines</span>
+                              </label>
+                              <label className="nh3d-dark-wall-grid-darkness">
+                                <span>Intensity</span>
+                                <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                                  <input
+                                    className="nh3d-dark-wall-grid-darkness-input"
+                                    disabled={
+                                      !enabled ||
+                                      !selectedDarkWallSolidColorGridEnabled
+                                    }
+                                    max={100}
+                                    min={0}
+                                    onChange={(event) =>
+                                      updateDarkWallSolidColorGridDarknessPercentDraft(
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    step={1}
+                                    type="number"
+                                    value={
+                                      selectedDarkWallSolidColorGridDarknessPercent
+                                    }
+                                  />
+                                  <span
+                                    aria-hidden="true"
+                                    className="nh3d-dark-wall-grid-darkness-suffix"
+                                  >
+                                    %
+                                  </span>
+                                </span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
                       ) : null}
                       <button
                         aria-checked={enabled}
                         className={`nh3d-option-switch nh3d-option-inline-switch${
                           enabled ? " is-on" : ""
                         }`}
-                        onClick={() =>
-                          updateClientOptionDraft(option.key, !enabled)
-                        }
+                        onClick={() => {
+                          if (isDarkWallTileOverrideOption) {
+                            updateDarkWallTileOverrideEnabledDraft(!enabled);
+                            return;
+                          }
+                          if (isDarkWallSolidColorOverrideOption) {
+                            updateDarkWallSolidColorOverrideEnabledDraft(
+                              !enabled,
+                            );
+                            return;
+                          }
+                          updateClientOptionDraft(option.key, !enabled);
+                        }}
                         role="switch"
                         type="button"
                       >

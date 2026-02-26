@@ -280,6 +280,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private tileMap: TileMap = new Map();
   private glyphOverlayMap: GlyphOverlayMap = new Map();
+  private inferredDarkWallSolidColorMaterialCache: Map<
+    string,
+    { material: THREE.MeshLambertMaterial; texture: THREE.CanvasTexture | null }
+  > = new Map();
   // Fade-in animation state for newly discovered tiles.
   private tileRevealStartMs: Map<string, number> = new Map();
   private tileRevealDurationMs: number = 225;
@@ -860,7 +864,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lightingWallOverlayTexture.dispose();
       this.lightingWallOverlayTexture = null;
     }
-
   }
 
   private configureBaseLightingForPlayMode(): void {
@@ -1530,6 +1533,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!isInferredDarkCorridorWall) {
       return fallbackTileIndex;
     }
+    if (this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
+      return fallbackTileIndex;
+    }
     if (!this.clientOptions.darkCorridorWallTileOverrideEnabled) {
       return fallbackTileIndex;
     }
@@ -1540,6 +1546,56 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return fallbackTileIndex;
     }
     return overrideTileIndex;
+  }
+
+  private resolveInferredDarkCorridorWallSolidColorHex(
+    isInferredDarkCorridorWall: boolean,
+  ): string | null {
+    if (!isInferredDarkCorridorWall) {
+      return null;
+    }
+    if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
+      return null;
+    }
+    const preferredHex = this.isFpsMode()
+      ? this.clientOptions.darkCorridorWallSolidColorHexFps
+      : this.clientOptions.darkCorridorWallSolidColorHex;
+    const fallbackHex = this.clientOptions.darkCorridorWallSolidColorHex;
+    const normalized = String(preferredHex || fallbackHex || "").trim();
+    const match = normalized.match(/^#?([0-9a-fA-F]{6})$/);
+    if (!match) {
+      return null;
+    }
+    return `#${match[1].toLowerCase()}`;
+  }
+
+  private resolveInferredDarkCorridorWallSolidColorGridEnabled(
+    isInferredDarkCorridorWall: boolean,
+  ): boolean {
+    if (!isInferredDarkCorridorWall) {
+      return false;
+    }
+    if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
+      return false;
+    }
+    return this.clientOptions.darkCorridorWallSolidColorGridEnabled === true;
+  }
+
+  private resolveInferredDarkCorridorWallSolidColorGridDarknessPercent(
+    isInferredDarkCorridorWall: boolean,
+  ): number {
+    if (!isInferredDarkCorridorWall) {
+      return 15;
+    }
+    if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
+      return 15;
+    }
+    const raw =
+      this.clientOptions.darkCorridorWallSolidColorGridDarknessPercent;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) {
+      return 15;
+    }
+    return Math.max(0, Math.min(100, Math.round(raw)));
   }
 
   private getDarkCorridorRayDepthFromPlayer(
@@ -1905,7 +1961,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       previous.darkCorridorWallTileOverrideEnabled !==
         normalized.darkCorridorWallTileOverrideEnabled ||
       previous.darkCorridorWallTileOverrideTileId !==
-        normalized.darkCorridorWallTileOverrideTileId;
+        normalized.darkCorridorWallTileOverrideTileId ||
+      previous.darkCorridorWallSolidColorOverrideEnabled !==
+        normalized.darkCorridorWallSolidColorOverrideEnabled ||
+      previous.darkCorridorWallSolidColorHex !==
+        normalized.darkCorridorWallSolidColorHex ||
+      previous.darkCorridorWallSolidColorHexFps !==
+        normalized.darkCorridorWallSolidColorHexFps ||
+      previous.darkCorridorWallSolidColorGridEnabled !==
+        normalized.darkCorridorWallSolidColorGridEnabled ||
+      previous.darkCorridorWallSolidColorGridDarknessPercent !==
+        normalized.darkCorridorWallSolidColorGridDarknessPercent;
     const tilesetBackgroundTileChanged =
       previous.tilesetBackgroundTileId !== normalized.tilesetBackgroundTileId;
     const tilesetBackgroundRemovalModeChanged =
@@ -6310,16 +6376,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
     darkenFactor: number = 1,
     drawFloorGrid: boolean = false,
     tileIndex: number = -1,
+    solidColorHex: string | null = null,
+    solidColorGridEnabled: boolean = false,
+    solidColorGridDarknessPercent: number = 15,
   ): void {
     const overlay = this.ensureGlyphOverlay(key, baseMaterial);
     const baseColorHex = baseMaterial.color.getHexString();
     const clampedDarken = THREE.MathUtils.clamp(darkenFactor, 0, 1);
+    const resolvedSolidColorHex =
+      typeof solidColorHex === "string" ? solidColorHex : null;
 
+    const useSolidColor = resolvedSolidColorHex !== null;
     const useTiles =
-      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+      !useSolidColor &&
+      this.clientOptions.tilesetMode === "tiles" &&
+      tileIndex >= 0;
+    const solidWallMaterial =
+      useSolidColor && resolvedSolidColorHex
+        ? this.getInferredDarkWallSolidColorMaterial(
+            resolvedSolidColorHex,
+            solidColorGridEnabled,
+            solidColorGridDarknessPercent,
+          )
+        : null;
 
     let textureKey: string;
-    if (useTiles) {
+    if (useSolidColor) {
+      textureKey = `solid:${resolvedSolidColorHex.toLowerCase()}`;
+    } else if (useTiles) {
       textureKey = `tile:${tileIndex}|${clampedDarken.toFixed(3)}`;
     } else {
       textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
@@ -6331,9 +6415,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       overlay.baseColorHex = baseColorHex;
-      overlay.material.color.set("#ffffff");
+      if (useSolidColor) {
+        overlay.material.color.set(resolvedSolidColorHex);
+      } else {
+        overlay.material.color.set("#ffffff");
+      }
 
-      if (useTiles) {
+      if (useSolidColor) {
+        overlay.texture = null;
+        overlay.material.map = null;
+      } else if (useTiles) {
         overlay.texture = this.acquireGlyphTexture(
           textureKey,
           () => this.createTileTexture(tileIndex, clampedDarken, false), // Pass false: map tiles are opaque
@@ -6355,7 +6446,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.material.needsUpdate = true;
       overlay.textureKey = textureKey;
     }
-    overlay.material.color.set("#ffffff");
+    if (useSolidColor) {
+      overlay.material.color.set(resolvedSolidColorHex);
+    } else {
+      overlay.material.color.set("#ffffff");
+    }
 
     const flashState = this.glyphDamageFlashes.get(key);
     if (flashState) {
@@ -6479,6 +6574,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
               chamferSideOverrideMaterial,
             ]
           : [overlay.material, overlay.material, overlay.material];
+      } else if (solidWallMaterial) {
+        mesh.material = [
+          solidWallMaterial,
+          solidWallMaterial,
+          solidWallMaterial,
+        ];
       } else {
         // In ASCII mode, keep chamfer cuts floor-tinted for diagonal readability.
         const chamferKind =
@@ -6534,6 +6635,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
               overlay.material,
               baseMaterial,
             ];
+      } else if (solidWallMaterial) {
+        mesh.material = [
+          solidWallMaterial,
+          solidWallMaterial,
+          solidWallMaterial,
+          solidWallMaterial,
+          solidWallMaterial,
+          solidWallMaterial,
+        ];
       } else {
         mesh.material = [
           baseMaterial,
@@ -6595,6 +6705,103 @@ class Nethack3DEngine implements Nethack3DEngineController {
       default:
         return this.materials.default;
     }
+  }
+
+  private createInferredDarkWallSolidColorGridTexture(
+    colorHex: string,
+    darknessPercent: number,
+  ): THREE.CanvasTexture {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      const fallback = document.createElement("canvas");
+      fallback.width = 1;
+      fallback.height = 1;
+      const texture = new THREE.CanvasTexture(fallback);
+      texture.wrapS = THREE.ClampToEdgeWrapping;
+      texture.wrapT = THREE.ClampToEdgeWrapping;
+      texture.magFilter = THREE.NearestFilter;
+      texture.minFilter = THREE.NearestFilter;
+      texture.generateMipmaps = false;
+      texture.needsUpdate = true;
+      return texture;
+    }
+    context.imageSmoothingEnabled = false;
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = colorHex;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    const solid = new THREE.Color(colorHex);
+    const safeDarknessPercent =
+      typeof darknessPercent === "number" && Number.isFinite(darknessPercent)
+        ? darknessPercent
+        : 15;
+    const darknessScale =
+      1 - Math.max(0, Math.min(100, safeDarknessPercent)) / 100;
+    const grid = solid.clone().multiplyScalar(darknessScale);
+    context.fillStyle = `#${grid.getHexString()}`;
+    const lineWidth = 2;
+    // One cell per block face: draw only an outer border.
+    context.fillRect(0, 0, canvas.width, lineWidth); // top
+    context.fillRect(0, canvas.height - lineWidth, canvas.width, lineWidth); // bottom
+    context.fillRect(0, 0, lineWidth, canvas.height); // left
+    context.fillRect(canvas.width - lineWidth, 0, lineWidth, canvas.height); // right
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    return texture;
+  }
+
+  private getInferredDarkWallSolidColorMaterial(
+    colorHex: string,
+    gridEnabled: boolean,
+    gridDarknessPercent: number,
+  ): THREE.MeshLambertMaterial {
+    const normalizedColor = String(colorHex || "")
+      .trim()
+      .toLowerCase();
+    const normalizedDarkness = Math.max(
+      0,
+      Math.min(
+        100,
+        Math.round(
+          typeof gridDarknessPercent === "number" &&
+            Number.isFinite(gridDarknessPercent)
+            ? gridDarknessPercent
+            : 15,
+        ),
+      ),
+    );
+    const cacheKey = `${normalizedColor}|grid:${gridEnabled ? 1 : 0}|dark:${normalizedDarkness}`;
+    const cached = this.inferredDarkWallSolidColorMaterialCache.get(cacheKey);
+    if (cached) {
+      return cached.material;
+    }
+    const material = this.materials.dark_wall.clone();
+    let texture: THREE.CanvasTexture | null = null;
+    if (gridEnabled) {
+      texture = this.createInferredDarkWallSolidColorGridTexture(
+        normalizedColor,
+        normalizedDarkness,
+      );
+      material.map = texture;
+      material.color.set("#ffffff");
+    } else {
+      material.map = null;
+      material.color.set(normalizedColor);
+    }
+    material.needsUpdate = true;
+    this.patchMaterialForVignette(material);
+    this.inferredDarkWallSolidColorMaterialCache.set(cacheKey, {
+      material,
+      texture,
+    });
+    return material;
   }
 
   private isPassableTileForFpsDiagonal(tileX: number, tileY: number): boolean {
@@ -7234,6 +7441,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.tileIndex === "number"
         ? mesh.userData.tileIndex
         : -1;
+    const inferredDarkWallSolidColorHex =
+      this.resolveInferredDarkCorridorWallSolidColorHex(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
+    const inferredDarkWallSolidColorGridEnabled =
+      this.resolveInferredDarkCorridorWallSolidColorGridEnabled(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
+    const inferredDarkWallSolidColorGridDarknessPercent =
+      this.resolveInferredDarkCorridorWallSolidColorGridDarknessPercent(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
     this.applyGlyphMaterial(
       key,
       mesh,
@@ -7244,6 +7463,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       darkenFactor,
       true,
       tileIndex,
+      inferredDarkWallSolidColorHex,
+      inferredDarkWallSolidColorGridEnabled,
+      inferredDarkWallSolidColorGridDarknessPercent,
     );
   }
 
@@ -7329,6 +7551,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeGlyphOverlay(overlay);
     });
     this.glyphOverlayMap.clear();
+    this.inferredDarkWallSolidColorMaterialCache.forEach((entry) => {
+      entry.material.dispose();
+      entry.texture?.dispose();
+    });
+    this.inferredDarkWallSolidColorMaterialCache.clear();
     this.glyphTextureCache.forEach(({ texture }) => texture.dispose());
     this.glyphTextureCache.clear();
     this.disposeLightingOverlay();
@@ -8147,6 +8374,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
         renderBehavior.effective.tileIndex,
         isInferredDarkCorridorWall,
       );
+    const inferredDarkWallSolidColorHex =
+      this.resolveInferredDarkCorridorWallSolidColorHex(
+        isInferredDarkCorridorWall,
+      );
+    const inferredDarkWallSolidColorGridEnabled =
+      this.resolveInferredDarkCorridorWallSolidColorGridEnabled(
+        isInferredDarkCorridorWall,
+      );
+    const inferredDarkWallSolidColorGridDarknessPercent =
+      this.resolveInferredDarkCorridorWallSolidColorGridDarknessPercent(
+        isInferredDarkCorridorWall,
+      );
     mesh.userData.tileIndex = tileTextureIndex;
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
@@ -8165,6 +8404,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       renderBehavior.darkenFactor,
       drawFpsFloorGrid,
       tileTextureIndex,
+      inferredDarkWallSolidColorHex,
+      inferredDarkWallSolidColorGridEnabled,
+      inferredDarkWallSolidColorGridDarknessPercent,
     );
     if (isInferredDarkCorridorWall && (createdMesh || restartRevealFade)) {
       const overlay = this.glyphOverlayMap.get(key);

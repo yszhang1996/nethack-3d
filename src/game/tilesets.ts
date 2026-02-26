@@ -167,7 +167,7 @@ export const nh3dTilesetCatalog: ReadonlyArray<Nh3dTilesetEntry> =
   builtinTilesets;
 
 const preferredDefaultTilesetPath = "assets/3.6/Nevanda 3.6.png";
-const preferredDefaultTilesetLabel = "Nevanda 3.6";
+const preferredDefaultTilesetLabel = "Nevanda";
 export const defaultNh3dTilesetPath: string =
   builtinTilesets.find((entry) => entry.path === preferredDefaultTilesetPath)
     ?.path ??

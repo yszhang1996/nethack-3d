@@ -103,7 +103,25 @@ export type FpsCrosshairContextState = {
 
 export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
+export type DarkCorridorWallTileOverrideEnabledByTileset = Record<
+  string,
+  boolean
+>;
 export type DarkCorridorWallTileOverrideByTileset = Record<string, number>;
+export type DarkCorridorWallSolidColorOverrideEnabledByTileset = Record<
+  string,
+  boolean
+>;
+export type DarkCorridorWallSolidColorHexByTileset = Record<string, string>;
+export type DarkCorridorWallSolidColorHexFpsByTileset = Record<string, string>;
+export type DarkCorridorWallSolidColorGridEnabledByTileset = Record<
+  string,
+  boolean
+>;
+export type DarkCorridorWallSolidColorGridDarknessPercentByTileset = Record<
+  string,
+  number
+>;
 export type TilesetBackgroundTileByTileset = Record<string, number>;
 export type TilesetBackgroundRemovalMode = "tile" | "solid";
 export type TilesetBackgroundRemovalModeByTileset = Record<
@@ -126,8 +144,19 @@ export type Nh3dClientOptions = {
   liveMessageLog: boolean;
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
+  darkCorridorWallTileOverrideEnabledByTileset: DarkCorridorWallTileOverrideEnabledByTileset;
   darkCorridorWallTileOverrideTileId: number;
   darkCorridorWallTileOverrideTileIdByTileset: DarkCorridorWallTileOverrideByTileset;
+  darkCorridorWallSolidColorOverrideEnabled: boolean;
+  darkCorridorWallSolidColorOverrideEnabledByTileset: DarkCorridorWallSolidColorOverrideEnabledByTileset;
+  darkCorridorWallSolidColorHex: string;
+  darkCorridorWallSolidColorHexByTileset: DarkCorridorWallSolidColorHexByTileset;
+  darkCorridorWallSolidColorHexFps: string;
+  darkCorridorWallSolidColorHexFpsByTileset: DarkCorridorWallSolidColorHexFpsByTileset;
+  darkCorridorWallSolidColorGridEnabled: boolean;
+  darkCorridorWallSolidColorGridEnabledByTileset: DarkCorridorWallSolidColorGridEnabledByTileset;
+  darkCorridorWallSolidColorGridDarknessPercent: number;
+  darkCorridorWallSolidColorGridDarknessPercentByTileset: DarkCorridorWallSolidColorGridDarknessPercentByTileset;
   tilesetBackgroundTileId: number;
   tilesetBackgroundTileIdByTileset: TilesetBackgroundTileByTileset;
   tilesetBackgroundRemovalMode: TilesetBackgroundRemovalMode;
@@ -164,8 +193,21 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageLog: true,
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
+  darkCorridorWallTileOverrideEnabledByTileset: {},
   darkCorridorWallTileOverrideTileId: 850,
-  darkCorridorWallTileOverrideTileIdByTileset: {},
+  darkCorridorWallTileOverrideTileIdByTileset: {
+    "assets/3.6/DawnHack.bmp": 872,
+  },
+  darkCorridorWallSolidColorOverrideEnabled: true,
+  darkCorridorWallSolidColorOverrideEnabledByTileset: {},
+  darkCorridorWallSolidColorHex: "#9aa9c6",
+  darkCorridorWallSolidColorHexByTileset: {},
+  darkCorridorWallSolidColorHexFps: "#0e131f",
+  darkCorridorWallSolidColorHexFpsByTileset: {},
+  darkCorridorWallSolidColorGridEnabled: true,
+  darkCorridorWallSolidColorGridEnabledByTileset: {},
+  darkCorridorWallSolidColorGridDarknessPercent: 33,
+  darkCorridorWallSolidColorGridDarknessPercentByTileset: {},
   tilesetBackgroundTileId: resolveDefaultNh3dTilesetBackgroundTileId(
     defaultNh3dTilesetPath,
   ),
@@ -183,6 +225,23 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   gamma: 1.5,
 };
 
+function normalizeDarkCorridorWallOverrideEnabledByTileset(
+  rawValue: unknown,
+): DarkCorridorWallTileOverrideEnabledByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: DarkCorridorWallTileOverrideEnabledByTileset = {};
+  for (const [rawPath, rawEnabled] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] = Boolean(rawEnabled);
+  }
+  return normalized;
+}
+
 function normalizeDarkCorridorWallTileOverrideByTileset(
   rawValue: unknown,
 ): DarkCorridorWallTileOverrideByTileset {
@@ -199,6 +258,90 @@ function normalizeDarkCorridorWallTileOverrideByTileset(
       continue;
     }
     normalized[tilesetPath] = Math.max(0, Math.trunc(rawTileId));
+  }
+  return normalized;
+}
+
+function normalizeDarkCorridorWallSolidColorHex(
+  rawValue: unknown,
+  fallback: string,
+): string {
+  const normalized = String(rawValue || "").trim();
+  const match = normalized.match(/^#?([0-9a-fA-F]{6})$/);
+  if (!match) {
+    return fallback;
+  }
+  return `#${match[1].toLowerCase()}`;
+}
+
+function normalizeDarkCorridorWallSolidColorHexByTileset(
+  rawValue: unknown,
+): DarkCorridorWallSolidColorHexByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: DarkCorridorWallSolidColorHexByTileset = {};
+  for (const [rawPath, rawHex] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] = normalizeDarkCorridorWallSolidColorHex(
+      rawHex,
+      defaultNh3dClientOptions.darkCorridorWallSolidColorHex,
+    );
+  }
+  return normalized;
+}
+
+function normalizeDarkCorridorWallSolidColorHexFpsByTileset(
+  rawValue: unknown,
+): DarkCorridorWallSolidColorHexFpsByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: DarkCorridorWallSolidColorHexFpsByTileset = {};
+  for (const [rawPath, rawHex] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] = normalizeDarkCorridorWallSolidColorHex(
+      rawHex,
+      defaultNh3dClientOptions.darkCorridorWallSolidColorHexFps,
+    );
+  }
+  return normalized;
+}
+
+function normalizeDarkCorridorWallSolidColorGridDarknessPercent(
+  rawValue: unknown,
+  fallback: number,
+): number {
+  const parsed =
+    typeof rawValue === "number" && Number.isFinite(rawValue)
+      ? rawValue
+      : fallback;
+  return Math.max(0, Math.min(100, Math.round(parsed)));
+}
+
+function normalizeDarkCorridorWallSolidColorGridDarknessPercentByTileset(
+  rawValue: unknown,
+): DarkCorridorWallSolidColorGridDarknessPercentByTileset {
+  if (!rawValue || typeof rawValue !== "object" || Array.isArray(rawValue)) {
+    return {};
+  }
+  const normalized: DarkCorridorWallSolidColorGridDarknessPercentByTileset = {};
+  for (const [rawPath, rawPercent] of Object.entries(rawValue)) {
+    const tilesetPath = String(rawPath || "").trim();
+    if (!tilesetPath || !isNh3dTilesetPathAvailable(tilesetPath)) {
+      continue;
+    }
+    normalized[tilesetPath] =
+      normalizeDarkCorridorWallSolidColorGridDarknessPercent(
+        rawPercent,
+        defaultNh3dClientOptions.darkCorridorWallSolidColorGridDarknessPercent,
+      );
   }
   return normalized;
 }
@@ -352,9 +495,33 @@ export function normalizeNh3dClientOptions(
     requestedTilesetMode === "tiles" && resolvedTilesetPathExists
       ? "tiles"
       : "ascii";
+  const darkCorridorWallTileOverrideEnabledByTileset =
+    normalizeDarkCorridorWallOverrideEnabledByTileset(
+      overrides?.darkCorridorWallTileOverrideEnabledByTileset,
+    );
   const darkCorridorWallTileOverrideTileIdByTileset =
     normalizeDarkCorridorWallTileOverrideByTileset(
       overrides?.darkCorridorWallTileOverrideTileIdByTileset,
+    );
+  const darkCorridorWallSolidColorOverrideEnabledByTileset =
+    normalizeDarkCorridorWallOverrideEnabledByTileset(
+      overrides?.darkCorridorWallSolidColorOverrideEnabledByTileset,
+    );
+  const darkCorridorWallSolidColorHexByTileset =
+    normalizeDarkCorridorWallSolidColorHexByTileset(
+      overrides?.darkCorridorWallSolidColorHexByTileset,
+    );
+  const darkCorridorWallSolidColorHexFpsByTileset =
+    normalizeDarkCorridorWallSolidColorHexFpsByTileset(
+      overrides?.darkCorridorWallSolidColorHexFpsByTileset,
+    );
+  const darkCorridorWallSolidColorGridEnabledByTileset =
+    normalizeDarkCorridorWallOverrideEnabledByTileset(
+      overrides?.darkCorridorWallSolidColorGridEnabledByTileset,
+    );
+  const darkCorridorWallSolidColorGridDarknessPercentByTileset =
+    normalizeDarkCorridorWallSolidColorGridDarknessPercentByTileset(
+      overrides?.darkCorridorWallSolidColorGridDarknessPercentByTileset,
     );
   const tilesetBackgroundTileIdByTileset =
     normalizeTilesetBackgroundTileIdByTileset(
@@ -371,6 +538,24 @@ export function normalizeNh3dClientOptions(
   const selectedTilesetDarkWallOverrideTileId = tilesetPath
     ? darkCorridorWallTileOverrideTileIdByTileset[tilesetPath]
     : undefined;
+  const selectedTilesetDarkWallTileOverrideEnabled = tilesetPath
+    ? darkCorridorWallTileOverrideEnabledByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetDarkWallSolidOverrideEnabled = tilesetPath
+    ? darkCorridorWallSolidColorOverrideEnabledByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetDarkWallSolidColorHex = tilesetPath
+    ? darkCorridorWallSolidColorHexByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetDarkWallSolidColorHexFps = tilesetPath
+    ? darkCorridorWallSolidColorHexFpsByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetDarkWallSolidColorGridEnabled = tilesetPath
+    ? darkCorridorWallSolidColorGridEnabledByTileset[tilesetPath]
+    : undefined;
+  const selectedTilesetDarkWallSolidColorGridDarknessPercent = tilesetPath
+    ? darkCorridorWallSolidColorGridDarknessPercentByTileset[tilesetPath]
+    : undefined;
   const selectedTilesetBackgroundTileId = tilesetPath
     ? tilesetBackgroundTileIdByTileset[tilesetPath]
     : undefined;
@@ -385,6 +570,50 @@ export function normalizeNh3dClientOptions(
     Number.isFinite(selectedTilesetDarkWallOverrideTileId)
       ? Math.max(0, Math.trunc(selectedTilesetDarkWallOverrideTileId))
       : defaultNh3dClientOptions.darkCorridorWallTileOverrideTileId;
+  const darkCorridorWallTileOverrideEnabled =
+    typeof selectedTilesetDarkWallTileOverrideEnabled === "boolean"
+      ? selectedTilesetDarkWallTileOverrideEnabled
+      : typeof overrides?.darkCorridorWallTileOverrideEnabled === "boolean"
+        ? overrides.darkCorridorWallTileOverrideEnabled
+        : defaultNh3dClientOptions.darkCorridorWallTileOverrideEnabled;
+  let darkCorridorWallSolidColorOverrideEnabled =
+    typeof selectedTilesetDarkWallSolidOverrideEnabled === "boolean"
+      ? selectedTilesetDarkWallSolidOverrideEnabled
+      : typeof overrides?.darkCorridorWallSolidColorOverrideEnabled ===
+          "boolean"
+        ? overrides.darkCorridorWallSolidColorOverrideEnabled
+        : defaultNh3dClientOptions.darkCorridorWallSolidColorOverrideEnabled;
+  if (
+    darkCorridorWallTileOverrideEnabled &&
+    darkCorridorWallSolidColorOverrideEnabled
+  ) {
+    darkCorridorWallSolidColorOverrideEnabled = false;
+  }
+  const darkCorridorWallSolidColorHex = normalizeDarkCorridorWallSolidColorHex(
+    selectedTilesetDarkWallSolidColorHex,
+    defaultNh3dClientOptions.darkCorridorWallSolidColorHex,
+  );
+  const darkCorridorWallSolidColorHexFps =
+    normalizeDarkCorridorWallSolidColorHex(
+      selectedTilesetDarkWallSolidColorHexFps,
+      typeof overrides?.darkCorridorWallSolidColorHexFps === "string"
+        ? overrides.darkCorridorWallSolidColorHexFps
+        : defaultNh3dClientOptions.darkCorridorWallSolidColorHexFps,
+    );
+  const darkCorridorWallSolidColorGridEnabled =
+    typeof selectedTilesetDarkWallSolidColorGridEnabled === "boolean"
+      ? selectedTilesetDarkWallSolidColorGridEnabled
+      : typeof overrides?.darkCorridorWallSolidColorGridEnabled === "boolean"
+        ? overrides.darkCorridorWallSolidColorGridEnabled
+        : defaultNh3dClientOptions.darkCorridorWallSolidColorGridEnabled;
+  const darkCorridorWallSolidColorGridDarknessPercent =
+    normalizeDarkCorridorWallSolidColorGridDarknessPercent(
+      selectedTilesetDarkWallSolidColorGridDarknessPercent,
+      typeof overrides?.darkCorridorWallSolidColorGridDarknessPercent ===
+        "number"
+        ? overrides.darkCorridorWallSolidColorGridDarknessPercent
+        : defaultNh3dClientOptions.darkCorridorWallSolidColorGridDarknessPercent,
+    );
   const tilesetBackgroundTileId =
     typeof selectedTilesetBackgroundTileId === "number" &&
     Number.isFinite(selectedTilesetBackgroundTileId)
@@ -439,12 +668,20 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.darkCorridorWalls367 === "boolean"
         ? overrides.darkCorridorWalls367
         : defaultNh3dClientOptions.darkCorridorWalls367,
-    darkCorridorWallTileOverrideEnabled:
-      typeof overrides?.darkCorridorWallTileOverrideEnabled === "boolean"
-        ? overrides.darkCorridorWallTileOverrideEnabled
-        : defaultNh3dClientOptions.darkCorridorWallTileOverrideEnabled,
+    darkCorridorWallTileOverrideEnabled,
+    darkCorridorWallTileOverrideEnabledByTileset,
     darkCorridorWallTileOverrideTileId,
     darkCorridorWallTileOverrideTileIdByTileset,
+    darkCorridorWallSolidColorOverrideEnabled,
+    darkCorridorWallSolidColorOverrideEnabledByTileset,
+    darkCorridorWallSolidColorHex,
+    darkCorridorWallSolidColorHexByTileset,
+    darkCorridorWallSolidColorHexFps,
+    darkCorridorWallSolidColorHexFpsByTileset,
+    darkCorridorWallSolidColorGridEnabled,
+    darkCorridorWallSolidColorGridEnabledByTileset,
+    darkCorridorWallSolidColorGridDarknessPercent,
+    darkCorridorWallSolidColorGridDarknessPercentByTileset,
     tilesetBackgroundTileId,
     tilesetBackgroundTileIdByTileset,
     tilesetBackgroundRemovalMode,
