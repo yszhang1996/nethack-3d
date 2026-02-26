@@ -1949,6 +1949,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.configureBaseLightingForPlayMode();
     this.updateMinimapPresentation();
+    this.clearFloorBlockAmbientOcclusion();
     this.refreshTilesFromStateCache();
     this.syncFpsPointerLockForUiState(false);
     this.markLightingDirty();
@@ -6753,7 +6754,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof mesh.userData?.fpsWallChamferMask !== "number") {
       return 0;
     }
-    return Math.max(0, Math.min(15, Math.trunc(mesh.userData.fpsWallChamferMask)));
+    return Math.max(
+      0,
+      Math.min(15, Math.trunc(mesh.userData.fpsWallChamferMask)),
+    );
   }
 
   private computeFloorBlockAmbientOcclusionMasks(
@@ -6834,10 +6838,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     let cornerMask = 0;
     // Bit layout: 1 = NW, 2 = NE, 4 = SE, 8 = SW.
-    if (hasNorth && hasWest && (edgeCutMask & 1) === 0 && (edgeCutMask & 128) === 0) {
+    if (
+      hasNorth &&
+      hasWest &&
+      (edgeCutMask & 1) === 0 &&
+      (edgeCutMask & 128) === 0
+    ) {
       cornerMask |= 1;
     }
-    if (hasNorth && hasEast && (edgeCutMask & 2) === 0 && (edgeCutMask & 4) === 0) {
+    if (
+      hasNorth &&
+      hasEast &&
+      (edgeCutMask & 2) === 0 &&
+      (edgeCutMask & 4) === 0
+    ) {
       cornerMask |= 2;
     }
     if (
@@ -6902,7 +6916,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (context) {
       context.clearRect(0, 0, size, size);
       const depth = Math.max(16, Math.floor(size * 0.4));
-      const maxAlpha = 0.24;
+      // Make ambient occlusion darker in FPS mode
+      const maxAlpha = this.isFpsMode() ? 0.55 : 0.24;
       const edgeTrim = Math.max(24, Math.floor(depth * 0.95));
       const taper = Math.max(12, Math.floor(depth * 0.7));
       const terminalTaper = Math.max(10, Math.floor(depth * 0.5));
@@ -6918,7 +6933,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         context.save();
         context.globalCompositeOperation = "destination-out";
-        const gradient = context.createLinearGradient(startX, 0, startX + width, 0);
+        const gradient = context.createLinearGradient(
+          startX,
+          0,
+          startX + width,
+          0,
+        );
         if (fadeStart) {
           gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
           gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
@@ -6942,7 +6962,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         context.save();
         context.globalCompositeOperation = "destination-out";
-        const gradient = context.createLinearGradient(0, startY, 0, startY + height);
+        const gradient = context.createLinearGradient(
+          0,
+          startY,
+          0,
+          startY + height,
+        );
         if (fadeStart) {
           gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
           gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
@@ -7006,7 +7031,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
               topTrim > 0 ? taper : terminalTaper,
               height,
             );
-            applyVerticalEndTaper(size - depth, topTrim, depth, taperHeight, true);
+            applyVerticalEndTaper(
+              size - depth,
+              topTrim,
+              depth,
+              taperHeight,
+              true,
+            );
           }
           if (bottomTrim > 0 || (edgeTerminalMask & 8) !== 0) {
             const taperHeight = Math.min(
@@ -7221,7 +7252,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.floorBlockAmbientOcclusionOverlays.delete(key);
   }
 
-  private refreshFloorBlockAmbientOcclusionAt(tileX: number, tileY: number): void {
+  private refreshFloorBlockAmbientOcclusionAt(
+    tileX: number,
+    tileY: number,
+  ): void {
     const key = `${tileX},${tileY}`;
     const mesh = this.tileMap.get(key);
     if (!mesh || this.clientOptions.blockAmbientOcclusion !== true) {
@@ -7284,7 +7318,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     overlay.scale.copy(mesh.scale);
   }
 
-  private refreshFloorBlockAmbientOcclusionNear(tileX: number, tileY: number): void {
+  private refreshFloorBlockAmbientOcclusionNear(
+    tileX: number,
+    tileY: number,
+  ): void {
     this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY);
     this.refreshFloorBlockAmbientOcclusionAt(tileX, tileY - 1);
     this.refreshFloorBlockAmbientOcclusionAt(tileX + 1, tileY);
@@ -7366,7 +7403,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     overlay.position.set(
       chamferFloor.position.x,
       chamferFloor.position.y,
-      chamferFloor.position.z + this.fpsWallChamferFloorAmbientOcclusionOverlayZ,
+      chamferFloor.position.z +
+        this.fpsWallChamferFloorAmbientOcclusionOverlayZ,
     );
     overlay.scale.copy(chamferFloor.scale);
   }
@@ -7387,7 +7425,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private refreshAllFloorBlockAmbientOcclusion(): void {
     if (this.clientOptions.blockAmbientOcclusion !== true) {
-      for (const key of Array.from(this.floorBlockAmbientOcclusionOverlays.keys())) {
+      for (const key of Array.from(
+        this.floorBlockAmbientOcclusionOverlays.keys(),
+      )) {
         this.removeFloorBlockAmbientOcclusionOverlay(key);
       }
       for (const key of Array.from(
@@ -7423,7 +7463,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private clearFloorBlockAmbientOcclusion(): void {
-    for (const key of Array.from(this.floorBlockAmbientOcclusionOverlays.keys())) {
+    for (const key of Array.from(
+      this.floorBlockAmbientOcclusionOverlays.keys(),
+    )) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
     }
     for (const key of Array.from(
