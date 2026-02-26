@@ -9,7 +9,10 @@ Launch it from your Home Screen for a web app fullscreen experience.
 
 NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in your browser, phone or desktop PC.
 
-## Screenshots
+## Gameplay video link:
+[![NetHack 3D](https://img.youtube.com/vi/LNk3G-lV77k/0.jpg)](https://www.youtube.com)
+
+## Screenshots (outdated)
 
 | Combat (Gnomish Mines)                                                                                                                                                                                                   | Enhanced Combat Visuals (Tile shake, damage numbers, blood)                                                            |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
