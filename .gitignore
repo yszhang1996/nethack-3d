@@ -2,3 +2,7 @@ node_modules/
 dist/
 release/
 third_party/
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
