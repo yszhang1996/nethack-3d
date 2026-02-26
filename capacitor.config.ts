@@ -5,6 +5,7 @@ const config: CapacitorConfig = {
   appName: "NetHack 3D",
   webDir: "dist",
   bundledWebRuntime: false,
+  appVersion: "0.8.1",
 };
 
 export default config;
