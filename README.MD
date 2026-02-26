@@ -2,10 +2,10 @@
 
 Play in browser: https://jamesiv4.github.io/nethack-3d/
 
-## iOS Home Screen
+## iOS App
 
 On iPhone/iPad, open the play link in Safari, tap the Share button, then tap `Add to Home Screen`.
-Launch it from your Home Screen for an app-like fullscreen experience.
+Launch it from your Home Screen for a web app fullscreen experience.
 
 NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, right in your browser.
 
