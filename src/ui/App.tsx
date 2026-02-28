@@ -1041,6 +1041,8 @@ type MobileActionSheetMode = "quick" | "extended";
 type InventoryContextAction = {
   id: string;
   label: string;
+  kind?: "quick" | "extended";
+  value?: string;
 };
 type InventoryContextMenuState = {
   accelerator: string;
@@ -1142,6 +1144,8 @@ const inventoryContextActions: InventoryContextAction[] = [
   { id: "put-on", label: "Put On" },
   { id: "remove", label: "Remove" },
   { id: "zap", label: "Zap" },
+  { id: "engrave", label: "Engrave", kind: "extended", value: "engrave" },
+  { id: "dip", label: "Dip", kind: "extended", value: "dip" },
 ];
 
 const emptyInventoryActionIdSet: ReadonlySet<string> = new Set<string>();
@@ -1157,6 +1161,7 @@ const inventoryCategoryActionBlocklist: Record<
     "put-on",
     "remove",
     "zap",
+    "engrave",
   ]),
   weapons: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
   armor: new Set(["quaff", "put-on", "remove", "zap"]),
@@ -1171,11 +1176,35 @@ const inventoryCategoryActionBlocklist: Record<
     "remove",
     "zap",
   ]),
-  potions: new Set(["wear", "take-off", "put-on", "remove", "zap"]),
-  scrolls: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
-  spellbooks: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  potions: new Set(["wear", "take-off", "put-on", "remove", "zap", "engrave"]),
+  scrolls: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+    "engrave",
+  ]),
+  spellbooks: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+    "engrave",
+  ]),
   wands: new Set(["quaff", "wear", "take-off", "put-on", "remove"]),
-  coins: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  coins: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+    "engrave",
+  ]),
   gems_stones: new Set([
     "quaff",
     "wear",
@@ -1183,6 +1212,7 @@ const inventoryCategoryActionBlocklist: Record<
     "put-on",
     "remove",
     "zap",
+    "engrave",
   ]),
   boulders_statues: new Set([
     "quaff",
@@ -1191,10 +1221,27 @@ const inventoryCategoryActionBlocklist: Record<
     "put-on",
     "remove",
     "zap",
+    "engrave",
   ]),
-  iron_balls: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
-  chains: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
-  venoms: new Set(["quaff", "wear", "take-off", "put-on", "remove", "zap"]),
+  iron_balls: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+    "engrave",
+  ]),
+  chains: new Set([
+    "quaff",
+    "wear",
+    "take-off",
+    "put-on",
+    "remove",
+    "zap",
+    "engrave",
+  ]),
+  venoms: new Set(["wear", "take-off", "put-on", "remove", "zap"]),
   // Mixed contents; keep this category permissive.
   bagged_boxed_items: emptyInventoryActionIdSet,
 };
@@ -1468,7 +1515,7 @@ const mobileActions: MobileActionEntry[] = [
   { id: "read", label: "Read", kind: "extended", value: "read" },
   { id: "quaff", label: "Quaff", kind: "extended", value: "quaff" },
   { id: "eat", label: "Eat", kind: "extended", value: "eat" },
-  { id: "look", label: "Look", kind: "quick", value: "look" },
+  { id: "glance", label: "Glance", kind: "extended", value: "glance" },
   { id: "loot", label: "Loot", kind: "quick", value: "loot" },
   { id: "open", label: "Open", kind: "quick", value: "open" },
   { id: "wield", label: "Wield", kind: "extended", value: "wield" },
@@ -2098,7 +2145,9 @@ export default function App(): JSX.Element {
       return visibleActions;
     }
     return visibleActions.map((action) =>
-      action.id === "wield" ? { id: "unwield", label: "Unwield" } : action,
+      action.id === "wield"
+        ? { ...action, id: "unwield", label: "Unwield" }
+        : action,
     );
   }, [
     inventoryContextCategory,
@@ -6185,10 +6234,19 @@ export default function App(): JSX.Element {
                 className="nh3d-context-menu-button"
                 key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
                 onClick={() => {
-                  controller?.runInventoryItemAction(
-                    action.id,
-                    inventoryContextMenu.accelerator,
-                  );
+                  if (action.kind === "extended" && action.value) {
+                    // Use the special prefix to ensure the runtime intercepts it and reliably
+                    // applies it to the next inventory prompt menu without race conditions
+                    controller?.sendInput(
+                      `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
+                    );
+                    controller?.runExtendedCommand(action.value);
+                  } else {
+                    controller?.runInventoryItemAction(
+                      action.id,
+                      inventoryContextMenu.accelerator,
+                    );
+                  }
                   setInventoryContextMenu(null);
                 }}
                 type="button"

@@ -14808,7 +14808,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (materialKind === "water" || materialKind === "fountain") {
       addQuickAction("quaff", "Quaff");
-      addQuickAction("search", "Search");
     }
 
     if (
