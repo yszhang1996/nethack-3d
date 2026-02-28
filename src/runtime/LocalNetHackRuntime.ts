@@ -137,14 +137,25 @@ class LocalNetHackRuntime {
       typeof this.startupOptions.characterCreation === "object"
         ? this.startupOptions.characterCreation
         : null;
+
     if (!config) {
       return [];
     }
+
     const name = this.normalizeCharacterNameValue(config.name);
+
+    // If we're resuming, omit role/race/gender/align.
+    // Supplying just the name instructs NetHack to bypass character creation
+    // and seamlessly load the matching save file from the virtual file system.
+    if (config.mode === "resume") {
+      return name ? [`name:${name}`] : [];
+    }
+
     const role = this.normalizeCharacterOptionValue(config.role);
     const race = this.normalizeCharacterOptionValue(config.race);
     const gender = this.normalizeCharacterOptionValue(config.gender);
     const align = this.normalizeCharacterOptionValue(config.align);
+
     if (config.mode === "random") {
       const randomOptions = [
         role ? `role:${role}` : "role:random",
@@ -1466,7 +1477,11 @@ class LocalNetHackRuntime {
       return false;
     }
     const normalizedNonEmptyLines = lines
-      .map((line) => String(line || "").trim().toLowerCase())
+      .map((line) =>
+        String(line || "")
+          .trim()
+          .toLowerCase(),
+      )
       .filter((line) => line.length > 0);
     if (normalizedNonEmptyLines.length === 0) {
       return false;
@@ -2590,22 +2605,45 @@ class LocalNetHackRuntime {
             toThrow && typeof toThrow === "object" && toThrow.message
               ? String(toThrow.message)
               : `Program terminated with exit(${exitCode})`;
-          this.emit({
-            type: "runtime_terminated",
-            reason: exitReason,
-            exitCode,
-          });
-          if (toThrow && exitCode !== 0) {
-            throw toThrow;
+
+          if (this.nethackModule && this.nethackModule.FS) {
+            this.nethackModule.FS.syncfs(false, () => {
+              this.emit({
+                type: "runtime_terminated",
+                reason: exitReason,
+                exitCode,
+              });
+            });
+          } else {
+            this.emit({
+              type: "runtime_terminated",
+              reason: exitReason,
+              exitCode,
+            });
+          }
+
+          if (toThrow) {
+            throw toThrow; // Emscripten expects this exception to unwind its execution stack
           }
         },
         onExit: (status) => {
           const exitCode = Number.isFinite(status) ? Number(status) : 0;
-          this.emit({
-            type: "runtime_terminated",
-            reason: `Program terminated with exit(${exitCode})`,
-            exitCode,
-          });
+
+          if (this.nethackModule && this.nethackModule.FS) {
+            this.nethackModule.FS.syncfs(false, () => {
+              this.emit({
+                type: "runtime_terminated",
+                reason: `Program terminated with exit(${exitCode})`,
+                exitCode,
+              });
+            });
+          } else {
+            this.emit({
+              type: "runtime_terminated",
+              reason: `Program terminated with exit(${exitCode})`,
+              exitCode,
+            });
+          }
         },
         onAbort: (reason) => {
           const errorText =
@@ -2628,6 +2666,37 @@ class LocalNetHackRuntime {
               ? `${existingOptions},${runtimeOptions.join(",")}`
               : runtimeOptions.join(",");
             console.log(`Configured NETHACKOPTIONS: ${mod.ENV.NETHACKOPTIONS}`);
+
+            // Setup IndexedDB file system for persisting saves
+            const IDBFS =
+              mod.FS && mod.FS.filesystems && mod.FS.filesystems.IDBFS
+                ? mod.FS.filesystems.IDBFS
+                : mod.IDBFS;
+            if (mod.FS && IDBFS) {
+              // Dynamically locate the CWD so we mount IDBFS exactly where NetHack writes
+              const cwd = mod.FS.cwd();
+              const saveDir = cwd === "/" ? "/save" : `${cwd}/save`;
+
+              if (!mod.FS.analyzePath(saveDir).exists) {
+                try {
+                  mod.FS.mkdir(saveDir);
+                } catch (e) {
+                  console.warn(`Failed to create ${saveDir}`, e);
+                }
+              }
+
+              try {
+                mod.FS.mount(IDBFS, {}, saveDir);
+                mod.addRunDependency("idbfs_sync");
+                mod.FS.syncfs(true, (err) => {
+                  if (err) console.warn("IDBFS load syncfs error:", err);
+                  else console.log(`IDBFS mounted and synced at ${saveDir}`);
+                  mod.removeRunDependency("idbfs_sync");
+                });
+              } catch (e) {
+                console.warn(`Failed to mount IDBFS at ${saveDir}`, e);
+              }
+            }
           },
         ],
       });

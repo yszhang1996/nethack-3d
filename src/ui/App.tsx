@@ -997,7 +997,7 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
-type StartupFlowStep = "choose" | "create" | "random-name";
+type StartupFlowStep = "choose" | "create" | "random-name" | "resume";
 
 function pickRandomStartupRole(): string {
   if (startupRoleOptions.length === 0) {
@@ -1686,6 +1686,112 @@ async function normalizeUserTilesetTileSizes(
   );
 }
 
+type SaveGameRecord = {
+  name: string;
+  filename: string;
+  timestamp: Date;
+  dateFormatted: string;
+};
+
+async function fetchSavedGames(): Promise<SaveGameRecord[]> {
+  const saves: SaveGameRecord[] = [];
+  const dbNames = ["/save", "/nethack/save"];
+
+  for (const dbName of dbNames) {
+    try {
+      const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
+        const request = indexedDB.open(dbName);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onupgradeneeded = (e) => {
+          (e.target as IDBOpenDBRequest).transaction?.abort();
+          resolve(null);
+        };
+      });
+
+      if (!db) continue;
+
+      if (!db.objectStoreNames.contains("FILE_DATA")) {
+        db.close();
+        continue;
+      }
+
+      const records = await new Promise<{ key: string; value: any }[]>(
+        (resolve, reject) => {
+          const transaction = db.transaction(["FILE_DATA"], "readonly");
+          const store = transaction.objectStore("FILE_DATA");
+          const request = store.getAll();
+          const keysRequest = store.getAllKeys();
+
+          request.onsuccess = () => {
+            keysRequest.onsuccess = () => {
+              const result = [];
+              for (let i = 0; i < request.result.length; i++) {
+                result.push({
+                  key: keysRequest.result[i] as string,
+                  value: request.result[i],
+                });
+              }
+              resolve(result);
+            };
+            keysRequest.onerror = () => reject(keysRequest.error);
+          };
+          request.onerror = () => reject(request.error);
+        },
+      );
+
+      for (const record of records) {
+        const key = record.key;
+        const value = record.value;
+        if (!key || typeof key !== "string") continue;
+
+        const filename = key.split("/").pop();
+        if (!filename) continue;
+
+        // Ignore structural/metadata files used by NetHack
+        const knownNonSaves = [
+          "record",
+          "logfile",
+          "xlogfile",
+          "perm",
+          "timestamp",
+          ".keep",
+        ];
+        if (knownNonSaves.includes(filename)) continue;
+        if (filename.includes("level") || filename.includes("lock")) continue;
+
+        // NetHack prepends a user ID (usually 0) to save files, e.g. "0Web_user". Strip it.
+        const name = filename.replace(/^\d+/, "");
+        if (name && value && value.timestamp) {
+          saves.push({
+            name,
+            filename,
+            timestamp: new Date(value.timestamp),
+            dateFormatted: new Date(value.timestamp).toLocaleString(),
+          });
+        }
+      }
+
+      db.close();
+    } catch (e) {
+      console.warn(`Could not read IndexedDB ${dbName}:`, e);
+    }
+  }
+
+  // Deduplicate by name and sort by newest first
+  const uniqueSaves = new Map<string, SaveGameRecord>();
+  for (const save of saves) {
+    const existing = uniqueSaves.get(save.name);
+    if (!existing || existing.timestamp < save.timestamp) {
+      uniqueSaves.set(save.name, save);
+    }
+  }
+
+  return Array.from(uniqueSaves.values()).sort(
+    (a, b) => b.timestamp.getTime() - a.timestamp.getTime(),
+  );
+}
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
@@ -1700,6 +1806,22 @@ export default function App(): JSX.Element {
   const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
   const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
   const [createName, setCreateName] = useState("Web_user");
+  const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
+  const [isLoadingSaves, setIsLoadingSaves] = useState(false);
+
+  const handleResumeClick = async () => {
+    setStartupFlowStep("resume");
+    setIsLoadingSaves(true);
+    try {
+      const saves = await fetchSavedGames();
+      setSavedGames(saves);
+    } catch (e) {
+      console.error("Error loading saves", e);
+    } finally {
+      setIsLoadingSaves(false);
+    }
+  };
+
   const initialPersistedClientOptionsRef =
     useRef<Partial<Nh3dClientOptions> | null>(null);
   const initialClientOptions = useMemo(
@@ -4127,6 +4249,13 @@ export default function App(): JSX.Element {
                   </button>
                   <button
                     className="nh3d-choice-button nh3d-character-setup-choice-button"
+                    onClick={handleResumeClick}
+                    type="button"
+                  >
+                    Load game
+                  </button>
+                  <button
+                    className="nh3d-choice-button nh3d-character-setup-choice-button"
                     onClick={openClientOptionsDialog}
                     type="button"
                   >
@@ -4134,54 +4263,72 @@ export default function App(): JSX.Element {
                   </button>
                 </div>
               </>
-            ) : startupFlowStep === "random-name" ? (
+            ) : startupFlowStep === "resume" ? (
               <>
-                <div className="nh3d-question-text">Random character name:</div>
-                <div className="nh3d-startup-config-grid centered">
-                  <label className="nh3d-startup-config-field">
-                    <span>Name</span>
-                    <input
-                      className="nh3d-startup-config-input"
-                      maxLength={30}
-                      onChange={(event) => setCreateName(event.target.value)}
-                      placeholder="Web_user"
-                      type="text"
-                      value={createName}
-                    />
-                  </label>
+                <div className="nh3d-question-text">Select a saved game:</div>
+                <div className="nh3d-choice-list" style={{ width: "100%" }}>
+                  {isLoadingSaves ? (
+                    <div
+                      style={{
+                        padding: "20px",
+                        color: "var(--nh3d-ui-text-muted)",
+                      }}
+                    >
+                      Loading saves...
+                    </div>
+                  ) : savedGames.length > 0 ? (
+                    savedGames.map((save) => (
+                      <button
+                        key={save.name}
+                        className="nh3d-choice-button nh3d-character-setup-choice-button"
+                        style={{
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          padding: "12px",
+                        }}
+                        onClick={() => {
+                          setCharacterCreationConfig({
+                            mode: "resume" as any,
+                            playMode: clientOptions.fpsMode ? "fps" : "normal",
+                            runtimeVersion,
+                            name: save.name,
+                          });
+                        }}
+                        type="button"
+                      >
+                        <div style={{ fontWeight: "bold", fontSize: "16px" }}>
+                          {save.name}
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "12px",
+                            color: "var(--nh3d-ui-text-muted)",
+                            marginTop: "4px",
+                            fontWeight: "normal",
+                          }}
+                        >
+                          Saved: {save.dateFormatted}
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div
+                      style={{
+                        padding: "20px",
+                        color: "var(--nh3d-ui-text-muted)",
+                      }}
+                    >
+                      No saved games found.
+                    </div>
+                  )}
                 </div>
                 <div className="nh3d-menu-actions">
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                    onClick={() => {
-                      const randomRole = pickRandomStartupRole();
-                      const randomGender = pickRandomStartupGender(randomRole);
-                      setCharacterCreationConfig({
-                        mode: "random",
-                        playMode: clientOptions.fpsMode ? "fps" : "normal",
-                        runtimeVersion,
-                        name: normalizeStartupCharacterName(createName),
-                        role: randomRole,
-                        gender: randomGender,
-                      });
-                    }}
-                    type="button"
-                  >
-                    Start game
-                  </button>
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-cancel"
                     onClick={() => setStartupFlowStep("choose")}
                     type="button"
                   >
                     Back
-                  </button>
-                  <button
-                    className="nh3d-menu-action-button"
-                    onClick={openClientOptionsDialog}
-                    type="button"
-                  >
-                    NetHack 3D Options
                   </button>
                 </div>
               </>

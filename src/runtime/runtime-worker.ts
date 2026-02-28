@@ -24,6 +24,35 @@ function isLikelyNameInputForDebug(input: string): boolean {
 }
 
 function postEnvelope(envelope: RuntimeWorkerEnvelope): void {
+  // Intercept termination events to guarantee IndexedDB has finished saving
+  // before the main UI thread is allowed to reload or close the game.
+  if (
+    envelope.type === "runtime_event" &&
+    (envelope.event as RuntimeEvent).type === "runtime_terminated"
+  ) {
+    const finalize = () => {
+      (self as unknown as Worker).postMessage(envelope);
+    };
+
+    if (
+      runtime &&
+      (runtime as any).nethackModule &&
+      (runtime as any).nethackModule.FS
+    ) {
+      try {
+        console.log("Worker: syncing files to IndexedDB before terminating...");
+        (runtime as any).nethackModule.FS.syncfs(false, (err: unknown) => {
+          if (err) console.error("Worker IDBFS sync error:", err);
+          else console.log("Worker: file sync complete.");
+          finalize();
+        });
+        return;
+      } catch (e) {
+        console.error("Worker IDBFS sync exception:", e);
+      }
+    }
+  }
+
   (self as unknown as Worker).postMessage(envelope);
 }
 
@@ -32,7 +61,10 @@ function getErrorStatus(errorLike: unknown): number | null {
     return null;
   }
   const candidate = errorLike as { status?: unknown };
-  if (typeof candidate.status === "number" && Number.isFinite(candidate.status)) {
+  if (
+    typeof candidate.status === "number" &&
+    Number.isFinite(candidate.status)
+  ) {
     return candidate.status;
   }
   return null;
@@ -68,7 +100,10 @@ function extractErrorMessage(errorLike: unknown): string {
   return String(errorLike);
 }
 
-function isNormalRuntimeTermination(message: string, status: number | null): boolean {
+function isNormalRuntimeTermination(
+  message: string,
+  status: number | null,
+): boolean {
   if (status === 0) {
     return true;
   }
@@ -120,7 +155,10 @@ function installAsyncifyWakeUpTrap(): void {
       const secondText = extractErrorMessage(second).toLowerCase();
       const secondStatus = getErrorStatus(second);
       const isWakeUpFailure = firstText.includes("asyncify wakeup failed");
-      if (isWakeUpFailure && isNormalRuntimeTermination(secondText, secondStatus)) {
+      if (
+        isWakeUpFailure &&
+        isNormalRuntimeTermination(secondText, secondStatus)
+      ) {
         reportTermination(
           extractErrorMessage(second) || "Program terminated with exit(0)",
           secondStatus ?? 0,
@@ -134,7 +172,9 @@ function installAsyncifyWakeUpTrap(): void {
   };
 }
 
-function ensureRuntime(startupOptions?: RuntimeStartupOptions): LocalNetHackRuntime {
+function ensureRuntime(
+  startupOptions?: RuntimeStartupOptions,
+): LocalNetHackRuntime {
   if (!runtime) {
     installAsyncifyWakeUpTrap();
     runtime = new LocalNetHackRuntime(
@@ -148,7 +188,9 @@ function ensureRuntime(startupOptions?: RuntimeStartupOptions): LocalNetHackRunt
 }
 
 self.addEventListener("error", (event: ErrorEvent) => {
-  const status = getErrorStatus((event as unknown as { error?: unknown }).error);
+  const status = getErrorStatus(
+    (event as unknown as { error?: unknown }).error,
+  );
   const message = extractErrorMessage(
     (event as unknown as { error?: unknown }).error ?? event.message,
   );
