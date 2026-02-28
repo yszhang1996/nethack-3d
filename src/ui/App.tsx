@@ -4612,7 +4612,7 @@ export default function App(): JSX.Element {
                 <div className="nh3d-question-text">
                   Enter a name for your random character:
                 </div>
-                <div className="nh3d-startup-config-grid">
+                <div className="nh3d-startup-config-grid centered">
                   <label className="nh3d-startup-config-field">
                     <span>Name</span>
                     <input
@@ -4628,14 +4628,18 @@ export default function App(): JSX.Element {
                 <div className="nh3d-menu-actions">
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                    onClick={() =>
+                    onClick={() => {
+                      const randomRole = pickRandomStartupRole();
+                      const randomGender = pickRandomStartupGender(randomRole);
                       handleStartNewGame({
                         mode: "random",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
                         name: normalizeStartupCharacterName(createName),
-                      })
-                    }
+                        role: randomRole,
+                        gender: randomGender,
+                      });
+                    }}
                     type="button"
                   >
                     Start game
@@ -6016,7 +6020,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {newGamePrompt.visible ? (
+      {newGamePrompt.visible && !infoMenu && !question ? (
         <div
           className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game is-visible"
           id="new-game-dialog"

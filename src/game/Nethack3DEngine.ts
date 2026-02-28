@@ -9512,7 +9512,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideDirectionQuestion();
     this.hideTextInputRequest();
     this.hideInventoryDialog();
-    this.hideInfoMenuDialog();
+
     this.uiAdapter?.setPositionRequest(null);
     this.uiAdapter?.setFpsCrosshairContext(null);
     this.uiAdapter?.setRepeatActionVisible(false);
