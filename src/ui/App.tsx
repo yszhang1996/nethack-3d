@@ -997,7 +997,7 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
-type StartupFlowStep = "choose" | "create" | "random-name" | "resume";
+type StartupFlowStep = "choose" | "create" | "resume";
 
 function pickRandomStartupRole(): string {
   if (startupRoleOptions.length === 0) {
@@ -4235,7 +4235,13 @@ export default function App(): JSX.Element {
                 <div className="nh3d-choice-list">
                   <button
                     className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={() => setStartupFlowStep("random-name")}
+                    onClick={() =>
+                      setCharacterCreationConfig({
+                        mode: "random",
+                        playMode: clientOptions.fpsMode ? "fps" : "normal",
+                        runtimeVersion,
+                      })
+                    }
                     type="button"
                   >
                     Random character
