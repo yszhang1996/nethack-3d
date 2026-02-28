@@ -45,12 +45,6 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Inventory context actions for common item interactions without typing command sequences.
 - Adjustable client options including FPS FOV, look sensitivity, inverted look, antialiasing, and minimap visibility.
 
-## Extras
-
-- Quick reopen for the latest info panel with `Ctrl+M`.
-- Power-user debug tools in browser devtools for tile refresh, status inspection, and game updates.
-- Optional Windows desktop packaging via Electron + `electron-builder`.
-
 ## Run Locally
 
 1. `npm i`
