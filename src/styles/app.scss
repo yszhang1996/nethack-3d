@@ -816,6 +816,7 @@ canvas {
   z-index: 2000;
   font-family: "Courier New", monospace;
   display: none;
+  overflow-x: hidden;
 
   &.startup {
     top: 57vh;
@@ -825,7 +826,7 @@ canvas {
     display: block;
   }
 
-  &.is-visible:not(.nh3d-dialog-direction-fps, .startup) {
+  &.is-visible:not(.startup) {
     box-shadow:
       var(--nh3d-modal-surface-shadow),
       0 0 56px 24px rgba(1, 7, 16, 0.3),
@@ -872,7 +873,6 @@ canvas {
 
     padding: var(--nh3d-dialog-mobile-padding);
     border-radius: 8px;
-    overflow-x: auto;
     overflow-y: auto;
 
     &.nh3d-dialog-has-mobile-close > .nh3d-question-text,
@@ -908,7 +908,7 @@ canvas {
       background-clip: padding-box;
     }
 
-    &.is-visible:not(.nh3d-dialog-direction-fps, .startup) {
+    &.is-visible:not(.startup) {
       box-shadow:
         var(--nh3d-modal-surface-shadow),
         0 0 56px 24px rgba(1, 7, 16, 0.3),
@@ -921,7 +921,7 @@ canvas {
 @media (pointer: coarse) {
   // Ensure specialized dialog classes that set their own heights still clamp
   // to the shared mobile modal frame.
-  .nh3d-dialog:not(.nh3d-dialog-direction-fps, .startup) {
+  .nh3d-dialog:not(.startup) {
     max-height: var(--nh3d-modal-safe-max-height);
   }
 }
@@ -929,7 +929,6 @@ canvas {
 .nh3d-dialog-fixed-actions {
   --nh3d-dialog-fixed-padding: 20px;
   --nh3d-dialog-fixed-actions-bg: #040c18;
-  padding-bottom: 0;
 
   &.is-visible {
     display: flex;
@@ -2211,6 +2210,7 @@ canvas {
   max-height: min(62vh, 560px);
   overflow-y: auto;
   padding-right: 4px;
+  padding-bottom: 10px;
 
   &.is-compact {
     flex-direction: row;
@@ -3227,7 +3227,6 @@ canvas {
   text-align: left;
 }
 
-
 .nh3d-mobile-actions-divider {
   height: 1px;
   background-color: var(--nh3d-ui-border-color);
@@ -3235,7 +3234,6 @@ canvas {
 }
 
 .nh3d-mobile-actions-back {
-
   min-height: 30px;
   min-width: 64px;
   border: 1px solid var(--nh3d-ui-button-border);

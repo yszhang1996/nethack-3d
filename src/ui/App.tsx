@@ -211,11 +211,21 @@ function isYesNoChoicePrompt(parsedChoices: string[]): boolean {
 }
 
 function getQuestionChoiceLabel(
+  questionText: string,
   choice: string,
   inventoryItems: NethackMenuItem[],
   useInventoryLabels = true,
 ): string {
   const normalizedChoice = choice.trim();
+  if (questionText.includes("Which ring-finger")) {
+    if (normalizedChoice === "l") {
+      return "l) Left ring-finger";
+    }
+    if (normalizedChoice === "r") {
+      return "r) Right ring-finger";
+    }
+  }
+
   if (!normalizedChoice) {
     return choice;
   }
@@ -1835,10 +1845,6 @@ async function deleteSavedGame(filename: string): Promise<void> {
   }
 }
 
-
-
-
-
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
@@ -1905,7 +1911,8 @@ export default function App(): JSX.Element {
   ] = useState(false);
   const [isTilesetManagerVisible, setIsTilesetManagerVisible] = useState(false);
   const [isPauseMenuVisible, setIsPauseMenuVisible] = useState(false);
-  const [isExitConfirmationVisible, setIsExitConfirmationVisible] = useState(false);
+  const [isExitConfirmationVisible, setIsExitConfirmationVisible] =
+    useState(false);
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
@@ -4288,7 +4295,7 @@ export default function App(): JSX.Element {
           <button
             className="nh3d-choice-button"
             onClick={() => {
-                window.close();
+              window.close();
             }}
             type="button"
           >
@@ -5855,6 +5862,7 @@ export default function App(): JSX.Element {
                   type="button"
                 >
                   {getQuestionChoiceLabel(
+                    question.text,
                     choice,
                     inventory.items,
                     useInventoryChoiceLabels,
@@ -6121,7 +6129,9 @@ export default function App(): JSX.Element {
                     <span className="nh3d-inventory-key">
                       {item.accelerator || "?"})
                     </span>
-                    <span className={item.className as string}>{item.text || "Unknown item"}</span>
+                    <span className={item.className as string}>
+                      {item.text || "Unknown item"}
+                    </span>
                   </div>
                 ),
               )
@@ -6251,33 +6261,23 @@ export default function App(): JSX.Element {
                   Back
                 </button>
               ) : null}
-              
 
-              
               <div className="nh3d-mobile-actions-divider" />
-              
+
               <button
-              
                 className="nh3d-mobile-actions-back"
-              
                 onClick={() => {
-              
                   setIsMobileActionSheetVisible(false);
-              
+
                   setMobileActionSheetMode("quick");
-              
+
                   setIsPauseMenuVisible(true);
-              
                 }}
-              
                 type="button"
-              
               >
-              
                 Menu
-              
               </button>
-              
+
               <button
                 className="nh3d-mobile-actions-close"
                 onClick={() => {
