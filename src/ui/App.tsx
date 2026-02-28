@@ -4263,6 +4263,13 @@ export default function App(): JSX.Element {
           </button>
           <button
             className="nh3d-choice-button"
+            onClick={openClientOptionsDialog}
+            type="button"
+          >
+            Options
+          </button>
+          <button
+            className="nh3d-choice-button"
             onClick={() => {
               controller?.sendInput("S");
               setIsPauseMenuVisible(false);
@@ -6244,17 +6251,33 @@ export default function App(): JSX.Element {
                   Back
                 </button>
               ) : null}
+              
+
+              
+              <div className="nh3d-mobile-actions-divider" />
+              
               <button
+              
                 className="nh3d-mobile-actions-back"
+              
                 onClick={() => {
+              
                   setIsMobileActionSheetVisible(false);
+              
                   setMobileActionSheetMode("quick");
-                  openClientOptionsDialog();
+              
+                  setIsPauseMenuVisible(true);
+              
                 }}
+              
                 type="button"
+              
               >
-                Options
+              
+                Menu
+              
               </button>
+              
               <button
                 className="nh3d-mobile-actions-close"
                 onClick={() => {

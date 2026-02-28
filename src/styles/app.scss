@@ -3227,7 +3227,15 @@ canvas {
   text-align: left;
 }
 
+
+.nh3d-mobile-actions-divider {
+  height: 1px;
+  background-color: var(--nh3d-ui-border-color);
+  margin: 8px 0;
+}
+
 .nh3d-mobile-actions-back {
+
   min-height: 30px;
   min-width: 64px;
   border: 1px solid var(--nh3d-ui-button-border);
