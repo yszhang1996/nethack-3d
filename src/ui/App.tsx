@@ -1007,7 +1007,7 @@ const startupRoleOptions = [
 const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
 const startupGenderOptions = ["male", "female"];
 const startupAlignOptions = ["lawful", "neutral", "chaotic"];
-type StartupFlowStep = "choose" | "create" | "resume";
+type StartupFlowStep = "choose" | "create" | "random" | "resume";
 
 function pickRandomStartupRole(): string {
   if (startupRoleOptions.length === 0) {
@@ -1931,6 +1931,28 @@ export default function App(): JSX.Element {
     } finally {
       setIsLoadingSaves(false);
     }
+  };
+
+  const handleStartNewGame = async (config: CharacterCreationConfig) => {
+    if (config.mode === "random" || config.mode === "create") {
+      try {
+        const saves = await fetchSavedGames();
+        const configName = config.name || "Web_user";
+        const existingSave = saves.find((s) => s.name === configName);
+        if (existingSave) {
+          const confirmed = window.confirm(
+            `A saved game named "${configName}" already exists.\n\nDo you want to overwrite it with a new character?`,
+          );
+          if (!confirmed) {
+            return;
+          }
+          await deleteSavedGame(existingSave.filename);
+        }
+      } catch (e) {
+        console.warn("Failed to check for existing saves:", e);
+      }
+    }
+    setCharacterCreationConfig(config);
   };
 
   const initialPersistedClientOptionsRef =
@@ -4461,13 +4483,7 @@ export default function App(): JSX.Element {
                 <div className="nh3d-choice-list">
                   <button
                     className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={() =>
-                      setCharacterCreationConfig({
-                        mode: "random",
-                        playMode: clientOptions.fpsMode ? "fps" : "normal",
-                        runtimeVersion,
-                      })
-                    }
+                    onClick={() => setStartupFlowStep("random")}
                     type="button"
                   >
                     Random character
@@ -4591,6 +4607,55 @@ export default function App(): JSX.Element {
                   </button>
                 </div>
               </>
+            ) : startupFlowStep === "random" ? (
+              <>
+                <div className="nh3d-question-text">
+                  Enter a name for your random character:
+                </div>
+                <div className="nh3d-startup-config-grid">
+                  <label className="nh3d-startup-config-field">
+                    <span>Name</span>
+                    <input
+                      className="nh3d-startup-config-input"
+                      maxLength={30}
+                      onChange={(event) => setCreateName(event.target.value)}
+                      placeholder="Web_user"
+                      type="text"
+                      value={createName}
+                    />
+                  </label>
+                </div>
+                <div className="nh3d-menu-actions">
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                    onClick={() =>
+                      handleStartNewGame({
+                        mode: "random",
+                        playMode: clientOptions.fpsMode ? "fps" : "normal",
+                        runtimeVersion,
+                        name: normalizeStartupCharacterName(createName),
+                      })
+                    }
+                    type="button"
+                  >
+                    Start game
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                    onClick={() => setStartupFlowStep("choose")}
+                    type="button"
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="nh3d-menu-action-button"
+                    onClick={openClientOptionsDialog}
+                    type="button"
+                  >
+                    NetHack 3D Options
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 <div className="nh3d-question-text">Create your character:</div>
@@ -4667,7 +4732,7 @@ export default function App(): JSX.Element {
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-confirm"
                     onClick={() =>
-                      setCharacterCreationConfig({
+                      handleStartNewGame({
                         mode: "create",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
