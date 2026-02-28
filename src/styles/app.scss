@@ -1968,7 +1968,7 @@ canvas {
   gap: 6px;
 }
 
-.nh3d-tileset-manager-delete {
+.delete-button {
   width: 30px;
   height: 30px;
   border-radius: 6px;
@@ -2549,6 +2549,15 @@ canvas {
   color: var(--nh3d-ui-text);
   flex: 1;
   font-size: 13px;
+  font-weight: bold;
+}
+
+.blessed-text {
+  color: #00ff00;
+}
+
+.cursed-text {
+  color: #ff3333;
 }
 
 .nh3d-context-menu {

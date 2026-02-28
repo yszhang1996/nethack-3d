@@ -1687,6 +1687,7 @@ async function normalizeUserTilesetTileSizes(
 }
 
 type SaveGameRecord = {
+  key: string;
   name: string;
   filename: string;
   timestamp: Date;
@@ -1764,6 +1765,7 @@ async function fetchSavedGames(): Promise<SaveGameRecord[]> {
         const name = filename.replace(/^\d+/, "");
         if (name && value && value.timestamp) {
           saves.push({
+            key,
             name,
             filename,
             timestamp: new Date(value.timestamp),
@@ -1792,6 +1794,51 @@ async function fetchSavedGames(): Promise<SaveGameRecord[]> {
   );
 }
 
+async function deleteSavedGame(filename: string): Promise<void> {
+  const dbNames = ["/save", "/nethack/save"];
+
+  for (const dbName of dbNames) {
+    try {
+      const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
+        const request = indexedDB.open(dbName);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+        request.onupgradeneeded = (e) => {
+          (e.target as IDBOpenDBRequest).transaction?.abort();
+          resolve(null);
+        };
+      });
+
+      if (!db) continue;
+
+      if (!db.objectStoreNames.contains("FILE_DATA")) {
+        db.close();
+        continue;
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const transaction = db.transaction(["FILE_DATA"], "readwrite");
+        const store = transaction.objectStore("FILE_DATA");
+
+        // Emscripten IDBFS uses the absolute path as the object store key
+        const fullKey = `${dbName}/${filename}`;
+
+        const request = store.delete(fullKey);
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      });
+
+      db.close();
+    } catch (e) {
+      console.warn(`Could not delete from IndexedDB ${dbName}:`, e);
+    }
+  }
+}
+
+
+
+
+
 export default function App(): JSX.Element {
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
@@ -1808,6 +1855,17 @@ export default function App(): JSX.Element {
   const [createName, setCreateName] = useState("Web_user");
   const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
   const [isLoadingSaves, setIsLoadingSaves] = useState(false);
+
+  const handleDeleteSave = async (
+    e: ReactMouseEvent<HTMLButtonElement>,
+    save: SaveGameRecord,
+  ) => {
+    e.stopPropagation();
+    if (window.confirm(`Are you sure you want to delete ${save.name}?`)) {
+      await deleteSavedGame(save.filename);
+      setSavedGames((prev) => prev.filter((s) => s.filename !== save.filename));
+    }
+  };
 
   const handleResumeClick = async () => {
     setStartupFlowStep("resume");
@@ -4291,6 +4349,7 @@ export default function App(): JSX.Element {
                           flexDirection: "column",
                           alignItems: "flex-start",
                           padding: "12px",
+                          width: "100%",
                         }}
                         onClick={() => {
                           setCharacterCreationConfig({
@@ -4302,18 +4361,37 @@ export default function App(): JSX.Element {
                         }}
                         type="button"
                       >
-                        <div style={{ fontWeight: "bold", fontSize: "16px" }}>
-                          {save.name}
-                        </div>
                         <div
                           style={{
-                            fontSize: "12px",
-                            color: "var(--nh3d-ui-text-muted)",
-                            marginTop: "4px",
-                            fontWeight: "normal",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            width: "100%",
+                            alignItems: "center",
                           }}
                         >
-                          Saved: {save.dateFormatted}
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{ fontWeight: "bold", fontSize: "16px" }}
+                            >
+                              {save.name}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: "12px",
+                                color: "var(--nh3d-ui-text-muted)",
+                                marginTop: "4px",
+                                fontWeight: "normal",
+                              }}
+                            >
+                              Saved: {save.dateFormatted}
+                            </div>
+                          </div>
+                          <button
+                            className="delete-button"
+                            onClick={(e) => handleDeleteSave(e, save)}
+                          >
+                            X
+                          </button>
                         </div>
                       </button>
                     ))
@@ -5318,7 +5396,7 @@ export default function App(): JSX.Element {
                       {isUserTileset ? (
                         <button
                           aria-label={`Delete ${tileset.label}`}
-                          className="nh3d-tileset-manager-delete"
+                          className="delete-button"
                           disabled={tilesetManagerBusy || !userRecord}
                           onClick={() => {
                             if (!userRecord) {
@@ -5924,9 +6002,7 @@ export default function App(): JSX.Element {
                     <span className="nh3d-inventory-key">
                       {item.accelerator || "?"})
                     </span>
-                    <span className="nh3d-inventory-text">
-                      {item.text || "Unknown item"}
-                    </span>
+                    <span className={item.className}>{item.text || "Unknown item"}</span>
                   </div>
                 ),
               )

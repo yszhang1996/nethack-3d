@@ -65,6 +65,7 @@ import {
   inferNh3dTilesetTileSizeFromAtlasWidth,
   resolveNh3dTilesetAssetUrl,
 } from "./tilesets";
+import { getItemTextClassName } from "./helpers";
 
 type FloatingMessageEntry = {
   container: HTMLDivElement;
@@ -9926,9 +9927,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private buildInventoryDialogState(): InventoryDialogState {
+    const items = this.currentInventory.map((item) => {
+      if (item.text) {
+        return {
+          ...item,
+          className: getItemTextClassName(item.text),
+        };
+      }
+      return item;
+    });
+
     return {
       visible: this.isInventoryDialogVisible,
-      items: [...this.currentInventory],
+      items: items,
       contextActionsEnabled:
         this.inventoryContextActionsEnabled && !this.gameOverState.active,
     };
