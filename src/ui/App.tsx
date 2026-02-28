@@ -1904,6 +1904,8 @@ export default function App(): JSX.Element {
     setIsTilesetSolidColorPickerVisible,
   ] = useState(false);
   const [isTilesetManagerVisible, setIsTilesetManagerVisible] = useState(false);
+  const [isPauseMenuVisible, setIsPauseMenuVisible] = useState(false);
+  const [isExitConfirmationVisible, setIsExitConfirmationVisible] = useState(false);
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
@@ -4139,6 +4141,15 @@ export default function App(): JSX.Element {
         return;
       }
 
+      if (isPauseMenuVisible) {
+        if (isExitConfirmationVisible) {
+          setIsExitConfirmationVisible(false);
+        } else {
+          setIsPauseMenuVisible(false);
+        }
+        return;
+      }
+
       if (isClientOptionsVisible) {
         event.preventDefault();
         event.stopPropagation();
@@ -4168,7 +4179,7 @@ export default function App(): JSX.Element {
 
       event.preventDefault();
       event.stopPropagation();
-      openClientOptionsDialog();
+      setIsPauseMenuVisible(true);
     };
 
     window.addEventListener("keydown", handleEscapeForClientOptions, true);
@@ -4184,13 +4195,107 @@ export default function App(): JSX.Element {
     isTilesetBackgroundTilePickerVisible,
     isTilesetSolidColorPickerVisible,
     isTilesetManagerVisible,
+    isPauseMenuVisible,
+    isExitConfirmationVisible,
     isDesktopGameRunning,
     isMobileViewport,
   ]);
 
+  const renderPauseMenu = () => {
+    if (!isPauseMenuVisible) {
+      return null;
+    }
+
+    if (isExitConfirmationVisible) {
+      return (
+        <div
+          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
+          id="exit-confirmation-dialog"
+        >
+          <div className="nh3d-question-text">
+            Do you want to save before quitting?
+          </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={() => {
+                controller?.sendInput("S");
+                setTimeout(() => window.location.reload(), 1000);
+              }}
+              type="button"
+            >
+              Yes
+            </button>
+            <button
+              className="nh3d-menu-action-button"
+              onClick={() => {
+                window.location.reload();
+              }}
+              type="button"
+            >
+              No
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => setIsExitConfirmationVisible(false)}
+              type="button"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
+        id="pause-menu-dialog"
+      >
+        <div className="nh3d-options-title">Game Paused</div>
+        <div className="nh3d-choice-list">
+          <button
+            className="nh3d-choice-button"
+            onClick={() => setIsPauseMenuVisible(false)}
+            type="button"
+          >
+            Resume
+          </button>
+          <button
+            className="nh3d-choice-button"
+            onClick={() => {
+              controller?.sendInput("S");
+              setIsPauseMenuVisible(false);
+            }}
+            type="button"
+          >
+            Save game
+          </button>
+          <button
+            className="nh3d-choice-button"
+            onClick={() => setIsExitConfirmationVisible(true)}
+            type="button"
+          >
+            Exit to main menu
+          </button>
+          <button
+            className="nh3d-choice-button"
+            onClick={() => {
+                window.close();
+            }}
+            type="button"
+          >
+            Quit Game
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
+      {renderPauseMenu()}
       {startup && (
         <div className="logo-container">
           <pre className="nethack-ascii-logo">
@@ -4324,6 +4429,13 @@ export default function App(): JSX.Element {
                     type="button"
                   >
                     NetHack 3D Options
+                  </button>
+                  <button
+                    className="nh3d-choice-button nh3d-character-setup-choice-button"
+                    onClick={() => window.close()}
+                    type="button"
+                  >
+                    Quit Game
                   </button>
                 </div>
               </>
@@ -6002,7 +6114,7 @@ export default function App(): JSX.Element {
                     <span className="nh3d-inventory-key">
                       {item.accelerator || "?"})
                     </span>
-                    <span className={item.className}>{item.text || "Unknown item"}</span>
+                    <span className={item.className as string}>{item.text || "Unknown item"}</span>
                   </div>
                 ),
               )

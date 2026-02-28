@@ -1334,6 +1334,11 @@ canvas {
   overflow-y: auto;
 }
 
+#pause-menu-dialog {
+  width: fit-content;
+  padding-bottom: 20px;
+}
+
 // -----------------------------------------------------------------------------
 // Options Menu
 // -----------------------------------------------------------------------------
@@ -2173,8 +2178,10 @@ canvas {
 
 .nh3d-question-text {
   font-size: 16px;
+  font-weight: bold;
   margin-bottom: 15px;
   line-height: 1.4;
+  color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-direction-text {
@@ -2527,9 +2534,12 @@ canvas {
 }
 
 .nh3d-inventory-item-disabled {
-  opacity: 0.62;
   cursor: default;
   border-left-color: rgba(131, 154, 182, 0.45);
+
+  > .nh3d-inventory-key {
+    opacity: 0.62;
+  }
 }
 
 .nh3d-inventory-item-active {
