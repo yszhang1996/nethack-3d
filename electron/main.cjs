@@ -1,7 +1,7 @@
 const { app, BrowserWindow, shell } = require("electron");
 const path = require("node:path");
 
-app.setVersion("0.8.1");
+app.setVersion("0.8.2");
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
