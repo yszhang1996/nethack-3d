@@ -67,13 +67,6 @@ import {
 } from "./tilesets";
 import { getItemTextClassName } from "./helpers";
 
-type FloatingMessageEntry = {
-  container: HTMLDivElement;
-  text: HTMLDivElement;
-  fadeTimerId: number;
-  removeTimerId: number;
-};
-
 type PendingCharacterDamage = {
   amount: number;
   createdAtMs: number;
@@ -277,7 +270,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
   private readonly mountElement: HTMLElement | null;
-  private readonly uiAdapter: Nethack3DEngineUIAdapter | null;
+  private readonly uiAdapter: Nethack3DEngineUIAdapter;
 
   private tileMap: TileMap = new Map();
   private glyphOverlayMap: GlyphOverlayMap = new Map();
@@ -335,8 +328,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private tileFlushScheduled: boolean = false;
   private playerPos = { x: 0, y: 0 };
   private gameMessages: string[] = [];
-  private floatingMessageLayer: HTMLDivElement | null = null;
-  private floatingMessageEntries: FloatingMessageEntry[] = [];
   private hasSeenPlayerPosition: boolean = false;
   private fpsPreviousPlayerTileForSuppression: {
     x: number;
@@ -348,12 +339,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private autoPickupEnabled: boolean = true;
   private lastMovementInputAtMs: number = 0;
   private readonly tileRefreshRetryDelayMs: number = 120;
-  private readonly maxFloatingMessages: number = 12;
   private readonly movementUnlockWindowMs: number = 5000;
-  private readonly floatingMessageStackSpacingPx: number = 30;
-  private readonly floatingMessageFadeDelayMs: number = 1500;
-  private readonly floatingMessageFadeDurationMs: number = 520;
-  private readonly floatingMessageRisePx: number = 44;
   private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
@@ -1019,9 +1005,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.needsUpdate = true;
   }
 
-  constructor(options: Nethack3DEngineOptions = {}) {
+  constructor(options: Nethack3DEngineOptions) {
     this.mountElement = options.mountElement ?? null;
-    this.uiAdapter = options.uiAdapter ?? null;
+    this.uiAdapter = options.uiAdapter;
     this.characterCreationConfig = options.characterCreationConfig ?? {
       mode: "create",
       playMode: "normal",
@@ -1041,11 +1027,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
-    if (this.uiAdapter) {
-      this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
-      this.uiAdapter.setRepeatActionVisible(false);
-      this.uiAdapter.setGameOver({ ...this.gameOverState });
-    }
+    this.uiAdapter.setNumberPadModeEnabled(this.numberPadModeEnabled);
+    this.uiAdapter.setRepeatActionVisible(false);
+    this.uiAdapter.setGameOver({ ...this.gameOverState });
 
     if (this.playMode === "fps") {
       this.camera.fov = this.resolveFpsCameraFov();
@@ -2701,26 +2685,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private initUI(): void {
     this.ensureMetaCommandModal();
     this.ensureMinimapOverlay();
-
-    if (this.uiAdapter) {
-      this.uiAdapter.setStatus("Starting local NetHack runtime...");
-      this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
-      this.uiAdapter.setLoadingVisible(true);
-      this.uiAdapter.setExtendedCommands([]);
-      this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
-      this.uiAdapter.setGameOver({ ...this.gameOverState });
-      return;
-    }
-
-    const statusElement = document.getElementById("game-status");
-    if (statusElement) {
-      statusElement.innerHTML = "Starting local NetHack runtime...";
-    }
-
-    const floatingMessageLayer = document.createElement("div");
-    floatingMessageLayer.id = "floating-log-message-layer";
-    document.body.appendChild(floatingMessageLayer);
-    this.floatingMessageLayer = floatingMessageLayer;
+    this.uiAdapter.setStatus("Starting local NetHack runtime...");
+    this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
+    this.uiAdapter.setLoadingVisible(true);
+    this.uiAdapter.setExtendedCommands([]);
+    this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
+    this.uiAdapter.setGameOver({ ...this.gameOverState });
   }
 
   private async connectToRuntime(): Promise<void> {
@@ -3041,7 +3011,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "extended_commands":
-        this.uiAdapter?.setExtendedCommands(
+        this.uiAdapter.setExtendedCommands(
           this.normalizeRuntimeExtendedCommands(data.commands),
         );
         break;
@@ -3143,8 +3113,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       active: Boolean(active),
       deathMessage: deathMessage && deathMessage.trim() ? deathMessage : null,
     };
-    this.uiAdapter?.setGameOver({ ...this.gameOverState });
-    if (this.uiAdapter && this.isInventoryDialogVisible) {
+    this.uiAdapter.setGameOver({ ...this.gameOverState });
+    if (this.isInventoryDialogVisible) {
       this.uiAdapter.setInventory(this.buildInventoryDialogState());
     }
   }
@@ -4070,7 +4040,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.repeatActionVisible = visible;
-    this.uiAdapter?.setRepeatActionVisible(visible);
+    this.uiAdapter.setRepeatActionVisible(visible);
   }
 
   private armRepeatableAction(action: RepeatableActionSpec): void {
@@ -8309,7 +8279,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlanceIssuedThisOpen = false;
     this.fpsCrosshairGlancePending = null;
-    this.uiAdapter?.setFpsCrosshairContext(null);
+    this.uiAdapter.setFpsCrosshairContext(null);
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -9229,15 +9199,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.gameMessages.pop();
     }
 
-    if (this.uiAdapter) {
-      this.uiAdapter.setGameMessages([...this.gameMessages]);
-    } else {
-      const logElement = document.getElementById("game-log");
-      if (logElement) {
-        logElement.innerHTML = this.gameMessages.join("<br>");
-        logElement.scrollTop = 0; // Keep newest messages at top
-      }
-    }
+    this.uiAdapter.setGameMessages([...this.gameMessages]);
 
     this.showFloatingGameMessage(message);
   }
@@ -9374,96 +9336,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private showFloatingGameMessage(message: string): void {
-    if (this.uiAdapter) {
-      this.uiAdapter.pushFloatingMessage(message);
-      return;
-    }
-
-    if (
-      !this.floatingMessageLayer ||
-      !document.body.contains(this.floatingMessageLayer)
-    ) {
-      return;
-    }
-
-    const text = message.replace(/\s+/g, " ").trim();
-    if (text.length === 0) {
-      return;
-    }
-
-    const messageContainer = document.createElement("div");
-    messageContainer.className = "floating-message-container";
-
-    const floatingText = document.createElement("div");
-    floatingText.textContent = text;
-    floatingText.className = "floating-message-text";
-    messageContainer.appendChild(floatingText);
-    this.floatingMessageLayer.appendChild(messageContainer);
-
-    const entry: FloatingMessageEntry = {
-      container: messageContainer,
-      text: floatingText,
-      fadeTimerId: 0,
-      removeTimerId: 0,
-    };
-    this.floatingMessageEntries.unshift(entry);
-
-    while (this.floatingMessageEntries.length > this.maxFloatingMessages) {
-      const oldest =
-        this.floatingMessageEntries[this.floatingMessageEntries.length - 1];
-      this.removeFloatingMessageEntry(oldest, false);
-    }
-    this.relayoutFloatingMessages();
-
-    entry.fadeTimerId = window.setTimeout(() => {
-      floatingText.style.transform = `translateY(-${this.floatingMessageRisePx}px)`;
-      floatingText.style.opacity = "0";
-    }, this.floatingMessageFadeDelayMs);
-
-    entry.removeTimerId = window.setTimeout(
-      () => {
-        this.removeFloatingMessageEntry(entry);
-      },
-      this.floatingMessageFadeDelayMs + this.floatingMessageFadeDurationMs + 80,
-    );
-  }
-
-  private relayoutFloatingMessages(): void {
-    for (let i = 0; i < this.floatingMessageEntries.length; i += 1) {
-      const entry = this.floatingMessageEntries[i];
-      entry.container.style.top = `${-i * this.floatingMessageStackSpacingPx}px`;
-    }
-  }
-
-  private removeFloatingMessageEntry(
-    entry: FloatingMessageEntry,
-    relayout: boolean = true,
-  ): void {
-    window.clearTimeout(entry.fadeTimerId);
-    window.clearTimeout(entry.removeTimerId);
-
-    const index = this.floatingMessageEntries.indexOf(entry);
-    if (index >= 0) {
-      this.floatingMessageEntries.splice(index, 1);
-    }
-
-    entry.container.remove();
-
-    if (relayout) {
-      this.relayoutFloatingMessages();
-    }
+    this.uiAdapter.pushFloatingMessage(message);
   }
 
   private updateStatus(status: string): void {
-    if (this.uiAdapter) {
-      this.uiAdapter.setStatus(status);
-      return;
-    }
-
-    const statusElement = document.getElementById("game-status");
-    if (statusElement) {
-      statusElement.innerHTML = status;
-    }
+    this.uiAdapter.setStatus(status);
   }
 
   private updateConnectionStatus(
@@ -9471,35 +9348,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     state: NethackConnectionState,
   ): void {
     this.runtimeConnectionState = state;
-    if (this.uiAdapter) {
-      this.uiAdapter.setConnectionStatus(status, state);
-      this.updateMinimapVisibility();
-      return;
-    }
-
-    const connElement = document.getElementById("connection-status");
-    if (connElement) {
-      connElement.innerHTML = status;
-      connElement.setAttribute("data-state", state);
-    }
+    this.uiAdapter.setConnectionStatus(status, state);
     this.updateMinimapVisibility();
   }
 
   private setNewGamePrompt(visible: boolean, reason: string | null): void {
-    if (this.uiAdapter) {
-      this.uiAdapter.setNewGamePrompt({
-        visible,
-        reason: reason && reason.trim() ? reason.trim() : null,
-      });
-      return;
-    }
-
-    if (!visible) {
-      return;
-    }
-    if (window.confirm("Game over. Start a new game?")) {
-      window.location.reload();
-    }
+    this.uiAdapter.setNewGamePrompt({
+      visible,
+      reason: reason && reason.trim() ? reason.trim() : null,
+    });
   }
 
   private handleRuntimeTermination(reason: string): void {
@@ -9513,9 +9370,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideTextInputRequest();
     this.hideInventoryDialog();
 
-    this.uiAdapter?.setPositionRequest(null);
-    this.uiAdapter?.setFpsCrosshairContext(null);
-    this.uiAdapter?.setRepeatActionVisible(false);
+    this.uiAdapter.setPositionRequest(null);
+    this.uiAdapter.setFpsCrosshairContext(null);
+    this.uiAdapter.setRepeatActionVisible(false);
 
     this.updateConnectionStatus("Game ended", "error");
     this.updateStatus("Game ended");
@@ -9546,20 +9403,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private setLoadingVisible(visible: boolean): void {
-    if (this.uiAdapter) {
-      this.uiAdapter.setLoadingVisible(visible);
-      return;
-    }
-
-    const loading = document.getElementById("loading");
-    if (!loading) {
-      return;
-    }
-    if (visible) {
-      loading.classList.remove("is-hidden");
-    } else {
-      loading.classList.add("is-hidden");
-    }
+    this.uiAdapter.setLoadingVisible(visible);
   }
 
   private parseGoldStatusValue(rawValue: string): number | null {
@@ -9779,121 +9623,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateStatsDisplay(): void {
-    if (this.uiAdapter) {
-      const snapshot: PlayerStatsSnapshot = {
-        ...this.playerStats,
-      };
-      this.uiAdapter.setPlayerStats(snapshot);
-      return;
-    }
-
-    // Update or create the stats bar
-    let statsBar = document.getElementById("stats-bar");
-    if (!statsBar) {
-      // Create the stats bar at the top of the screen
-      statsBar = document.createElement("div");
-      statsBar.id = "stats-bar";
-      document.body.appendChild(statsBar);
-
-      // Adjust the game log position to accommodate the stats bar
-      const gameLogContainer = document.querySelector(
-        ".top-left-ui",
-      ) as HTMLElement;
-      if (gameLogContainer) {
-        gameLogContainer.classList.add("with-stats");
-      }
-    }
-
-    // Create HP bar component
-    const hpPercentage =
-      this.playerStats.maxHp > 0
-        ? (this.playerStats.hp / this.playerStats.maxHp) * 100
-        : 0;
-    const hpColor =
-      hpPercentage > 60 ? "#00ff00" : hpPercentage > 30 ? "#ffaa00" : "#ff0000";
-    const locationStatusText = [
-      this.playerStats.hunger,
-      this.playerStats.encumbrance,
-    ]
-      .filter((value) => Boolean(value))
-      .join(" ");
-
-    // Build the complete stats display
-    statsBar.innerHTML = `
-      <div class="nh3d-stats-name">
-        ${this.playerStats.name} (Lvl ${this.playerStats.level})
-      </div>
-
-      <div class="nh3d-stats-meter">
-        <div class="nh3d-stats-meter-label nh3d-stats-meter-label-hp">
-          HP: ${this.playerStats.hp}/${this.playerStats.maxHp}
-        </div>
-        <div class="nh3d-stats-meter-track">
-          <div class="nh3d-stats-meter-fill" id="nh3d-stats-hp-fill"></div>
-        </div>
-      </div>
-
-      ${
-        this.playerStats.maxPower > 0
-          ? `<div class="nh3d-stats-meter">
-               <div class="nh3d-stats-meter-label nh3d-stats-meter-label-pw">
-                 Pw: ${this.playerStats.power}/${this.playerStats.maxPower}
-               </div>
-               <div class="nh3d-stats-meter-track">
-                 <div class="nh3d-stats-meter-fill nh3d-stats-meter-fill-pw" id="nh3d-stats-pw-fill"></div>
-               </div>
-             </div>`
-          : ""
-      }
-
-      <div class="nh3d-stats-group nh3d-stats-group-core">
-        <div class="nh3d-stats-core">St:${this.playerStats.strength}</div>
-        <div class="nh3d-stats-core">Dx:${this.playerStats.dexterity}</div>
-        <div class="nh3d-stats-core">Co:${this.playerStats.constitution}</div>
-        <div class="nh3d-stats-core">In:${this.playerStats.intelligence}</div>
-        <div class="nh3d-stats-core">Wi:${this.playerStats.wisdom}</div>
-        <div class="nh3d-stats-core">Ch:${this.playerStats.charisma}</div>
-        <div class="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">AC:${this.playerStats.armor}</div>
-        <div class="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">Exp:${this.playerStats.experience}</div>
-        <div class="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">T:${this.playerStats.time}</div>
-        <div class="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">$:${this.playerStats.gold}</div>
-      </div>
-
-      <div class="nh3d-stats-group nh3d-stats-group-secondary">
-        <div class="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">AC:${this.playerStats.armor}</div>
-        <div class="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">Exp:${this.playerStats.experience}</div>
-        <div class="nh3d-stats-secondary-gold nh3d-stats-desktop-secondary">$:${this.playerStats.gold}</div>
-        <div class="nh3d-stats-secondary-time nh3d-stats-desktop-secondary">T:${this.playerStats.time}</div>
-        <div class="nh3d-stats-hunger nh3d-stats-desktop-secondary">${this.playerStats.hunger}${
-          this.playerStats.encumbrance ? " " + this.playerStats.encumbrance : ""
-        }</div>
-      </div>
-
-      <div class="nh3d-stats-location">
-        <div class="nh3d-stats-dungeon">${this.playerStats.dungeon} ${
-          this.playerStats.dlevel
-        }${
-          locationStatusText
-            ? `<span class="nh3d-stats-mobile-location-status">${locationStatusText}</span>`
-            : ""
-        }</div>
-      </div>
-    `;
-
-    const hpFill = statsBar.querySelector<HTMLElement>("#nh3d-stats-hp-fill");
-    if (hpFill) {
-      hpFill.style.width = `${THREE.MathUtils.clamp(hpPercentage, 0, 100)}%`;
-      hpFill.style.backgroundColor = hpColor;
-    }
-
-    if (this.playerStats.maxPower > 0) {
-      const powerPercentage =
-        (this.playerStats.power / this.playerStats.maxPower) * 100;
-      const pwFill = statsBar.querySelector<HTMLElement>("#nh3d-stats-pw-fill");
-      if (pwFill) {
-        pwFill.style.width = `${THREE.MathUtils.clamp(powerPercentage, 0, 100)}%`;
-      }
-    }
+    const snapshot: PlayerStatsSnapshot = {
+      ...this.playerStats,
+    };
+    this.uiAdapter.setPlayerStats(snapshot);
   }
 
   private updateInventoryDisplay(items: any[]): void {
@@ -9902,28 +9635,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : [];
     this.currentInventory = nextInventory;
 
-    if (this.uiAdapter) {
-      this.uiAdapter.setInventory(this.buildInventoryDialogState());
-      return;
-    }
-
-    // Update inventory display without showing a dialog
-    // This is for informational inventory updates from NetHack
-
-    if (nextInventory.length === 0) {
-      console.log("📦 Inventory is empty");
-      return;
-    }
-
-    // Log inventory items for debugging
-    console.log("📦 Current inventory:");
-    nextInventory.forEach((item) => {
-      if (item.isCategory) {
-        console.log(`  📁 ${item.text}`);
-      } else {
-        console.log(`  ${item.accelerator || "?"}) ${item.text}`);
-      }
-    });
+    this.uiAdapter.setInventory(this.buildInventoryDialogState());
   }
 
   private buildInventoryDialogState(): InventoryDialogState {
@@ -10014,9 +9726,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const modeLabel = normalized ? "numpad" : "hjklyubn";
     console.log(`🎮 Number pad mode set to ${modeLabel}`);
     this.addGameMessage(`Number pad mode: ${modeLabel}`);
-    if (this.uiAdapter) {
-      this.uiAdapter.setNumberPadModeEnabled(normalized);
-    }
+    this.uiAdapter.setNumberPadModeEnabled(normalized);
   }
 
   private updateNumberPadModeFromChoice(choice: string): void {
@@ -10110,13 +9820,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : null;
   }
 
-  private isPickupSelectionInputFocused(selectionInput: string): boolean {
-    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
-      return false;
-    }
-    return this.getActivePickupSelectionInput() === selectionInput;
-  }
-
   private setActivePickupFocusBySelectionInput(selectionInput: string): void {
     if (typeof selectionInput !== "string" || selectionInput.length === 0) {
       return;
@@ -10132,28 +9835,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updatePickupFocusVisualState(): void {
-    if (this.uiAdapter) {
-      this.syncQuestionDialogState();
-      return;
-    }
-
-    const questionDialog = document.getElementById("question-dialog");
-    if (!questionDialog) {
-      return;
-    }
-
-    const focusedSelectionInput = this.isQuestionActionFocused()
-      ? null
-      : this.getActivePickupSelectionInput();
-    const containers = questionDialog.querySelectorAll(".nh3d-pickup-item");
-    containers.forEach((container: Element) => {
-      const element = container as HTMLElement & { selectionInput?: string };
-      const isFocused =
-        typeof focusedSelectionInput === "string" &&
-        element.selectionInput === focusedSelectionInput;
-      element.classList.toggle("nh3d-pickup-item-active", isFocused);
-    });
-    this.updateQuestionActionFocusVisualStateDom(questionDialog);
+    this.syncQuestionDialogState();
   }
 
   private movePickupFocus(delta: number): void {
@@ -10182,26 +9864,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (this.uiAdapter) {
-      this.togglePickupChoice(focusedSelectionInput);
-      return;
-    }
-
-    const questionDialog = document.getElementById("question-dialog");
-    if (!questionDialog) {
-      return;
-    }
-    const containers = questionDialog.querySelectorAll(".nh3d-pickup-item");
-    for (const container of containers) {
-      const element = container as any;
-      if (
-        element.selectionInput === focusedSelectionInput &&
-        typeof element.toggleItem === "function"
-      ) {
-        element.toggleItem();
-        break;
-      }
-    }
+    this.togglePickupChoice(focusedSelectionInput);
   }
 
   private getActiveQuestionActionButtons(): Array<"confirm" | "cancel"> {
@@ -10338,13 +10001,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : null;
   }
 
-  private isQuestionMenuSelectionInputFocused(selectionInput: string): boolean {
-    if (typeof selectionInput !== "string" || selectionInput.length === 0) {
-      return false;
-    }
-    return this.getActiveQuestionMenuSelectionInput() === selectionInput;
-  }
-
   private setActiveQuestionMenuFocusBySelectionInput(
     selectionInput: string,
   ): void {
@@ -10362,49 +10018,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateQuestionMenuFocusVisualState(): void {
-    if (this.uiAdapter) {
-      this.syncQuestionDialogState();
-      return;
-    }
-
-    const questionDialog = document.getElementById("question-dialog");
-    if (!questionDialog) {
-      return;
-    }
-
-    const focusedSelectionInput = this.isQuestionActionFocused()
-      ? null
-      : this.getActiveQuestionMenuSelectionInput();
-    const buttons = questionDialog.querySelectorAll(".nh3d-menu-button");
-    buttons.forEach((button: Element) => {
-      const element = button as HTMLElement & { selectionInput?: string };
-      const isFocused =
-        typeof focusedSelectionInput === "string" &&
-        element.selectionInput === focusedSelectionInput;
-      element.classList.toggle("nh3d-menu-button-active", isFocused);
-    });
-    this.updateQuestionActionFocusVisualStateDom(questionDialog);
-  }
-
-  private updateQuestionActionFocusVisualStateDom(
-    questionDialog?: HTMLElement,
-  ): void {
-    const dialog = questionDialog ?? document.getElementById("question-dialog");
-    if (!dialog) {
-      return;
-    }
-
-    const focusedAction = this.getActiveQuestionActionButton();
-    const actionButtons = dialog.querySelectorAll("[data-question-action]");
-    actionButtons.forEach((button: Element) => {
-      const element = button as HTMLElement;
-      const action = element.getAttribute("data-question-action");
-      const isFocused =
-        typeof focusedAction === "string" &&
-        focusedAction.length > 0 &&
-        action === focusedAction;
-      element.classList.toggle("nh3d-action-button-active", isFocused);
-    });
+    this.syncQuestionDialogState();
   }
 
   private moveQuestionMenuFocus(delta: number): void {
@@ -10622,187 +10236,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.activeQuestionMenuPageIndex = nextPage;
     this.rebuildActiveQuestionMenuPagination();
-    if (this.uiAdapter) {
-      this.syncQuestionDialogState();
-      return;
-    }
-    this.renderQuestionDialogDom();
-  }
-
-  private appendQuestionMenuPaginationControls(
-    questionDialog: HTMLElement,
-  ): void {
-    if (
-      this.activeQuestionMenuItems.length === 0 ||
-      this.activeQuestionMenuPageCount <= 1
-    ) {
-      return;
-    }
-
-    const controls = document.createElement("div");
-    controls.className = "nh3d-question-pagination";
-
-    const prevButton = document.createElement("button");
-    prevButton.className = "nh3d-question-page-button";
-    prevButton.type = "button";
-    prevButton.textContent = "<";
-    prevButton.disabled = this.activeQuestionMenuPageIndex <= 0;
-    prevButton.onclick = () => this.goToPreviousQuestionMenuPage();
-
-    const nextButton = document.createElement("button");
-    nextButton.className = "nh3d-question-page-button";
-    nextButton.type = "button";
-    nextButton.textContent = ">";
-    nextButton.disabled =
-      this.activeQuestionMenuPageIndex >= this.activeQuestionMenuPageCount - 1;
-    nextButton.onclick = () => this.goToNextQuestionMenuPage();
-
-    const pageText = document.createElement("div");
-    pageText.className = "nh3d-question-page-indicator";
-    pageText.textContent = `Page ${this.activeQuestionMenuPageIndex + 1} / ${this.activeQuestionMenuPageCount}`;
-
-    controls.appendChild(prevButton);
-    controls.appendChild(pageText);
-    controls.appendChild(nextButton);
-    questionDialog.appendChild(controls);
-  }
-
-  private appendQuestionMenuActionControls(questionDialog: HTMLElement): void {
-    if (
-      this.activeQuestionMenuItems.length === 0 ||
-      this.activeQuestionIsPickupDialog
-    ) {
-      return;
-    }
-    const selectableItemCount = this.activeQuestionVisibleMenuItems.filter(
-      (item) => this.isSelectableQuestionMenuItem(item),
-    ).length;
-    if (selectableItemCount <= 1) {
-      return;
-    }
-
-    const actions = document.createElement("div");
-    actions.className = "nh3d-menu-actions";
-
-    const cancelButton = document.createElement("button");
-    cancelButton.type = "button";
-    cancelButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
-    cancelButton.setAttribute("data-question-action", "cancel");
-    cancelButton.textContent = "Cancel";
-    cancelButton.onclick = () => this.cancelActivePrompt();
-
-    actions.appendChild(cancelButton);
-    questionDialog.appendChild(actions);
-  }
-
-  private renderQuestionDialogDom(): void {
-    // Create or get question dialog
-    let questionDialog = document.getElementById("question-dialog");
-    if (!questionDialog) {
-      questionDialog = document.createElement("div");
-      questionDialog.id = "question-dialog";
-      questionDialog.className = "nh3d-dialog nh3d-dialog-question";
-      document.body.appendChild(questionDialog);
-    }
-    questionDialog.classList.remove("nh3d-dialog-question-yes-no");
-
-    // Clear previous content
-    questionDialog.innerHTML = "";
-
-    // Add question text
-    const questionText = document.createElement("div");
-    questionText.className = "nh3d-question-text";
-    questionText.textContent = this.activeQuestionText;
-    questionDialog.appendChild(questionText);
-
-    // Add menu items if available
-    if (
-      this.activeQuestionVisibleMenuItems &&
-      this.activeQuestionVisibleMenuItems.length > 0
-    ) {
-      if (this.activeQuestionIsPickupDialog) {
-        // Create multi-selection pickup dialog
-        this.createPickupDialog(
-          questionDialog,
-          this.activeQuestionVisibleMenuItems,
-          this.activeQuestionText,
-        );
-        this.updatePickupFocusVisualState();
-      } else {
-        // Create standard single-selection menu
-        this.createStandardMenu(
-          questionDialog,
-          this.activeQuestionVisibleMenuItems,
-        );
-        this.updateQuestionMenuFocusVisualState();
-      }
-
-      this.appendQuestionMenuActionControls(questionDialog);
-      this.appendQuestionMenuPaginationControls(questionDialog);
-    } else {
-      // Add choice buttons for simple y/n questions
-      const choiceContainer = document.createElement("div");
-      choiceContainer.className = "nh3d-choice-list";
-
-      const parsedChoices = this.parseQuestionChoices(
-        this.activeQuestionText,
-        this.activeQuestionChoices,
-      );
-      const isYesNoPrompt = this.isSimpleYesNoChoicePrompt(parsedChoices);
-      const useInventoryChoiceLabels = !isYesNoPrompt;
-      const useCompactChoiceLayout =
-        parsedChoices.length > 0 &&
-        parsedChoices.every((choice) => choice.trim().length === 1);
-      if (useCompactChoiceLayout) {
-        choiceContainer.classList.add("is-compact");
-      }
-      if (isYesNoPrompt) {
-        questionDialog.classList.add("nh3d-dialog-question-yes-no");
-        choiceContainer.classList.add("is-yes-no");
-      }
-      if (parsedChoices.length > 0) {
-        for (const choice of parsedChoices) {
-          const button = document.createElement("button");
-          button.className = "nh3d-choice-button";
-          if (choice === this.activeQuestionDefaultChoice) {
-            button.classList.add("nh3d-choice-button-default");
-          }
-          button.textContent = this.getQuestionChoiceLabel(
-            choice,
-            useInventoryChoiceLabels,
-          );
-          button.onclick = () => {
-            this.sendInput(choice);
-            this.hideQuestion();
-          };
-          choiceContainer.appendChild(button);
-        }
-      }
-
-      questionDialog.appendChild(choiceContainer);
-    }
-
-    // Add escape instruction
-    const escapeText = document.createElement("div");
-    escapeText.className = "nh3d-dialog-hint";
-    if (
-      this.activeQuestionMenuItems.length > 0 &&
-      this.activeQuestionMenuPageCount > 1
-    ) {
-      escapeText.textContent =
-        "Use < and > to change pages. Press ESC to cancel";
-    } else {
-      escapeText.textContent = "Press ESC to cancel";
-    }
-    questionDialog.appendChild(escapeText);
-
-    (questionDialog as any).isPickupDialog = this.activeQuestionIsPickupDialog;
-    (questionDialog as any).menuItems = [
-      ...this.activeQuestionVisibleMenuItems,
-    ];
-
-    // Show the dialog
-    questionDialog.classList.add("is-visible");
+    this.syncQuestionDialogState();
   }
 
   private setActiveQuestionState(
@@ -10836,33 +10270,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     this.setActiveQuestionState(question, choices, defaultChoice, menuItems);
     this.syncFpsPointerLockForUiState(false);
-
-    if (this.uiAdapter) {
-      this.syncQuestionDialogState();
-      return;
-    }
-
-    // Temporarily disable automatic "?" expansion to debug menu issues
-    // TODO: Re-enable with better logic later
-    const needsExpansion = false;
-
-    if (needsExpansion) {
-      console.log(
-        "🔍 Question includes '?' option, automatically expanding options...",
-      );
-      // Send "?" to get detailed menu items
-      this.sendInput("?");
-      // Don't show the dialog yet - wait for expanded menu items
-      return;
-    }
-    this.renderQuestionDialogDom();
+    this.syncQuestionDialogState();
   }
 
   private syncQuestionDialogState(): void {
-    if (!this.uiAdapter) {
-      return;
-    }
-
     if (!this.isInQuestion) {
       this.uiAdapter.setQuestion(null);
       return;
@@ -10906,347 +10317,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setQuestion(state);
   }
 
-  private parseQuestionChoices(question: string, choices: string): string[] {
-    const merged: string[] = [];
-    const seen = new Set<string>();
-
-    const addChoice = (choice: string): void => {
-      if (!choice || seen.has(choice)) {
-        return;
-      }
-      seen.add(choice);
-      merged.push(choice);
-    };
-
-    for (const choice of this.expandChoiceSpec(choices)) {
-      addChoice(choice);
-    }
-
-    const bracketMatch = question ? question.match(/\[([^\]]+)\]/) : null;
-    if (bracketMatch && bracketMatch[1]) {
-      for (const choice of this.expandChoiceSpec(bracketMatch[1])) {
-        addChoice(choice);
-      }
-    }
-
-    return merged;
-  }
-
-  private isSimpleYesNoChoicePrompt(parsedChoices: string[]): boolean {
-    if (!Array.isArray(parsedChoices) || parsedChoices.length === 0) {
-      return false;
-    }
-
-    const normalized = parsedChoices
-      .map((choice) =>
-        String(choice || "")
-          .trim()
-          .toLowerCase(),
-      )
-      .filter((choice) => choice.length > 0);
-    if (normalized.length === 0) {
-      return false;
-    }
-
-    const allowedChoices = new Set(["y", "n", "a", "q", "#", "?"]);
-    const hasYes = normalized.includes("y");
-    const hasNo = normalized.includes("n");
-    const onlySimpleChoices = normalized.every(
-      (choice) => choice.length === 1 && allowedChoices.has(choice),
-    );
-    return hasYes && hasNo && onlySimpleChoices;
-  }
-
-  private expandChoiceSpec(spec: string): string[] {
-    const normalized = (spec || "")
-      .replace(/[\u0000-\u001f\u007f]/g, "")
-      .replace(/\s+or\s+/gi, " ")
-      .replace(/[,/|]/g, " ")
-      .replace(/\s+/g, "")
-      .replace(/[\[\]]/g, "");
-
-    if (!normalized) {
-      return [];
-    }
-
-    const expanded: string[] = [];
-    const seen = new Set<string>();
-
-    const addChoice = (value: string): void => {
-      if (!value || seen.has(value)) {
-        return;
-      }
-      seen.add(value);
-      expanded.push(value);
-    };
-
-    for (let i = 0; i < normalized.length; i += 1) {
-      const current = normalized[i];
-      const hasRangeEnd =
-        i + 2 < normalized.length && normalized[i + 1] === "-";
-
-      if (hasRangeEnd) {
-        const end = normalized[i + 2];
-        if (this.canExpandChoiceRange(current, end)) {
-          const startCode = current.charCodeAt(0);
-          const endCode = end.charCodeAt(0);
-          const step = startCode <= endCode ? 1 : -1;
-          for (
-            let code = startCode;
-            step > 0 ? code <= endCode : code >= endCode;
-            code += step
-          ) {
-            addChoice(String.fromCharCode(code));
-          }
-          i += 2;
-          continue;
-        }
-      }
-
-      if (current !== "-") {
-        addChoice(current);
-      }
-    }
-
-    return expanded;
-  }
-
-  private canExpandChoiceRange(start: string, end: string): boolean {
-    const isLower = (value: string) => value >= "a" && value <= "z";
-    const isUpper = (value: string) => value >= "A" && value <= "Z";
-    const isDigit = (value: string) => value >= "0" && value <= "9";
-
-    return (
-      (isLower(start) && isLower(end)) ||
-      (isUpper(start) && isUpper(end)) ||
-      (isDigit(start) && isDigit(end))
-    );
-  }
-
-  private getQuestionChoiceLabel(
-    choice: string,
-    useInventoryLabels = true,
-  ): string {
-    const normalizedChoice = choice.trim();
-    if (!normalizedChoice) {
-      return choice;
-    }
-
-    if (!useInventoryLabels) {
-      return normalizedChoice;
-    }
-
-    const inventoryItem = this.currentInventory.find((item) => {
-      if (!item || item.isCategory) {
-        return false;
-      }
-
-      const accelerator =
-        typeof item.accelerator === "string" ? item.accelerator.trim() : "";
-      if (!accelerator) {
-        return false;
-      }
-
-      return (
-        accelerator === normalizedChoice ||
-        accelerator.toLowerCase() === normalizedChoice.toLowerCase()
-      );
-    });
-
-    if (!inventoryItem || typeof inventoryItem.text !== "string") {
-      return normalizedChoice;
-    }
-
-    const itemText = inventoryItem.text.trim();
-    if (!itemText) {
-      return normalizedChoice;
-    }
-
-    return `${normalizedChoice}) ${itemText}`;
-  }
-
-  private getDirectionChoiceSet(): Array<{
-    key?: string;
-    label?: string;
-    spacer?: boolean;
-  }> {
-    if (this.numberPadModeEnabled) {
-      return [
-        { key: "7", label: "\u2196" },
-        { key: "8", label: "\u2191" },
-        { key: "9", label: "\u2197" },
-        { key: "4", label: "\u2190" },
-        { spacer: true },
-        { key: "6", label: "\u2192" },
-        { key: "1", label: "\u2199" },
-        { key: "2", label: "\u2193" },
-        { key: "3", label: "\u2198" },
-      ];
-    }
-
-    return [
-      { key: "y", label: "\u2196" },
-      { key: "k", label: "\u2191" },
-      { key: "u", label: "\u2197" },
-      { key: "h", label: "\u2190" },
-      { spacer: true },
-      { key: "l", label: "\u2192" },
-      { key: "b", label: "\u2199" },
-      { key: "j", label: "\u2193" },
-      { key: "n", label: "\u2198" },
-    ];
-  }
-
-  private getDirectionAuxChoiceSet(): Array<{ key: string; label: string }> {
-    return [
-      { key: "<", label: "UP" },
-      { key: "s", label: "SELF" },
-      { key: ">", label: "DOWN" },
-    ];
-  }
-
-  private getDirectionHelpText(): string {
-    return this.numberPadModeEnabled
-      ? "Use numpad (1-4,6-9), arrow keys, <, >, or s. Press ESC to cancel"
-      : "Use hjkl/yubn, arrow keys, <, >, or s. Press ESC to cancel";
-  }
-
   private showDirectionQuestion(question: string): void {
-    // Set direction question state to pause movement
     this.isInDirectionQuestion = true;
     this.syncFpsPointerLockForUiState(this.isFpsMode());
-
-    if (this.uiAdapter) {
-      this.uiAdapter.setDirectionQuestion(question);
-      return;
-    }
-
-    // Create or get direction dialog
-    let directionDialog = document.getElementById("direction-dialog");
-    if (!directionDialog) {
-      directionDialog = document.createElement("div");
-      directionDialog.id = "direction-dialog";
-      directionDialog.className = "nh3d-dialog nh3d-dialog-direction";
-      document.body.appendChild(directionDialog);
-    }
-
-    // Clear previous content
-    directionDialog.innerHTML = "";
-    directionDialog.classList.remove("nh3d-dialog-direction-fps");
-
-    // Add question text
-    const questionText = document.createElement("div");
-    questionText.className = "nh3d-direction-text";
-    questionText.textContent = question;
-    directionDialog.appendChild(questionText);
-
-    if (this.isFpsMode()) {
-      const hintText = document.createElement("div");
-      hintText.className = "nh3d-direction-fps-hint";
-      hintText.textContent =
-        "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels.";
-      directionDialog.appendChild(hintText);
-      directionDialog.classList.add("nh3d-dialog-direction-fps");
-      directionDialog.classList.add("is-visible");
-      return;
-    }
-
-    // Add direction buttons
-    const directionsContainer = document.createElement("div");
-    directionsContainer.className = "nh3d-direction-grid";
-
-    const directions = this.getDirectionChoiceSet();
-
-    directions.forEach((dir) => {
-      if (dir.spacer || !dir.key || !dir.label) {
-        const spacer = document.createElement("div");
-        spacer.className = "nh3d-direction-spacer";
-        spacer.setAttribute("aria-hidden", "true");
-        directionsContainer.appendChild(spacer);
-        return;
-      }
-
-      const button = document.createElement("button");
-      button.className = "nh3d-direction-button";
-      const symbol = document.createElement("div");
-      symbol.className = "nh3d-direction-symbol";
-      symbol.textContent = dir.label;
-      const key = document.createElement("div");
-      key.className = "nh3d-direction-key";
-      key.textContent = dir.key;
-      button.appendChild(symbol);
-      button.appendChild(key);
-
-      button.onclick = () => {
-        if (typeof dir.key === "string" && dir.key.length > 0) {
-          this.submitDirectionAnswer(dir.key);
-        }
-      };
-
-      directionsContainer.appendChild(button);
-    });
-
-    directionDialog.appendChild(directionsContainer);
-
-    const auxDirectionsContainer = document.createElement("div");
-    auxDirectionsContainer.className = "nh3d-direction-extra-row";
-    const auxDirections = this.getDirectionAuxChoiceSet();
-
-    auxDirections.forEach((dir) => {
-      const button = document.createElement("button");
-      button.className = "nh3d-direction-button nh3d-direction-button-extra";
-      const symbol = document.createElement("div");
-      symbol.className = "nh3d-direction-symbol";
-      symbol.textContent = dir.label;
-      const key = document.createElement("div");
-      key.className = "nh3d-direction-key";
-      key.textContent = dir.key;
-      button.appendChild(symbol);
-      button.appendChild(key);
-
-      button.onclick = () => {
-        this.submitDirectionAnswer(dir.key);
-      };
-
-      auxDirectionsContainer.appendChild(button);
-    });
-
-    directionDialog.appendChild(auxDirectionsContainer);
-
-    // Add escape instruction
-    const escapeText = document.createElement("div");
-    escapeText.className = "nh3d-dialog-hint";
-    escapeText.textContent = this.getDirectionHelpText();
-    directionDialog.appendChild(escapeText);
-
-    const actions = document.createElement("div");
-    actions.className = "nh3d-menu-actions";
-    const cancelButton = document.createElement("button");
-    cancelButton.type = "button";
-    cancelButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
-    cancelButton.textContent = "Cancel";
-    cancelButton.onclick = () => this.cancelActivePrompt();
-    actions.appendChild(cancelButton);
-    directionDialog.appendChild(actions);
-
-    // Show the dialog
-    directionDialog.classList.add("is-visible");
+    this.uiAdapter.setDirectionQuestion(question);
   }
 
   private hideDirectionQuestion(): void {
     this.isInDirectionQuestion = false;
-    this.isInQuestion = false; // Clear general question state
+    this.isInQuestion = false;
     this.clearFpsFireSuppression();
-    if (this.uiAdapter) {
-      this.uiAdapter.setDirectionQuestion(null);
-      this.syncFpsPointerLockForUiState(true);
-      return;
-    }
-
-    const directionDialog = document.getElementById("direction-dialog");
-    if (directionDialog) {
-      directionDialog.classList.remove("is-visible");
-    }
+    this.uiAdapter.setDirectionQuestion(null);
     this.syncFpsPointerLockForUiState(true);
   }
 
@@ -11254,66 +10335,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInfoDialogVisible = true;
     this.syncFpsPointerLockForUiState(false);
     const normalizedLines = this.normalizeInfoMenuLines(lines);
-    if (this.uiAdapter) {
-      this.uiAdapter.setInfoMenu({
-        title: title || "NetHack Information",
-        lines: normalizedLines,
-      });
-      return;
-    }
-
-    let infoDialog = document.getElementById("info-menu-dialog");
-    if (!infoDialog) {
-      infoDialog = document.createElement("div");
-      infoDialog.id = "info-menu-dialog";
-      infoDialog.className = "nh3d-dialog nh3d-dialog-info";
-      document.body.appendChild(infoDialog);
-    }
-
-    infoDialog.innerHTML = "";
-
-    const titleEl = document.createElement("div");
-    titleEl.className = "nh3d-info-title";
-    titleEl.textContent = title || "NetHack Information";
-    infoDialog.appendChild(titleEl);
-
-    const body = document.createElement("div");
-    body.className = "nh3d-info-body";
-    body.textContent =
-      normalizedLines.length > 0 ? normalizedLines.join("\n") : "(No details)";
-    infoDialog.appendChild(body);
-
-    const hint = document.createElement("div");
-    hint.className = "nh3d-info-hint";
-    hint.textContent =
-      "Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.";
-    infoDialog.appendChild(hint);
-
-    const actions = document.createElement("div");
-    actions.className = "nh3d-menu-actions";
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
-    closeButton.textContent = "Close";
-    closeButton.onclick = () => this.hideInfoMenuDialog();
-    actions.appendChild(closeButton);
-    infoDialog.appendChild(actions);
-
-    infoDialog.classList.add("is-visible");
+    this.uiAdapter.setInfoMenu({
+      title: title || "NetHack Information",
+      lines: normalizedLines,
+    });
   }
 
   private hideInfoMenuDialog(): void {
     this.isInfoDialogVisible = false;
-    if (this.uiAdapter) {
-      this.uiAdapter.setInfoMenu(null);
-      this.syncFpsPointerLockForUiState(true);
-      return;
-    }
-
-    const infoDialog = document.getElementById("info-menu-dialog");
-    if (infoDialog) {
-      infoDialog.classList.remove("is-visible");
-    }
+    this.uiAdapter.setInfoMenu(null);
     this.syncFpsPointerLockForUiState(true);
   }
 
@@ -11338,91 +10368,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : options?.contextActionsEnabled !== false;
     this.pendingInventoryDialogOptions = null;
     this.syncFpsPointerLockForUiState(false);
-    if (this.uiAdapter) {
-      this.uiAdapter.setInventory(this.buildInventoryDialogState());
-      return;
-    }
-
-    // Create or get inventory dialog
-    let inventoryDialog = document.getElementById("inventory-dialog");
-    if (!inventoryDialog) {
-      inventoryDialog = document.createElement("div");
-      inventoryDialog.id = "inventory-dialog";
-      inventoryDialog.className = "nh3d-dialog nh3d-dialog-inventory";
-      document.body.appendChild(inventoryDialog);
-    }
-
-    // Clear previous content
-    inventoryDialog.innerHTML = "";
-
-    // Add title
-    const title = document.createElement("div");
-    title.className = "nh3d-inventory-title";
-    title.textContent = "📦 INVENTORY";
-    inventoryDialog.appendChild(title);
-
-    // Add inventory items
-    const itemsContainer = document.createElement("div");
-    itemsContainer.className = "nh3d-inventory-items";
-
-    if (this.currentInventory.length === 0) {
-      const emptyMessage = document.createElement("div");
-      emptyMessage.className = "nh3d-inventory-empty";
-      emptyMessage.textContent = "Your inventory is empty.";
-      itemsContainer.appendChild(emptyMessage);
-    } else {
-      // Display both categories and items (don't filter out categories)
-      this.currentInventory.forEach((item: any, index: number) => {
-        if (item.isCategory) {
-          // This is a category header
-          const categoryHeader = document.createElement("div");
-          categoryHeader.className = "nh3d-inventory-category";
-          if (index === 0) {
-            categoryHeader.classList.add("nh3d-inventory-category-first");
-          }
-          categoryHeader.textContent = item.text;
-          itemsContainer.appendChild(categoryHeader);
-        } else {
-          // This is an actual item
-          const itemDiv = document.createElement("div");
-          itemDiv.className = "nh3d-inventory-item";
-
-          const keySpan = document.createElement("span");
-          keySpan.className = "nh3d-inventory-key";
-          keySpan.textContent = `${item.accelerator || "?"})`;
-
-          const textSpan = document.createElement("span");
-          textSpan.className = "nh3d-inventory-text";
-          textSpan.textContent = item.text || "Unknown item";
-
-          itemDiv.appendChild(keySpan);
-          itemDiv.appendChild(textSpan);
-          itemsContainer.appendChild(itemDiv);
-        }
-      });
-    }
-
-    inventoryDialog.appendChild(itemsContainer);
-
-    // Add close instructions
-    const closeText = document.createElement("div");
-    closeText.className = "nh3d-inventory-close";
-    closeText.textContent =
-      "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close";
-    inventoryDialog.appendChild(closeText);
-
-    const actions = document.createElement("div");
-    actions.className = "nh3d-menu-actions";
-    const closeButton = document.createElement("button");
-    closeButton.type = "button";
-    closeButton.className = "nh3d-menu-action-button nh3d-menu-action-cancel";
-    closeButton.textContent = "Close";
-    closeButton.onclick = () => this.hideInventoryDialog();
-    actions.appendChild(closeButton);
-    inventoryDialog.appendChild(actions);
-
-    // Show the dialog
-    inventoryDialog.classList.add("is-visible");
+    this.uiAdapter.setInventory(this.buildInventoryDialogState());
   }
 
   private hideInventoryDialog(): void {
@@ -11431,18 +10377,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
     this.inventoryContextActionsEnabled = true;
     this.pendingInventoryDialogOptions = null;
-    if (this.uiAdapter) {
-      this.uiAdapter.setInventory(this.buildInventoryDialogState());
-      this.pendingInventoryDialog = false;
-      this.syncFpsPointerLockForUiState(true);
-      return;
-    }
-
-    const inventoryDialog = document.getElementById("inventory-dialog");
-    if (inventoryDialog) {
-      inventoryDialog.classList.remove("is-visible");
-    }
-    // Clear any pending inventory dialog flag
+    this.uiAdapter.setInventory(this.buildInventoryDialogState());
     this.pendingInventoryDialog = false;
     this.syncFpsPointerLockForUiState(true);
   }
@@ -11459,12 +10394,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.hideInfoMenuDialog();
     if (this.isInventoryDialogOpen()) {
-      console.log("📦 Closing inventory dialog");
+      console.log("Closing inventory dialog");
       this.hideInventoryDialog();
       return;
     }
 
-    console.log("📦 Requesting current inventory from NetHack...");
+    console.log("Requesting current inventory from NetHack...");
     this.inventoryRefreshInFlight = true;
     this.lastInventoryRefreshRequestedAtMs = Date.now();
     this.runExtendedCommand("inventory");
@@ -11477,33 +10412,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.positionHideTimerId = null;
     }
 
-    if (this.uiAdapter) {
-      this.syncFpsPointerLockForUiState(false);
-      this.uiAdapter.setPositionRequest(text);
-      this.positionHideTimerId = window.setTimeout(() => {
-        this.uiAdapter?.setPositionRequest(null);
-        this.syncFpsPointerLockForUiState(true);
-      }, 3000);
-      return;
-    }
-
-    // Create or get position dialog
-    let posDialog = document.getElementById("position-dialog");
-    if (!posDialog) {
-      posDialog = document.createElement("div");
-      posDialog.id = "position-dialog";
-      document.body.appendChild(posDialog);
-    }
-
-    posDialog.textContent = text;
-    posDialog.classList.add("is-visible");
     this.syncFpsPointerLockForUiState(false);
-
-    // Auto-hide after 3 seconds
+    this.uiAdapter.setPositionRequest(text);
     this.positionHideTimerId = window.setTimeout(() => {
-      if (posDialog) {
-        posDialog.classList.remove("is-visible");
-      }
+      this.uiAdapter.setPositionRequest(null);
       this.syncFpsPointerLockForUiState(true);
     }, 3000);
   }
@@ -11512,14 +10424,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInQuestion = true;
     this.isTextInputActive = true;
     this.syncFpsPointerLockForUiState(false);
-
-    if (this.uiAdapter) {
-      this.uiAdapter.setTextInput({
-        text: String(text || ""),
-        maxLength,
-        placeholder: "Enter text",
-      });
-    }
+    this.uiAdapter.setTextInput({
+      text: String(text || ""),
+      maxLength,
+      placeholder: "Enter text",
+    });
   }
 
   private hideTextInputRequest(): void {
@@ -11529,15 +10438,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.isTextInputActive = false;
     this.isInQuestion = false;
-
-    if (this.uiAdapter) {
-      this.uiAdapter.setTextInput(null);
-    }
+    this.uiAdapter.setTextInput(null);
     this.syncFpsPointerLockForUiState(true);
   }
 
   private hideQuestion(): void {
-    this.isInQuestion = false; // Clear general question state
+    this.isInQuestion = false;
     this.activeQuestionText = "";
     this.activeQuestionChoices = "";
     this.activeQuestionDefaultChoice = "";
@@ -11551,206 +10457,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activePickupFocusIndex = 0;
     this.activeQuestionMenuFocusIndex = 0;
     this.activeQuestionActionFocusIndex = -1;
-
-    if (this.uiAdapter) {
-      this.uiAdapter.setQuestion(null);
-      this.syncFpsPointerLockForUiState(true);
-      return;
-    }
-
-    const questionDialog = document.getElementById("question-dialog");
-    if (questionDialog) {
-      questionDialog.classList.remove("is-visible");
-      questionDialog.innerHTML = ""; // Clear content to prevent retention
-      // Clear pickup dialog flags
-      (questionDialog as any).isPickupDialog = false;
-      (questionDialog as any).menuItems = null;
-    }
+    this.uiAdapter.setQuestion(null);
     this.syncFpsPointerLockForUiState(true);
-  }
-
-  private createPickupDialog(
-    questionDialog: HTMLElement,
-    menuItems: any[],
-    _question: string,
-  ): void {
-    const selectableItemCount = menuItems.filter((item) =>
-      this.isSelectableQuestionMenuItem(item),
-    ).length;
-
-    menuItems.forEach((item) => {
-      if (
-        item.isCategory ||
-        !item.accelerator ||
-        item.accelerator.trim() === ""
-      ) {
-        // Category header
-        const categoryHeader = document.createElement("div");
-        categoryHeader.className = "nh3d-menu-category";
-        categoryHeader.textContent = item.text;
-        questionDialog.appendChild(categoryHeader);
-      } else {
-        // Selectable item with checkbox
-        const itemContainer = document.createElement("div");
-        itemContainer.className = "nh3d-pickup-item";
-        const selectionStateKey = this.getMenuSelectionStateKey(item);
-        const selectionInput = this.getQuestionMenuSelectionInput(item);
-        if (this.isPickupSelectionInputFocused(selectionInput)) {
-          itemContainer.classList.add("nh3d-pickup-item-active");
-        }
-
-        // Checkbox
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.id = `pickup-${selectionStateKey.replace(/[^A-Za-z0-9_-]/g, "_")}`;
-        checkbox.className = "nh3d-pickup-checkbox";
-
-        // Key label
-        const keyPart = document.createElement("span");
-        keyPart.className = "nh3d-pickup-key";
-        keyPart.textContent = `${item.accelerator})`;
-
-        // Item text
-        const textPart = document.createElement("span");
-        textPart.className = "nh3d-pickup-text";
-        textPart.textContent = item.text;
-
-        const applySelectionState = (
-          isSelected: boolean,
-          shouldSendInput: boolean,
-        ) => {
-          checkbox.checked = isSelected;
-          if (isSelected) {
-            this.activePickupSelections.add(selectionStateKey);
-            itemContainer.classList.add("nh3d-pickup-item-selected");
-          } else {
-            this.activePickupSelections.delete(selectionStateKey);
-            itemContainer.classList.remove("nh3d-pickup-item-selected");
-          }
-          if (shouldSendInput) {
-            // Send the key to NetHack to keep game state in sync
-            this.sendInput(selectionInput);
-          }
-          this.updatePickupFocusVisualState();
-        };
-
-        applySelectionState(
-          this.activePickupSelections.has(selectionStateKey),
-          false,
-        );
-
-        // Toggle function
-        const toggleItem = () => {
-          applySelectionState(!checkbox.checked, true);
-        };
-
-        // Click handlers
-        itemContainer.onclick = (e) => {
-          e.preventDefault();
-          this.setActivePickupFocusBySelectionInput(selectionInput);
-          this.updatePickupFocusVisualState();
-          toggleItem();
-        };
-
-        checkbox.onclick = (e) => {
-          // Prevent checkbox clicks from triggering the row click handler.
-          e.stopPropagation();
-        };
-
-        checkbox.onchange = (e) => {
-          e.stopPropagation();
-          // Checkbox state is already updated by the browser click action.
-          this.setActivePickupFocusBySelectionInput(selectionInput);
-          this.updatePickupFocusVisualState();
-          applySelectionState(checkbox.checked, true);
-        };
-
-        // Store toggle function for keyboard access
-        (itemContainer as any).toggleItem = toggleItem;
-        (itemContainer as any).accelerator = item.accelerator;
-        (itemContainer as any).selectionInput = selectionInput;
-
-        itemContainer.appendChild(checkbox);
-        itemContainer.appendChild(keyPart);
-        itemContainer.appendChild(textPart);
-        questionDialog.appendChild(itemContainer);
-      }
-    });
-
-    if (selectableItemCount > 1) {
-      const actions = document.createElement("div");
-      actions.className = "nh3d-pickup-actions";
-
-      const confirmButton = document.createElement("button");
-      confirmButton.type = "button";
-      confirmButton.className =
-        "nh3d-pickup-action-button nh3d-pickup-action-confirm";
-      confirmButton.setAttribute("data-question-action", "confirm");
-      confirmButton.textContent = "Confirm";
-      confirmButton.onclick = () => this.confirmPickupChoices();
-
-      const cancelButton = document.createElement("button");
-      cancelButton.type = "button";
-      cancelButton.className =
-        "nh3d-pickup-action-button nh3d-pickup-action-cancel";
-      cancelButton.setAttribute("data-question-action", "cancel");
-      cancelButton.textContent = "Cancel";
-      cancelButton.onclick = () => this.cancelActivePrompt();
-
-      actions.appendChild(confirmButton);
-      actions.appendChild(cancelButton);
-      questionDialog.appendChild(actions);
-    }
-
-    // Store that this is a pickup dialog for keyboard handling
-    (questionDialog as any).isPickupDialog = true;
-    (questionDialog as any).menuItems = menuItems;
-  }
-
-  private createStandardMenu(
-    questionDialog: HTMLElement,
-    menuItems: any[],
-  ): void {
-    menuItems.forEach((item) => {
-      if (
-        item.isCategory ||
-        !item.accelerator ||
-        item.accelerator.trim() === ""
-      ) {
-        // Category header
-        const categoryHeader = document.createElement("div");
-        categoryHeader.className = "nh3d-menu-category";
-        categoryHeader.textContent = item.text;
-        questionDialog.appendChild(categoryHeader);
-      } else {
-        // Standard single-selection button
-        const menuButton = document.createElement("button");
-        menuButton.className = "nh3d-menu-button";
-        const selectionInput = this.getQuestionMenuSelectionInput(item);
-        if (this.isQuestionMenuSelectionInputFocused(selectionInput)) {
-          menuButton.classList.add("nh3d-menu-button-active");
-        }
-
-        // Format the button text with key and description
-        const keyPart = document.createElement("span");
-        keyPart.className = "nh3d-menu-button-key";
-        keyPart.textContent = `${item.accelerator}) `;
-
-        const textPart = document.createElement("span");
-        textPart.textContent = item.text;
-
-        menuButton.appendChild(keyPart);
-        menuButton.appendChild(textPart);
-
-        menuButton.onclick = () => {
-          this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
-          this.sendInput(selectionInput);
-          this.hideQuestion();
-        };
-        (menuButton as any).selectionInput = selectionInput;
-        questionDialog.appendChild(menuButton);
-      }
-    });
   }
 
   private decodeMenuSelectionIndexFromInput(input: string): number | null {
@@ -12469,23 +11177,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isInventoryDialogOpen(): boolean {
-    if (this.isInventoryDialogVisible) {
-      return true;
-    }
-
-    const inventoryDialog = document.getElementById("inventory-dialog");
-    return Boolean(
-      inventoryDialog && inventoryDialog.classList.contains("is-visible"),
-    );
+    return this.isInventoryDialogVisible;
   }
 
   private isInfoDialogOpen(): boolean {
-    if (this.isInfoDialogVisible) {
-      return true;
-    }
-
-    const infoDialog = document.getElementById("info-menu-dialog");
-    return Boolean(infoDialog && infoDialog.classList.contains("is-visible"));
+    return this.isInfoDialogVisible;
   }
 
   private isSpaceDismissKey(event: KeyboardEvent): boolean {
@@ -12701,13 +11397,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       window.clearTimeout(this.positionHideTimerId);
       this.positionHideTimerId = null;
     }
-    if (this.uiAdapter) {
-      this.uiAdapter.setPositionRequest(null);
-    }
-    const posDialog = document.getElementById("position-dialog");
-    if (posDialog) {
-      posDialog.classList.remove("is-visible");
-    }
+    this.uiAdapter.setPositionRequest(null);
   }
 
   private isFpsMode(): boolean {
@@ -13151,14 +11841,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isOnlyDirectionDialogVisible(): boolean {
-    const visibleDialogs = Array.from(
-      document.querySelectorAll(".nh3d-dialog.is-visible"),
-    );
-    if (visibleDialogs.length === 0) {
-      return false;
-    }
-    return visibleDialogs.every(
-      (dialog) => (dialog as HTMLElement).id === "direction-dialog",
+    return (
+      this.isInDirectionQuestion &&
+      !this.isInQuestion &&
+      !this.isTextInputActive &&
+      !this.positionInputModeActive &&
+      !this.metaCommandModeActive &&
+      !this.isInventoryDialogOpen() &&
+      !this.isInfoDialogOpen()
     );
   }
 
@@ -13291,18 +11981,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return;
       }
 
-      const inventoryDialog = document.getElementById("inventory-dialog");
-      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
-        this.hideInventoryDialog();
-        return;
-      }
-
-      const infoDialog = document.getElementById("info-menu-dialog");
-      if (infoDialog && infoDialog.classList.contains("is-visible")) {
-        this.hideInfoMenuDialog();
-        return;
-      }
-
       // If we're in a prompt/position mode, send Escape to NetHack so the
       // runtime can cancel the active flow (question, direction, far-look, etc.).
       if (
@@ -13317,13 +11995,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Clear UI dialogs and states
       this.hideQuestion();
       this.hideDirectionQuestion();
-      const posDialog = document.getElementById("position-dialog");
-      if (posDialog) {
-        posDialog.classList.remove("is-visible");
-      }
-      if (this.uiAdapter) {
-        this.uiAdapter.setPositionRequest(null);
-      }
+      this.uiAdapter.setPositionRequest(null);
       if (this.positionHideTimerId !== null) {
         window.clearTimeout(this.positionHideTimerId);
         this.positionHideTimerId = null;
@@ -13342,18 +12014,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       if (this.isInfoDialogVisible) {
-        this.hideInfoMenuDialog();
-        return;
-      }
-
-      const inventoryDialog = document.getElementById("inventory-dialog");
-      if (inventoryDialog && inventoryDialog.classList.contains("is-visible")) {
-        this.hideInventoryDialog();
-        return;
-      }
-
-      const infoDialog = document.getElementById("info-menu-dialog");
-      if (infoDialog && infoDialog.classList.contains("is-visible")) {
         this.hideInfoMenuDialog();
         return;
       }
@@ -13701,11 +12361,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return; // Don't send other keys when in direction question mode
       }
 
-      const isPickupDialog = this.uiAdapter
-        ? this.activeQuestionIsPickupDialog
-        : Boolean(
-            (document.getElementById("question-dialog") as any)?.isPickupDialog,
-          );
+      const isPickupDialog = this.activeQuestionIsPickupDialog;
       const isMenuQuestion = this.activeQuestionMenuItems.length > 0;
       const modalDirection = this.getModalNavigationDirection(event);
 
@@ -13823,24 +12479,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
           if (matchingItem && resolvedSelectionInput) {
             event.preventDefault();
-            if (this.uiAdapter) {
-              this.togglePickupChoice(resolvedSelectionInput);
-            } else {
-              const questionDialog = document.getElementById("question-dialog");
-              if (questionDialog) {
-                const containers =
-                  questionDialog.querySelectorAll(".nh3d-pickup-item");
-                containers.forEach((container: Element) => {
-                  if (
-                    (container as any).selectionInput ===
-                      resolvedSelectionInput &&
-                    (container as any).toggleItem
-                  ) {
-                    (container as any).toggleItem();
-                  }
-                });
-              }
-            }
+            this.togglePickupChoice(resolvedSelectionInput);
           } else if (!isMenuQuestion) {
             // Send the key anyway in case it's a valid NetHack command
             this.updateNumberPadModeFromChoice(event.key);
@@ -14226,18 +12865,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (mobileLog && !mobileLog.classList.contains("nh3d-mobile-log-hidden")) {
       return true;
     }
-    const positionDialog = document.getElementById("position-dialog");
-    if (positionDialog?.classList.contains("is-visible")) {
-      return true;
-    }
     return false;
   }
 
   private clearFpsCrosshairContextMenu(): void {
-    if (!this.uiAdapter) {
-      this.fpsCrosshairContextSignature = "";
-      return;
-    }
     if (!this.fpsCrosshairContextSignature) {
       return;
     }
@@ -14875,9 +13506,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateFpsCrosshairContextMenu(): void {
-    if (!this.uiAdapter) {
-      return;
-    }
     if (!this.isFpsMode() || !this.fpsCrosshairContextMenuOpen) {
       this.clearFpsCrosshairContextMenu();
       return;

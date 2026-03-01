@@ -764,7 +764,7 @@ export interface Nethack3DEngineController {
 
 export interface Nethack3DEngineOptions {
   mountElement?: HTMLElement | null;
-  uiAdapter?: Nethack3DEngineUIAdapter | null;
+  uiAdapter: Nethack3DEngineUIAdapter;
   characterCreationConfig?: CharacterCreationConfig;
   clientOptions?: Partial<Nh3dClientOptions>;
   loggingEnabled?: boolean;
