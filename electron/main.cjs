@@ -11,12 +11,21 @@ function createMainWindow() {
     height: 1000,
     minWidth: 1024,
     minHeight: 700,
+    frame: false,
+    fullscreenable: false,
     autoHideMenuBar: true,
+    show: false,
+    backgroundColor: "#000000",
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
     },
+  });
+
+  mainWindow.once("ready-to-show", () => {
+    mainWindow.maximize();
+    mainWindow.show();
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
