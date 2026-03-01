@@ -746,7 +746,11 @@ export interface Nethack3DEngineController {
   submitTextInput(text: string): void;
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
-  runInventoryItemAction(actionId: string, itemAccelerator: string): void;
+  runInventoryItemAction(
+    actionId: string,
+    itemAccelerator: string,
+    isFromContext?: boolean,
+  ): void;
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(
     actionId: string,

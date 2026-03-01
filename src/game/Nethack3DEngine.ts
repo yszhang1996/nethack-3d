@@ -11952,6 +11952,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   public runInventoryItemAction(
     actionId: string,
     itemAccelerator: string,
+    isFromContext?: boolean,
   ): void {
     const normalizedActionId = String(actionId || "")
       .trim()
@@ -11986,8 +11987,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
     this.clearRepeatableAction();
     this.clearRepeatDirectionCandidate();
-    this.pendingInventoryContextPromptCloseRequestedAtMs = Date.now();
-    this.pendingInventoryContextMessageDialogRequestedAtMs = Date.now();
+    if (isFromContext && normalizedActionId === "drop") {
+      this.pendingInventoryContextMessageDialogRequestedAtMs = Date.now();
+    } else {
+      this.pendingInventoryContextPromptCloseRequestedAtMs = Date.now();
+      this.pendingInventoryContextMessageDialogRequestedAtMs = Date.now();
+    }
     if (normalizedActionId === "unwield") {
       this.sendInputSequence([`${this.inventoryContextSelectionPrefix}-`, "w"]);
       this.queueRepeatDirectionCandidate({
