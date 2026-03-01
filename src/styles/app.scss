@@ -1,14 +1,8 @@
 /* Camera follow tuning consumed by the Three.js engine */
 :root {
   --camera-follow-half-life-ms: 85;
-  --nh3d-safe-area-top: var(
-    --safe-area-inset-top,
-    env(safe-area-inset-top, 0px)
-  );
-  --nh3d-safe-area-bottom: var(
-    --safe-area-inset-bottom,
-    env(safe-area-inset-bottom, 0px)
-  );
+  --nh3d-safe-area-top: env(safe-area-inset-top, 0px);
+  --nh3d-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   --nh3d-mobile-visible-height: 100vh;
   --nh3d-mobile-visible-top-offset: 0px;
   --nh3d-mobile-visible-bottom-offset: 0px;
@@ -35,12 +29,8 @@
   // Modal frame: center in viewport safe areas only (ignore app chrome).
   --nh3d-modal-safe-top-inset: calc(var(--nh3d-safe-area-top) + 12px);
   --nh3d-modal-safe-bottom-inset: calc(var(--nh3d-safe-area-bottom) + 12px);
-  --nh3d-modal-safe-left-inset: calc(
-    var(--safe-area-inset-left, env(safe-area-inset-left, 0px)) + 12px
-  );
-  --nh3d-modal-safe-right-inset: calc(
-    var(--safe-area-inset-right, env(safe-area-inset-right, 0px)) + 12px
-  );
+  --nh3d-modal-safe-left-inset: calc(env(safe-area-inset-left, 0px) + 12px);
+  --nh3d-modal-safe-right-inset: calc(env(safe-area-inset-right, 0px) + 12px);
   --nh3d-modal-safe-max-height: calc(
     var(--nh3d-mobile-visible-height, 100vh) - var(
         --nh3d-modal-safe-top-inset
@@ -3071,12 +3061,11 @@ canvas {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--nh3d-mobile-bottom-bar-bottom-offset, 0px);
   z-index: 1900;
   display: flex;
   gap: 6px;
-  padding: 6px 8px calc(6px + var(--nh3d-safe-area-bottom, 0px)) 8px;
-  box-sizing: border-box;
+  padding: 6px 8px;
   background: linear-gradient(
     180deg,
     rgba(10, 26, 44, 0.9) 0%,
@@ -3091,7 +3080,7 @@ canvas {
     left: 0;
     right: 0;
     top: 100%;
-    height: 0;
+    height: var(--nh3d-mobile-bottom-bar-bottom-offset, 0px);
     background: rgba(4, 12, 24, 0.98);
     pointer-events: none;
   }
@@ -3106,8 +3095,8 @@ canvas {
 
   @media (orientation: landscape) and (pointer: coarse) {
     left: auto;
-    right: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
-    bottom: var(--nh3d-safe-area-bottom, 0px);
+    right: env(safe-area-inset-right);
+    bottom: var(--nh3d-mobile-bottom-bar-bottom-offset);
     width: 94px;
     box-sizing: border-box;
     display: flex;
