@@ -6314,7 +6314,6 @@ export default function App(): JSX.Element {
                     controller?.runInventoryItemAction(
                       action.id,
                       inventoryContextMenu.accelerator,
-                      true,
                     );
                   }
                   setInventoryContextMenu(null);
