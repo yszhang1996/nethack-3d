@@ -359,8 +359,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isInfoDialogVisible: boolean = false;
   private pendingInventoryContextPromptCloseRequestedAtMs: number = 0;
   private readonly inventoryContextPromptCloseWindowMs: number = 2200;
-  private pendingInventoryContextMessageDialogRequestedAtMs: number = 0;
-  private readonly inventoryContextMessageDialogWindowMs: number = 1200;
   private activeQuestionText: string = "";
   private activeQuestionChoices: string = "";
   private activeQuestionDefaultChoice: string = "";
@@ -2806,40 +2804,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.shouldSkipMobileFpsClickLookPromptMessageEvent(data.text)) {
           break;
         }
-        {
-          const inventoryContextMessageDialogText =
-            this.consumeInventoryContextMessageDialogText(data.text);
-          this.captureAutopickupStateFromMessage(data.text);
-          this.captureFpsCrosshairGlanceMessage(data.text);
-          this.captureMonsterDefeatFromMessage(data.text);
-          this.captureDamageFromMessage(data.text);
-          this.addGameMessage(data.text);
-          if (inventoryContextMessageDialogText) {
-            this.showInventoryContextMessageDialog(
-              inventoryContextMessageDialogText,
-            );
-          }
-        }
+        this.captureAutopickupStateFromMessage(data.text);
+        this.captureFpsCrosshairGlanceMessage(data.text);
+        this.captureMonsterDefeatFromMessage(data.text);
+        this.captureDamageFromMessage(data.text);
+        this.addGameMessage(data.text);
         break;
 
       case "raw_print":
         if (this.shouldSkipMobileFpsClickLookPromptMessageEvent(data.text)) {
           break;
         }
-        {
-          const inventoryContextMessageDialogText =
-            this.consumeInventoryContextMessageDialogText(data.text);
-          this.captureAutopickupStateFromMessage(data.text);
-          this.captureFpsCrosshairGlanceMessage(data.text);
-          this.captureMonsterDefeatFromMessage(data.text);
-          this.captureDamageFromMessage(data.text);
-          this.addGameMessage(data.text);
-          if (inventoryContextMessageDialogText) {
-            this.showInventoryContextMessageDialog(
-              inventoryContextMessageDialogText,
-            );
-          }
-        }
+        this.captureAutopickupStateFromMessage(data.text);
+        this.captureFpsCrosshairGlanceMessage(data.text);
+        this.captureMonsterDefeatFromMessage(data.text);
+        this.captureDamageFromMessage(data.text);
+        this.addGameMessage(data.text);
         break;
 
       case "menu_item":
@@ -2854,7 +2834,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
             this.armRepeatableAction(repeatCandidate);
           }
         }
-        this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
         if (this.tryAutoAnswerDirectionQuestionFromFpsContextAction()) {
           break;
         }
@@ -2877,7 +2856,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.repeatAutoDirectionArmedAtMs = 0;
         this.clearRepeatDirectionCandidate();
         this.skipNextMobileFpsClickLookPromptMessage = false;
-        this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
         if (this.shouldCloseInventoryForPendingContextPrompt()) {
           this.hideInventoryDialog();
         }
@@ -2913,7 +2891,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.repeatAutoDirectionArmedAtMs = 0;
         this.clearRepeatDirectionCandidate();
         this.skipNextMobileFpsClickLookPromptMessage = false;
-        this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
         if (this.shouldCloseInventoryForPendingContextPrompt()) {
           this.hideInventoryDialog();
         }
@@ -4093,52 +4070,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.pendingInventoryContextPromptCloseRequestedAtMs = 0;
     return Date.now() - requestedAt <= this.inventoryContextPromptCloseWindowMs;
-  }
-
-  private consumeInventoryContextMessageDialogText(
-    messageLike: unknown,
-  ): string | null {
-    const requestedAt = this.pendingInventoryContextMessageDialogRequestedAtMs;
-    if (!requestedAt) {
-      return null;
-    }
-    const ageMs = Date.now() - requestedAt;
-    if (
-      ageMs > this.inventoryContextMessageDialogWindowMs ||
-      !this.isInventoryDialogOpen()
-    ) {
-      this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
-      return null;
-    }
-    if (typeof messageLike !== "string") {
-      return null;
-    }
-
-    const text = this.sanitizeFpsCrosshairGlanceText(messageLike);
-    if (!text) {
-      return null;
-    }
-    const normalized = text.toLowerCase();
-    const looksLikePrompt =
-      text.includes("?") ||
-      normalized.startsWith("what ") ||
-      normalized.startsWith("which ") ||
-      normalized.startsWith("pick ") ||
-      normalized.startsWith("where ") ||
-      normalized.startsWith("choose ");
-    if (looksLikePrompt) {
-      return null;
-    }
-    this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
-    return text;
-  }
-
-  private showInventoryContextMessageDialog(messageText: string): void {
-    const title = "NetHack Message";
-    const lines = this.normalizeInfoMenuLines([messageText]);
-    this.lastInfoMenu = { title, lines };
-    this.hideInventoryDialog();
-    this.showInfoMenuDialog(title, lines);
   }
 
   private shouldSkipMobileFpsClickLookPromptMessageEvent(
@@ -10374,7 +10305,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private hideInventoryDialog(): void {
     this.isInventoryDialogVisible = false;
     this.pendingInventoryContextPromptCloseRequestedAtMs = 0;
-    this.pendingInventoryContextMessageDialogRequestedAtMs = 0;
     this.inventoryContextActionsEnabled = true;
     this.pendingInventoryDialogOptions = null;
     this.uiAdapter.setInventory(this.buildInventoryDialogState());
@@ -10694,8 +10624,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideInfoMenuDialog();
     this.clearRepeatableAction();
     this.clearRepeatDirectionCandidate();
-    this.pendingInventoryContextPromptCloseRequestedAtMs = Date.now();
-    this.pendingInventoryContextMessageDialogRequestedAtMs = Date.now();
+    this.hideInventoryDialog();
     if (normalizedActionId === "unwield") {
       this.sendInputSequence([`${this.inventoryContextSelectionPrefix}-`, "w"]);
       this.queueRepeatDirectionCandidate({
