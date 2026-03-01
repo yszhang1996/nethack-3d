@@ -1076,6 +1076,8 @@ type ClientOptionSlider = {
     | "brightness"
     | "contrast"
     | "gamma"
+    | "uiFontScale"
+    | "liveMessageLogFontScale"
     | "liveMessageDisplayTimeMs"
     | "liveMessageFadeOutTimeMs";
   label: string;
@@ -1361,6 +1363,15 @@ const clientOptionsConfig: ClientOption[] = [
     type: "group",
   },
   {
+    key: "uiFontScale",
+    label: "UI font scale",
+    description: "Scale all game UI font sizes from their defaults.",
+    type: "slider",
+    min: 0.7,
+    max: 1.8,
+    step: 0.01,
+  },
+  {
     key: "tilesetMode",
     label: "Display",
     description: "Use graphical tiles instead of ASCII.",
@@ -1426,6 +1437,16 @@ const clientOptionsConfig: ClientOption[] = [
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
     type: "boolean",
+  },
+  {
+    key: "liveMessageLogFontScale",
+    label: "Live message font scale",
+    description:
+      "Scale the fade-up floating action messages from their default size.",
+    type: "slider",
+    min: 0.7,
+    max: 2.2,
+    step: 0.01,
   },
   {
     key: "liveMessageDisplayTimeMs",
@@ -2098,6 +2119,24 @@ export default function App(): JSX.Element {
       clientOptions.liveMessageFadeOutTimeMs,
     ],
   );
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.style.setProperty(
+      "--nh3d-ui-font-scale",
+      String(clientOptions.uiFontScale),
+    );
+    root.style.setProperty(
+      "--nh3d-live-log-font-scale",
+      String(clientOptions.liveMessageLogFontScale),
+    );
+    return () => {
+      root.style.removeProperty("--nh3d-ui-font-scale");
+      root.style.removeProperty("--nh3d-live-log-font-scale");
+    };
+  }, [clientOptions.uiFontScale, clientOptions.liveMessageLogFontScale]);
   const [
     reopenNewGamePromptOnInteraction,
     setReopenNewGamePromptOnInteraction,
@@ -3070,7 +3109,9 @@ export default function App(): JSX.Element {
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
       resizeObserver = new ResizeObserver(measureLogoBottom);
-      const logos = document.querySelectorAll<HTMLElement>(".nethack-ascii-logo");
+      const logos = document.querySelectorAll<HTMLElement>(
+        ".nethack-ascii-logo",
+      );
       logos.forEach((logo) => resizeObserver?.observe(logo));
     }
 
@@ -3766,6 +3807,10 @@ export default function App(): JSX.Element {
       clamped = Math.max(0.5, Math.min(2.5, rawValue));
     } else if (key === "liveMessageDisplayTimeMs") {
       clamped = Math.max(250, Math.min(6000, rawValue));
+    } else if (key === "uiFontScale") {
+      clamped = Math.max(0.7, Math.min(1.8, rawValue));
+    } else if (key === "liveMessageLogFontScale") {
+      clamped = Math.max(0.7, Math.min(2.2, rawValue));
     } else {
       clamped = Math.max(120, Math.min(4000, rawValue));
     }
@@ -4623,7 +4668,9 @@ export default function App(): JSX.Element {
                         value={runtimeVersion}
                       >
                         <option value="3.6.7">3.6.x (3.6.7)</option>
-                        {import.meta.env.DEV && <option value="3.7">3.7</option>}
+                        {import.meta.env.DEV && (
+                          <option value="3.7">3.7</option>
+                        )}
                       </select>
                     </label>
                   </div>
@@ -4708,13 +4755,18 @@ export default function App(): JSX.Element {
                         >
                           <div style={{ flex: 1 }}>
                             <div
-                              style={{ fontWeight: "bold", fontSize: "16px" }}
+                              style={{
+                                fontWeight: "bold",
+                                fontSize:
+                                  "calc(16px * var(--nh3d-ui-font-scale, 1))",
+                              }}
                             >
                               {save.name}
                             </div>
                             <div
                               style={{
-                                fontSize: "12px",
+                                fontSize:
+                                  "calc(12px * var(--nh3d-ui-font-scale, 1))",
                                 color: "var(--nh3d-ui-text-muted)",
                                 marginTop: "4px",
                                 fontWeight: "normal",
@@ -4966,7 +5018,9 @@ export default function App(): JSX.Element {
           <div
             className="floating-message-container"
             key={entry.id}
-            style={{ top: `${-index * 30}px` }}
+            style={{
+              top: `calc(${-index * 30}px * var(--nh3d-live-log-font-scale, 1))`,
+            }}
           >
             <div
               className="floating-message-text"
@@ -5446,10 +5500,13 @@ export default function App(): JSX.Element {
                 const sliderLabel =
                   option.key === "gamma"
                     ? `${sliderValue.toFixed(2)}x`
-                    : option.key === "liveMessageDisplayTimeMs" ||
-                        option.key === "liveMessageFadeOutTimeMs"
-                      ? `${Math.round(sliderValue)}ms`
-                      : `${Math.round(sliderValue * 100)}%`;
+                    : option.key === "uiFontScale" ||
+                        option.key === "liveMessageLogFontScale"
+                      ? `${Math.round(sliderValue * 100)}%`
+                      : option.key === "liveMessageDisplayTimeMs" ||
+                          option.key === "liveMessageFadeOutTimeMs"
+                        ? `${Math.round(sliderValue)}ms`
+                        : `${Math.round(sliderValue * 100)}%`;
                 return (
                   <div
                     className="nh3d-option-row nh3d-option-row-slider"

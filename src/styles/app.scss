@@ -97,6 +97,8 @@
   --nh3d-scrollbar-thumb-hover: #57a7d4;
   --nh3d-scrollbar-thumb-active: #7bc7f2;
   --nh3d-scrollbar-thumb-border: rgba(8, 22, 36, 0.9);
+  --nh3d-ui-font-scale: 1;
+  --nh3d-live-log-font-scale: 1;
 
   @supports (height: 100dvh) {
     --nh3d-mobile-visible-height: 100dvh;
@@ -154,6 +156,14 @@
   }
 }
 
+@function nh3d-scale-font($size) {
+  @return calc(#{$size} * var(--nh3d-ui-font-scale, 1));
+}
+
+@function nh3d-scale-live-log-font($size) {
+  @return calc(#{$size} * var(--nh3d-live-log-font-scale, 1));
+}
+
 // -----------------------------------------------------------------------------
 // Global & Base
 // -----------------------------------------------------------------------------
@@ -198,7 +208,7 @@ select {
   input[type="password"],
   textarea,
   select {
-    font-size: 16px;
+    font-size: nh3d-scale-font(16px);
   }
 }
 
@@ -242,7 +252,7 @@ canvas {
   border: 1px solid var(--nh3d-ui-border);
   border-radius: 5px;
   max-width: 400px;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   pointer-events: auto;
   box-shadow: var(--nh3d-ui-shadow);
 
@@ -319,8 +329,9 @@ canvas {
 
 #game-log {
   @extend %custom-scrollbar;
-  max-height: 250px;
+  max-height: calc(250px * var(--nh3d-ui-font-scale, 1));
   overflow-y: auto;
+  font-size: nh3d-scale-font(12px);
   line-height: 1.4;
 }
 
@@ -336,13 +347,13 @@ canvas {
   z-index: 1800;
   max-height: none;
   overflow-y: auto;
-  padding: 10px;
+  padding: calc(10px * var(--nh3d-ui-font-scale, 1));
   background: var(--nh3d-ui-panel-bg);
   border: 1px solid var(--nh3d-ui-border);
-  border-radius: 8px;
+  border-radius: calc(8px * var(--nh3d-ui-font-scale, 1));
   color: var(--nh3d-ui-text);
   font-family: "Courier New", monospace;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   line-height: 1.4;
   box-shadow: var(--nh3d-ui-shadow);
 
@@ -381,7 +392,7 @@ canvas {
   border-radius: 8px;
   max-width: 500px;
   text-align: center;
-  font-size: 14px;
+  font-size: nh3d-scale-font(14px);
   pointer-events: auto;
   display: none;
   box-shadow: var(--nh3d-ui-shadow);
@@ -407,7 +418,7 @@ canvas {
   border-radius: 4px;
   cursor: pointer;
   font-family: inherit;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -427,13 +438,13 @@ canvas {
   left: 50%;
   transform: translate(-50%, -50%);
   color: var(--nh3d-ui-accent);
-  font-size: 18px;
+  font-size: nh3d-scale-font(18px);
   text-align: center;
   z-index: 2000;
 }
 
 .loading-subtitle {
-  font-size: 14px;
+  font-size: nh3d-scale-font(14px);
   margin-top: 10px;
 }
 
@@ -454,7 +465,7 @@ canvas {
   );
   color: var(--nh3d-ui-text);
   padding: 8px 15px;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   z-index: 1500;
   border-bottom: 2px solid var(--nh3d-ui-border-strong);
   display: flex;
@@ -464,7 +475,7 @@ canvas {
 
   .stat-label {
     color: var(--nh3d-ui-text-muted);
-    font-size: 10px;
+    font-size: nh3d-scale-font(10px);
   }
 
   .stat-value {
@@ -538,7 +549,7 @@ canvas {
   .nh3d-stats-group {
     display: flex;
     gap: 15px;
-    font-size: 11px;
+    font-size: nh3d-scale-font(11px);
   }
 
   .nh3d-stats-core-row {
@@ -577,7 +588,7 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: 11px;
+    font-size: nh3d-scale-font(11px);
     flex: 1;
     text-align: right;
   }
@@ -733,7 +744,7 @@ canvas {
   opacity: 1;
   color: #ffffff;
   font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  font-size: clamp(12px, 1.4vw, 17px);
+  font-size: nh3d-scale-live-log-font(clamp(12px, 1.4vw, 17px));
   font-weight: bold;
   line-height: 1.2;
   text-align: center;
@@ -778,7 +789,7 @@ canvas {
   border-radius: 10px;
   box-shadow: var(--nh3d-ui-shadow);
   font-family: "Courier New", monospace;
-  font-size: clamp(22px, 2.4vw, 30px);
+  font-size: nh3d-scale-font(clamp(22px, 2.4vw, 30px));
   font-weight: bold;
   line-height: 1.1;
   letter-spacing: 0.02em;
@@ -804,23 +815,24 @@ canvas {
   left: 50%;
 
   .nethack-ascii-logo {
+    --nh3d-ui-font-scale: 1;
     position: absolute;
     top: var(--nh3d-startup-logo-top);
     transform: translateX(-40%);
     font-family: "Consolas", "Courier New", monospace;
     white-space: pre;
-    font-size: 9px;
+    font-size: nh3d-scale-font(9px);
     font-weight: 700;
     color: rgb(255, 0, 0);
     text-shadow: 0 0 8px rgba(255, 0, 119, 0.479);
     z-index: 1999;
 
     @media (pointer: coarse) {
-      font-size: 5px;
+      font-size: nh3d-scale-font(5px);
     }
 
     @media (max-width: 515px) {
-      font-size: 5px;
+      font-size: nh3d-scale-font(5px);
     }
   }
 }
@@ -1047,7 +1059,7 @@ canvas {
   background: rgba(12, 26, 42, 0.96);
   color: #e7f3ff;
   font-family: "Courier New", monospace;
-  font-size: 18px;
+  font-size: nh3d-scale-font(18px);
   font-weight: 700;
   line-height: 1;
   padding: 0;
@@ -1102,7 +1114,7 @@ canvas {
     right: 6px;
     width: 24px;
     height: 24px;
-    font-size: 19px;
+    font-size: nh3d-scale-font(19px);
   }
 }
 
@@ -1188,7 +1200,7 @@ canvas {
   overflow-y: auto;
 
   .nh3d-question-text {
-    font-size: clamp(15px, 2.4vw, 19px);
+    font-size: nh3d-scale-font(clamp(15px, 2.4vw, 19px));
   }
 
   .nh3d-choice-list {
@@ -1323,7 +1335,7 @@ canvas {
 
   .nh3d-direction-text {
     margin: 0;
-    font-size: 14px;
+    font-size: nh3d-scale-font(14px);
     line-height: 1.2;
   }
 
@@ -1334,7 +1346,7 @@ canvas {
     padding: 7px 10px;
 
     .nh3d-direction-text {
-      font-size: 13px;
+      font-size: nh3d-scale-font(13px);
     }
   }
 }
@@ -1342,10 +1354,10 @@ canvas {
 .nh3d-direction-fps-hint {
   margin-top: 4px;
   color: var(--nh3d-ui-text-muted);
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
 
   @media (pointer: coarse) {
-    font-size: 10px;
+    font-size: nh3d-scale-font(10px);
   }
 }
 
@@ -1436,7 +1448,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-options-title {
-  font-size: 18px;
+  font-size: nh3d-scale-font(18px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 12px;
@@ -1453,7 +1465,7 @@ canvas {
 
 .nh3d-options-group-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   font-weight: bold;
   letter-spacing: 0.08em;
   margin: 4px 2px 0;
@@ -1497,13 +1509,13 @@ canvas {
 
 .nh3d-option-label {
   color: var(--nh3d-ui-text);
-  font-size: 13px;
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
 }
 
 .nh3d-option-description {
   color: var(--nh3d-ui-text-muted);
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   line-height: 1.3;
   margin-top: 2px;
 }
@@ -1657,7 +1669,7 @@ canvas {
   border: 1px solid rgba(108, 166, 226, 0.45);
   background: rgba(8, 18, 29, 0.96);
   color: var(--nh3d-ui-accent-soft);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   letter-spacing: 0.02em;
   padding: 7px 8px;
@@ -1692,7 +1704,7 @@ canvas {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-accent-soft);
   min-width: 0;
   padding: 3px 6px;
@@ -1711,7 +1723,7 @@ canvas {
   border: 1px solid rgba(75, 106, 155, 0.45);
   border-radius: 6px;
   background: rgba(8, 18, 29, 0.72);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-accent-soft);
   user-select: none;
 
@@ -1740,7 +1752,7 @@ canvas {
   border: 1px solid rgba(75, 106, 155, 0.45);
   border-radius: 6px;
   background: rgba(8, 18, 29, 0.72);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-accent-soft);
 }
 
@@ -1757,7 +1769,7 @@ canvas {
   background: rgba(8, 18, 29, 0.96);
   color: var(--nh3d-ui-text);
   font-family: "Consolas", "Courier New", monospace;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   padding: 3px 18px 3px 6px;
   text-align: right;
 }
@@ -1765,7 +1777,7 @@ canvas {
 .nh3d-dark-wall-grid-darkness-suffix {
   position: absolute;
   right: 6px;
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   color: var(--nh3d-ui-text-muted);
   line-height: 1;
   pointer-events: none;
@@ -1788,13 +1800,13 @@ canvas {
 }
 
 .nh3d-option-tile-picker-glyph {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   color: var(--nh3d-ui-text);
 }
 
 .nh3d-option-tile-picker-id {
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   color: var(--nh3d-ui-accent-soft);
   text-transform: lowercase;
 }
@@ -1868,7 +1880,7 @@ canvas {
 
 .nh3d-option-slider-value {
   color: var(--nh3d-ui-accent-soft);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
 }
 
@@ -1929,7 +1941,7 @@ canvas {
 .nh3d-dark-wall-picker-status {
   padding: 10px;
   color: var(--nh3d-ui-text-muted);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
 }
 
 .nh3d-tileset-manager-upload {
@@ -1968,7 +1980,7 @@ canvas {
 }
 
 .nh3d-tileset-manager-file-input {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
 
   &::file-selector-button {
@@ -1977,7 +1989,7 @@ canvas {
     border: 1px solid var(--nh3d-ui-button-border);
     background: var(--nh3d-ui-button-alt-bg);
     color: var(--nh3d-ui-text);
-    font-size: 12px;
+    font-size: nh3d-scale-font(12px);
     font-weight: bold;
     padding: 6px 10px;
     cursor: pointer;
@@ -1992,7 +2004,7 @@ canvas {
     border: 1px solid var(--nh3d-ui-button-border);
     background: var(--nh3d-ui-button-alt-bg);
     color: var(--nh3d-ui-text);
-    font-size: 12px;
+    font-size: nh3d-scale-font(12px);
     font-weight: bold;
     padding: 6px 10px;
     cursor: pointer;
@@ -2015,7 +2027,7 @@ canvas {
 .nh3d-tileset-manager-error {
   margin-top: 10px;
   color: #ffd3d3;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
 }
 
 .nh3d-tileset-manager-divider {
@@ -2135,7 +2147,7 @@ canvas {
 
 .nh3d-solid-chroma-picker-hover-hex {
   color: var(--nh3d-ui-accent-soft);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -2212,17 +2224,17 @@ canvas {
 }
 
 .nh3d-dark-wall-tile-card-glyph {
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   color: var(--nh3d-ui-text);
 }
 
 .nh3d-dark-wall-tile-card-id {
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-dark-wall-tile-card-default {
-  font-size: 10px;
+  font-size: nh3d-scale-font(10px);
   color: #0f1f12;
   background: #96d8a9;
   border-radius: 999px;
@@ -2266,7 +2278,7 @@ canvas {
 }
 
 .nh3d-question-text {
-  font-size: 16px;
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
   margin-bottom: 15px;
   line-height: 1.4;
@@ -2274,14 +2286,14 @@ canvas {
 }
 
 .nh3d-direction-text {
-  font-size: 16px;
+  font-size: nh3d-scale-font(16px);
   margin-bottom: 20px;
   line-height: 1.4;
   color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-dialog-hint {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
   margin-top: 15px;
 
@@ -2361,7 +2373,7 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
   text-align: left;
 
@@ -2378,9 +2390,10 @@ canvas {
   border-radius: 3px;
   padding: 6px 8px;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
 
   @media (pointer: coarse) {
-    font-size: 16px;
+    font-size: nh3d-scale-font(16px);
   }
 }
 
@@ -2392,6 +2405,7 @@ canvas {
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   width: fit-content;
   max-width: 100%;
@@ -2454,7 +2468,7 @@ canvas {
   border-radius: 5px;
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: 16px;
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
   display: flex;
   flex-direction: column;
@@ -2498,12 +2512,12 @@ canvas {
 }
 
 .nh3d-direction-symbol {
-  font-size: 20px;
+  font-size: nh3d-scale-font(20px);
   margin-bottom: 2px;
 }
 
 .nh3d-direction-key {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
 }
 
 .nh3d-direction-button-extra {
@@ -2513,13 +2527,13 @@ canvas {
   aspect-ratio: 1 / 1;
 
   .nh3d-direction-symbol {
-    font-size: 10px;
+    font-size: nh3d-scale-font(10px);
     letter-spacing: 0.06em;
     margin-bottom: 1px;
   }
 
   .nh3d-direction-key {
-    font-size: 15px;
+    font-size: nh3d-scale-font(15px);
     line-height: 1;
   }
 
@@ -2533,7 +2547,7 @@ canvas {
 }
 
 .nh3d-info-title {
-  font-size: 18px;
+  font-size: nh3d-scale-font(18px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 12px;
@@ -2543,7 +2557,7 @@ canvas {
 }
 
 .nh3d-info-body {
-  font-size: 13px;
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
   line-height: 1.4;
   white-space: pre-wrap;
@@ -2552,7 +2566,7 @@ canvas {
   padding: 6px 2px;
 
   @media (pointer: coarse) {
-    font-size: 10px;
+    font-size: nh3d-scale-font(10px);
     width: max-content;
     max-width: calc(100vw - 44px);
     overflow-wrap: break-word;
@@ -2560,7 +2574,7 @@ canvas {
 }
 
 .nh3d-info-hint {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
   margin-top: 12px;
@@ -2577,7 +2591,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-inventory-title {
-  font-size: 18px;
+  font-size: nh3d-scale-font(18px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 15px;
@@ -2603,7 +2617,7 @@ canvas {
 }
 
 .nh3d-inventory-category {
-  font-size: 14px;
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   color: var(--nh3d-ui-accent-soft);
   margin: 15px 0 8px 0;
@@ -2647,13 +2661,13 @@ canvas {
   font-weight: bold;
   margin-right: 8px;
   min-width: 20px;
-  font-size: 13px;
+  font-size: nh3d-scale-font(13px);
 }
 
 .nh3d-inventory-text {
   color: var(--nh3d-ui-text);
   flex: 1;
-  font-size: 13px;
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
 }
 
@@ -2680,7 +2694,7 @@ canvas {
 
 .nh3d-context-menu-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   margin-bottom: 8px;
   padding-bottom: 6px;
@@ -2744,7 +2758,7 @@ canvas {
   padding: 6px 10px;
   text-align: left;
   font-family: "Courier New", monospace;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   cursor: pointer;
   transition:
     background-color 120ms ease,
@@ -2829,7 +2843,7 @@ canvas {
   background: rgba(24, 34, 24, 0.88);
   color: #e7f8e7;
   font-family: "Courier New", monospace;
-  font-size: 20px;
+  font-size: nh3d-scale-font(20px);
   font-weight: 700;
   letter-spacing: 0.02em;
   transform: translate(-50%, -50%) scale(1);
@@ -2854,7 +2868,7 @@ canvas {
 }
 
 .nh3d-inventory-keybinds {
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   line-height: 1.2;
   margin-bottom: 10px;
   padding: 8px;
@@ -2873,7 +2887,7 @@ canvas {
 }
 
 .nh3d-inventory-close {
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
   margin-top: 10px;
@@ -2886,7 +2900,7 @@ canvas {
 }
 
 .nh3d-name-question {
-  font-size: 16px;
+  font-size: nh3d-scale-font(16px);
   margin-bottom: 15px;
 }
 
@@ -2898,10 +2912,11 @@ canvas {
   border: 1px solid var(--nh3d-ui-button-border);
   border-radius: 3px;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   margin-bottom: 15px;
 
   @media (pointer: coarse) {
-    font-size: 16px;
+    font-size: nh3d-scale-font(16px);
   }
 }
 
@@ -2913,11 +2928,12 @@ canvas {
   border: 1px solid var(--nh3d-ui-button-border);
   border-radius: 3px;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   margin-bottom: 12px;
   box-sizing: border-box;
 
   @media (pointer: coarse) {
-    font-size: 16px;
+    font-size: nh3d-scale-font(16px);
   }
 }
 
@@ -2942,7 +2958,7 @@ canvas {
 }
 
 .nh3d-menu-category {
-  font-size: 14px;
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   color: var(--nh3d-ui-accent-soft);
   margin: 15px 0 5px 0;
@@ -3008,6 +3024,7 @@ canvas {
   color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -3052,6 +3069,13 @@ canvas {
   }
 }
 
+@media (pointer: coarse) {
+  .nh3d-dialog-fixed-actions > .nh3d-menu-actions .nh3d-menu-action-button,
+  .nh3d-dialog-fixed-actions > .nh3d-pickup-actions .nh3d-pickup-action-button {
+    font-size: 12px;
+  }
+}
+
 .nh3d-question-pagination {
   display: flex;
   align-items: center;
@@ -3071,6 +3095,7 @@ canvas {
   color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -3091,7 +3116,7 @@ canvas {
 
 .nh3d-question-page-indicator {
   min-width: 140px;
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
 }
@@ -3107,6 +3132,7 @@ canvas {
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   text-align: left;
   line-height: 1.3;
@@ -3254,7 +3280,7 @@ canvas {
   background: #16253d;
   color: #d5e7ff;
   font-family: "Courier New", monospace;
-  font-size: 11px;
+  font-size: nh3d-scale-font(11px);
   font-weight: bold;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
 
@@ -3317,7 +3343,7 @@ canvas {
 
 .nh3d-mobile-actions-title {
   color: var(--nh3d-ui-accent);
-  font-size: 13px;
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
   text-align: left;
 }
@@ -3457,7 +3483,7 @@ canvas {
 
 .nh3d-mobile-actions-subheader {
   color: var(--nh3d-ui-accent-soft);
-  font-size: 12px;
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 0.04em;

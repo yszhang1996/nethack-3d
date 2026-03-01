@@ -144,6 +144,8 @@ export type Nh3dClientOptions = {
   liveMessageLog: boolean;
   liveMessageDisplayTimeMs: number;
   liveMessageFadeOutTimeMs: number;
+  uiFontScale: number;
+  liveMessageLogFontScale: number;
   blockAmbientOcclusion: boolean;
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
@@ -196,6 +198,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageLog: true,
   liveMessageDisplayTimeMs: 3000,
   liveMessageFadeOutTimeMs: 520,
+  uiFontScale: 1,
+  liveMessageLogFontScale: 1,
   blockAmbientOcclusion: true,
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
@@ -498,6 +502,22 @@ export function normalizeNh3dClientOptions(
   const liveMessageFadeOutTimeMs = Math.round(
     Math.max(120, Math.min(4000, rawLiveMessageFadeOutTimeMs)),
   );
+  const rawUiFontScale =
+    typeof overrides?.uiFontScale === "number" &&
+    Number.isFinite(overrides.uiFontScale)
+      ? overrides.uiFontScale
+      : defaultNh3dClientOptions.uiFontScale;
+  const uiFontScale = Number(
+    Math.max(0.7, Math.min(1.8, rawUiFontScale)).toFixed(2),
+  );
+  const rawLiveMessageLogFontScale =
+    typeof overrides?.liveMessageLogFontScale === "number" &&
+    Number.isFinite(overrides.liveMessageLogFontScale)
+      ? overrides.liveMessageLogFontScale
+      : defaultNh3dClientOptions.liveMessageLogFontScale;
+  const liveMessageLogFontScale = Number(
+    Math.max(0.7, Math.min(2.2, rawLiveMessageLogFontScale)).toFixed(2),
+  );
   const requestedTilesetPath =
     typeof overrides?.tilesetPath === "string"
       ? overrides.tilesetPath.trim()
@@ -688,6 +708,8 @@ export function normalizeNh3dClientOptions(
         : defaultNh3dClientOptions.liveMessageLog,
     liveMessageDisplayTimeMs,
     liveMessageFadeOutTimeMs,
+    uiFontScale,
+    liveMessageLogFontScale,
     blockAmbientOcclusion:
       typeof overrides?.blockAmbientOcclusion === "boolean"
         ? overrides.blockAmbientOcclusion
