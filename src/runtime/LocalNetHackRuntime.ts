@@ -36,6 +36,7 @@ class LocalNetHackRuntime {
     this.menuSelectionReadyCount = null;
     this.lastEndedMenuWindow = null;
     this.lastEndedMenuHadQuestion = false;
+    this.lastEndedInventoryMenuKind = null;
     this.windowTextBuffers = new Map();
     this.pendingGameOverPossessionsInventoryFlow = false;
 
@@ -1626,6 +1627,25 @@ class LocalNetHackRuntime {
       return { kind: "inventory", lines: [] };
     }
 
+    // Help menu's "List of extended commands." flow sometimes arrives as
+    // WIN_INVEN with selectable identifiers. Treat it as informational text.
+    const normalizedLines = nonCategoryItems
+      .map((item) => String(item.text || "").trim().toLowerCase())
+      .filter((text) => text.length > 0);
+    const isExtendedCommandsReport = normalizedLines.some((line) =>
+      line.includes("extended commands list"),
+    );
+    if (isExtendedCommandsReport) {
+      const lines = nonCategoryItems
+        .map((item) => String(item.text || "").trim())
+        .filter((text) => text.length > 0);
+      return {
+        kind: "info_menu",
+        title: "NetHack Message",
+        lines,
+      };
+    }
+
     if (hasCategoryHeaders || hasSelectableEntries) {
       return { kind: "inventory", lines: [] };
     }
@@ -3023,6 +3043,7 @@ class LocalNetHackRuntime {
         this.lastQuestionText = null; // Clear any previous question text when starting new menu
         this.lastEndedMenuWindow = null;
         this.lastEndedMenuHadQuestion = false;
+        this.lastEndedInventoryMenuKind = null;
         this.resetWindowTextBuffer(menuWinId);
 
         // Reset selection tracking for new menus
@@ -3062,6 +3083,7 @@ class LocalNetHackRuntime {
           : "";
         this.lastEndedMenuWindow = endMenuWinid;
         this.lastEndedMenuHadQuestion = hasMenuQuestion;
+        this.lastEndedInventoryMenuKind = null;
 
         // Log the menu details for debugging
         console.log(
@@ -3073,6 +3095,7 @@ class LocalNetHackRuntime {
           const classification = this.classifyInventoryWindowMenu(
             this.currentMenuItems,
           );
+          this.lastEndedInventoryMenuKind = classification.kind;
           const actualItems = this.currentMenuItems.filter(
             (item) => !item.isCategory,
           );
@@ -3095,10 +3118,21 @@ class LocalNetHackRuntime {
               });
             } else {
               const infoLines = classification.lines;
-              const infoTitle =
-                infoLines.length > 0 ? infoLines[0] : "NetHack Information";
-              const infoBody =
-                infoLines.length > 1 ? infoLines.slice(1) : infoLines;
+              const explicitInfoTitle =
+                typeof classification.title === "string" &&
+                classification.title.trim().length > 0
+                  ? classification.title.trim()
+                  : "";
+              const infoTitle = explicitInfoTitle
+                ? explicitInfoTitle
+                : infoLines.length > 0
+                  ? infoLines[0]
+                  : "NetHack Information";
+              const infoBody = explicitInfoTitle
+                ? infoLines
+                : infoLines.length > 1
+                  ? infoLines.slice(1)
+                  : infoLines;
               this.emit({
                 type: "info_menu",
                 title: infoTitle,
@@ -3112,6 +3146,7 @@ class LocalNetHackRuntime {
         }
         // Special handling for inventory window WITH questions (like drop, wear, etc.)
         if (isInventoryWindow && hasMenuQuestion) {
+          this.lastEndedInventoryMenuKind = "inventory";
           console.log(
             `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
@@ -3700,6 +3735,7 @@ class LocalNetHackRuntime {
           menuSelectWinid === 4 &&
           this.lastEndedMenuWindow === menuSelectWinid &&
           !this.lastEndedMenuHadQuestion &&
+          this.lastEndedInventoryMenuKind === "inventory" &&
           this.menuSelections.size === 0 &&
           Array.isArray(this.currentMenuItems) &&
           this.currentMenuItems.some((item) => item && !item.isCategory);
