@@ -2822,8 +2822,6 @@ export default function App(): JSX.Element {
       );
     };
 
-    root.classList.toggle("nh3d-pwa-mode", isStandaloneDisplayMode);
-
     updateMobileBrowserModeClass();
 
     const queries = [standaloneQuery, fullscreenQuery, minimalUiQuery];
