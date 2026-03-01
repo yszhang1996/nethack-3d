@@ -2896,12 +2896,12 @@ export default function App(): JSX.Element {
     const orientationRefreshTimeoutIds: number[] = [];
     const handleOrientationViewportRefresh = (): void => {
       updateMobileVisibleViewportMetrics();
-      orientationRefreshTimeoutIds.push(
-        window.setTimeout(updateMobileVisibleViewportMetrics, 120),
-      );
-      orientationRefreshTimeoutIds.push(
-        window.setTimeout(updateMobileVisibleViewportMetrics, 280),
-      );
+      const triggerResize = () => {
+        updateMobileVisibleViewportMetrics();
+        window.dispatchEvent(new Event("resize"));
+      };
+      orientationRefreshTimeoutIds.push(window.setTimeout(triggerResize, 120));
+      orientationRefreshTimeoutIds.push(window.setTimeout(triggerResize, 280));
     };
     window.addEventListener(
       "orientationchange",
