@@ -10777,7 +10777,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private sendInput(input: string): void {
     this.logNameInputTrace(input);
     this.pendingPointerAttackTargetContext = null;
-    const resolvedInput = this.resolveMovementInputOrSearch(input);
+    const resolvedInput = input;
 
     if (this.isMovementInput(resolvedInput)) {
       this.lastManualDirectionalInputAtMs = Date.now();
@@ -10833,11 +10833,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private sendForcedDirectionalInput(direction: string): void {
     if (!direction) {
-      return;
-    }
-    const resolvedDirection = this.resolveMovementInputOrSearch(direction);
-    if (resolvedDirection !== direction) {
-      this.sendInput(resolvedDirection);
       return;
     }
     this.updateDirectionalAttackContext(direction);
@@ -11073,36 +11068,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       default:
         return null;
     }
-  }
-
-  private shouldFallbackMovementIntoWallToSearch(input: string): boolean {
-    if (!this.session || !this.isMovementInput(input)) {
-      return false;
-    }
-    if (
-      this.isInQuestion ||
-      this.isInDirectionQuestion ||
-      this.positionInputModeActive
-    ) {
-      return false;
-    }
-    const delta = this.getMovementDeltaFromInput(input);
-    if (!delta) {
-      return false;
-    }
-    const targetKey = `${this.playerPos.x + delta.dx},${this.playerPos.y + delta.dy}`;
-    const targetMesh = this.tileMap.get(targetKey);
-    if (!targetMesh || !targetMesh.userData?.isWall) {
-      return false;
-    }
-    return targetMesh.userData?.materialKind !== "door";
-  }
-
-  private resolveMovementInputOrSearch(input: string): string {
-    if (!this.shouldFallbackMovementIntoWallToSearch(input)) {
-      return input;
-    }
-    return "s";
   }
 
   private isInventoryDialogOpen(): boolean {

@@ -3080,13 +3080,6 @@ canvas {
   }
 }
 
-@media (pointer: coarse) {
-  .nh3d-dialog-fixed-actions > .nh3d-menu-actions .nh3d-menu-action-button,
-  .nh3d-dialog-fixed-actions > .nh3d-pickup-actions .nh3d-pickup-action-button {
-    font-size: 12px;
-  }
-}
-
 .nh3d-question-pagination {
   display: flex;
   align-items: center;
