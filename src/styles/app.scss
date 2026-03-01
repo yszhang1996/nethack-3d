@@ -2844,6 +2844,24 @@ canvas {
   }
 }
 
+.nh3d-tile-context-menu {
+  min-width: 132px;
+  width: min(170px, calc(100vw - 24px));
+  max-width: min(188px, calc(100vw - 24px));
+  z-index: 1701;
+
+  .nh3d-context-menu-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .nh3d-context-menu-button {
+    min-width: 0;
+    text-align: center;
+  }
+}
+
 .nh3d-fps-touch-run-button {
   position: absolute;
   left: 0;

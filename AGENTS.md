@@ -41,7 +41,7 @@ Start here before making changes.
 
 ## Reference NetHack for information about shims and NetHack game behavior
 
-- If not found at .tmp/nethack-upstream, the git is here: https://github.com/NetHack/NetHack
+- If not found at `third_party/nethack-3.6.7`, the git is here: https://github.com/NetHack/NetHack
 
 ## Do not run the build
 

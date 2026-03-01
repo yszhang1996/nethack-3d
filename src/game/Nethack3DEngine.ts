@@ -197,6 +197,22 @@ type FpsCrosshairGlancePending = {
   startedAtMs: number;
   sawPositionInput: boolean;
   positionResolvedAtMs: number | null;
+  targetClickSent: boolean;
+  commandKind: "colon" | "glance";
+};
+
+type TileContextTarget = {
+  key: string;
+  x: number;
+  y: number;
+  mesh: THREE.Mesh;
+};
+
+type TileContextTouchHoldState = {
+  touchId: number;
+  startX: number;
+  startY: number;
+  opened: boolean;
 };
 
 type FpsTouchGestureState = {
@@ -460,6 +476,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsFireSuppressionDurationMs: number = 1500;
   private fpsCrosshairContextMenuOpen: boolean = false;
   private fpsCrosshairContextSignature: string = "";
+  private normalTileContextMenuOpen: boolean = false;
+  private normalTileContextSignature: string = "";
+  private normalTileContextTarget: TileContextTarget | null = null;
+  private activeContextActionTile: { x: number; y: number } | null = null;
+  private selectedContextHighlightTile: { x: number; y: number } | null = null;
+  private suppressNextMapPrimaryPointerUntilMs: number = 0;
+  private readonly suppressNextMapPrimaryPointerWindowMs: number = 140;
   private readonly fpsVoidContextMesh: THREE.Mesh = (() => {
     const mesh = new THREE.Mesh();
     mesh.userData = {
@@ -548,6 +571,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly touchSwipeMinDistancePx: number = 26;
   private readonly touchSwipeMaxDurationMs: number = 720;
   private readonly touchSwipePanHoldMs: number = 500;
+  private mapTouchContextHoldTimerId: number | null = null;
+  private mapTouchContextHoldState: TileContextTouchHoldState | null = null;
+  private readonly mapTouchContextHoldMs: number = 500;
   private readonly fpsTouchRunButtonHoldMs: number = 500;
   private readonly fpsTouchRunButtonOffsetYPx: number = 170;
   private readonly fpsTouchRunButtonLandscapeOffsetYPx: number = 140;
@@ -1889,6 +1915,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsAutoTurnTargetYaw = null;
     this.fpsStepCameraActive = false;
     this.fpsPreviousPlayerTileForSuppression = null;
+    this.closeAnyTileContextMenu(false);
 
     if (this.playMode === "fps") {
       const eyeX = this.playerPos.x * TILE_SIZE;
@@ -1905,12 +1932,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsStepCameraFrom.set(eyeX, eyeY, this.firstPersonEyeHeight);
       this.fpsStepCameraTo.set(eyeX, eyeY, this.firstPersonEyeHeight);
     } else {
-      this.closeFpsCrosshairContextMenu(false);
+      this.closeAnyTileContextMenu(false);
       if (this.fpsForwardHighlight) {
         this.fpsForwardHighlight.visible = false;
       }
       this.fpsFireSuppressionUntilMs = 0;
-      this.fpsCrosshairGlancePending = null;
+      this.clearAutomaticGlancePendingState();
       this.fpsCrosshairContextSignature = "";
       if (document.pointerLockElement === this.renderer.domElement) {
         document.exitPointerLock?.();
@@ -2774,6 +2801,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const oldPos = { ...this.playerPos };
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
+        if (oldPos.x !== data.x || oldPos.y !== data.y) {
+          this.clearAutomaticGlancePendingState();
+        }
+        if (oldPos.x !== data.x || oldPos.y !== data.y) {
+          this.closeAnyTileContextMenu(false);
+        }
         this.flushPendingTileUpdatesForPlayerPositionReconcile();
         this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
         if (this.isFpsMode()) {
@@ -4111,6 +4144,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private isAutomaticHashCommandBlockedByLookMode(): boolean {
+    const pending = this.fpsCrosshairGlancePending;
+    if (!pending) {
+      return false;
+    }
+    if (pending.commandKind !== "glance") {
+      return false;
+    }
+    return Date.now() - pending.startedAtMs <= this.fpsCrosshairGlanceTimeoutMs;
+  }
+
+  private clearAutomaticGlancePendingState(): void {
+    this.fpsCrosshairGlancePending = null;
+  }
+
   private executeQuickAction(
     normalizedActionId: string,
     shouldArmRepeat: boolean,
@@ -4119,8 +4167,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!normalizedActionId || !this.session) {
       return false;
     }
+    const shouldAutoSelfDirectionForLoot =
+      normalizedActionId === "loot" && this.isActiveContextActionOnPlayerTile();
 
-    this.closeFpsCrosshairContextMenu(true);
+    this.closeAnyTileContextMenu(true);
     if (!this.canExecuteRepeatableGameplayAction()) {
       return false;
     }
@@ -4157,7 +4207,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.sendInput("/");
         break;
       case "loot":
-        this.sendInput("l");
+        if (this.isAutomaticHashCommandBlockedByLookMode()) {
+          return false;
+        }
+        this.sendInputSequence(["#", "l", "o", "o", "t", "Enter"]);
+        if (shouldAutoSelfDirectionForLoot) {
+          this.armContextAutoDirection("s");
+        }
+        break;
+      case "quaff":
+        this.sendInput("q");
         break;
       case "open":
         this.armFpsFireSuppression();
@@ -4208,7 +4267,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    this.closeFpsCrosshairContextMenu(true);
+    this.closeAnyTileContextMenu(true);
     if (!this.canExecuteRepeatableGameplayAction()) {
       return false;
     }
@@ -4254,7 +4313,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    this.closeFpsCrosshairContextMenu(true);
+    this.closeAnyTileContextMenu(true);
     if (!this.canExecuteRepeatableGameplayAction()) {
       return false;
     }
@@ -4283,6 +4342,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsContextAutoDirectionArmedAtMs = 0;
   }
 
+  private armContextAutoDirection(directionInput: string): void {
+    const normalized = String(directionInput || "").trim();
+    if (!normalized) {
+      return;
+    }
+    this.fpsContextAutoDirectionInput = normalized;
+    this.fpsContextAutoDirectionArmedAtMs = Date.now();
+  }
+
+  private isActiveContextActionOnPlayerTile(): boolean {
+    const tile = this.activeContextActionTile;
+    return Boolean(
+      tile && tile.x === this.playerPos.x && tile.y === this.playerPos.y,
+    );
+  }
+
   private armFpsContextAutoDirectionFromAim(): void {
     if (!this.isFpsMode()) {
       return;
@@ -4291,8 +4366,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!directionInput) {
       return;
     }
-    this.fpsContextAutoDirectionInput = directionInput;
-    this.fpsContextAutoDirectionArmedAtMs = Date.now();
+    this.armContextAutoDirection(directionInput);
   }
 
   private tryAutoAnswerDirectionQuestionFromFpsContextAction(): boolean {
@@ -8206,11 +8280,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsPointerLockRestorePending = false;
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairContextSignature = "";
+    this.normalTileContextMenuOpen = false;
+    this.normalTileContextSignature = "";
+    this.normalTileContextTarget = null;
+    this.selectedContextHighlightTile = null;
     this.fpsCrosshairGlanceCache.clear();
     this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlanceIssuedThisOpen = false;
-    this.fpsCrosshairGlancePending = null;
+    this.clearAutomaticGlancePendingState();
     this.uiAdapter.setFpsCrosshairContext(null);
+    this.clearMapTouchContextHoldTimer();
+    this.mapTouchContextHoldState = null;
 
     // Clear glyph overlays and dispose textures/materials
     this.glyphOverlayMap.forEach((overlay) => {
@@ -9300,6 +9380,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideDirectionQuestion();
     this.hideTextInputRequest();
     this.hideInventoryDialog();
+    this.closeAnyTileContextMenu(false);
 
     this.uiAdapter.setPositionRequest(null);
     this.uiAdapter.setFpsCrosshairContext(null);
@@ -10645,7 +10726,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   public dismissFpsCrosshairContextMenu(): void {
-    this.closeFpsCrosshairContextMenu(true);
+    if (this.normalTileContextMenuOpen || this.normalTileContextSignature) {
+      this.closeNormalTileContextMenu(true);
+      return;
+    }
+    this.closeAnyTileContextMenu(true);
   }
 
   public runQuickAction(
@@ -10774,9 +10859,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
-  private sendInput(input: string): void {
+  private sendInput(
+    input: string,
+    options: { keepContextMenuOpen?: boolean } = {},
+  ): void {
     this.logNameInputTrace(input);
     this.pendingPointerAttackTargetContext = null;
+    if (!options.keepContextMenuOpen) {
+      this.closeAnyTileContextMenu(false);
+    }
     const resolvedInput = input;
 
     if (this.isMovementInput(resolvedInput)) {
@@ -10811,11 +10902,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private sendInputSequence(inputs: string[]): void {
+  private sendInputSequence(
+    inputs: string[],
+    options: { keepContextMenuOpen?: boolean } = {},
+  ): void {
     if (!this.session || inputs.length === 0) {
       return;
     }
     this.pendingPointerAttackTargetContext = null;
+    if (!options.keepContextMenuOpen) {
+      this.closeAnyTileContextMenu(false);
+    }
 
     const nowMs = Date.now();
     for (const input of inputs) {
@@ -10854,9 +10951,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private sendMouseInput(x: number, y: number, button: number): void {
+  private sendMouseInput(
+    x: number,
+    y: number,
+    button: number,
+    options: { keepContextMenuOpen?: boolean } = {},
+  ): void {
     if (!this.session) {
       return;
+    }
+    if (!options.keepContextMenuOpen) {
+      this.closeAnyTileContextMenu(false);
     }
     this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
     this.session.sendMouseInput(x, y, button);
@@ -11131,7 +11236,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.altOrMetaHeld = false;
     this.clearFpsTouchGestures();
     this.exitMetaCommandMode();
-    this.closeFpsCrosshairContextMenu(false);
+    this.closeAnyTileContextMenu(false);
     this.stopMinimapDrag();
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock?.();
@@ -12767,7 +12872,75 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.fpsCrosshairContextSignature = "";
+    this.activeContextActionTile = null;
     this.uiAdapter.setFpsCrosshairContext(null);
+  }
+
+  private closeNormalTileContextMenu(
+    consumeNextPrimaryPointer: boolean = false,
+  ): void {
+    if (
+      !this.normalTileContextMenuOpen &&
+      !this.normalTileContextSignature &&
+      !this.selectedContextHighlightTile
+    ) {
+      return;
+    }
+    if (consumeNextPrimaryPointer) {
+      this.suppressNextMapPrimaryPointerUntilMs =
+        Date.now() + this.suppressNextMapPrimaryPointerWindowMs;
+    }
+    this.normalTileContextMenuOpen = false;
+    this.normalTileContextSignature = "";
+    this.normalTileContextTarget = null;
+    this.activeContextActionTile = null;
+    this.clearContextSelectionHighlight();
+    this.uiAdapter.setFpsCrosshairContext(null);
+  }
+
+  private closeAnyTileContextMenu(restorePointerLock: boolean): void {
+    if (this.fpsCrosshairContextMenuOpen || this.fpsCrosshairContextSignature) {
+      this.closeFpsCrosshairContextMenu(restorePointerLock);
+      return;
+    }
+    this.closeNormalTileContextMenu();
+  }
+
+  private clearContextSelectionHighlight(): void {
+    this.selectedContextHighlightTile = null;
+  }
+
+  private shouldConsumeSuppressedMapPrimaryPointerEvent(
+    targetIsCanvas: boolean,
+  ): boolean {
+    if (!targetIsCanvas) {
+      return false;
+    }
+    const nowMs = Date.now();
+    if (nowMs > this.suppressNextMapPrimaryPointerUntilMs) {
+      return false;
+    }
+    this.suppressNextMapPrimaryPointerUntilMs = 0;
+    return true;
+  }
+
+  private setContextSelectionHighlight(tileX: number, tileY: number): void {
+    this.selectedContextHighlightTile = { x: tileX, y: tileY };
+  }
+
+  private openNormalTileContextMenuAtTarget(target: TileContextTarget): void {
+    if (this.isFpsMode()) {
+      return;
+    }
+    this.fpsCrosshairGlanceCache.clear();
+    this.fpsCrosshairGlanceAttemptedKeys.clear();
+    this.fpsCrosshairGlanceIssuedThisOpen = false;
+    this.clearAutomaticGlancePendingState();
+    this.normalTileContextMenuOpen = true;
+    this.normalTileContextTarget = target;
+    this.normalTileContextSignature = "";
+    this.setContextSelectionHighlight(target.x, target.y);
+    this.updateNormalTileContextMenu();
   }
 
   private openFpsCrosshairContextMenu(): void {
@@ -12777,7 +12950,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairGlanceCache.clear();
     this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlanceIssuedThisOpen = false;
-    this.fpsCrosshairGlancePending = null;
+    this.clearAutomaticGlancePendingState();
     this.fpsCrosshairContextMenuOpen = true;
     this.syncFpsPointerLockForUiState(false);
     this.updateFpsCrosshairContextMenu();
@@ -12792,7 +12965,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairGlanceIssuedThisOpen = false;
-    this.fpsCrosshairGlancePending = null;
+    this.clearAutomaticGlancePendingState();
+    this.activeContextActionTile = null;
+    this.clearContextSelectionHighlight();
     this.clearFpsCrosshairContextMenu();
     if (restorePointerLock) {
       this.syncFpsPointerLockForUiState(true);
@@ -13036,13 +13211,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
       sourceText: text,
       updatedAtMs: Date.now(),
     });
-    this.fpsCrosshairGlancePending = null;
+    if (pending.commandKind === "glance" && !pending.targetClickSent) {
+      // Ignore pre-target text for #glance probes until target click is sent.
+      this.fpsCrosshairContextSignature = "";
+      return;
+    }
+    this.clearAutomaticGlancePendingState();
     this.fpsCrosshairContextSignature = "";
   }
 
-  private expireFpsCrosshairGlanceState(_nowMs: number): void {
-    // Intentionally no-op while FPS context is open: glance requests are one-shot
-    // per menu open, and the resolved label should remain stable.
+  private expireFpsCrosshairGlanceState(nowMs: number): void {
+    if (!this.fpsCrosshairGlancePending) {
+      return;
+    }
+    if (
+      nowMs - this.fpsCrosshairGlancePending.startedAtMs >
+      this.fpsCrosshairGlanceTimeoutMs
+    ) {
+      this.clearAutomaticGlancePendingState();
+    }
   }
 
   private getCachedFpsCrosshairGlanceEntry(
@@ -13056,14 +13243,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return cached;
   }
 
-  private startFpsCrosshairGlanceProbe(
+  private startTileContextGlanceProbe(
     target: { key: string; x: number; y: number },
     nowMs: number,
   ): void {
     if (
       !this.session ||
-      !this.isFpsMode() ||
-      !this.fpsCrosshairContextMenuOpen
+      !(this.fpsCrosshairContextMenuOpen || this.normalTileContextMenuOpen)
     ) {
       return;
     }
@@ -13097,7 +13283,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (pendingAgeMs <= this.fpsCrosshairGlanceTimeoutMs) {
         return;
       }
-      this.fpsCrosshairGlancePending = null;
+      this.clearAutomaticGlancePendingState();
     }
 
     this.fpsCrosshairGlancePending = {
@@ -13108,16 +13294,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
       startedAtMs: nowMs,
       sawPositionInput: false,
       positionResolvedAtMs: null,
+      targetClickSent: false,
+      commandKind: "glance",
     };
     this.fpsCrosshairGlanceAttemptedKeys.add(target.key);
     this.fpsCrosshairGlanceIssuedThisOpen = true;
 
+    const isPlayerTile =
+      target.x === this.playerPos.x && target.y === this.playerPos.y;
+    if (isPlayerTile) {
+      this.fpsCrosshairGlancePending.commandKind = "colon";
+      this.fpsCrosshairGlancePending.targetClickSent = true;
+      this.sendInput(":", { keepContextMenuOpen: true });
+      this.logClickLookTileDebug("fps-glance", target.x, target.y);
+      return;
+    }
+
     // Suppress NetHack's transient clicklook prompt ("Pick an object.")
     // generated by the synthetic glance flow.
     this.skipNextMobileFpsClickLookPromptMessage = true;
-    this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"]);
+    this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"], {
+      keepContextMenuOpen: true,
+    });
     this.logClickLookTileDebug("fps-glance", target.x, target.y);
-    this.sendMouseInput(target.x, target.y, 0);
+    this.fpsCrosshairGlancePending.targetClickSent = true;
+    this.sendMouseInput(target.x, target.y, 0, { keepContextMenuOpen: true });
   }
 
   private getFpsCrosshairHintFromTile(
@@ -13168,6 +13369,123 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return "wall";
     }
     return "floor";
+  }
+
+  private getContextTitleFromHintWithColon(
+    hint: FpsCrosshairTargetHint,
+  ): string {
+    switch (hint) {
+      case "monster":
+        return ": monster";
+      case "loot":
+        return ": loot";
+      case "door":
+        return ": door";
+      case "stairs_up":
+        return ": staircase up";
+      case "stairs_down":
+        return ": staircase down";
+      case "wall":
+        return ": wall";
+      case "water":
+        return ": water";
+      case "trap":
+        return ": trap";
+      case "feature":
+        return ": feature";
+      case "floor":
+        return ": floor";
+      default:
+        return ": tile";
+    }
+  }
+
+  private createContextInferenceMeshFromTerrain(
+    terrain: TerrainSnapshot,
+  ): THREE.Mesh {
+    const behavior = classifyTileBehavior({
+      glyph: terrain.glyph,
+      runtimeChar: terrain.char ?? null,
+      runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      priorTerrain: terrain,
+    });
+    const mesh = new THREE.Mesh();
+    mesh.userData = {
+      isWall: behavior.isWall,
+      materialKind: behavior.materialKind,
+      isMonsterLikeCharacter: this.isMonsterLikeBehavior(behavior),
+      isLootLikeCharacter: this.isLootLikeBehavior(behavior),
+      sourceGlyph: terrain.glyph,
+    };
+    return mesh;
+  }
+
+  private resolveContextActionTarget(
+    target: TileContextTarget,
+  ): {
+    actionMesh: THREE.Mesh;
+    allowGlanceProbe: boolean;
+    fallbackTitle: string | null;
+    glanceHintOverride: FpsCrosshairTargetHint | null;
+  } {
+    const isPlayerTile =
+      target.x === this.playerPos.x && target.y === this.playerPos.y;
+    if (!isPlayerTile) {
+      const hint = this.getFpsCrosshairHintFromTile(target.key, target.mesh);
+      return {
+        actionMesh: target.mesh,
+        allowGlanceProbe: true,
+        fallbackTitle: this.getContextTitleFromHintWithColon(hint),
+        glanceHintOverride: null,
+      };
+    }
+
+    const terrain = this.getKnownTerrainSnapshotForInferenceAtKey(target.key);
+    if (!terrain) {
+      return {
+        actionMesh: target.mesh,
+        allowGlanceProbe: true,
+        fallbackTitle: null,
+        glanceHintOverride: null,
+      };
+    }
+    const inferredMesh = this.createContextInferenceMeshFromTerrain(terrain);
+    const hint = this.getFpsCrosshairHintFromTile(target.key, inferredMesh);
+    return {
+      actionMesh: inferredMesh,
+      allowGlanceProbe: true,
+      fallbackTitle: this.getContextTitleFromHintWithColon(hint),
+      glanceHintOverride: hint,
+    };
+  }
+
+  private getTileContextAnchorClientPosition(
+    target: TileContextTarget,
+  ): { x: number; y: number } | null {
+    if (!this.renderer || !this.camera) {
+      return null;
+    }
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    const z =
+      target.mesh?.userData?.isWall === true ? WALL_HEIGHT + 0.04 : 0.04;
+    const world = new THREE.Vector3(
+      target.x * TILE_SIZE,
+      -target.y * TILE_SIZE,
+      z,
+    );
+    world.project(this.camera);
+    if (!Number.isFinite(world.x) || !Number.isFinite(world.y)) {
+      return null;
+    }
+    const x = rect.left + ((world.x + 1) * rect.width) / 2;
+    const y = rect.top + ((1 - world.y) * rect.height) / 2;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return null;
+    }
+    return { x, y };
   }
 
   private getFpsCrosshairActionsForTile(
@@ -13446,18 +13764,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       treatAsVoidWallTarget = fallbackMesh === this.fpsVoidContextMesh;
     }
 
-    if (!treatAsVoidWallTarget) {
-      this.startFpsCrosshairGlanceProbe(target, nowMs);
+    const resolved = this.resolveContextActionTarget(target);
+    if (!treatAsVoidWallTarget && resolved.allowGlanceProbe) {
+      this.startTileContextGlanceProbe(target, nowMs);
     }
     const glanceEntry = treatAsVoidWallTarget
       ? null
       : this.getCachedFpsCrosshairGlanceEntry(target.key, nowMs);
     const glanceHint: FpsCrosshairTargetHint | null = treatAsVoidWallTarget
       ? "wall"
-      : (glanceEntry?.hint ?? null);
+      : (resolved.glanceHintOverride ?? glanceEntry?.hint ?? null);
     const actions = this.getFpsCrosshairActionsForTile(
       target.key,
-      target.mesh,
+      resolved.actionMesh,
       glanceHint,
       glanceEntry?.sourceText ?? null,
     );
@@ -13468,12 +13787,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     let title = this.getFpsCrosshairTitle(
       target.key,
-      target.mesh,
+      resolved.actionMesh,
       glanceHint,
-      glanceEntry?.sourceText ?? null,
+      glanceEntry?.sourceText ?? resolved.fallbackTitle,
     );
     if (
       !treatAsVoidWallTarget &&
+      resolved.allowGlanceProbe &&
       glanceHint === null &&
       this.fpsCrosshairGlancePending &&
       this.fpsCrosshairGlancePending.tileKey === target.key
@@ -13488,13 +13808,139 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.fpsCrosshairContextSignature = signature;
+    this.activeContextActionTile = { x: target.x, y: target.y };
     const state: FpsCrosshairContextState = {
       title,
       tileX: target.x,
       tileY: target.y,
       actions,
+      autoDirectionFromFpsAim: true,
     };
     this.uiAdapter.setFpsCrosshairContext(state);
+  }
+
+  private updateNormalTileContextMenu(): void {
+    if (this.isFpsMode() || !this.normalTileContextMenuOpen) {
+      this.closeNormalTileContextMenu();
+      return;
+    }
+    if (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.isAnyModalVisible()
+    ) {
+      this.closeNormalTileContextMenu();
+      return;
+    }
+
+    const currentTarget = this.normalTileContextTarget;
+    if (!currentTarget) {
+      this.closeNormalTileContextMenu();
+      return;
+    }
+
+    const liveMesh = this.tileMap.get(currentTarget.key);
+    const target = liveMesh
+      ? { ...currentTarget, mesh: liveMesh }
+      : currentTarget;
+    this.normalTileContextTarget = target;
+    this.setContextSelectionHighlight(target.x, target.y);
+
+    const nowMs = Date.now();
+    this.expireFpsCrosshairGlanceState(nowMs);
+    const resolved = this.resolveContextActionTarget(target);
+    if (resolved.allowGlanceProbe) {
+      this.startTileContextGlanceProbe(target, nowMs);
+    }
+    const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(target.key, nowMs);
+    const glanceHint =
+      resolved.glanceHintOverride ?? glanceEntry?.hint ?? null;
+    const actions = this.getFpsCrosshairActionsForTile(
+      target.key,
+      resolved.actionMesh,
+      glanceHint,
+      glanceEntry?.sourceText ?? null,
+    );
+    if (actions.length === 0) {
+      this.closeNormalTileContextMenu();
+      return;
+    }
+
+    let title = this.getFpsCrosshairTitle(
+      target.key,
+      resolved.actionMesh,
+      glanceHint,
+      glanceEntry?.sourceText ?? resolved.fallbackTitle,
+    );
+    if (
+      resolved.allowGlanceProbe &&
+      glanceHint === null &&
+      this.fpsCrosshairGlancePending &&
+      this.fpsCrosshairGlancePending.tileKey === target.key
+    ) {
+      title = `${title} (scanning...)`;
+    }
+    const anchor = this.getTileContextAnchorClientPosition(target);
+    const canvasRect = this.renderer.domElement.getBoundingClientRect();
+    const fallbackAnchorX = Math.round(canvasRect.left + canvasRect.width * 0.5);
+    const fallbackAnchorY = Math.round(canvasRect.top + canvasRect.height * 0.5);
+    const anchorX =
+      anchor && Number.isFinite(anchor.x)
+        ? Math.round(anchor.x)
+        : fallbackAnchorX;
+    const anchorY =
+      anchor && Number.isFinite(anchor.y)
+        ? Math.round(anchor.y)
+        : fallbackAnchorY;
+    const signature = `${target.x},${target.y}|${title}|${actions
+      .map((action) => `${action.kind}:${action.id}:${action.value}`)
+      .join(",")}|${anchorX},${anchorY}`;
+    if (signature === this.normalTileContextSignature) {
+      return;
+    }
+    this.normalTileContextSignature = signature;
+    this.activeContextActionTile = { x: target.x, y: target.y };
+    this.uiAdapter.setFpsCrosshairContext({
+      title,
+      tileX: target.x,
+      tileY: target.y,
+      actions,
+      autoDirectionFromFpsAim: false,
+      anchorClientX: anchorX,
+      anchorClientY: anchorY,
+    });
+  }
+
+  private updateContextSelectionHighlight(timeMs: number): void {
+    if (this.selectedContextHighlightTile) {
+      this.ensureFpsAimVisuals();
+      const { x, y } = this.selectedContextHighlightTile;
+      const targetTile = this.tileMap.get(`${x},${y}`) ?? null;
+      if (targetTile && this.fpsForwardHighlight) {
+        const targetZ = targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+        this.fpsForwardHighlight.position.set(
+          x * TILE_SIZE,
+          -y * TILE_SIZE,
+          targetZ,
+        );
+        this.fpsForwardHighlight.visible = true;
+        if (this.fpsForwardHighlightMaterial) {
+          const pulse = timeMs <= this.fpsAimLinePulseUntilMs ? 1 : 0.45;
+          this.fpsForwardHighlightMaterial.opacity = 0.2 + pulse * 0.32;
+        }
+        return;
+      }
+      this.closeAnyTileContextMenu(false);
+      return;
+    }
+    if (!this.isFpsMode() && this.fpsForwardHighlight) {
+      this.fpsForwardHighlight.visible = false;
+    }
   }
 
   private handleMouseWheel(event: WheelEvent): void {
@@ -13541,7 +13987,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.session) {
       return false;
     }
-    if (event.button !== 0 && event.button !== 2) {
+    if (event.button !== 0) {
       return false;
     }
     if (event.target !== this.renderer.domElement) {
@@ -13623,6 +14069,75 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsTouchLookGesture = null;
     this.clearFpsTouchRunButtonHoldTimer();
     this.clearFpsTouchRunButtonState();
+  }
+
+  private clearMapTouchContextHoldTimer(): void {
+    if (
+      this.mapTouchContextHoldTimerId !== null &&
+      typeof window !== "undefined"
+    ) {
+      window.clearTimeout(this.mapTouchContextHoldTimerId);
+    }
+    this.mapTouchContextHoldTimerId = null;
+  }
+
+  private cancelMapTouchContextHoldState(): void {
+    this.clearMapTouchContextHoldTimer();
+    this.mapTouchContextHoldState = null;
+  }
+
+  private scheduleMapTouchContextHold(
+    touchId: number,
+    startX: number,
+    startY: number,
+  ): void {
+    this.cancelMapTouchContextHoldState();
+    this.mapTouchContextHoldState = {
+      touchId,
+      startX,
+      startY,
+      opened: false,
+    };
+    if (typeof window === "undefined") {
+      return;
+    }
+    this.mapTouchContextHoldTimerId = window.setTimeout(() => {
+      this.mapTouchContextHoldTimerId = null;
+      const hold = this.mapTouchContextHoldState;
+      if (!hold || hold.touchId !== touchId || hold.opened) {
+        return;
+      }
+      if (
+        this.isFpsMode() ||
+        !this.session ||
+        this.isAnyModalVisible() ||
+        this.isInQuestion ||
+        this.isInDirectionQuestion ||
+        this.metaCommandModeActive ||
+        this.positionInputModeActive
+      ) {
+        return;
+      }
+      const target = this.getTilePositionFromClientCoordinates(
+        hold.startX,
+        hold.startY,
+      );
+      if (!target) {
+        return;
+      }
+      const key = `${target.x},${target.y}`;
+      const mesh = this.tileMap.get(key);
+      if (!mesh) {
+        return;
+      }
+      this.openNormalTileContextMenuAtTarget({
+        key,
+        x: target.x,
+        y: target.y,
+        mesh,
+      });
+      hold.opened = true;
+    }, this.mapTouchContextHoldMs);
   }
 
   private clearFpsTouchRunButtonHoldTimer(): void {
@@ -14078,16 +14593,48 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.updateDirectionalAttackContextFromTarget(target.x, target.y);
       this.setPendingPointerAttackTargetFromTile(target.x, target.y);
     }
-    this.logClickLookTileDebug(
-      event.button === 2 ? "mouse-secondary" : "mouse-primary",
-      target.x,
-      target.y,
-    );
+    this.logClickLookTileDebug("mouse-primary", target.x, target.y);
     this.sendMouseInput(target.x, target.y, event.button);
     return true;
   }
 
+  private canOpenNormalTileContextMenuFromMouse(event: MouseEvent): boolean {
+    if (!this.session || this.isFpsMode()) {
+      return false;
+    }
+    if (event.button !== 2) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (this.isAnyModalVisible()) {
+      return false;
+    }
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      return false;
+    }
+    if (this.metaCommandModeActive || this.positionInputModeActive) {
+      return false;
+    }
+    return true;
+  }
+
   private handleMouseDown(event: MouseEvent): void {
+    if (
+      !this.isFpsMode() &&
+      event.button === 0 &&
+      this.shouldConsumeSuppressedMapPrimaryPointerEvent(
+        event.target === this.renderer.domElement,
+      )
+    ) {
+      event.preventDefault();
+      return;
+    }
+
     if (
       this.isFpsMode() &&
       this.isInDirectionQuestion &&
@@ -14164,6 +14711,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (
+      !this.isFpsMode() &&
+      this.canOpenNormalTileContextMenuFromMouse(event)
+    ) {
+      event.preventDefault();
+      const target = this.getClickedTilePosition(event);
+      if (!target) {
+        this.closeAnyTileContextMenu(false);
+        return;
+      }
+      const key = `${target.x},${target.y}`;
+      const mesh = this.tileMap.get(key);
+      if (!mesh) {
+        this.closeAnyTileContextMenu(false);
+        return;
+      }
+      this.openNormalTileContextMenuAtTarget({
+        key,
+        x: target.x,
+        y: target.y,
+        mesh,
+      });
+      this.isRightMouseDown = false;
+      return;
+    }
+
     if (this.handleMapMouseInput(event)) {
       event.preventDefault();
       return;
@@ -14186,7 +14759,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchStart(event: TouchEvent): void {
+    if (
+      !this.isFpsMode() &&
+      this.shouldConsumeSuppressedMapPrimaryPointerEvent(
+        this.isTouchEventOnGameCanvas(event),
+      )
+    ) {
+      this.touchSwipeStart = null;
+      this.pinchZoomStart = null;
+      this.cancelMapTouchContextHoldState();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (this.isFpsMode()) {
+      this.cancelMapTouchContextHoldState();
       if (this.isInDirectionQuestion) {
         if (!this.canUseFpsDirectionPromptTouchInput(event)) {
           this.clearFpsTouchGestures();
@@ -14282,6 +14871,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.canUseMapTouchInput(event)) {
       this.touchSwipeStart = null;
       this.pinchZoomStart = null;
+      this.cancelMapTouchContextHoldState();
       return;
     }
 
@@ -14294,6 +14884,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
       this.pinchZoomStart = { distance, cameraDistance: this.cameraDistance };
       this.touchSwipeStart = null; // Prevent swipe while pinching
+      this.cancelMapTouchContextHoldState();
       if (event.cancelable) {
         event.preventDefault();
       }
@@ -14303,6 +14894,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (event.touches.length !== 1) {
       this.touchSwipeStart = null;
       this.pinchZoomStart = null;
+      this.cancelMapTouchContextHoldState();
       return;
     }
 
@@ -14317,6 +14909,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       panningActive: false,
     };
     this.pinchZoomStart = null;
+    this.scheduleMapTouchContextHold(
+      touch.identifier,
+      touch.clientX,
+      touch.clientY,
+    );
     if (event.cancelable) {
       event.preventDefault();
     }
@@ -14442,10 +15039,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.canUseMapTouchInput(event)) {
       this.touchSwipeStart = null;
       this.pinchZoomStart = null;
+      this.cancelMapTouchContextHoldState();
       return;
     }
 
     if (this.pinchZoomStart && event.touches.length === 2) {
+      this.cancelMapTouchContextHoldState();
       const touch1 = event.touches[0];
       const touch2 = event.touches[1];
       const distance = Math.hypot(
@@ -14477,6 +15076,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.findTouchById(event.changedTouches, this.touchSwipeStart.touchId);
     if (!touch) {
       return;
+    }
+    const holdState = this.mapTouchContextHoldState;
+    if (holdState && holdState.touchId === this.touchSwipeStart.touchId) {
+      const holdDx = touch.clientX - holdState.startX;
+      const holdDy = touch.clientY - holdState.startY;
+      if (Math.hypot(holdDx, holdDy) >= this.touchSwipeMinDistancePx) {
+        this.cancelMapTouchContextHoldState();
+      }
     }
 
     const nowMs = Date.now();
@@ -14669,6 +15276,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (this.pinchZoomStart) {
       this.pinchZoomStart = null;
+      this.cancelMapTouchContextHoldState();
       if (event.cancelable) {
         event.preventDefault();
       }
@@ -14677,10 +15285,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const start = this.touchSwipeStart;
     this.touchSwipeStart = null;
+    const holdState = this.mapTouchContextHoldState;
+    this.clearMapTouchContextHoldTimer();
     if (!start || !this.canUseMapTouchInput(event)) {
+      this.mapTouchContextHoldState = null;
       return;
     }
     if (!event.changedTouches || event.changedTouches.length === 0) {
+      this.mapTouchContextHoldState = null;
       return;
     }
 
@@ -14688,10 +15300,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.findTouchById(event.changedTouches, start.touchId) ||
       event.changedTouches[0];
     if (!touch) {
+      this.mapTouchContextHoldState = null;
+      return;
+    }
+
+    if (
+      holdState &&
+      holdState.touchId === start.touchId &&
+      holdState.opened
+    ) {
+      this.mapTouchContextHoldState = null;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
       return;
     }
 
     if (start.panningActive) {
+      this.mapTouchContextHoldState = null;
       if (event.cancelable) {
         event.preventDefault();
       }
@@ -14702,6 +15328,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const dy = touch.clientY - start.y;
     const distance = Math.hypot(dx, dy);
     const durationMs = Date.now() - start.startedAtMs;
+    if (durationMs >= this.mapTouchContextHoldMs) {
+      this.mapTouchContextHoldState = null;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
     if (
       distance < this.touchSwipeMinDistancePx ||
       durationMs > this.touchSwipeMaxDurationMs
@@ -14717,6 +15350,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           touch.clientY,
         );
         if (!gridTarget) {
+          this.mapTouchContextHoldState = null;
           return;
         }
         const dx = gridTarget.x - this.playerPos.x;
@@ -14729,6 +15363,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.onSwipeCommandExecuted();
           this.sendForcedDirectionalInput(direction);
         }
+        this.mapTouchContextHoldState = null;
         return;
       }
       if (!this.hasPlayerMovedOnce) {
@@ -14742,11 +15377,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.onSwipeCommandExecuted();
       this.logClickLookTileDebug("touch-primary", target.x, target.y);
       this.sendMouseInput(target.x, target.y, 0);
+      this.mapTouchContextHoldState = null;
       return;
     }
 
     const swipeInput = this.resolveSwipeDirectionInput(dx, dy);
     if (!swipeInput) {
+      this.mapTouchContextHoldState = null;
       return;
     }
     if (event.cancelable) {
@@ -14754,6 +15391,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.onSwipeCommandExecuted();
     this.sendInput(swipeInput);
+    this.mapTouchContextHoldState = null;
   }
 
   private handleTouchCancel(): void {
@@ -14763,6 +15401,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.touchSwipeStart = null;
     this.pinchZoomStart = null;
+    this.cancelMapTouchContextHoldState();
   }
 
   private handleMouseMove(event: MouseEvent): void {
@@ -15044,7 +15683,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateCamera(deltaSeconds);
     this.updateFpsPlayerLightPosition();
     this.updateFpsCrosshairContextMenu();
+    this.updateNormalTileContextMenu();
     this.updateFpsAimVisuals(timeMs);
+    this.updateContextSelectionHighlight(timeMs);
     this.updateLightingCenter(deltaSeconds);
     if (this.clientOptions.minimap) {
       this.renderMinimapViewportOverlay();

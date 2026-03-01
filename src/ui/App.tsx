@@ -1561,6 +1561,45 @@ const clampInventoryContextMenuPosition = (
   };
 };
 
+const parseCssPixelValue = (value: string, fallback = 0): number => {
+  const parsed = Number.parseFloat(String(value || "").trim());
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const clampTileContextMenuPosition = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): { x: number; y: number } => {
+  const rootStyle = getComputedStyle(document.documentElement);
+  const safeLeft =
+    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-modal-safe-left-inset"), 8) +
+    4;
+  const safeRight =
+    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-modal-safe-right-inset"), 8) +
+    4;
+  const safeTop =
+    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-mobile-overlay-top-inset"), 8) +
+    4;
+  const safeBottom =
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-mobile-overlay-bottom-inset"),
+      8,
+    ) + 4;
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : 260;
+  const safeHeight = Number.isFinite(height) && height > 0 ? height : 220;
+  const maxX = Math.max(
+    safeLeft,
+    window.innerWidth - safeRight - safeWidth,
+  );
+  const maxY = Math.max(safeTop, window.innerHeight - safeBottom - safeHeight);
+  return {
+    x: Math.min(Math.max(x, safeLeft), maxX),
+    y: Math.min(Math.max(y, safeTop), maxY),
+  };
+};
+
 const mobileActions: MobileActionEntry[] = [
   { id: "wait", label: "Wait", kind: "quick", value: "wait" },
   { id: "zap", label: "Zap", kind: "extended", value: "zap" },
@@ -2206,6 +2245,11 @@ export default function App(): JSX.Element {
           "--nh3d-context-title-scroll-duration": `${fpsContextTitleDurationSec}s`,
         } as CSSProperties)
       : undefined;
+  const fpsCrosshairContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const [tileContextMenuPosition, setTileContextMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const inventoryItemActions = inventoryContextActions;
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
   const [inventoryContextMenu, setInventoryContextMenu] =
@@ -4239,14 +4283,16 @@ export default function App(): JSX.Element {
   const runFpsCrosshairContextAction = (
     action: FpsCrosshairContextState["actions"][number],
   ): void => {
+    const autoDirectionFromFpsAim =
+      fpsCrosshairContext?.autoDirectionFromFpsAim === true;
     if (action.kind === "quick") {
       controller?.runQuickAction(action.value, {
-        autoDirectionFromFpsAim: true,
+        autoDirectionFromFpsAim,
       });
       return;
     }
     controller?.runExtendedCommand(action.value, {
-      autoDirectionFromFpsAim: true,
+      autoDirectionFromFpsAim,
     });
   };
 
@@ -4405,6 +4451,103 @@ export default function App(): JSX.Element {
       };
     });
   }, [inventoryContextMenu]);
+
+  useLayoutEffect(() => {
+    if (!fpsCrosshairContext) {
+      setTileContextMenuPosition(null);
+      return;
+    }
+    const anchorX = fpsCrosshairContext.anchorClientX;
+    const anchorY = fpsCrosshairContext.anchorClientY;
+    if (
+      typeof anchorX !== "number" ||
+      typeof anchorY !== "number" ||
+      !Number.isFinite(anchorX) ||
+      !Number.isFinite(anchorY)
+    ) {
+      setTileContextMenuPosition(null);
+      return;
+    }
+
+    const menuElement = fpsCrosshairContextMenuRef.current;
+    const rect = menuElement?.getBoundingClientRect();
+    const width = rect?.width ?? 260;
+    const height = rect?.height ?? 220;
+    const unclampedX = anchorX - width / 2;
+    const unclampedY = anchorY - height - 12;
+    const clamped = clampTileContextMenuPosition(
+      unclampedX,
+      unclampedY,
+      width,
+      height,
+    );
+    setTileContextMenuPosition((previous) => {
+      if (previous && previous.x === clamped.x && previous.y === clamped.y) {
+        return previous;
+      }
+      return clamped;
+    });
+  }, [
+    fpsCrosshairContext,
+    fpsCrosshairContext?.anchorClientX,
+    fpsCrosshairContext?.anchorClientY,
+  ]);
+
+  useEffect(() => {
+    if (!fpsCrosshairContext) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && fpsCrosshairContextMenuRef.current?.contains(target)) {
+        return;
+      }
+      controller?.dismissFpsCrosshairContextMenu();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        controller?.dismissFpsCrosshairContextMenu();
+      }
+    };
+
+    const handleViewportResize = (): void => {
+      const menuElement = fpsCrosshairContextMenuRef.current;
+      const rect = menuElement?.getBoundingClientRect();
+      const width = rect?.width ?? 260;
+      const height = rect?.height ?? 220;
+      const anchorX =
+        typeof fpsCrosshairContext.anchorClientX === "number"
+          ? fpsCrosshairContext.anchorClientX
+          : window.innerWidth * 0.5;
+      const anchorY =
+        typeof fpsCrosshairContext.anchorClientY === "number"
+          ? fpsCrosshairContext.anchorClientY
+          : window.innerHeight * 0.5;
+      const clamped = clampTileContextMenuPosition(
+        anchorX - width / 2,
+        anchorY - height - 12,
+        width,
+        height,
+      );
+      setTileContextMenuPosition((previous) => {
+        if (previous && previous.x === clamped.x && previous.y === clamped.y) {
+          return previous;
+        }
+        return clamped;
+      });
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("resize", handleViewportResize);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [controller, fpsCrosshairContext]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -6609,8 +6752,25 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {isFpsPlayMode && fpsCrosshairContext ? (
-        <div className="nh3d-context-menu nh3d-fps-crosshair-context">
+      {fpsCrosshairContext ? (
+        <div
+          className={`nh3d-context-menu ${
+            isFpsPlayMode &&
+            fpsCrosshairContext.autoDirectionFromFpsAim !== false &&
+            tileContextMenuPosition === null
+              ? "nh3d-fps-crosshair-context"
+              : "nh3d-tile-context-menu"
+          }`}
+          ref={fpsCrosshairContextMenuRef}
+          style={
+            tileContextMenuPosition
+              ? {
+                  left: `${tileContextMenuPosition.x}px`,
+                  top: `${tileContextMenuPosition.y}px`,
+                }
+              : undefined
+          }
+        >
           <div
             className={`nh3d-context-menu-title${
               shouldScrollFpsContextTitle

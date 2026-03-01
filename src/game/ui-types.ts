@@ -99,6 +99,9 @@ export type FpsCrosshairContextState = {
   tileX: number;
   tileY: number;
   actions: FpsContextAction[];
+  autoDirectionFromFpsAim?: boolean;
+  anchorClientX?: number;
+  anchorClientY?: number;
 };
 
 export type PlayMode = "normal" | "fps";
