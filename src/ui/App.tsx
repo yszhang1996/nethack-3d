@@ -1076,6 +1076,7 @@ type ClientOptionSlider = {
     | "brightness"
     | "contrast"
     | "gamma"
+    | "minimapScale"
     | "uiFontScale"
     | "liveMessageLogFontScale"
     | "liveMessageDisplayTimeMs"
@@ -1431,6 +1432,15 @@ const clientOptionsConfig: ClientOption[] = [
     label: "Minimap",
     description: "Show or hide the dungeon minimap.",
     type: "boolean",
+  },
+  {
+    key: "minimapScale",
+    label: "Minimap scale",
+    description: "Scale the minimap size from its default.",
+    type: "slider",
+    min: 0.6,
+    max: 2.2,
+    step: 0.01,
   },
   {
     key: "liveMessageLog",
@@ -2132,11 +2142,20 @@ export default function App(): JSX.Element {
       "--nh3d-live-log-font-scale",
       String(clientOptions.liveMessageLogFontScale),
     );
+    root.style.setProperty(
+      "--nh3d-minimap-scale",
+      String(clientOptions.minimapScale),
+    );
     return () => {
       root.style.removeProperty("--nh3d-ui-font-scale");
       root.style.removeProperty("--nh3d-live-log-font-scale");
+      root.style.removeProperty("--nh3d-minimap-scale");
     };
-  }, [clientOptions.uiFontScale, clientOptions.liveMessageLogFontScale]);
+  }, [
+    clientOptions.uiFontScale,
+    clientOptions.liveMessageLogFontScale,
+    clientOptions.minimapScale,
+  ]);
   const [
     reopenNewGamePromptOnInteraction,
     setReopenNewGamePromptOnInteraction,
@@ -3805,6 +3824,8 @@ export default function App(): JSX.Element {
       clamped = Math.max(-0.25, Math.min(0.25, rawValue));
     } else if (key === "gamma") {
       clamped = Math.max(0.5, Math.min(2.5, rawValue));
+    } else if (key === "minimapScale") {
+      clamped = Math.max(0.6, Math.min(2.2, rawValue));
     } else if (key === "liveMessageDisplayTimeMs") {
       clamped = Math.max(250, Math.min(6000, rawValue));
     } else if (key === "uiFontScale") {
@@ -5035,7 +5056,8 @@ export default function App(): JSX.Element {
       {!startup && (
         <div id="stats-bar">
           <div className="nh3d-stats-name">
-            {playerStats.name} (Lvl {playerStats.level})
+            {playerStats.name}
+            <span className="nh3d-stats-name-level"> (Lvl {playerStats.level})</span>
           </div>
           <div className="nh3d-stats-meter">
             <div className="nh3d-stats-meter-label nh3d-stats-meter-label-hp">

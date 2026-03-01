@@ -138,6 +138,7 @@ export type Nh3dClientOptions = {
   invertLookYAxis: boolean;
   invertTouchPanningDirection: boolean;
   minimap: boolean;
+  minimapScale: number;
   damageNumbers: boolean;
   tileShakeOnHit: boolean;
   blood: boolean;
@@ -192,6 +193,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   invertLookYAxis: false,
   invertTouchPanningDirection: true,
   minimap: true,
+  minimapScale: 1,
   damageNumbers: true,
   tileShakeOnHit: true,
   blood: true,
@@ -502,6 +504,14 @@ export function normalizeNh3dClientOptions(
   const liveMessageFadeOutTimeMs = Math.round(
     Math.max(120, Math.min(4000, rawLiveMessageFadeOutTimeMs)),
   );
+  const rawMinimapScale =
+    typeof overrides?.minimapScale === "number" &&
+    Number.isFinite(overrides.minimapScale)
+      ? overrides.minimapScale
+      : defaultNh3dClientOptions.minimapScale;
+  const minimapScale = Number(
+    Math.max(0.6, Math.min(2.2, rawMinimapScale)).toFixed(2),
+  );
   const rawUiFontScale =
     typeof overrides?.uiFontScale === "number" &&
     Number.isFinite(overrides.uiFontScale)
@@ -690,6 +700,7 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.minimap === "boolean"
         ? overrides.minimap
         : defaultNh3dClientOptions.minimap,
+    minimapScale,
     damageNumbers:
       typeof overrides?.damageNumbers === "boolean"
         ? overrides.damageNumbers
