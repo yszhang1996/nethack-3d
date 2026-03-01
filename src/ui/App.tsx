@@ -4913,7 +4913,10 @@ export default function App(): JSX.Element {
             key={entry.id}
             style={{ top: `${-index * 30}px` }}
           >
-            <div className="floating-message-text" style={floatingMessageTextStyle}>
+            <div
+              className="floating-message-text"
+              style={floatingMessageTextStyle}
+            >
               {entry.text}
             </div>
           </div>
@@ -4953,23 +4956,31 @@ export default function App(): JSX.Element {
             </div>
           ) : null}
           <div className="nh3d-stats-group nh3d-stats-group-core">
-            <div className="nh3d-stats-core">St:{playerStats.strength}</div>
-            <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
-            <div className="nh3d-stats-core">Co:{playerStats.constitution}</div>
-            <div className="nh3d-stats-core">In:{playerStats.intelligence}</div>
-            <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
-            <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
-            <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
-              AC:{playerStats.armor}
+            <div className="nh3d-stats-core-row nh3d-stats-core-row-primary">
+              <div className="nh3d-stats-core">St:{playerStats.strength}</div>
+              <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
+              <div className="nh3d-stats-core">
+                Co:{playerStats.constitution}
+              </div>
+              <div className="nh3d-stats-core">
+                In:{playerStats.intelligence}
+              </div>
+              <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
             </div>
-            <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
-              Exp:{playerStats.experience}
-            </div>
-            <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
-              T:{playerStats.time}
-            </div>
-            <div className="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">
-              $:{playerStats.gold}
+            <div className="nh3d-stats-core-row nh3d-stats-core-row-secondary">
+              <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
+              <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
+                AC:{playerStats.armor}
+              </div>
+              <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
+                Exp:{playerStats.experience}
+              </div>
+              <div className="nh3d-stats-secondary-time nh3d-stats-mobile-inline-secondary">
+                T:{playerStats.time}
+              </div>
+              <div className="nh3d-stats-secondary-gold nh3d-stats-mobile-inline-secondary">
+                $:{playerStats.gold}
+              </div>
             </div>
           </div>
           <div className="nh3d-stats-group nh3d-stats-group-secondary">
@@ -5385,7 +5396,7 @@ export default function App(): JSX.Element {
                     : option.key === "liveMessageDisplayTimeMs" ||
                         option.key === "liveMessageFadeOutTimeMs"
                       ? `${Math.round(sliderValue)}ms`
-                    : `${Math.round(sliderValue * 100)}%`;
+                      : `${Math.round(sliderValue * 100)}%`;
                 return (
                   <div
                     className="nh3d-option-row nh3d-option-row-slider"
@@ -5425,13 +5436,6 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-menu-actions">
             <button
-              className="nh3d-menu-action-button"
-              onClick={openResetClientOptionsConfirmation}
-              type="button"
-            >
-              Reset Defaults
-            </button>
-            <button
               className="nh3d-menu-action-button nh3d-menu-action-confirm"
               onClick={confirmClientOptionsDialog}
               type="button"
@@ -5444,6 +5448,13 @@ export default function App(): JSX.Element {
               type="button"
             >
               Cancel
+            </button>
+            <button
+              className="nh3d-menu-action-button"
+              onClick={openResetClientOptionsConfirmation}
+              type="button"
+            >
+              Reset to Defaults
             </button>
           </div>
         </div>
