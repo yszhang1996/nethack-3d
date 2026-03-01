@@ -1072,7 +1072,12 @@ type ClientOptionSelect = {
 };
 
 type ClientOptionSlider = {
-  key: "brightness" | "contrast" | "gamma";
+  key:
+    | "brightness"
+    | "contrast"
+    | "gamma"
+    | "liveMessageDisplayTimeMs"
+    | "liveMessageFadeOutTimeMs";
   label: string;
   description: string;
   type: "slider";
@@ -1421,6 +1426,24 @@ const clientOptionsConfig: ClientOption[] = [
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
     type: "boolean",
+  },
+  {
+    key: "liveMessageDisplayTimeMs",
+    label: "Live message display time",
+    description: "Time a floating message stays fully visible before fading.",
+    type: "slider",
+    min: 250,
+    max: 6000,
+    step: 50,
+  },
+  {
+    key: "liveMessageFadeOutTimeMs",
+    label: "Live message fade-out time",
+    description: "Duration of floating message fade-out animation.",
+    type: "slider",
+    min: 120,
+    max: 4000,
+    step: 20,
   },
   {
     key: "blockAmbientOcclusion",
@@ -1982,6 +2005,10 @@ export default function App(): JSX.Element {
   const [isPauseMenuVisible, setIsPauseMenuVisible] = useState(false);
   const [isExitConfirmationVisible, setIsExitConfirmationVisible] =
     useState(false);
+  const [
+    isResetClientOptionsConfirmationVisible,
+    setIsResetClientOptionsConfirmationVisible,
+  ] = useState(false);
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
@@ -2031,6 +2058,9 @@ export default function App(): JSX.Element {
     (state) => state.setEngineController,
   );
   const setPositionRequest = useGameStore((state) => state.setPositionRequest);
+  const setFloatingMessageTiming = useGameStore(
+    (state) => state.setFloatingMessageTiming,
+  );
   const setNewGamePrompt = useGameStore((state) => state.setNewGamePrompt);
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
@@ -2057,6 +2087,17 @@ export default function App(): JSX.Element {
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
   const newGamePrompt = useGameStore((state) => state.newGamePrompt);
+  const floatingMessageTextStyle = useMemo(
+    () =>
+      ({
+        "--floating-message-fade-delay-ms": `${clientOptions.liveMessageDisplayTimeMs}ms`,
+        "--floating-message-fade-duration-ms": `${clientOptions.liveMessageFadeOutTimeMs}ms`,
+      }) as React.CSSProperties,
+    [
+      clientOptions.liveMessageDisplayTimeMs,
+      clientOptions.liveMessageFadeOutTimeMs,
+    ],
+  );
   const [
     reopenNewGamePromptOnInteraction,
     setReopenNewGamePromptOnInteraction,
@@ -3009,6 +3050,17 @@ export default function App(): JSX.Element {
   }, [isMobileGameRunning]);
 
   useEffect(() => {
+    setFloatingMessageTiming(
+      clientOptions.liveMessageDisplayTimeMs,
+      clientOptions.liveMessageFadeOutTimeMs,
+    );
+  }, [
+    clientOptions.liveMessageDisplayTimeMs,
+    clientOptions.liveMessageFadeOutTimeMs,
+    setFloatingMessageTiming,
+  ]);
+
+  useEffect(() => {
     if (!clientOptions.liveMessageLog) {
       setIsMobileLogVisible(false);
     }
@@ -3446,6 +3498,7 @@ export default function App(): JSX.Element {
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
     setIsTilesetManagerVisible(false);
+    setIsResetClientOptionsConfirmationVisible(false);
     controller?.dismissFpsCrosshairContextMenu();
   };
 
@@ -3455,6 +3508,7 @@ export default function App(): JSX.Element {
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
     setIsTilesetManagerVisible(false);
+    setIsResetClientOptionsConfirmationVisible(false);
     setClientOptionsDraft({ ...clientOptions });
   };
 
@@ -3467,6 +3521,27 @@ export default function App(): JSX.Element {
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
     setIsTilesetManagerVisible(false);
+    setIsResetClientOptionsConfirmationVisible(false);
+    controller?.setClientOptions(next);
+  };
+
+  const openResetClientOptionsConfirmation = (): void => {
+    setIsResetClientOptionsConfirmationVisible(true);
+  };
+
+  const cancelResetClientOptionsConfirmation = (): void => {
+    setIsResetClientOptionsConfirmationVisible(false);
+  };
+
+  const confirmResetClientOptionsToDefaults = (): void => {
+    const next = normalizeNh3dClientOptions(defaultNh3dClientOptions);
+    setClientOptions(next);
+    setClientOptionsDraft(next);
+    setIsDarkWallTilePickerVisible(false);
+    setIsTilesetBackgroundTilePickerVisible(false);
+    setIsTilesetSolidColorPickerVisible(false);
+    setIsTilesetManagerVisible(false);
+    setIsResetClientOptionsConfirmationVisible(false);
     controller?.setClientOptions(next);
   };
 
@@ -3632,8 +3707,19 @@ export default function App(): JSX.Element {
       clamped = Math.max(-0.25, Math.min(0.25, rawValue));
     } else if (key === "contrast") {
       clamped = Math.max(-0.25, Math.min(0.25, rawValue));
-    } else {
+    } else if (key === "gamma") {
       clamped = Math.max(0.5, Math.min(2.5, rawValue));
+    } else if (key === "liveMessageDisplayTimeMs") {
+      clamped = Math.max(250, Math.min(6000, rawValue));
+    } else {
+      clamped = Math.max(120, Math.min(4000, rawValue));
+    }
+    if (
+      key === "liveMessageDisplayTimeMs" ||
+      key === "liveMessageFadeOutTimeMs"
+    ) {
+      updateClientOptionDraft(key, Math.round(clamped));
+      return;
     }
     updateClientOptionDraft(key, Number(clamped.toFixed(2)));
   };
@@ -4231,6 +4317,10 @@ export default function App(): JSX.Element {
       if (isClientOptionsVisible) {
         event.preventDefault();
         event.stopPropagation();
+        if (isResetClientOptionsConfirmationVisible) {
+          setIsResetClientOptionsConfirmationVisible(false);
+          return;
+        }
         if (isTilesetManagerVisible) {
           closeTilesetManager();
           return;
@@ -4273,6 +4363,7 @@ export default function App(): JSX.Element {
     isTilesetBackgroundTilePickerVisible,
     isTilesetSolidColorPickerVisible,
     isTilesetManagerVisible,
+    isResetClientOptionsConfirmationVisible,
     isPauseMenuVisible,
     isExitConfirmationVisible,
     isDesktopGameRunning,
@@ -4822,7 +4913,9 @@ export default function App(): JSX.Element {
             key={entry.id}
             style={{ top: `${-index * 30}px` }}
           >
-            <div className="floating-message-text">{entry.text}</div>
+            <div className="floating-message-text" style={floatingMessageTextStyle}>
+              {entry.text}
+            </div>
           </div>
         ))}
       </div>
@@ -5289,6 +5382,9 @@ export default function App(): JSX.Element {
                 const sliderLabel =
                   option.key === "gamma"
                     ? `${sliderValue.toFixed(2)}x`
+                    : option.key === "liveMessageDisplayTimeMs" ||
+                        option.key === "liveMessageFadeOutTimeMs"
+                      ? `${Math.round(sliderValue)}ms`
                     : `${Math.round(sliderValue * 100)}%`;
                 return (
                   <div
@@ -5329,6 +5425,13 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-menu-actions">
             <button
+              className="nh3d-menu-action-button"
+              onClick={openResetClientOptionsConfirmation}
+              type="button"
+            >
+              Reset Defaults
+            </button>
+            <button
               className="nh3d-menu-action-button nh3d-menu-action-confirm"
               onClick={confirmClientOptionsDialog}
               type="button"
@@ -5341,6 +5444,33 @@ export default function App(): JSX.Element {
               type="button"
             >
               Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isClientOptionsVisible && isResetClientOptionsConfirmationVisible ? (
+        <div
+          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
+          id="nh3d-reset-client-options-confirmation-dialog"
+        >
+          <div className="nh3d-question-text">
+            Reset NetHack 3D options to defaults? Custom tile sets will be kept.
+          </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={confirmResetClientOptionsToDefaults}
+              type="button"
+            >
+              Yes
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={cancelResetClientOptionsConfirmation}
+              type="button"
+            >
+              No
             </button>
           </div>
         </div>

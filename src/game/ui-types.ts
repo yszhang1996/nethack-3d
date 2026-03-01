@@ -142,6 +142,8 @@ export type Nh3dClientOptions = {
   tileShakeOnHit: boolean;
   blood: boolean;
   liveMessageLog: boolean;
+  liveMessageDisplayTimeMs: number;
+  liveMessageFadeOutTimeMs: number;
   blockAmbientOcclusion: boolean;
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
@@ -192,6 +194,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   tileShakeOnHit: true,
   blood: true,
   liveMessageLog: true,
+  liveMessageDisplayTimeMs: 3000,
+  liveMessageFadeOutTimeMs: 520,
   blockAmbientOcclusion: true,
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
@@ -478,6 +482,22 @@ export function normalizeNh3dClientOptions(
       ? overrides.gamma
       : defaultNh3dClientOptions.gamma;
   const gamma = Number(Math.max(0.5, Math.min(2.5, rawGamma)).toFixed(2));
+  const rawLiveMessageDisplayTimeMs =
+    typeof overrides?.liveMessageDisplayTimeMs === "number" &&
+    Number.isFinite(overrides.liveMessageDisplayTimeMs)
+      ? overrides.liveMessageDisplayTimeMs
+      : defaultNh3dClientOptions.liveMessageDisplayTimeMs;
+  const liveMessageDisplayTimeMs = Math.round(
+    Math.max(250, Math.min(6000, rawLiveMessageDisplayTimeMs)),
+  );
+  const rawLiveMessageFadeOutTimeMs =
+    typeof overrides?.liveMessageFadeOutTimeMs === "number" &&
+    Number.isFinite(overrides.liveMessageFadeOutTimeMs)
+      ? overrides.liveMessageFadeOutTimeMs
+      : defaultNh3dClientOptions.liveMessageFadeOutTimeMs;
+  const liveMessageFadeOutTimeMs = Math.round(
+    Math.max(120, Math.min(4000, rawLiveMessageFadeOutTimeMs)),
+  );
   const requestedTilesetPath =
     typeof overrides?.tilesetPath === "string"
       ? overrides.tilesetPath.trim()
@@ -666,6 +686,8 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
         : defaultNh3dClientOptions.liveMessageLog,
+    liveMessageDisplayTimeMs,
+    liveMessageFadeOutTimeMs,
     blockAmbientOcclusion:
       typeof overrides?.blockAmbientOcclusion === "boolean"
         ? overrides.blockAmbientOcclusion

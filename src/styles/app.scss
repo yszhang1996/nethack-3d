@@ -1851,7 +1851,6 @@ canvas {
   border: 1px solid rgba(76, 111, 160, 0.55);
   border-radius: 8px;
   background: rgba(10, 22, 36, 0.82);
-  min-height: 0;
 
   @media (pointer: coarse) {
     max-height: min(42vh, 420px);

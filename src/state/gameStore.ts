@@ -49,6 +49,8 @@ type GameStore = {
   connectionText: string;
   gameMessages: string[];
   floatingMessages: FloatingMessage[];
+  floatingMessageFadeDelayMs: number;
+  floatingMessageFadeDurationMs: number;
   playerStats: PlayerStatsSnapshot;
   question: QuestionDialogState | null;
   directionQuestion: string | null;
@@ -70,6 +72,7 @@ type GameStore = {
   setGameMessages: (messages: string[]) => void;
   pushFloatingMessage: (message: string) => void;
   removeFloatingMessage: (id: number) => void;
+  setFloatingMessageTiming: (delayMs: number, durationMs: number) => void;
   setPlayerStats: (stats: PlayerStatsSnapshot) => void;
   setQuestion: (question: QuestionDialogState | null) => void;
   setDirectionQuestion: (text: string | null) => void;
@@ -86,7 +89,9 @@ type GameStore = {
   setEngineController: (controller: Nethack3DEngineController | null) => void;
 };
 
-const floatingMessageLifetimeMs = 2200;
+const defaultFloatingMessageFadeDelayMs = 1500;
+const defaultFloatingMessageFadeDurationMs = 520;
+const floatingMessageLifetimeBufferMs = 80;
 const maxFloatingMessages = 12;
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -96,6 +101,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   connectionText: "Disconnected",
   gameMessages: [],
   floatingMessages: [],
+  floatingMessageFadeDelayMs: defaultFloatingMessageFadeDelayMs,
+  floatingMessageFadeDurationMs: defaultFloatingMessageFadeDurationMs,
   playerStats: { ...defaultPlayerStats },
   question: null,
   directionQuestion: null,
@@ -144,9 +151,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       ].slice(0, maxFloatingMessages),
     }));
     if (typeof window !== "undefined") {
+      const fadeDelayMs = Math.max(250, Math.round(get().floatingMessageFadeDelayMs));
+      const fadeDurationMs = Math.max(
+        120,
+        Math.round(get().floatingMessageFadeDurationMs),
+      );
+      const lifetimeMs =
+        fadeDelayMs + fadeDurationMs + floatingMessageLifetimeBufferMs;
       window.setTimeout(() => {
         get().removeFloatingMessage(id);
-      }, floatingMessageLifetimeMs);
+      }, lifetimeMs);
     }
   },
   removeFloatingMessage: (id) => {
@@ -155,6 +169,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         (entry) => entry.id !== id,
       ),
     }));
+  },
+  setFloatingMessageTiming: (delayMs, durationMs) => {
+    const normalizedDelayMs = Math.max(250, Math.round(delayMs));
+    const normalizedDurationMs = Math.max(120, Math.round(durationMs));
+    set({
+      floatingMessageFadeDelayMs: normalizedDelayMs,
+      floatingMessageFadeDurationMs: normalizedDurationMs,
+    });
   },
   setPlayerStats: (stats) => {
     set({ playerStats: stats });
