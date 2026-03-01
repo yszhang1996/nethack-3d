@@ -5144,8 +5144,6 @@ export default function App(): JSX.Element {
                                   )}
                                 />
                               </label>
-                            </div>
-                            <div className="nh3d-dark-wall-grid-controls">
                               <label className="nh3d-dark-wall-grid-toggle">
                                 <input
                                   checked={
