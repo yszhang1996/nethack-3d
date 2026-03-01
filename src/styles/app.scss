@@ -54,6 +54,17 @@
       ) /
       2
   );
+  --nh3d-startup-logo-top: calc(1vh + var(--nh3d-stats-bar-height, 0px));
+  --nh3d-startup-logo-bottom: calc(var(--nh3d-startup-logo-top) + 240px);
+  --nh3d-startup-modal-frame-top: calc(var(--nh3d-startup-logo-bottom) + 15px);
+  --nh3d-startup-modal-frame-bottom-inset: calc(
+    var(--nh3d-safe-area-bottom) + 8px
+  );
+  --nh3d-startup-modal-frame-max-height: calc(
+    var(--nh3d-mobile-visible-height, 100vh) - var(
+        --nh3d-startup-modal-frame-top
+      ) - var(--nh3d-startup-modal-frame-bottom-inset)
+  );
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
   --nh3d-ui-border: #2b5a76;
@@ -794,7 +805,7 @@ canvas {
 
   .nethack-ascii-logo {
     position: absolute;
-    top: calc(1vh + var(--nh3d-stats-bar-height, 0px));
+    top: var(--nh3d-startup-logo-top);
     transform: translateX(-40%);
     font-family: "Consolas", "Courier New", monospace;
     white-space: pre;
@@ -805,14 +816,24 @@ canvas {
     z-index: 1999;
 
     @media (pointer: coarse) {
-      top: calc(var(--nh3d-safe-area-top) + 3vh);
       font-size: 5px;
     }
 
     @media (max-width: 515px) {
-      top: calc(var(--nh3d-safe-area-top) + 3vh);
       font-size: 5px;
     }
+  }
+}
+
+@media (pointer: coarse) {
+  :root {
+    --nh3d-startup-logo-top: calc(var(--nh3d-safe-area-top) + 3vh);
+  }
+}
+
+@media (max-width: 515px) {
+  :root {
+    --nh3d-startup-logo-top: calc(var(--nh3d-safe-area-top) + 3vh);
   }
 }
 
@@ -940,6 +961,25 @@ canvas {
   // Ensure specialized dialog classes that set their own heights still clamp
   // to the shared mobile modal frame.
   .nh3d-dialog:not(.startup) {
+    max-height: var(--nh3d-modal-safe-max-height);
+  }
+}
+
+@media not ((pointer: coarse) and (orientation: landscape)) {
+  .nh3d-dialog.startup {
+    top: var(--nh3d-startup-modal-frame-top);
+    left: var(--nh3d-modal-safe-center-x);
+    transform: translate(-50%, 0);
+    max-height: var(--nh3d-startup-modal-frame-max-height);
+    overflow-y: auto;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .nh3d-dialog.startup {
+    top: var(--nh3d-modal-safe-center-y);
+    left: var(--nh3d-modal-safe-center-x);
+    transform: translate(-50%, -50%);
     max-height: var(--nh3d-modal-safe-max-height);
   }
 }
@@ -1142,7 +1182,7 @@ canvas {
   --nh3d-character-setup-control-width: min(320px, 100%);
   --nh3d-character-setup-control-height: 40px;
   width: min(92vw, 680px);
-  max-height: 92vh;
+  max-height: var(--nh3d-startup-modal-frame-max-height);
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
@@ -1209,7 +1249,7 @@ canvas {
           --nh3d-modal-safe-right-inset
         )
     );
-    max-height: var(--nh3d-modal-safe-max-height);
+    max-height: var(--nh3d-startup-modal-frame-max-height);
     padding: 12px;
     box-sizing: border-box;
     overflow-x: hidden;
@@ -2287,6 +2327,11 @@ canvas {
     max-width: 100%;
     max-height: min(38vh, 280px);
   }
+}
+
+#character-setup-dialog .nh3d-choice-list-startup-choose {
+  max-height: none;
+  overflow-y: visible;
 }
 
 .nh3d-startup-config-grid {

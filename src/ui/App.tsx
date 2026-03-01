@@ -3030,6 +3030,61 @@ export default function App(): JSX.Element {
 
   const startup = !isMobileGameRunning && !isDesktopGameRunning;
 
+  useLayoutEffect(() => {
+    if (typeof document === "undefined" || typeof window === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    if (!startup) {
+      root.style.removeProperty("--nh3d-startup-logo-bottom");
+      return;
+    }
+
+    const measureLogoBottom = (): void => {
+      const logos = Array.from(
+        document.querySelectorAll<HTMLElement>(".nethack-ascii-logo"),
+      );
+      if (logos.length === 0) {
+        root.style.removeProperty("--nh3d-startup-logo-bottom");
+        return;
+      }
+      const maxBottom = logos.reduce((max, logo) => {
+        const rect = logo.getBoundingClientRect();
+        return Math.max(max, rect.bottom);
+      }, 0);
+      if (!Number.isFinite(maxBottom) || maxBottom <= 0) {
+        root.style.removeProperty("--nh3d-startup-logo-bottom");
+        return;
+      }
+      root.style.setProperty(
+        "--nh3d-startup-logo-bottom",
+        `${Math.ceil(maxBottom)}px`,
+      );
+    };
+
+    measureLogoBottom();
+    const rafId = window.requestAnimationFrame(measureLogoBottom);
+    window.addEventListener("resize", measureLogoBottom);
+    window.addEventListener("orientationchange", measureLogoBottom);
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(measureLogoBottom);
+      const logos = document.querySelectorAll<HTMLElement>(".nethack-ascii-logo");
+      logos.forEach((logo) => resizeObserver?.observe(logo));
+    }
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", measureLogoBottom);
+      window.removeEventListener("orientationchange", measureLogoBottom);
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+      root.style.removeProperty("--nh3d-startup-logo-bottom");
+    };
+  }, [startup]);
+
   const hasGameplayOverlayOpen =
     Boolean(question) ||
     Boolean(directionQuestion) ||
@@ -4554,24 +4609,24 @@ export default function App(): JSX.Element {
                 <div className="nh3d-question-text">
                   Choose your character setup:
                 </div>
-                <div className="nh3d-startup-config-grid centered">
-                  <label className="nh3d-startup-config-field">
-                    <span>NetHack Version</span>
-                    <select
-                      className="nh3d-startup-config-select"
-                      onChange={(event) =>
-                        setRuntimeVersion(
-                          event.target.value as NethackRuntimeVersion,
-                        )
-                      }
-                      value={runtimeVersion}
-                    >
-                      <option value="3.6.7">3.6.x (3.6.7)</option>
-                      {import.meta.env.DEV && <option value="3.7">3.7</option>}
-                    </select>
-                  </label>
-                </div>
-                <div className="nh3d-choice-list">
+                <div className="nh3d-choice-list nh3d-choice-list-startup-choose">
+                  <div className="nh3d-startup-config-grid centered">
+                    <label className="nh3d-startup-config-field">
+                      <span>NetHack Version</span>
+                      <select
+                        className="nh3d-startup-config-select"
+                        onChange={(event) =>
+                          setRuntimeVersion(
+                            event.target.value as NethackRuntimeVersion,
+                          )
+                        }
+                        value={runtimeVersion}
+                      >
+                        <option value="3.6.7">3.6.x (3.6.7)</option>
+                        {import.meta.env.DEV && <option value="3.7">3.7</option>}
+                      </select>
+                    </label>
+                  </div>
                   <button
                     className="nh3d-choice-button nh3d-character-setup-choice-button"
                     onClick={() => setStartupFlowStep("random")}
