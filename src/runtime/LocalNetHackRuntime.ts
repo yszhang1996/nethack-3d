@@ -1,5 +1,6 @@
 // @ts-nocheck
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
+import { getBundledDisplayFile } from "./displayFileCatalog";
 import type { NethackRuntimeVersion } from "./types";
 
 const process =
@@ -1470,6 +1471,46 @@ class LocalNetHackRuntime {
 
   shouldCaptureWindowTextForDialog(winId) {
     return winId === 4 || winId === 5 || winId === 6;
+  }
+
+  handleShimDisplayFile(args) {
+    const [rawName, complain] = Array.isArray(args) ? args : [];
+    const fileName =
+      typeof rawName === "string" ? rawName.trim() : String(rawName ?? "").trim();
+    const mustExist = Boolean(complain);
+    console.log(
+      `DISPLAY FILE request: "${fileName || "<empty>"}" (mustExist=${mustExist})`,
+    );
+
+    const bundled = getBundledDisplayFile(fileName);
+    if (bundled && bundled.lines.length > 0) {
+      if (this.eventHandler) {
+        this.emit({
+          type: "info_menu",
+          title: bundled.title,
+          lines: bundled.lines,
+          source: "display_file",
+          file: bundled.canonicalName,
+          mustExist,
+        });
+      }
+      return 0;
+    }
+
+    const fallbackMessage = fileName
+      ? `No bundled help text available for "${fileName}".`
+      : "No help file name was provided.";
+    console.warn(`DISPLAY FILE unavailable: ${fallbackMessage}`);
+    if (mustExist && this.eventHandler) {
+      this.emit({
+        type: "text",
+        text: fallbackMessage,
+        window: 5,
+        attr: 0,
+        source: "display_file",
+      });
+    }
+    return 0;
   }
 
   shouldLogWindowTextInsteadOfDialog(lines) {
@@ -3261,6 +3302,8 @@ class LocalNetHackRuntime {
           });
         }
         return 0;
+      case "shim_display_file":
+        return this.handleShimDisplayFile(args);
       case "shim_add_menu":
         const [
           menuWinid,

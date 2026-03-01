@@ -1178,6 +1178,12 @@ canvas {
 }
 
 .nh3d-dialog-new-game {
+  top: 65%;
+
+  @media (pointer: coarse) {
+    top: calc(var(--nh3d-modal-safe-center-y) + 10vh);
+  }
+
   .nh3d-menu-actions {
     @media (pointer: coarse) {
       margin-top: 0 !important;
