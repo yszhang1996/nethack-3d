@@ -16333,6 +16333,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.camera.aspect = viewport.width / viewport.height;
     this.camera.updateProjectionMatrix();
     this.updateRendererResolution();
+    this.recenterCameraOnPlayerIfNeeded();
   }
 
   private getRendererViewportSize(): { width: number; height: number } {
