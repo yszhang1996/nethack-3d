@@ -1,8 +1,6 @@
 const { app, BrowserWindow, shell } = require("electron");
 const path = require("node:path");
 
-app.setVersion("0.8.2.1");
-
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 
 function createMainWindow() {
@@ -12,7 +10,7 @@ function createMainWindow() {
     minWidth: 1024,
     minHeight: 700,
     frame: false,
-    fullscreenable: false,
+    fullscreenable: true,
     autoHideMenuBar: true,
     show: false,
     backgroundColor: "#000000",
@@ -24,7 +22,7 @@ function createMainWindow() {
   });
 
   mainWindow.once("ready-to-show", () => {
-    mainWindow.maximize();
+    mainWindow.setFullScreen(true);
     mainWindow.show();
   });
 

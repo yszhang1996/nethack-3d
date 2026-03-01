@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: "NetHack 3D",
   webDir: "dist",
   bundledWebRuntime: false,
-  appVersion: "0.8.2.1",
+  appVersion: "0.8.3",
   plugins: {
     SystemBars: {
       insetsHandling: "css",

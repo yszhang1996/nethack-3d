@@ -36,10 +36,10 @@
   --nh3d-modal-safe-top-inset: calc(var(--nh3d-safe-area-top) + 12px);
   --nh3d-modal-safe-bottom-inset: calc(var(--nh3d-safe-area-bottom) + 12px);
   --nh3d-modal-safe-left-inset: calc(
-    var(--safe-area-inset-left, env(safe-area-inset-left, 0px)) + 12px
+    var(env(safe-area-inset-left, --safe-area-inset-left, 0px)) + 12px
   );
   --nh3d-modal-safe-right-inset: calc(
-    var(--safe-area-inset-right, env(safe-area-inset-right, 0px)) + 12px
+    var(env(safe-area-inset-right, --safe-area-inset-right, 0px)) + 12px
   );
   --nh3d-modal-safe-max-height: calc(
     var(--nh3d-mobile-visible-height, 100vh) - var(
@@ -64,6 +64,14 @@
       ) /
       2
   );
+  &.nh3d-pwa-mode {
+    /* 
+    Instead of using the full 34px gap, we scale the environment safe area by 0.5.
+    This shrinks the gap nicely but leaves just enough padding so the 
+    user doesn't accidentally swipe home while tapping "Actions".
+  */
+    --nh3d-safe-area-bottom: calc(env(safe-area-inset-bottom, 0px) * 0.5);
+  }
   --nh3d-ui-panel-bg: rgba(6, 16, 30, 0.92);
   --nh3d-ui-panel-bg-strong: rgba(4, 12, 24, 0.96);
   --nh3d-ui-border: #2b5a76;
