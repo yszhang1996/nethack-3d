@@ -1574,14 +1574,20 @@ const clampTileContextMenuPosition = (
 ): { x: number; y: number } => {
   const rootStyle = getComputedStyle(document.documentElement);
   const safeLeft =
-    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-modal-safe-left-inset"), 8) +
-    4;
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-left-inset"),
+      8,
+    ) + 4;
   const safeRight =
-    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-modal-safe-right-inset"), 8) +
-    4;
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-right-inset"),
+      8,
+    ) + 4;
   const safeTop =
-    parseCssPixelValue(rootStyle.getPropertyValue("--nh3d-mobile-overlay-top-inset"), 8) +
-    4;
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-mobile-overlay-top-inset"),
+      8,
+    ) + 4;
   const safeBottom =
     parseCssPixelValue(
       rootStyle.getPropertyValue("--nh3d-mobile-overlay-bottom-inset"),
@@ -1589,16 +1595,15 @@ const clampTileContextMenuPosition = (
     ) + 4;
   const safeWidth = Number.isFinite(width) && width > 0 ? width : 260;
   const safeHeight = Number.isFinite(height) && height > 0 ? height : 220;
-  const maxX = Math.max(
-    safeLeft,
-    window.innerWidth - safeRight - safeWidth,
-  );
+  const maxX = Math.max(safeLeft, window.innerWidth - safeRight - safeWidth);
   const maxY = Math.max(safeTop, window.innerHeight - safeBottom - safeHeight);
   return {
     x: Math.min(Math.max(x, safeLeft), maxX),
     y: Math.min(Math.max(y, safeTop), maxY),
   };
 };
+
+const tileContextMenuAnchorOffsetY = 30;
 
 const mobileActions: MobileActionEntry[] = [
   { id: "wait", label: "Wait", kind: "quick", value: "wait" },
@@ -4474,7 +4479,7 @@ export default function App(): JSX.Element {
     const width = rect?.width ?? 260;
     const height = rect?.height ?? 220;
     const unclampedX = anchorX - width / 2;
-    const unclampedY = anchorY - height - 12;
+    const unclampedY = anchorY - height - tileContextMenuAnchorOffsetY;
     const clamped = clampTileContextMenuPosition(
       unclampedX,
       unclampedY,
@@ -4527,7 +4532,7 @@ export default function App(): JSX.Element {
           : window.innerHeight * 0.5;
       const clamped = clampTileContextMenuPosition(
         anchorX - width / 2,
-        anchorY - height - 12,
+        anchorY - height - tileContextMenuAnchorOffsetY,
         width,
         height,
       );
@@ -5200,7 +5205,10 @@ export default function App(): JSX.Element {
         <div id="stats-bar">
           <div className="nh3d-stats-name">
             {playerStats.name}
-            <span className="nh3d-stats-name-level"> (Lvl {playerStats.level})</span>
+            <span className="nh3d-stats-name-level">
+              {" "}
+              (Lvl {playerStats.level})
+            </span>
           </div>
           <div className="nh3d-stats-meter">
             <div className="nh3d-stats-meter-label nh3d-stats-meter-label-hp">
