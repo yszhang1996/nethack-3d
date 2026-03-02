@@ -421,6 +421,7 @@ export function classifyTileBehavior(input: {
   glyph: number;
   runtimeChar?: string | null;
   runtimeColor?: number | null;
+  runtimeTileIndex?: number | null;
   priorTerrain?: TerrainSnapshot | null;
 }): TileBehaviorResult {
   const runtimeChar =
@@ -428,7 +429,12 @@ export function classifyTileBehavior(input: {
       ? input.runtimeChar.charAt(0)
       : null;
 
-  const resolved = resolveGlyph(input.glyph, runtimeChar, input.runtimeColor);
+  const resolved = resolveGlyph(
+    input.glyph,
+    runtimeChar,
+    input.runtimeColor,
+    input.runtimeTileIndex,
+  );
   const resolvedCmapSemantic =
     resolved.kind === "cmap" ? semanticForCmapGlyph(resolved.glyph) : null;
   const isDeterministicDarkCmap =
@@ -450,6 +456,7 @@ export function classifyTileBehavior(input: {
         input.priorTerrain.glyph,
         input.priorTerrain.char ?? null,
         input.priorTerrain.color ?? null,
+        input.priorTerrain.tileIndex ?? null,
       );
     }
     darkenFactor = darkOverlayIndex === 21 ? 0.45 : 0.6;

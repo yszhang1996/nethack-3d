@@ -1194,6 +1194,7 @@ class LocalNetHackRuntime {
           glyph: tileData.glyph,
           char: tileData.char,
           color: tileData.color,
+          tileIndex: tileData.tileIndex,
           window: 2, // WIN_MAP
           isRefresh: true, // Mark this as a refresh to distinguish from new data
         });
@@ -1242,6 +1243,7 @@ class LocalNetHackRuntime {
               glyph: tileData.glyph,
               char: tileData.char,
               color: tileData.color,
+              tileIndex: tileData.tileIndex,
               window: 2, // WIN_MAP
               isRefresh: true,
               isAreaRefresh: true,
@@ -3516,6 +3518,7 @@ class LocalNetHackRuntime {
         // Use local names to avoid colliding with existing glyphChar/glyphColor in your file
         let decodedChar: string | null = null;
         let decodedColor: number | null = null;
+        let decodedTileIndex: number | null = null;
 
         // 3.7 ONLY: a is a pointer to a glyphinfo-like struct (your logs show +0x28 steps)
         if (this.runtimeVersion === "3.7" && args.length === 5) {
@@ -3540,7 +3543,10 @@ class LocalNetHackRuntime {
             // optional: log a few fields for sanity
             const ttychar = HEAP32[(ptr + 4) >> 2];
             const color = HEAP32[(ptr + 16) >> 2];
-            const tileidx = HEAP16[(ptr + 28) >> 1];
+            const tileidx = HEAP16[(ptr + 30) >> 1];
+            if (Number.isFinite(tileidx) && tileidx >= 0) {
+              decodedTileIndex = Math.trunc(tileidx);
+            }
 
             console.log(
               `🎨 GLYPH [Win ${printWin}] at (${x},${y}): ptr=0x${ptr.toString(
@@ -3574,17 +3580,40 @@ class LocalNetHackRuntime {
           if (mapHelper) {
             try {
               // IMPORTANT: for 3.7 we now pass the decoded glyph (not the pointer)
-              const glyphInfo = mapHelper(printGlyph, x, y, 0);
+              const glyphInfo = mapHelper(
+                printGlyph,
+                x,
+                y,
+                this.runtimeVersion === "3.7" ? 0x02 : 0,
+              );
 
-              if (glyphInfo && glyphInfo.ch !== undefined) {
-                // Depending on build, glyphInfo.ch might already be a string char.
-                // Handle both.
-                if (typeof glyphInfo.ch === "number") {
-                  decodedChar = String.fromCharCode(glyphInfo.ch);
-                } else {
-                  decodedChar = String(glyphInfo.ch);
+              if (glyphInfo) {
+                if (glyphInfo.ch !== undefined) {
+                  // Depending on build, glyphInfo.ch might already be a string char.
+                  // Handle both.
+                  if (typeof glyphInfo.ch === "number") {
+                    decodedChar = String.fromCharCode(glyphInfo.ch);
+                  } else {
+                    decodedChar = String(glyphInfo.ch);
+                  }
                 }
-                decodedColor = glyphInfo.color;
+                if (
+                  typeof glyphInfo.color === "number" &&
+                  Number.isFinite(glyphInfo.color)
+                ) {
+                  decodedColor = glyphInfo.color;
+                }
+                const tileIndexCandidate =
+                  typeof glyphInfo.tileidx === "number"
+                    ? glyphInfo.tileidx
+                    : glyphInfo.tileIdx;
+                if (
+                  typeof tileIndexCandidate === "number" &&
+                  Number.isFinite(tileIndexCandidate) &&
+                  tileIndexCandidate >= 0
+                ) {
+                  decodedTileIndex = Math.trunc(tileIndexCandidate);
+                }
               }
             } catch (error) {
               console.log(
@@ -3600,6 +3629,7 @@ class LocalNetHackRuntime {
             glyph: printGlyph, // decoded glyph for 3.7
             char: decodedChar,
             color: decodedColor,
+            tileIndex: decodedTileIndex,
             timestamp: Date.now(),
           });
 
@@ -3612,6 +3642,7 @@ class LocalNetHackRuntime {
               glyph: printGlyph, // decoded glyph for 3.7
               char: decodedChar,
               color: decodedColor,
+              tileIndex: decodedTileIndex,
               window: printWin,
             });
           }

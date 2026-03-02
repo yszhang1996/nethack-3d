@@ -74,6 +74,19 @@ function normalizeRuntimeColor(runtimeColor?: number | null): number | null {
     : null;
 }
 
+function normalizeRuntimeTileIndex(
+  runtimeTileIndex?: number | null,
+): number | null {
+  if (
+    typeof runtimeTileIndex !== "number" ||
+    !Number.isFinite(runtimeTileIndex)
+  ) {
+    return null;
+  }
+  const normalized = Math.trunc(runtimeTileIndex);
+  return normalized >= 0 ? normalized : null;
+}
+
 function codePointToChar(codePoint: number): string | null {
   if (!Number.isInteger(codePoint) || codePoint < 0 || codePoint > 0x10ffff) {
     return null;
@@ -106,10 +119,12 @@ export function resolveGlyph(
   glyph: number,
   runtimeChar?: string | null,
   runtimeColor?: number | null,
+  runtimeTileIndex?: number | null,
 ): ResolvedGlyph {
   const entry = getGlyphCatalogEntry(glyph);
   const normalizedRuntimeChar = normalizeRuntimeChar(runtimeChar);
   const normalizedRuntimeColor = normalizeRuntimeColor(runtimeColor);
+  const normalizedRuntimeTileIndex = normalizeRuntimeTileIndex(runtimeTileIndex);
 
   if (!entry) {
     return {
@@ -119,7 +134,7 @@ export function resolveGlyph(
       color: normalizedRuntimeColor,
       special: null,
       isKnown: false,
-      tileIndex: -1,
+      tileIndex: normalizedRuntimeTileIndex ?? -1,
     };
   }
 
@@ -129,9 +144,10 @@ export function resolveGlyph(
     kind: entry.kind,
     char: normalizedRuntimeChar ?? catalogChar,
     color:
-      typeof entry.color === "number" ? entry.color : normalizedRuntimeColor,
+      normalizedRuntimeColor ??
+      (typeof entry.color === "number" ? entry.color : null),
     special: typeof entry.special === "number" ? entry.special : null,
     isKnown: true,
-    tileIndex: entry.tileIndex,
+    tileIndex: normalizedRuntimeTileIndex ?? entry.tileIndex,
   };
 }

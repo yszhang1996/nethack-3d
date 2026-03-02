@@ -10,4 +10,9 @@ export interface GlyphOverlay {
 }
 
 export type GlyphOverlayMap = Map<string, GlyphOverlay>;
-export type TerrainSnapshot = { glyph: number; char?: string; color?: number };
+export type TerrainSnapshot = {
+  glyph: number;
+  char?: string;
+  color?: number;
+  tileIndex?: number;
+};

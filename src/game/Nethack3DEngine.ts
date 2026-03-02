@@ -232,6 +232,7 @@ type RepeatableActionSpec =
 type TileUpdateOptions = {
   inferredDarkCorridorWall?: boolean;
   restartRevealFade?: boolean;
+  runtimeTileIndex?: number;
 };
 
 type WallSideTileOverlay = {
@@ -1312,6 +1313,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     glyph: number;
     char?: string;
     color?: number;
+    tileIndex?: number;
   } | null {
     const parts = String(signature || "").split("|");
     if (parts.length < 2) {
@@ -1319,8 +1321,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const glyphToken = parts.shift();
-    const colorToken = parts.pop();
-    if (!glyphToken || colorToken === undefined) {
+    const lastToken = parts.pop();
+    if (!glyphToken || lastToken === undefined) {
       return null;
     }
 
@@ -1329,14 +1331,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
+    let tileIndexToken: string | undefined;
+    let colorToken: string = lastToken;
+    if (lastToken.startsWith("ti:")) {
+      tileIndexToken = lastToken.slice(3);
+      const explicitColorToken = parts.pop();
+      if (explicitColorToken === undefined) {
+        return null;
+      }
+      colorToken = explicitColorToken;
+    }
+
     const joinedChar = parts.join("|");
     const normalizedChar = joinedChar.length > 0 ? joinedChar : undefined;
     const color =
       colorToken.trim().length > 0 ? Number.parseInt(colorToken, 10) : NaN;
+    const tileIndex =
+      typeof tileIndexToken === "string" && tileIndexToken.trim().length > 0
+        ? Number.parseInt(tileIndexToken, 10)
+        : NaN;
     return {
       glyph,
       char: normalizedChar,
       color: Number.isFinite(color) ? color : undefined,
+      tileIndex: Number.isFinite(tileIndex) ? tileIndex : undefined,
     };
   }
 
@@ -1363,6 +1381,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: parsed.glyph,
       char: parsed.char,
       color: parsed.color,
+      tileIndex: parsed.tileIndex,
     };
   }
 
@@ -1434,6 +1453,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: terrain.glyph,
       runtimeChar: null,
       runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      runtimeTileIndex:
+        typeof terrain.tileIndex === "number" ? terrain.tileIndex : null,
       priorTerrain: terrain,
     });
     if (
@@ -1471,6 +1492,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         glyph: terrain.glyph,
         runtimeChar: terrain.char ?? null,
         runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+        runtimeTileIndex:
+          typeof terrain.tileIndex === "number" ? terrain.tileIndex : null,
         priorTerrain: terrain,
       });
     }
@@ -1483,6 +1506,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: snapshot.glyph,
       runtimeChar: snapshot.char ?? null,
       runtimeColor: typeof snapshot.color === "number" ? snapshot.color : null,
+      runtimeTileIndex:
+        typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
       priorTerrain: null,
     });
   }
@@ -1864,6 +1889,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: number;
       char?: string;
       color?: number;
+      tileIndex?: number;
     }> = [];
     for (const [key, signature] of this.tileStateCache.entries()) {
       const [rawX, rawY] = key.split(",");
@@ -1882,6 +1908,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         glyph: parsed.glyph,
         char: parsed.char,
         color: parsed.color,
+        tileIndex: parsed.tileIndex,
       });
     }
 
@@ -1892,6 +1919,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         snapshot.glyph,
         snapshot.char,
         snapshot.color,
+        {
+          runtimeTileIndex:
+            typeof snapshot.tileIndex === "number"
+              ? snapshot.tileIndex
+              : undefined,
+        },
       );
     }
     this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
@@ -3269,6 +3302,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: tile.glyph,
       runtimeChar: typeof tile.char === "string" ? tile.char : null,
       runtimeColor: typeof tile.color === "number" ? tile.color : null,
+      runtimeTileIndex:
+        typeof tile.tileIndex === "number" ? tile.tileIndex : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
   }
@@ -3290,6 +3325,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: tile.glyph,
       char: behavior.resolved.char ?? undefined,
       color: behavior.resolved.color ?? undefined,
+      tileIndex: behavior.resolved.tileIndex,
     };
   }
 
@@ -3334,6 +3370,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: tile.glyph,
       char: behavior.resolved.char ?? undefined,
       color: behavior.resolved.color ?? undefined,
+      tileIndex: behavior.resolved.tileIndex,
     };
   }
 
@@ -3927,13 +3964,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}`;
+      const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}|ti:${typeof tile.tileIndex === "number" ? Math.trunc(tile.tileIndex) : ""}`;
       if (this.tileStateCache.get(key) === signature) {
         continue;
       }
 
       this.tileStateCache.set(key, signature);
-      this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color);
+      this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
+        runtimeTileIndex:
+          typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
+      });
     }
     // Inferred dark-corridor walls intentionally reconcile from player_position
     // updates, not tile flushes, to avoid transient wall flashes mid-move.
@@ -8827,6 +8867,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph,
       runtimeChar: char ?? null,
       runtimeColor: typeof color === "number" ? color : null,
+      runtimeTileIndex:
+        typeof options.runtimeTileIndex === "number"
+          ? options.runtimeTileIndex
+          : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
     const isPlayerCharacter = behavior.isPlayerGlyph;
@@ -8955,6 +8999,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           cachedTerrain.glyph,
           cachedTerrain.char,
           cachedTerrain.color,
+          {
+            runtimeTileIndex:
+              typeof cachedTerrain.tileIndex === "number"
+                ? cachedTerrain.tileIndex
+                : undefined,
+          },
         );
       } else {
         this.updateTile(x, y, getDefaultFloorGlyph(), ".", undefined);
@@ -8974,6 +9024,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             glyph,
             char: behavior.resolved.char ?? undefined,
             color: behavior.resolved.color ?? undefined,
+            tileIndex: behavior.resolved.tileIndex,
           });
         }
         if (shouldCacheFlatUnderPlayer) {
@@ -8981,6 +9032,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             glyph,
             char: behavior.resolved.char ?? undefined,
             color: behavior.resolved.color ?? undefined,
+            tileIndex: behavior.resolved.tileIndex,
           });
         } else {
           this.fpsFlatFeatureUnderPlayerCache.delete(key);
@@ -9015,6 +9067,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           runtimeColor:
             typeof cachedFlatFeature.color === "number"
               ? cachedFlatFeature.color
+              : null,
+          runtimeTileIndex:
+            typeof cachedFlatFeature.tileIndex === "number"
+              ? cachedFlatFeature.tileIndex
               : null,
           priorTerrain: cachedFlatFeature,
         });
@@ -9067,6 +9123,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
             runtimeColor:
               typeof floorSnapshot.color === "number"
                 ? floorSnapshot.color
+                : null,
+            runtimeTileIndex:
+              typeof floorSnapshot.tileIndex === "number"
+                ? floorSnapshot.tileIndex
                 : null,
             priorTerrain: floorSnapshot,
           });
@@ -13448,6 +13508,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       glyph: terrain.glyph,
       runtimeChar: terrain.char ?? null,
       runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      runtimeTileIndex:
+        typeof terrain.tileIndex === "number" ? terrain.tileIndex : null,
       priorTerrain: terrain,
     });
     const mesh = new THREE.Mesh();
@@ -13587,6 +13649,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         runtimeChar: knownTerrain.char ?? null,
         runtimeColor:
           typeof knownTerrain.color === "number" ? knownTerrain.color : null,
+        runtimeTileIndex:
+          typeof knownTerrain.tileIndex === "number"
+            ? knownTerrain.tileIndex
+            : null,
         priorTerrain: knownTerrain,
       });
       materialKind = "door";
@@ -13717,6 +13783,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       materialKind === "feature"
     ) {
       addQuickAction("search", "Search");
+      addQuickAction("pickup", "Pick Up");
       return actions;
     }
 
