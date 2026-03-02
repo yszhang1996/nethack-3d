@@ -1,6 +1,6 @@
 // @ts-nocheck
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
-import { getBundledDisplayFile } from "./displayFileCatalog";
+import { resolveDisplayFileMetadata } from "./displayFileCatalog";
 import type { NethackRuntimeVersion } from "./types";
 
 const process =
@@ -38,6 +38,7 @@ class LocalNetHackRuntime {
     this.lastEndedMenuHadQuestion = false;
     this.lastEndedInventoryMenuKind = null;
     this.windowTextBuffers = new Map();
+    this.pendingDisplayFileContext = null;
     this.pendingGameOverPossessionsInventoryFlow = false;
 
     this.inputBroker = new RuntimeInputBroker();
@@ -1474,6 +1475,40 @@ class LocalNetHackRuntime {
     return winId === 4 || winId === 5 || winId === 6;
   }
 
+  queueDisplayFileContext(fileName) {
+    const metadata = resolveDisplayFileMetadata(fileName);
+    if (!metadata) {
+      this.pendingDisplayFileContext = null;
+      return;
+    }
+
+    this.pendingDisplayFileContext = {
+      canonicalName: metadata.canonicalName,
+      title: metadata.title,
+      createdAt: Date.now(),
+    };
+  }
+
+  consumeDisplayFileContext(winId) {
+    if (!this.pendingDisplayFileContext) {
+      return null;
+    }
+
+    // display_file content is typically shown in message/info windows.
+    if (winId !== 4 && winId !== 5 && winId !== 6) {
+      return null;
+    }
+
+    const context = this.pendingDisplayFileContext;
+    this.pendingDisplayFileContext = null;
+
+    if (Date.now() - context.createdAt > 10000) {
+      return null;
+    }
+
+    return context;
+  }
+
   handleShimDisplayFile(args) {
     const [rawName, complain] = Array.isArray(args) ? args : [];
     const fileName =
@@ -1483,34 +1518,17 @@ class LocalNetHackRuntime {
       `DISPLAY FILE request: "${fileName || "<empty>"}" (mustExist=${mustExist})`,
     );
 
-    const bundled = getBundledDisplayFile(fileName);
-    if (bundled && bundled.lines.length > 0) {
-      if (this.eventHandler) {
-        this.emit({
-          type: "info_menu",
-          title: bundled.title,
-          lines: bundled.lines,
-          source: "display_file",
-          file: bundled.canonicalName,
-          mustExist,
-        });
+    if (!fileName) {
+      this.pendingDisplayFileContext = null;
+      if (mustExist) {
+        console.warn("DISPLAY FILE requested with empty file name");
       }
       return 0;
     }
 
-    const fallbackMessage = fileName
-      ? `No bundled help text available for "${fileName}".`
-      : "No help file name was provided.";
-    console.warn(`DISPLAY FILE unavailable: ${fallbackMessage}`);
-    if (mustExist && this.eventHandler) {
-      this.emit({
-        type: "text",
-        text: fallbackMessage,
-        window: 5,
-        attr: 0,
-        source: "display_file",
-      });
-    }
+    // NetHack runtime provides the actual file text via window callbacks.
+    // We only retain metadata for better dialog titles/source attribution.
+    this.queueDisplayFileContext(fileName);
     return 0;
   }
 
@@ -3311,6 +3329,7 @@ class LocalNetHackRuntime {
           (line) => String(line || "").trim().length > 0,
         );
         if (hasDisplayText && this.shouldCaptureWindowTextForDialog(winid)) {
+          const displayFileContext = this.consumeDisplayFileContext(winid);
           const normalizedLines = displayLines.map((line) =>
             String(line || "").replace(/\u0000/g, ""),
           );
@@ -3329,11 +3348,13 @@ class LocalNetHackRuntime {
           );
           this.emit({
             type: "info_menu",
-            title: this.getWindowTextDialogTitle(winid),
+            title:
+              displayFileContext?.title || this.getWindowTextDialogTitle(winid),
             lines: normalizedLines,
             window: winid,
             blocking: blocking,
-            source: "display_nhwindow",
+            source: displayFileContext ? "display_file" : "display_nhwindow",
+            file: displayFileContext?.canonicalName,
           });
         }
         return 0;

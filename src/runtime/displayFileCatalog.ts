@@ -1,60 +1,44 @@
-import cmdhelpText from "../../third_party/nethack-3.6.7/dat/cmdhelp?raw";
-import helpText from "../../third_party/nethack-3.6.7/dat/help?raw";
-import hhText from "../../third_party/nethack-3.6.7/dat/hh?raw";
-import historyText from "../../third_party/nethack-3.6.7/dat/history?raw";
-import keyhelpText from "../../third_party/nethack-3.6.7/dat/keyhelp?raw";
-import licenseText from "../../third_party/nethack-3.6.7/dat/license?raw";
-import opthelpText from "../../third_party/nethack-3.6.7/dat/opthelp?raw";
-import wizhelpText from "../../third_party/nethack-3.6.7/dat/wizhelp?raw";
-import portHelpText from "../../third_party/nethack-3.6.7/sys/winnt/porthelp?raw";
-
-type DisplayFilePayload = {
+type DisplayFileMetadata = {
   canonicalName: string;
   title: string;
-  lines: string[];
 };
 
-type CatalogEntry = {
-  title: string;
-  text: string;
-};
-
-const catalog: Record<string, CatalogEntry> = {
+const catalog: Record<string, DisplayFileMetadata> = {
   cmdhelp: {
+    canonicalName: "cmdhelp",
     title: "Command Help",
-    text: cmdhelpText,
   },
   help: {
+    canonicalName: "help",
     title: "NetHack Help",
-    text: helpText,
   },
   hh: {
+    canonicalName: "hh",
     title: "NetHack Help",
-    text: hhText,
   },
   history: {
+    canonicalName: "history",
     title: "NetHack History",
-    text: historyText,
   },
   keyhelp: {
+    canonicalName: "keyhelp",
     title: "Key Help",
-    text: keyhelpText,
   },
   license: {
+    canonicalName: "license",
     title: "NetHack License",
-    text: licenseText,
   },
   opthelp: {
+    canonicalName: "opthelp",
     title: "Option Help",
-    text: opthelpText,
   },
   wizhelp: {
+    canonicalName: "wizhelp",
     title: "Wizard Help",
-    text: wizhelpText,
   },
   porthelp: {
+    canonicalName: "porthelp",
     title: "Port Help",
-    text: portHelpText,
   },
 };
 
@@ -74,23 +58,9 @@ function normalizeDisplayFileName(nameLike: unknown): string {
   return raw.trim().toLowerCase();
 }
 
-function normalizeDisplayFileLines(rawText: string): string[] {
-  const normalizedText = String(rawText || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .replace(/\f/g, "\n\n");
-  const lines = normalizedText.split("\n").map((line) => line.trimEnd());
-
-  while (lines.length > 0 && lines[lines.length - 1] === "") {
-    lines.pop();
-  }
-
-  return lines;
-}
-
-export function getBundledDisplayFile(
+export function resolveDisplayFileMetadata(
   fileName: unknown,
-): DisplayFilePayload | null {
+): DisplayFileMetadata | null {
   const normalizedName = normalizeDisplayFileName(fileName);
   if (!normalizedName) {
     return null;
@@ -99,12 +69,11 @@ export function getBundledDisplayFile(
   const canonicalName = aliases[normalizedName] || normalizedName;
   const entry = catalog[canonicalName];
   if (!entry) {
-    return null;
+    return {
+      canonicalName,
+      title: "NetHack Information",
+    };
   }
 
-  return {
-    canonicalName,
-    title: entry.title,
-    lines: normalizeDisplayFileLines(entry.text),
-  };
+  return entry;
 }
