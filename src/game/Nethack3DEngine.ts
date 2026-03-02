@@ -1419,6 +1419,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.isBoulderLikeBehavior(behavior);
   }
 
+  private isPetKnownAtKeyForDarkCorridorInference(key: string): boolean {
+    const terrain = this.getTileSnapshotFromStateCache(key);
+    if (!terrain) {
+      return false;
+    }
+    const behavior = classifyTileBehavior({
+      glyph: terrain.glyph,
+      runtimeChar: terrain.char ?? null,
+      runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      runtimeTileIndex:
+        typeof terrain.tileIndex === "number" ? terrain.tileIndex : null,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null,
+    });
+    return behavior.effective.kind === "pet";
+  }
+
+  private isBoulderOrPetKnownAtKeyForDarkCorridorInference(key: string): boolean {
+    return (
+      this.isBoulderKnownAtKeyForDarkCorridorInference(key) ||
+      this.isPetKnownAtKeyForDarkCorridorInference(key)
+    );
+  }
+
   private buildBoulderPushDarkCorridorInferenceContext(
     fromX: number,
     fromY: number,
@@ -1432,7 +1455,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const destinationKey = `${toX},${toY}`;
-    if (!this.isBoulderKnownAtKeyForDarkCorridorInference(destinationKey)) {
+    if (
+      !this.isBoulderOrPetKnownAtKeyForDarkCorridorInference(destinationKey)
+    ) {
       return null;
     }
 
@@ -1456,7 +1481,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const playerKey = `${context.playerX},${context.playerY}`;
-    if (this.isBoulderKnownAtKeyForDarkCorridorInference(playerKey)) {
+    if (this.isBoulderOrPetKnownAtKeyForDarkCorridorInference(playerKey)) {
       return;
     }
 
