@@ -811,6 +811,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return kind === "unexplored" || kind === "nothing";
   }
 
+  private shouldFlattenVoidOrUnknownTileFor367(
+    behavior: TileBehaviorResult,
+    isInferredDarkCorridorWall: boolean,
+  ): boolean {
+    if (isInferredDarkCorridorWall) {
+      return false;
+    }
+
+    const runtimeVersion =
+      this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+    if (runtimeVersion !== "3.6.7") {
+      return false;
+    }
+
+    if (
+      behavior.resolved.kind === "unknown" ||
+      behavior.effective.kind === "unknown"
+    ) {
+      return true;
+    }
+
+    if (behavior.resolved.kind !== "cmap") {
+      return false;
+    }
+    if (behavior.resolved.glyph !== getDefaultDarkWallGlyph()) {
+      return false;
+    }
+
+    const resolvedChar =
+      typeof behavior.resolved.char === "string"
+        ? behavior.resolved.char.trim()
+        : "";
+    const glyphChar =
+      typeof behavior.glyphChar === "string" ? behavior.glyphChar.trim() : "";
+    return resolvedChar.length === 0 || glyphChar.length === 0;
+  }
+
   private updateLightingCenter(deltaSeconds: number): void {
     if (this.isFpsMode()) {
       // In FPS mode, keep the vignette centered on the camera/player position in world space.
@@ -9236,6 +9273,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let renderBehavior = behavior;
     let tileGlyphChar = behavior.glyphChar;
     let tileTextColor = behavior.textColor;
+    const shouldFlattenVoidOrUnknownTile =
+      this.shouldFlattenVoidOrUnknownTileFor367(
+        behavior,
+        isInferredDarkCorridorWall,
+      );
+    if (shouldFlattenVoidOrUnknownTile) {
+      renderBehavior = {
+        ...behavior,
+        materialKind: "dark",
+        geometryKind: "floor",
+        isWall: false,
+      };
+    }
     const preferNormalModeAsciiUnderlayForFpsBillboards =
       this.isFpsMode() && !useTiles && shouldUseElevatedBillboard;
 
