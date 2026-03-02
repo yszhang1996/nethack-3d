@@ -319,6 +319,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     { x: number; y: number }
   > = new Map();
+  private pendingBoulderPushDarkCorridorInference:
+    | { playerX: number; playerY: number; dx: number; dy: number }
+    | null = null;
   private readonly darkCorridorDiscoveryDoorwayChars: ReadonlySet<string> =
     new Set([".", "-", "|"]);
   private readonly darkCorridorInferenceRingInsetTiles: number = 1;
@@ -357,6 +360,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private lastMovementInputAtMs: number = 0;
   private readonly tileRefreshRetryDelayMs: number = 120;
   private readonly movementUnlockWindowMs: number = 5000;
+  private statusConditionMask: number = 0;
+  // NetHack BL_MASK_BLIND from botl.h
+  private readonly statusConditionBlindMask: number = 0x00000020;
   private statusDebugHistory: any[] = [];
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
@@ -1385,6 +1391,123 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
+  private hasAuthoritativeTileDataForDarkCorridorInference(key: string): boolean {
+    return (
+      this.tileStateCache.has(key) ||
+      this.lastKnownTerrain.has(key) ||
+      this.fpsFlatFeatureUnderPlayerCache.has(key) ||
+      this.pendingTileUpdates.has(key)
+    );
+  }
+
+  private isBoulderKnownAtKeyForDarkCorridorInference(key: string): boolean {
+    const terrain = this.getTileSnapshotFromStateCache(key);
+    if (!terrain) {
+      return false;
+    }
+    const behavior = classifyTileBehavior({
+      glyph: terrain.glyph,
+      runtimeChar: terrain.char ?? null,
+      runtimeColor: typeof terrain.color === "number" ? terrain.color : null,
+      runtimeTileIndex:
+        typeof terrain.tileIndex === "number" ? terrain.tileIndex : null,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null,
+    });
+    if (behavior.effective.glyph === 2353) {
+      return true;
+    }
+    return this.isBoulderLikeBehavior(behavior);
+  }
+
+  private buildBoulderPushDarkCorridorInferenceContext(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): { playerX: number; playerY: number; dx: number; dy: number } | null {
+    const dx = toX - fromX;
+    const dy = toY - fromY;
+    if (Math.abs(dx) + Math.abs(dy) !== 1) {
+      return null;
+    }
+
+    const destinationKey = `${toX},${toY}`;
+    if (!this.isBoulderKnownAtKeyForDarkCorridorInference(destinationKey)) {
+      return null;
+    }
+
+    return {
+      playerX: toX,
+      playerY: toY,
+      dx,
+      dy,
+    };
+  }
+
+  private applyBoulderPushDarkCorridorWallOverride(
+    nextInferred: Map<string, { x: number; y: number }>,
+    context: { playerX: number; playerY: number; dx: number; dy: number } | null,
+  ): void {
+    if (!context || this.isPlayerBlindForDarkCorridorInference()) {
+      return;
+    }
+    if (this.playerPos.x !== context.playerX || this.playerPos.y !== context.playerY) {
+      return;
+    }
+
+    const playerKey = `${context.playerX},${context.playerY}`;
+    if (this.isBoulderKnownAtKeyForDarkCorridorInference(playerKey)) {
+      return;
+    }
+
+    const leftDx = -context.dy;
+    const leftDy = context.dx;
+    const rightDx = context.dy;
+    const rightDy = -context.dx;
+    const lateralOffsets = [
+      { dx: leftDx, dy: leftDy },
+      { dx: rightDx, dy: rightDy },
+    ];
+    const forwardDiagonalOffsets = [
+      { dx: context.dx + leftDx, dy: context.dy + leftDy },
+      { dx: context.dx + rightDx, dy: context.dy + rightDy },
+    ];
+
+    for (const offset of lateralOffsets) {
+      const neighborX = context.playerX + offset.dx;
+      const neighborY = context.playerY + offset.dy;
+      if (!this.isValidMinimapCoordinate(neighborX, neighborY)) {
+        continue;
+      }
+
+      const neighborKey = `${neighborX},${neighborY}`;
+      if (this.hasAuthoritativeTileDataForDarkCorridorInference(neighborKey)) {
+        continue;
+      }
+      if (!this.shouldInferDarkCorridorWallAt(neighborKey)) {
+        continue;
+      }
+      nextInferred.set(neighborKey, { x: neighborX, y: neighborY });
+    }
+
+    for (const offset of forwardDiagonalOffsets) {
+      const neighborX = context.playerX + offset.dx;
+      const neighborY = context.playerY + offset.dy;
+      if (!this.isValidMinimapCoordinate(neighborX, neighborY)) {
+        continue;
+      }
+
+      const neighborKey = `${neighborX},${neighborY}`;
+      if (this.hasAuthoritativeTileDataForDarkCorridorInference(neighborKey)) {
+        continue;
+      }
+      if (!this.shouldInferDarkCorridorWallAt(neighborKey)) {
+        continue;
+      }
+      nextInferred.set(neighborKey, { x: neighborX, y: neighborY });
+    }
+  }
+
   private beginDarkCorridorDiscoveryWindowFromPlayerInput(): void {
     this.darkCorridorInputDiscoveryWindowActive = true;
     this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
@@ -1792,6 +1915,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private reconcileInferredDarkCorridorWalls(): void {
+    const pendingBoulderPushInference =
+      this.pendingBoulderPushDarkCorridorInference;
+    this.pendingBoulderPushDarkCorridorInference = null;
+
     if (!this.isDarkCorridorWallInferenceEnabled()) {
       this.clearAllInferredDarkCorridorWallMeshes();
       return;
@@ -1852,6 +1979,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         nextInferred.set(neighborKey, { x: neighborX, y: neighborY });
       }
     }
+    this.applyBoulderPushDarkCorridorWallOverride(
+      nextInferred,
+      pendingBoulderPushInference,
+    );
 
     const darkWallGlyph = getDefaultDarkWallGlyph();
     const newlyInferredKeys = new Set<string>();
@@ -2759,6 +2890,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.inventoryContextActionsEnabled = true;
     this.pendingInventoryDialog = false;
     this.pendingInventoryDialogOptions = null;
+    this.statusConditionMask = 0;
+    this.pendingBoulderPushDarkCorridorInference = null;
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
 
@@ -2833,6 +2966,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
         const oldPos = { ...this.playerPos };
+        this.pendingBoulderPushDarkCorridorInference =
+          oldPos.x !== data.x || oldPos.y !== data.y
+            ? this.buildBoulderPushDarkCorridorInferenceContext(
+                oldPos.x,
+                oldPos.y,
+                data.x,
+                data.y,
+              )
+            : null;
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
         this.playerPos = { x: data.x, y: data.y };
         if (oldPos.x !== data.x || oldPos.y !== data.y) {
@@ -3226,6 +3368,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ];
     return chars.some(
       (value) => typeof value === "string" && value.trim() === "_",
+    );
+  }
+
+  private isTombstoneLikeBehavior(behavior: TileBehaviorResult): boolean {
+    if (behavior.isPlayerGlyph || behavior.resolved.kind !== "cmap") {
+      return false;
+    }
+    return (
+      behavior.effective.glyph === 2387 ||
+      behavior.effective.tileIndex === 878
+    );
+  }
+
+  private isAltarOrTombstoneLikeBehavior(
+    behavior: TileBehaviorResult,
+  ): boolean {
+    return (
+      this.isAltarLikeBehavior(behavior) ||
+      this.isTombstoneLikeBehavior(behavior)
     );
   }
 
@@ -8382,6 +8543,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastKnownTerrain.clear();
     this.fpsFlatFeatureUnderPlayerCache.clear();
     this.inferredDarkCorridorWallTiles.clear();
+    this.pendingBoulderPushDarkCorridorInference = null;
     this.darkCorridorInputDiscoveryWindowActive = false;
     this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
     this.activeEffectTileKeys.clear();
@@ -8879,7 +9041,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = isSinkCmapGlyph(behavior.effective.glyph);
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
-    const isAltar = this.isAltarLikeBehavior(behavior);
+    const isAltarOrTombstone =
+      this.isAltarOrTombstoneLikeBehavior(behavior);
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
     const nowMs = Date.now();
@@ -8900,12 +9063,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
       isLootLikeCharacter ||
-      (this.isFpsMode() && isAltar) ||
+      (this.isFpsMode() && isAltarOrTombstone) ||
       (useTiles &&
         (isSink ||
           isFountain ||
           isStairsUp ||
-          isAltar ||
+          isAltarOrTombstone ||
           isPlayerCharacter ||
           isStatue));
     const shouldUseElevatedBillboard =
@@ -9107,7 +9270,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileGlyphChar = " ";
       tileTextColor = behavior.textColor;
     } else if (shouldUseElevatedBillboard) {
-      if (isStairsUp || isSink || isFountain || isAltar) {
+      if (isStairsUp || isSink || isFountain || isAltarOrTombstone) {
         renderBehavior = classifyTileBehavior({
           glyph: getDefaultFloorGlyph(),
           runtimeChar: ".",
@@ -9535,6 +9698,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return parseInt(numericMatch[0], 10);
   }
 
+  private parseStatusConditionMaskValue(
+    rawValue: string | number | null,
+  ): number | null {
+    if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+      return Math.trunc(rawValue) >>> 0;
+    }
+
+    const clean = String(rawValue ?? "").trim();
+    if (!clean) {
+      return null;
+    }
+
+    if (/^0x[0-9a-f]+$/i.test(clean)) {
+      const parsedHex = Number.parseInt(clean, 16);
+      return Number.isFinite(parsedHex) ? parsedHex >>> 0 : null;
+    }
+
+    const decimalMatch = clean.match(/-?\d+/);
+    if (!decimalMatch) {
+      return null;
+    }
+    const parsedDecimal = Number.parseInt(decimalMatch[0], 10);
+    return Number.isFinite(parsedDecimal) ? parsedDecimal >>> 0 : null;
+  }
+
+  private isPlayerBlindForDarkCorridorInference(): boolean {
+    return (
+      (this.statusConditionMask & this.statusConditionBlindMask) !== 0
+    );
+  }
+
   private updatePlayerStats(
     field: number,
     value: string | number | null,
@@ -9592,6 +9786,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const rawFieldName =
       typeof data?.fieldName === "string" ? data.fieldName : null;
+    const isConditionMaskField =
+      rawFieldName === "BL_CONDITION" || (!rawFieldName && field === 22);
     const mappedField =
       (rawFieldName && byName[rawFieldName]) || legacyByIndex[field] || null;
 
@@ -9610,6 +9806,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
     if (this.statusDebugHistory.length > 200) {
       this.statusDebugHistory.pop();
+    }
+
+    if (isConditionMaskField) {
+      const parsedConditionMask = this.parseStatusConditionMaskValue(value);
+      if (parsedConditionMask !== null) {
+        this.statusConditionMask = parsedConditionMask;
+      }
+      return;
     }
 
     if (!mappedField || value === null || value === undefined) {
