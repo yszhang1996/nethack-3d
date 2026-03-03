@@ -23,6 +23,7 @@ import {
   getDefaultDarkFloorGlyph,
   getDefaultDarkWallGlyph,
   getDefaultFloorGlyph,
+  getOpenDoorGlyphFrom,
   isDarkCorridorCmapGlyph,
   isDoorwayCmapGlyph,
   isSinkCmapGlyph,
@@ -141,6 +142,29 @@ type DamageNumberParticle = {
   fpsFloating: boolean;
   fpsLateralOffset: number;
   fpsBaseHeightOffset: number;
+};
+
+type BillboardShardDescriptor = {
+  texture: THREE.CanvasTexture;
+  centerU: number;
+  centerV: number;
+  widthRatio: number;
+  heightRatio: number;
+  areaRatio: number;
+};
+
+type BillboardShardParticle = {
+  mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  velocity: THREE.Vector3;
+  ageMs: number;
+  lifetimeMs: number;
+  fadeStartMs: number;
+  radius: number;
+  baseScale: THREE.Vector2;
+  angularVelocity: THREE.Vector3;
+  floorContactMs: number;
+  settled: boolean;
+  flatOrientation: THREE.Quaternion;
 };
 
 type CharacterCreationQuestionPayload = {
@@ -319,9 +343,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     { x: number; y: number }
   > = new Map();
-  private pendingBoulderPushDarkCorridorInference:
-    | { playerX: number; playerY: number; dx: number; dy: number }
-    | null = null;
+  private pendingBoulderPushDarkCorridorInference: {
+    playerX: number;
+    playerY: number;
+    dx: number;
+    dy: number;
+  } | null = null;
   private readonly darkCorridorDiscoveryDoorwayChars: ReadonlySet<string> =
     new Set([".", "-", "|"]);
   private readonly darkCorridorInferenceRingInsetTiles: number = 1;
@@ -628,6 +655,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   > = new Map();
   private glyphDamageShakes: Map<string, GlyphDamageShakeState> = new Map();
   private damageParticles: BloodMistParticle[] = [];
+  private monsterBillboardShardParticles: BillboardShardParticle[] = [];
   private playerDamageNumberParticles: DamageNumberParticle[] = [];
   private bloodMistTexture: THREE.CanvasTexture | null = null;
   private lastParsedDamageMessage: string = "";
@@ -652,6 +680,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly bloodParticleSpawnJitter: number = 0.12;
   private readonly damageParticleGravity: number = 67;
   private readonly damageParticleDrag: number = 4.2;
+  private readonly monsterBillboardShardLifetimeMs: number = 3000;
+  private readonly monsterBillboardShardFadeStartMs: number = 1500;
+  private readonly monsterBillboardShardGravity: number = this.isFpsMode()
+    ? 23
+    : 23;
+  private readonly monsterBillboardShardDrag: number = 2.9;
+  private readonly monsterBillboardShardWallBounce: number = 2.5;
+  private readonly monsterBillboardShardFloorBounce: number = 0.28;
+  private readonly monsterBillboardShardGroundFriction: number = 0.72;
+  private readonly monsterBillboardShardAngularAirDamping: number = 0.985;
+  private readonly monsterBillboardShardAngularGroundDamping: number = 0.22;
+  private readonly monsterBillboardShardFlatSettleMs: number = 220;
+  private readonly monsterBillboardShardImpulseTowardPlayer: number =
+    TILE_SIZE * 0.17;
+  private readonly monsterBillboardShardBaseHorizontalSpeed: number = -1;
+  private readonly monsterBillboardShardHorizontalVariance: number = 4;
+  private readonly monsterBillboardShardVerticalBaseSpeed: number = -2.5;
+  private readonly monsterBillboardShardVerticalVariance: number = 5;
+  private readonly monsterBillboardShardMaxPieces: number = 18;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -668,6 +715,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerDamageNumberForwardLift: number = 0.07;
   private readonly playerDamageNumberForwardDirection = new THREE.Vector3();
   private readonly playerDamageNumberRightDirection = new THREE.Vector3();
+  private readonly monsterBillboardShardAngularAxis = new THREE.Vector3();
+  private readonly monsterBillboardShardDeltaQuaternion =
+    new THREE.Quaternion();
   private readonly damageParticleFloorZ: number = 0.02;
   private readonly damageParticleWallBounce: number = 0.24;
   private minimapContainer: HTMLDivElement | null = null;
@@ -1428,7 +1478,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private hasAuthoritativeTileDataForDarkCorridorInference(key: string): boolean {
+  private hasAuthoritativeTileDataForDarkCorridorInference(
+    key: string,
+  ): boolean {
     return (
       this.tileStateCache.has(key) ||
       this.lastKnownTerrain.has(key) ||
@@ -1472,7 +1524,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return behavior.effective.kind === "pet";
   }
 
-  private isBoulderOrPetKnownAtKeyForDarkCorridorInference(key: string): boolean {
+  private isBoulderOrPetKnownAtKeyForDarkCorridorInference(
+    key: string,
+  ): boolean {
     return (
       this.isBoulderKnownAtKeyForDarkCorridorInference(key) ||
       this.isPetKnownAtKeyForDarkCorridorInference(key)
@@ -1508,12 +1562,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private applyBoulderPushDarkCorridorWallOverride(
     nextInferred: Map<string, { x: number; y: number }>,
-    context: { playerX: number; playerY: number; dx: number; dy: number } | null,
+    context: {
+      playerX: number;
+      playerY: number;
+      dx: number;
+      dy: number;
+    } | null,
   ): void {
     if (!context || this.isPlayerBlindForDarkCorridorInference()) {
       return;
     }
-    if (this.playerPos.x !== context.playerX || this.playerPos.y !== context.playerY) {
+    if (
+      this.playerPos.x !== context.playerX ||
+      this.playerPos.y !== context.playerY
+    ) {
       return;
     }
 
@@ -2258,6 +2320,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (bloodChanged && !normalized.blood) {
       this.clearBloodMistParticles();
+      this.clearMonsterBillboardShardParticles();
     }
     if (tilesetPathChanged) {
       this.loadTilesetTexture(normalized);
@@ -3438,8 +3501,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
     return (
-      behavior.effective.glyph === 2387 ||
-      behavior.effective.tileIndex === 878
+      behavior.effective.glyph === 2387 || behavior.effective.tileIndex === 878
     );
   }
 
@@ -4106,6 +4168,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
+    if (variant === "defeat") {
+      this.spawnMonsterBillboardShatterAtTile(x, y);
+    }
     const useMonsterBillboardFlash =
       this.shouldUseMonsterBillboardDamageFlash(key);
     const isPlayerTarget = x === this.playerPos.x && y === this.playerPos.y;
@@ -6180,6 +6245,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private disposeMonsterBillboardShardParticle(index: number): void {
+    if (index < 0 || index >= this.monsterBillboardShardParticles.length) {
+      return;
+    }
+
+    const [particle] = this.monsterBillboardShardParticles.splice(index, 1);
+    this.scene.remove(particle.mesh);
+    if (particle.mesh.material.map) {
+      particle.mesh.material.map.dispose();
+    }
+    particle.mesh.material.dispose();
+    particle.mesh.geometry.dispose();
+  }
+
   private disposeDamageParticle(index: number): void {
     if (index < 0 || index >= this.damageParticles.length) {
       return;
@@ -6308,12 +6387,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private resolveDamageParticleAgainstWallTile(
-    particle: BloodMistParticle,
+  private resolveCollidableParticleAgainstWallTile(
+    position: THREE.Vector3,
+    velocity: THREE.Vector3,
+    radius: number,
     tileX: number,
     tileY: number,
+    wallBounce: number,
   ): boolean {
-    const position = particle.sprite.position;
     const half = TILE_SIZE / 2;
     const centerX = tileX * TILE_SIZE;
     const centerY = -tileY * TILE_SIZE;
@@ -6321,7 +6402,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const maxX = centerX + half;
     const minY = centerY - half;
     const maxY = centerY + half;
-    const radius = particle.radius;
 
     const closestX = THREE.MathUtils.clamp(position.x, minX, maxX);
     const closestY = THREE.MathUtils.clamp(position.y, minY, maxY);
@@ -6368,28 +6448,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
     position.x += nx * penetration;
     position.y += ny * penetration;
 
-    const velocityIntoWall =
-      particle.velocity.x * nx + particle.velocity.y * ny;
+    const velocityIntoWall = velocity.x * nx + velocity.y * ny;
     if (velocityIntoWall < 0) {
-      const bounce = (1 + this.damageParticleWallBounce) * velocityIntoWall;
-      particle.velocity.x -= bounce * nx;
-      particle.velocity.y -= bounce * ny;
-      particle.velocity.x *= 0.78;
-      particle.velocity.y *= 0.78;
+      const bounce = (1 + wallBounce) * velocityIntoWall;
+      velocity.x -= bounce * nx;
+      velocity.y -= bounce * ny;
+      velocity.x *= 0.78;
+      velocity.y *= 0.78;
     }
 
     return true;
   }
 
-  private resolveDamageParticleWallCollision(
-    particle: BloodMistParticle,
+  private resolveCollidableParticleWallCollision(
+    position: THREE.Vector3,
+    velocity: THREE.Vector3,
+    radius: number,
+    wallBounce: number,
   ): void {
-    if (particle.sprite.position.z > WALL_HEIGHT + 0.22) {
+    if (position.z > WALL_HEIGHT + 0.22) {
       return;
     }
 
-    const approxTileX = Math.round(particle.sprite.position.x / TILE_SIZE);
-    const approxTileY = Math.round(-particle.sprite.position.y / TILE_SIZE);
+    const approxTileX = Math.round(position.x / TILE_SIZE);
+    const approxTileY = Math.round(-position.y / TILE_SIZE);
 
     for (let x = approxTileX - 1; x <= approxTileX + 1; x += 1) {
       for (let y = approxTileY - 1; y <= approxTileY + 1; y += 1) {
@@ -6397,9 +6479,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (!wall || !wall.userData?.isWall) {
           continue;
         }
-        this.resolveDamageParticleAgainstWallTile(particle, x, y);
+        this.resolveCollidableParticleAgainstWallTile(
+          position,
+          velocity,
+          radius,
+          x,
+          y,
+          wallBounce,
+        );
       }
     }
+  }
+
+  private resolveDamageParticleWallCollision(
+    particle: BloodMistParticle,
+  ): void {
+    this.resolveCollidableParticleWallCollision(
+      particle.sprite.position,
+      particle.velocity,
+      particle.radius,
+      this.damageParticleWallBounce,
+    );
+  }
+
+  private resolveMonsterBillboardShardWallCollision(
+    particle: BillboardShardParticle,
+  ): void {
+    this.resolveCollidableParticleWallCollision(
+      particle.mesh.position,
+      particle.velocity,
+      particle.radius,
+      this.monsterBillboardShardWallBounce,
+    );
   }
 
   private updateDamageParticles(deltaSeconds: number): void {
@@ -6470,9 +6581,150 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private updateMonsterBillboardShardParticles(deltaSeconds: number): void {
+    if (!this.monsterBillboardShardParticles.length) {
+      return;
+    }
+
+    const deltaMs = deltaSeconds * 1000;
+    const drag = Math.exp(-this.monsterBillboardShardDrag * deltaSeconds);
+
+    for (
+      let i = this.monsterBillboardShardParticles.length - 1;
+      i >= 0;
+      i -= 1
+    ) {
+      const particle = this.monsterBillboardShardParticles[i];
+      particle.ageMs += deltaMs;
+
+      const speed = particle.velocity.length();
+      const travelPerFrame = speed * deltaSeconds;
+      const subSteps = THREE.MathUtils.clamp(
+        Math.ceil(travelPerFrame / (TILE_SIZE * 0.35)),
+        1,
+        4,
+      );
+      const stepSeconds = deltaSeconds / subSteps;
+      const dragPerStep = Math.pow(drag, 1 / subSteps);
+
+      for (let step = 0; step < subSteps; step += 1) {
+        let onFloor = false;
+        if (!particle.settled) {
+          particle.velocity.z -=
+            this.monsterBillboardShardGravity * stepSeconds;
+        }
+        particle.velocity.x *= dragPerStep;
+        particle.velocity.y *= dragPerStep;
+
+        particle.mesh.position.x += particle.velocity.x * stepSeconds;
+        particle.mesh.position.y += particle.velocity.y * stepSeconds;
+        particle.mesh.position.z += particle.velocity.z * stepSeconds;
+
+        this.resolveMonsterBillboardShardWallCollision(particle);
+
+        if (particle.mesh.position.z < this.damageParticleFloorZ) {
+          onFloor = true;
+          particle.mesh.position.z = this.damageParticleFloorZ;
+          particle.floorContactMs += stepSeconds * 1000;
+          if (particle.velocity.z < 0) {
+            particle.velocity.z *= -this.monsterBillboardShardFloorBounce;
+            if (Math.abs(particle.velocity.z) < 0.44) {
+              particle.velocity.z = 0;
+            }
+          }
+          particle.velocity.x *= this.monsterBillboardShardGroundFriction;
+          particle.velocity.y *= this.monsterBillboardShardGroundFriction;
+
+          const angularGroundDrag = Math.pow(
+            this.monsterBillboardShardAngularGroundDamping,
+            stepSeconds * 60,
+          );
+          particle.angularVelocity.multiplyScalar(angularGroundDrag);
+          const settleT = THREE.MathUtils.clamp(
+            particle.floorContactMs / this.monsterBillboardShardFlatSettleMs,
+            0,
+            1,
+          );
+          particle.mesh.quaternion.slerp(
+            particle.flatOrientation,
+            0.12 + 0.64 * settleT,
+          );
+          if (
+            settleT >= 1 &&
+            particle.velocity.lengthSq() < 0.055 * 0.055 &&
+            particle.angularVelocity.lengthSq() < 0.18 * 0.18
+          ) {
+            particle.settled = true;
+            particle.velocity.set(0, 0, 0);
+            particle.angularVelocity.set(0, 0, 0);
+            particle.mesh.quaternion.copy(particle.flatOrientation);
+          }
+        } else {
+          particle.floorContactMs = 0;
+          particle.angularVelocity.multiplyScalar(
+            this.monsterBillboardShardAngularAirDamping,
+          );
+        }
+
+        if (
+          particle.angularVelocity.lengthSq() > 1e-6 &&
+          !particle.settled &&
+          !onFloor
+        ) {
+          const angularSpeed = particle.angularVelocity.length();
+          this.monsterBillboardShardAngularAxis
+            .copy(particle.angularVelocity)
+            .multiplyScalar(1 / angularSpeed);
+          this.monsterBillboardShardDeltaQuaternion.setFromAxisAngle(
+            this.monsterBillboardShardAngularAxis,
+            angularSpeed * stepSeconds,
+          );
+          particle.mesh.quaternion.multiply(
+            this.monsterBillboardShardDeltaQuaternion,
+          );
+        }
+      }
+
+      const material = particle.mesh.material;
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1,
+      );
+      const fadeT = THREE.MathUtils.clamp(
+        (particle.ageMs - particle.fadeStartMs) /
+          Math.max(1, particle.lifetimeMs - particle.fadeStartMs),
+        0,
+        1,
+      );
+      material.opacity = Math.max(0, 1 - Math.pow(fadeT, 1.7));
+
+      const scaleTaper = 1 - 0.2 * Math.pow(lifeT, 1.2);
+      particle.mesh.scale.set(
+        particle.baseScale.x * scaleTaper,
+        particle.baseScale.y * scaleTaper,
+        1,
+      );
+
+      if (lifeT >= 1 || material.opacity <= 0.01) {
+        this.disposeMonsterBillboardShardParticle(i);
+      }
+    }
+  }
+
   private clearBloodMistParticles(): void {
     for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
       this.disposeDamageParticle(i);
+    }
+  }
+
+  private clearMonsterBillboardShardParticles(): void {
+    for (
+      let i = this.monsterBillboardShardParticles.length - 1;
+      i >= 0;
+      i -= 1
+    ) {
+      this.disposeMonsterBillboardShardParticle(i);
     }
   }
 
@@ -6616,6 +6868,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateMonsterBillboardDamageFlashes(deltaSeconds);
     this.updateGlyphDamageShakes(deltaSeconds);
     this.updateDamageParticles(deltaSeconds);
+    this.updateMonsterBillboardShardParticles(deltaSeconds);
     this.updatePlayerDamageNumberParticles(deltaSeconds);
     const now = Date.now();
     this.prunePendingCharacterDamage(now);
@@ -6640,6 +6893,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     for (let i = this.damageParticles.length - 1; i >= 0; i -= 1) {
       this.disposeDamageParticle(i);
+    }
+    for (
+      let i = this.monsterBillboardShardParticles.length - 1;
+      i >= 0;
+      i -= 1
+    ) {
+      this.disposeMonsterBillboardShardParticle(i);
     }
     for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       this.disposePlayerDamageNumberParticle(i);
@@ -8835,10 +9095,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.entityBlobShadows.delete(key);
   }
 
-  private removeMonsterBillboard(key: string): void {
+  private detachMonsterBillboard(key: string): THREE.Sprite | null {
     this.removeEntityBlobShadow(key);
     this.stopMonsterBillboardDamageFlash(key);
     const sprite = this.monsterBillboards.get(key);
+    if (!sprite) {
+      return null;
+    }
+    this.scene.remove(sprite);
+    this.monsterBillboards.delete(key);
+    return sprite;
+  }
+
+  private removeMonsterBillboard(key: string): void {
+    const sprite = this.detachMonsterBillboard(key);
     if (!sprite) {
       return;
     }
@@ -8855,8 +9125,732 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       material.dispose();
     }
-    this.scene.remove(sprite);
-    this.monsterBillboards.delete(key);
+  }
+
+  private resolveMonsterBillboardTextureSource(texture: THREE.Texture): {
+    source: CanvasImageSource;
+    width: number;
+    height: number;
+  } | null {
+    const imageLike = texture.image as
+      | (CanvasImageSource & { width?: number; height?: number })
+      | undefined;
+    if (!imageLike) {
+      return null;
+    }
+    const width = Math.max(0, Math.trunc(Number(imageLike.width) || 0));
+    const height = Math.max(0, Math.trunc(Number(imageLike.height) || 0));
+    if (width <= 0 || height <= 0) {
+      return null;
+    }
+    return {
+      source: imageLike,
+      width,
+      height,
+    };
+  }
+
+  private resolveMonsterBillboardSplitGridAxisSize(axisPixels: number): number {
+    const normalized = Math.max(2, Math.trunc(axisPixels));
+    const maxCells = Math.max(2, Math.min(40, normalized));
+    const minCells = Math.max(2, Math.min(8, maxCells));
+
+    for (let cells = maxCells; cells >= minCells; cells -= 1) {
+      if (normalized % cells === 0) {
+        return cells;
+      }
+    }
+
+    const approx = Math.round(normalized / 8);
+    return THREE.MathUtils.clamp(approx, minCells, maxCells);
+  }
+
+  private pickRandomMonsterBillboardSplitEdgeTarget(
+    gridWidth: number,
+    gridHeight: number,
+  ): { x: number; y: number } {
+    const edge = THREE.MathUtils.randInt(0, 3);
+    switch (edge) {
+      case 0:
+        return { x: 0, y: THREE.MathUtils.randInt(0, gridHeight - 1) };
+      case 1:
+        return {
+          x: gridWidth - 1,
+          y: THREE.MathUtils.randInt(0, gridHeight - 1),
+        };
+      case 2:
+        return { x: THREE.MathUtils.randInt(0, gridWidth - 1), y: 0 };
+      default:
+        return {
+          x: THREE.MathUtils.randInt(0, gridWidth - 1),
+          y: gridHeight - 1,
+        };
+    }
+  }
+
+  private traceMonsterBillboardLightningSplitPath(
+    splitMask: Uint8Array,
+    gridWidth: number,
+    gridHeight: number,
+    startX: number,
+    startY: number,
+    targetX: number,
+    targetY: number,
+    branchBudget: number,
+  ): void {
+    let x = THREE.MathUtils.clamp(Math.trunc(startX), 0, gridWidth - 1);
+    let y = THREE.MathUtils.clamp(Math.trunc(startY), 0, gridHeight - 1);
+    const clampedTargetX = THREE.MathUtils.clamp(
+      Math.trunc(targetX),
+      0,
+      gridWidth - 1,
+    );
+    const clampedTargetY = THREE.MathUtils.clamp(
+      Math.trunc(targetY),
+      0,
+      gridHeight - 1,
+    );
+    const maxSteps = (gridWidth + gridHeight) * 4;
+
+    for (let step = 0; step < maxSteps; step += 1) {
+      splitMask[y * gridWidth + x] = 1;
+      if (x === clampedTargetX && y === clampedTargetY) {
+        break;
+      }
+
+      const remainingX = clampedTargetX - x;
+      const remainingY = clampedTargetY - y;
+      let stepX = Math.sign(remainingX);
+      let stepY = Math.sign(remainingY);
+      const preferX = Math.abs(remainingX) >= Math.abs(remainingY);
+      const jitterRoll = Math.random();
+
+      if (jitterRoll < 0.42) {
+        if (preferX) {
+          stepY += THREE.MathUtils.randInt(-1, 1);
+        } else {
+          stepX += THREE.MathUtils.randInt(-1, 1);
+        }
+      } else if (jitterRoll < 0.57) {
+        if (preferX) {
+          stepX = Math.sign(remainingX);
+          stepY = remainingY === 0 ? THREE.MathUtils.randInt(-1, 1) : 0;
+        } else {
+          stepY = Math.sign(remainingY);
+          stepX = remainingX === 0 ? THREE.MathUtils.randInt(-1, 1) : 0;
+        }
+      }
+
+      stepX = THREE.MathUtils.clamp(stepX, -1, 1);
+      stepY = THREE.MathUtils.clamp(stepY, -1, 1);
+      if (stepX === 0 && stepY === 0) {
+        if (Math.abs(remainingX) >= Math.abs(remainingY)) {
+          stepX = Math.sign(remainingX) || (Math.random() < 0.5 ? -1 : 1);
+        } else {
+          stepY = Math.sign(remainingY) || (Math.random() < 0.5 ? -1 : 1);
+        }
+      }
+
+      const nextX = THREE.MathUtils.clamp(x + stepX, 0, gridWidth - 1);
+      const nextY = THREE.MathUtils.clamp(y + stepY, 0, gridHeight - 1);
+      if (nextX === x && nextY === y) {
+        break;
+      }
+
+      if (branchBudget > 0 && step > 2 && Math.random() < 0.085) {
+        const branchTarget = this.pickRandomMonsterBillboardSplitEdgeTarget(
+          gridWidth,
+          gridHeight,
+        );
+        this.traceMonsterBillboardLightningSplitPath(
+          splitMask,
+          gridWidth,
+          gridHeight,
+          x,
+          y,
+          branchTarget.x,
+          branchTarget.y,
+          branchBudget - 1,
+        );
+      }
+
+      x = nextX;
+      y = nextY;
+    }
+
+    splitMask[clampedTargetY * gridWidth + clampedTargetX] = 1;
+  }
+
+  private buildMonsterBillboardLightningSplitMask(
+    gridWidth: number,
+    gridHeight: number,
+    startX: number,
+    startY: number,
+  ): Uint8Array {
+    const splitMask = new Uint8Array(gridWidth * gridHeight);
+    const minBranchCount = 8;
+    const targets: { x: number; y: number }[] = [
+      { x: 0, y: THREE.MathUtils.randInt(0, gridHeight - 1) },
+      {
+        x: gridWidth - 1,
+        y: THREE.MathUtils.randInt(0, gridHeight - 1),
+      },
+      { x: THREE.MathUtils.randInt(0, gridWidth - 1), y: 0 },
+      {
+        x: THREE.MathUtils.randInt(0, gridWidth - 1),
+        y: gridHeight - 1,
+      },
+    ];
+    const uniqueTargetKeys = new Set(
+      targets.map((target) => `${target.x},${target.y}`),
+    );
+    let uniqueAttempts = 0;
+    while (
+      targets.length < minBranchCount &&
+      uniqueAttempts < minBranchCount * 8
+    ) {
+      const candidate = this.pickRandomMonsterBillboardSplitEdgeTarget(
+        gridWidth,
+        gridHeight,
+      );
+      const key = `${candidate.x},${candidate.y}`;
+      if (!uniqueTargetKeys.has(key)) {
+        targets.push(candidate);
+        uniqueTargetKeys.add(key);
+      }
+      uniqueAttempts += 1;
+    }
+    while (targets.length < minBranchCount) {
+      targets.push(
+        this.pickRandomMonsterBillboardSplitEdgeTarget(gridWidth, gridHeight),
+      );
+    }
+
+    for (const target of targets) {
+      this.traceMonsterBillboardLightningSplitPath(
+        splitMask,
+        gridWidth,
+        gridHeight,
+        startX,
+        startY,
+        target.x,
+        target.y,
+        1,
+      );
+    }
+    splitMask[startY * gridWidth + startX] = 1;
+
+    return splitMask;
+  }
+
+  private collectMonsterBillboardSplitRegions(
+    gridWidth: number,
+    gridHeight: number,
+    splitMask: Uint8Array,
+    occupiedMask: Uint8Array,
+  ): number[][] {
+    const regionCells: number[][] = [];
+    const visited = new Uint8Array(gridWidth * gridHeight);
+    const queue: number[] = [];
+
+    for (let y = 0; y < gridHeight; y += 1) {
+      for (let x = 0; x < gridWidth; x += 1) {
+        const startIndex = y * gridWidth + x;
+        if (
+          splitMask[startIndex] === 1 ||
+          visited[startIndex] === 1 ||
+          occupiedMask[startIndex] === 0
+        ) {
+          continue;
+        }
+
+        queue.length = 0;
+        queue.push(startIndex);
+        visited[startIndex] = 1;
+        const region: number[] = [];
+
+        while (queue.length > 0) {
+          const current = queue.pop();
+          if (current === undefined) {
+            continue;
+          }
+          region.push(current);
+
+          const currentX = current % gridWidth;
+          const currentY = Math.floor(current / gridWidth);
+          const neighbors = [
+            currentX > 0 ? current - 1 : -1,
+            currentX < gridWidth - 1 ? current + 1 : -1,
+            currentY > 0 ? current - gridWidth : -1,
+            currentY < gridHeight - 1 ? current + gridWidth : -1,
+          ];
+
+          for (const neighbor of neighbors) {
+            if (neighbor < 0) {
+              continue;
+            }
+            if (
+              splitMask[neighbor] === 1 ||
+              visited[neighbor] === 1 ||
+              occupiedMask[neighbor] === 0
+            ) {
+              continue;
+            }
+            visited[neighbor] = 1;
+            queue.push(neighbor);
+          }
+        }
+
+        if (region.length > 0) {
+          regionCells.push(region);
+        }
+      }
+    }
+
+    return regionCells;
+  }
+
+  private sampleMonsterBillboardSplitOccupancyMask(
+    source: CanvasImageSource,
+    sourceWidth: number,
+    sourceHeight: number,
+    gridWidth: number,
+    gridHeight: number,
+  ): Uint8Array | null {
+    const canvas = document.createElement("canvas");
+    canvas.width = gridWidth;
+    canvas.height = gridHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) {
+      return null;
+    }
+
+    context.clearRect(0, 0, gridWidth, gridHeight);
+    context.imageSmoothingEnabled = false;
+    context.drawImage(
+      source,
+      0,
+      0,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      gridWidth,
+      gridHeight,
+    );
+    const sampled = context.getImageData(0, 0, gridWidth, gridHeight).data;
+    const occupied = new Uint8Array(gridWidth * gridHeight);
+
+    for (let i = 0; i < occupied.length; i += 1) {
+      const alpha = sampled[i * 4 + 3];
+      occupied[i] = alpha >= 12 ? 1 : 0;
+    }
+
+    return occupied;
+  }
+
+  private createMonsterBillboardShardDescriptors(
+    texture: THREE.Texture,
+  ): BillboardShardDescriptor[] {
+    const sourceInfo = this.resolveMonsterBillboardTextureSource(texture);
+    if (!sourceInfo) {
+      return [];
+    }
+
+    const sourceWidth = sourceInfo.width;
+    const sourceHeight = sourceInfo.height;
+    const gridWidth =
+      this.resolveMonsterBillboardSplitGridAxisSize(sourceWidth);
+    const gridHeight =
+      this.resolveMonsterBillboardSplitGridAxisSize(sourceHeight);
+    if (gridWidth < 2 || gridHeight < 2) {
+      return [];
+    }
+
+    const source = sourceInfo.source;
+    const occupiedMask = this.sampleMonsterBillboardSplitOccupancyMask(
+      source,
+      sourceWidth,
+      sourceHeight,
+      gridWidth,
+      gridHeight,
+    );
+    if (!occupiedMask) {
+      return [];
+    }
+
+    const occupiedIndices: number[] = [];
+    for (let i = 0; i < occupiedMask.length; i += 1) {
+      if (occupiedMask[i] === 1) {
+        occupiedIndices.push(i);
+      }
+    }
+    if (!occupiedIndices.length) {
+      return [];
+    }
+
+    const insetMinX = Math.floor(gridWidth * 0.25);
+    const insetMaxXExclusive = Math.max(
+      insetMinX + 1,
+      Math.ceil(gridWidth * 0.75),
+    );
+    const insetMinY = Math.floor(gridHeight * 0.25);
+    const insetMaxYExclusive = Math.max(
+      insetMinY + 1,
+      Math.ceil(gridHeight * 0.75),
+    );
+    const insetOccupiedIndices = occupiedIndices.filter((index) => {
+      const x = index % gridWidth;
+      const y = Math.floor(index / gridWidth);
+      return (
+        x >= insetMinX &&
+        x < insetMaxXExclusive &&
+        y >= insetMinY &&
+        y < insetMaxYExclusive
+      );
+    });
+    const seedCandidates =
+      insetOccupiedIndices.length > 0 ? insetOccupiedIndices : occupiedIndices;
+    const startIndex =
+      seedCandidates[THREE.MathUtils.randInt(0, seedCandidates.length - 1)];
+    const startX = startIndex % gridWidth;
+    const startY = Math.floor(startIndex / gridWidth);
+    const splitMask = this.buildMonsterBillboardLightningSplitMask(
+      gridWidth,
+      gridHeight,
+      startX,
+      startY,
+    );
+    const regions = this.collectMonsterBillboardSplitRegions(
+      gridWidth,
+      gridHeight,
+      splitMask,
+      occupiedMask,
+    );
+    if (regions.length <= 1) {
+      return [];
+    }
+
+    regions.sort((a, b) => b.length - a.length);
+    const limitedRegions = regions.slice(
+      0,
+      this.monsterBillboardShardMaxPieces,
+    );
+
+    const cellX = new Int32Array(gridWidth + 1);
+    const cellY = new Int32Array(gridHeight + 1);
+    for (let x = 0; x <= gridWidth; x += 1) {
+      cellX[x] = Math.floor((x * sourceWidth) / gridWidth);
+    }
+    for (let y = 0; y <= gridHeight; y += 1) {
+      cellY[y] = Math.floor((y * sourceHeight) / gridHeight);
+    }
+
+    const descriptors: BillboardShardDescriptor[] = [];
+    for (const region of limitedRegions) {
+      let minPixelX = sourceWidth;
+      let minPixelY = sourceHeight;
+      let maxPixelX = 0;
+      let maxPixelY = 0;
+      let weightedCenterX = 0;
+      let weightedCenterY = 0;
+      let weightedArea = 0;
+
+      for (const cellIndex of region) {
+        const cellXIndex = cellIndex % gridWidth;
+        const cellYIndex = Math.floor(cellIndex / gridWidth);
+        const x0 = cellX[cellXIndex];
+        const x1 = cellX[cellXIndex + 1];
+        const y0 = cellY[cellYIndex];
+        const y1 = cellY[cellYIndex + 1];
+        const width = x1 - x0;
+        const height = y1 - y0;
+        if (width <= 0 || height <= 0) {
+          continue;
+        }
+
+        minPixelX = Math.min(minPixelX, x0);
+        minPixelY = Math.min(minPixelY, y0);
+        maxPixelX = Math.max(maxPixelX, x1);
+        maxPixelY = Math.max(maxPixelY, y1);
+        const area = width * height;
+        weightedArea += area;
+        weightedCenterX += (x0 + x1) * 0.5 * area;
+        weightedCenterY += (y0 + y1) * 0.5 * area;
+      }
+
+      if (weightedArea <= 0) {
+        continue;
+      }
+
+      const shardWidth = maxPixelX - minPixelX;
+      const shardHeight = maxPixelY - minPixelY;
+      if (shardWidth <= 0 || shardHeight <= 0) {
+        continue;
+      }
+
+      const canvas = document.createElement("canvas");
+      canvas.width = shardWidth;
+      canvas.height = shardHeight;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        continue;
+      }
+
+      context.clearRect(0, 0, shardWidth, shardHeight);
+      context.imageSmoothingEnabled = false;
+      for (const cellIndex of region) {
+        const cellXIndex = cellIndex % gridWidth;
+        const cellYIndex = Math.floor(cellIndex / gridWidth);
+        const sourceX = cellX[cellXIndex];
+        const sourceY = cellY[cellYIndex];
+        const sourceWidthPixels = cellX[cellXIndex + 1] - sourceX;
+        const sourceHeightPixels = cellY[cellYIndex + 1] - sourceY;
+        if (sourceWidthPixels <= 0 || sourceHeightPixels <= 0) {
+          continue;
+        }
+        context.drawImage(
+          source,
+          sourceX,
+          sourceY,
+          sourceWidthPixels,
+          sourceHeightPixels,
+          sourceX - minPixelX,
+          sourceY - minPixelY,
+          sourceWidthPixels,
+          sourceHeightPixels,
+        );
+      }
+
+      const shardTexture = new THREE.CanvasTexture(canvas);
+      shardTexture.needsUpdate = true;
+      shardTexture.magFilter = texture.magFilter;
+      shardTexture.minFilter = texture.minFilter;
+      shardTexture.generateMipmaps = false;
+      shardTexture.anisotropy = this.resolveTextureAnisotropyLevel();
+
+      const areaRatio = THREE.MathUtils.clamp(
+        weightedArea / (sourceWidth * sourceHeight),
+        0.0001,
+        1,
+      );
+      if (areaRatio < 0.0014) {
+        shardTexture.dispose();
+        continue;
+      }
+
+      descriptors.push({
+        texture: shardTexture,
+        centerU: weightedCenterX / (weightedArea * sourceWidth),
+        centerV: weightedCenterY / (weightedArea * sourceHeight),
+        widthRatio: shardWidth / sourceWidth,
+        heightRatio: shardHeight / sourceHeight,
+        areaRatio,
+      });
+    }
+
+    return descriptors;
+  }
+
+  private spawnMonsterBillboardShardParticlesFromDescriptors(
+    sprite: THREE.Sprite,
+    descriptors: BillboardShardDescriptor[],
+  ): void {
+    if (!descriptors.length) {
+      return;
+    }
+
+    const basePosition = sprite.position;
+    const baseScaleX = Math.max(0.02, sprite.scale.x);
+    const baseScaleY = Math.max(0.02, sprite.scale.y);
+    const toCamera = new THREE.Vector2(
+      this.camera.position.x - basePosition.x,
+      this.camera.position.y - basePosition.y,
+    );
+    if (toCamera.lengthSq() < 1e-6) {
+      toCamera.set(-Math.sin(this.cameraYaw), -Math.cos(this.cameraYaw));
+    }
+    toCamera.normalize();
+    const right = new THREE.Vector2(toCamera.y, -toCamera.x);
+
+    const toPlayer = new THREE.Vector2(
+      this.playerPos.x * TILE_SIZE - basePosition.x,
+      -this.playerPos.y * TILE_SIZE - basePosition.y,
+    );
+    if (toPlayer.lengthSq() < 1e-6) {
+      const randomAngle = Math.random() * Math.PI * 2;
+      toPlayer.set(Math.cos(randomAngle), Math.sin(randomAngle));
+    }
+    toPlayer.normalize();
+    const awayFromPlayer = toPlayer.clone().multiplyScalar(-1);
+
+    const impulseLocalX = (Math.random() - 0.5) * baseScaleX * 0.72;
+    const impulseLocalY = (Math.random() - 0.5) * baseScaleY * 0.72;
+    const impulseOrigin = new THREE.Vector3(
+      basePosition.x +
+        right.x * impulseLocalX +
+        toPlayer.x * this.monsterBillboardShardImpulseTowardPlayer,
+      basePosition.y +
+        right.y * impulseLocalX +
+        toPlayer.y * this.monsterBillboardShardImpulseTowardPlayer,
+      basePosition.z + impulseLocalY,
+    );
+
+    for (const descriptor of descriptors) {
+      const scaleX = Math.max(0.02, baseScaleX * descriptor.widthRatio);
+      const scaleY = Math.max(0.02, baseScaleY * descriptor.heightRatio);
+      if (scaleX <= 0 || scaleY <= 0) {
+        descriptor.texture.dispose();
+        continue;
+      }
+
+      const localX = (descriptor.centerU - 0.5) * baseScaleX;
+      const localY = (0.5 - descriptor.centerV) * baseScaleY;
+      const shardPosition = new THREE.Vector3(
+        basePosition.x + right.x * localX,
+        basePosition.y + right.y * localX,
+        basePosition.z + localY,
+      );
+
+      const material = new THREE.MeshBasicMaterial({
+        map: descriptor.texture,
+        transparent: true,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        depthTest: true,
+        toneMapped: false,
+      });
+      material.opacity = 0.98;
+      this.patchMaterialForVignette(material);
+
+      const geometry = new THREE.PlaneGeometry(1, 1);
+      const shardMesh = new THREE.Mesh(geometry, material);
+      shardMesh.position.copy(shardPosition);
+      shardMesh.scale.set(scaleX, scaleY, 1);
+      shardMesh.quaternion.copy(this.camera.quaternion);
+      shardMesh.renderOrder = 922;
+      this.scene.add(shardMesh);
+
+      const radial = new THREE.Vector3().subVectors(
+        shardPosition,
+        impulseOrigin,
+      );
+      const radialXY = new THREE.Vector2(radial.x, radial.y);
+      if (radialXY.lengthSq() < 1e-8) {
+        radialXY.copy(awayFromPlayer);
+      } else {
+        radialXY.normalize();
+      }
+      radialXY.lerp(awayFromPlayer, 0.52);
+      if (radialXY.lengthSq() < 1e-8) {
+        radialXY.copy(awayFromPlayer);
+      } else {
+        radialXY.normalize();
+      }
+
+      const smallness = THREE.MathUtils.clamp(
+        1 - Math.sqrt(descriptor.areaRatio),
+        0,
+        1,
+      );
+      const horizontalSpeed =
+        this.monsterBillboardShardBaseHorizontalSpeed +
+        smallness * this.monsterBillboardShardHorizontalVariance +
+        Math.random() * 1.6;
+      const verticalSpeed =
+        this.monsterBillboardShardVerticalBaseSpeed +
+        smallness * this.monsterBillboardShardVerticalVariance +
+        Math.max(0, radial.z) * 1.25 +
+        Math.random() * 1.35;
+      const collisionRadius = THREE.MathUtils.clamp(
+        Math.max(scaleX, scaleY) * 0.34,
+        0.03,
+        0.24,
+      );
+      const angularAxis = new THREE.Vector3(
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+      );
+      if (angularAxis.lengthSq() < 1e-8) {
+        angularAxis.set(0, 0, 1);
+      } else {
+        angularAxis.normalize();
+      }
+      const angularSpeed = 3.2 + Math.random() * 5.1;
+      const flatOrientation = new THREE.Quaternion().setFromAxisAngle(
+        new THREE.Vector3(0, 0, 1),
+        Math.random() * Math.PI * 2,
+      );
+
+      this.monsterBillboardShardParticles.push({
+        mesh: shardMesh,
+        velocity: new THREE.Vector3(
+          radialXY.x * horizontalSpeed,
+          radialXY.y * horizontalSpeed,
+          verticalSpeed,
+        ),
+        ageMs: 0,
+        lifetimeMs: this.monsterBillboardShardLifetimeMs,
+        fadeStartMs: this.monsterBillboardShardFadeStartMs,
+        radius: collisionRadius,
+        baseScale: new THREE.Vector2(scaleX, scaleY),
+        angularVelocity: angularAxis.multiplyScalar(angularSpeed),
+        floorContactMs: 0,
+        settled: false,
+        flatOrientation,
+      });
+    }
+  }
+
+  private spawnMonsterBillboardShatterAtTile(
+    tileX: number,
+    tileY: number,
+  ): boolean {
+    const key = `${tileX},${tileY}`;
+    const sprite = this.detachMonsterBillboard(key);
+    if (!sprite) {
+      return false;
+    }
+
+    const textureKey =
+      typeof sprite.userData?.textureKey === "string"
+        ? sprite.userData.textureKey
+        : "";
+    const material = sprite.material;
+    if (!(material instanceof THREE.SpriteMaterial)) {
+      if (textureKey) {
+        this.releaseMonsterBillboardTexture(textureKey);
+      }
+      if (Array.isArray(material)) {
+        for (const entry of material) {
+          entry.dispose();
+        }
+      } else {
+        material.dispose();
+      }
+      return false;
+    }
+
+    const sourceTexture = material.map;
+    const descriptors = sourceTexture
+      ? this.createMonsterBillboardShardDescriptors(sourceTexture)
+      : [];
+    if (descriptors.length > 0) {
+      this.spawnMonsterBillboardShardParticlesFromDescriptors(
+        sprite,
+        descriptors,
+      );
+    }
+
+    if (textureKey) {
+      this.releaseMonsterBillboardTexture(textureKey);
+    } else if (sourceTexture) {
+      sourceTexture.dispose();
+    }
+    material.dispose();
+
+    return descriptors.length > 0;
   }
 
   private getLowestPixelOffset(
@@ -9103,8 +10097,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = isSinkCmapGlyph(behavior.effective.glyph);
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
-    const isAltarOrTombstone =
-      this.isAltarOrTombstoneLikeBehavior(behavior);
+    const isAltarOrTombstone = this.isAltarOrTombstoneLikeBehavior(behavior);
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
     const nowMs = Date.now();
@@ -9355,7 +10348,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else {
         const floorSnapshot = this.lastKnownTerrain.get(key);
         if (floorSnapshot) {
-          renderBehavior = classifyTileBehavior({
+          const floorBehavior = classifyTileBehavior({
             glyph: floorSnapshot.glyph,
             runtimeChar: floorSnapshot.char ?? null,
             runtimeColor:
@@ -9368,6 +10361,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 : null,
             priorTerrain: floorSnapshot,
           });
+          if (
+            isMonsterLikeCharacter &&
+            floorBehavior.materialKind === "door" &&
+            floorBehavior.isWall
+          ) {
+            const openDoorGlyph = getOpenDoorGlyphFrom(floorSnapshot.glyph);
+            renderBehavior =
+              typeof openDoorGlyph === "number"
+                ? classifyTileBehavior({
+                    glyph: openDoorGlyph,
+                    runtimeChar: null,
+                    runtimeColor:
+                      typeof floorSnapshot.color === "number"
+                        ? floorSnapshot.color
+                        : null,
+                    runtimeTileIndex: null,
+                    priorTerrain: floorSnapshot,
+                  })
+                : floorBehavior;
+          } else {
+            renderBehavior = floorBehavior;
+          }
           if (this.isFpsMode() && renderBehavior.isWall) {
             renderBehavior = classifyTileBehavior({
               glyph: getDefaultDarkFloorGlyph(),
@@ -9799,9 +10814,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isPlayerBlindForDarkCorridorInference(): boolean {
-    return (
-      (this.statusConditionMask & this.statusConditionBlindMask) !== 0
-    );
+    return (this.statusConditionMask & this.statusConditionBlindMask) !== 0;
   }
 
   private updatePlayerStats(

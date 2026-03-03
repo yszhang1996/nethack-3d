@@ -65,6 +65,24 @@ export function getDefaultDarkWallGlyph(): number {
   return range.start;
 }
 
+export function getOpenDoorGlyphFrom(glyph: number): number | null {
+  const range = getGlyphKindRange("cmap");
+  const cmapIndex = getCmapIndex(glyph);
+  if (!range || cmapIndex === null) {
+    return null;
+  }
+  if (cmapIndex === 13 || cmapIndex === 14) {
+    return glyph;
+  }
+  if (cmapIndex === 15) {
+    return range.start + 13;
+  }
+  if (cmapIndex === 16) {
+    return range.start + 14;
+  }
+  return null;
+}
+
 export function isDarkCorridorCmapGlyph(glyph: number): boolean {
   return getCmapIndex(glyph) === 21;
 }
