@@ -4175,6 +4175,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
+    const hadElevatedBillboard = this.monsterBillboards.has(key);
     if (variant === "defeat") {
       if (this.clientOptions.monsterShatter) {
         this.spawnMonsterBillboardShatterAtTile(x, y);
@@ -4188,14 +4189,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const suppressPlayerTileFlash =
       isPlayerTarget && this.clientOptions.tilesetMode === "tiles";
     const usePlayerBillboardFlash =
-      suppressPlayerTileFlash && this.monsterBillboards.has(key);
+      suppressPlayerTileFlash && hadElevatedBillboard;
     const useBillboardFlash =
       useMonsterBillboardFlash || usePlayerBillboardFlash;
+    const suppressTileFlashForTilesBillboard =
+      this.clientOptions.tilesetMode === "tiles" && hadElevatedBillboard;
     if (variant === "hit" || variant === "defeat") {
       if (useBillboardFlash) {
         this.stopGlyphDamageFlash(key);
         this.startMonsterBillboardDamageFlash(key);
-      } else if (!suppressPlayerTileFlash) {
+      } else if (
+        !suppressPlayerTileFlash &&
+        !suppressTileFlashForTilesBillboard
+      ) {
         this.startGlyphDamageFlash(key);
       } else {
         this.stopGlyphDamageFlash(key);
@@ -4210,7 +4216,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (this.clientOptions.tileShakeOnHit) {
       this.startGlyphDamageShake(x, y, variant, {
-        spriteOnly: variant === "defeat" && useMonsterBillboardFlash,
+        spriteOnly: false,
       });
     }
     if (this.clientOptions.blood) {
