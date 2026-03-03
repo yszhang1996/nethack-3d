@@ -4304,16 +4304,21 @@ export default function App(): JSX.Element {
   const runFpsCrosshairContextAction = (
     action: FpsCrosshairContextState["actions"][number],
   ): void => {
+    // Workaround for a race condition in context-menu command submission.
+    // TODO: remove once the underlying ordering issue is fixed.
+    const contextualSubmitDelayMs = 50;
     const autoDirectionFromFpsAim =
       fpsCrosshairContext?.autoDirectionFromFpsAim === true;
     if (action.kind === "quick") {
       controller?.runQuickAction(action.value, {
         autoDirectionFromFpsAim,
+        submitDelayMs: contextualSubmitDelayMs,
       });
       return;
     }
     controller?.runExtendedCommand(action.value, {
       autoDirectionFromFpsAim,
+      submitDelayMs: contextualSubmitDelayMs,
     });
   };
 

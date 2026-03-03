@@ -4503,6 +4503,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     normalizedActionId: string,
     shouldArmRepeat: boolean,
     autoDirectionFromFpsAim: boolean = false,
+    submitDelayMs: number = 0,
   ): boolean {
     if (!normalizedActionId || !this.session) {
       return false;
@@ -4534,56 +4535,60 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     let didExecute = true;
+    const submitOptions = { delayMs: submitDelayMs };
     switch (normalizedActionId) {
       case "wait":
-        this.sendInput(".");
+        this.sendInput(".", submitOptions);
         break;
       case "search":
-        this.sendInput("s");
+        this.sendInput("s", submitOptions);
         break;
       case "pickup":
-        this.sendInput(",");
+        this.sendInput(",", submitOptions);
         break;
       case "eat":
-        this.sendInput("e");
+        this.sendInput("e", submitOptions);
         break;
       case "look":
-        this.sendInput("/");
+        this.sendInput("/", submitOptions);
         break;
       case "loot":
         if (this.isAutomaticHashCommandBlockedByLookMode()) {
           return false;
         }
-        this.sendInputSequence(["#", "l", "o", "o", "t", "Enter"]);
+        this.sendInputSequence(
+          ["#", "l", "o", "o", "t", "Enter"],
+          submitOptions,
+        );
         if (shouldAutoSelfDirectionForLoot) {
           this.armContextAutoDirection("s");
         }
         break;
       case "quaff":
-        this.sendInput("q");
+        this.sendInput("q", submitOptions);
         break;
       case "open":
         this.armFpsFireSuppression();
-        this.sendInput("o");
+        this.sendInput("o", submitOptions);
         if (adjacentDoorDirection) {
           this.armContextAutoDirection(adjacentDoorDirection);
         }
         break;
       case "close":
         this.armFpsFireSuppression();
-        this.sendInput("c");
+        this.sendInput("c", submitOptions);
         if (adjacentDoorDirection) {
           this.armContextAutoDirection(adjacentDoorDirection);
         }
         break;
       case "ascend":
-        this.sendInput("<");
+        this.sendInput("<", submitOptions);
         break;
       case "descend":
-        this.sendInput(">");
+        this.sendInput(">", submitOptions);
         break;
       case "extended":
-        this.sendInput("#");
+        this.sendInput("#", submitOptions);
         break;
       default:
         console.log(`Unknown quick action requested: ${normalizedActionId}`);
@@ -4613,6 +4618,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     normalizedCommandText: string,
     shouldArmRepeat: boolean,
     autoDirectionFromFpsAim: boolean = false,
+    submitDelayMs: number = 0,
   ): boolean {
     if (!normalizedCommandText || !this.session) {
       return false;
@@ -4641,7 +4647,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.armFpsFireSuppression();
     }
     const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
-    this.sendInputSequence(sequence);
+    this.sendInputSequence(sequence, { delayMs: submitDelayMs });
     if (shouldArmRepeat) {
       this.queueRepeatDirectionCandidate({
         kind: "extended",
@@ -12262,7 +12268,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   public runQuickAction(
     actionId: string,
-    options?: { autoDirectionFromFpsAim?: boolean },
+    options?: { autoDirectionFromFpsAim?: boolean; submitDelayMs?: number },
   ): void {
     const normalizedActionId = String(actionId || "")
       .trim()
@@ -12271,12 +12277,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       normalizedActionId,
       true,
       Boolean(options?.autoDirectionFromFpsAim),
+      Number.isFinite(options?.submitDelayMs)
+        ? Number(options?.submitDelayMs)
+        : 0,
     );
   }
 
   public runExtendedCommand(
     commandText: string,
-    options?: { autoDirectionFromFpsAim?: boolean },
+    options?: { autoDirectionFromFpsAim?: boolean; submitDelayMs?: number },
   ): void {
     const normalizedCommandText = String(commandText || "")
       .trim()
@@ -12285,6 +12294,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       normalizedCommandText,
       true,
       Boolean(options?.autoDirectionFromFpsAim),
+      Number.isFinite(options?.submitDelayMs)
+        ? Number(options?.submitDelayMs)
+        : 0,
     );
   }
 
@@ -12388,7 +12400,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private sendInput(
     input: string,
-    options: { keepContextMenuOpen?: boolean } = {},
+    options: { keepContextMenuOpen?: boolean; delayMs?: number } = {},
   ): void {
     this.logNameInputTrace(input);
     this.pendingPointerAttackTargetContext = null;
@@ -12425,13 +12437,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (this.session) {
       this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
-      this.session.sendInput(resolvedInput);
+      // Workaround for a race condition in contextual command handling.
+      // TODO: remove once the underlying ordering issue is fixed.
+      this.session.sendInput(resolvedInput, { delayMs: options.delayMs });
     }
   }
 
   private sendInputSequence(
     inputs: string[],
-    options: { keepContextMenuOpen?: boolean } = {},
+    options: { keepContextMenuOpen?: boolean; delayMs?: number } = {},
   ): void {
     if (!this.session || inputs.length === 0) {
       return;
@@ -12452,7 +12466,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
-    this.session.sendInputSequence(inputs);
+    // Workaround for a race condition in contextual command handling.
+    // TODO: remove once the underlying ordering issue is fixed.
+    this.session.sendInputSequence(inputs, { delayMs: options.delayMs });
   }
 
   private sendForcedDirectionalInput(direction: string): void {

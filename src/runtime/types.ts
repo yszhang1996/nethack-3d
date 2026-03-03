@@ -9,8 +9,8 @@ export type NethackRuntimeVersion = "3.6.7" | "3.7";
 
 export interface RuntimeBridge {
   start(): Promise<void>;
-  sendInput(input: string): void;
-  sendInputSequence(inputs: string[]): void;
+  sendInput(input: string, options?: { delayMs?: number }): void;
+  sendInputSequence(inputs: string[], options?: { delayMs?: number }): void;
   sendMouseInput(x: number, y: number, button: number): void;
   requestTileUpdate(x: number, y: number): void;
   requestAreaUpdate(centerX: number, centerY: number, radius: number): void;

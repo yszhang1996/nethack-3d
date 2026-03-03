@@ -820,11 +820,11 @@ export interface Nethack3DEngineController {
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(
     actionId: string,
-    options?: { autoDirectionFromFpsAim?: boolean },
+    options?: { autoDirectionFromFpsAim?: boolean; submitDelayMs?: number },
   ): void;
   runExtendedCommand(
     commandText: string,
-    options?: { autoDirectionFromFpsAim?: boolean },
+    options?: { autoDirectionFromFpsAim?: boolean; submitDelayMs?: number },
   ): void;
   repeatLastAction(): void;
   setClientOptions(options: Nh3dClientOptions): void;

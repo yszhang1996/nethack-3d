@@ -65,7 +65,7 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     return this.startPromise;
   }
 
-  sendInput(input: string): void {
+  sendInput(input: string, options: { delayMs?: number } = {}): void {
     if (this.isLikelyNameInputForDebug(input)) {
       const stackPreview = (new Error().stack || "")
         .split("\n")
@@ -76,11 +76,17 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
         stackPreview,
       });
     }
-    this.postCommand({ type: "send_input", input });
+    this.postCommandWithOptionalDelay({ type: "send_input", input }, options);
   }
 
-  sendInputSequence(inputs: string[]): void {
-    this.postCommand({ type: "send_input_sequence", inputs });
+  sendInputSequence(
+    inputs: string[],
+    options: { delayMs?: number } = {},
+  ): void {
+    this.postCommandWithOptionalDelay(
+      { type: "send_input_sequence", inputs },
+      options,
+    );
   }
 
   sendMouseInput(x: number, y: number, button: number): void {
@@ -106,6 +112,20 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
 
   private postCommand(command: RuntimeCommand): void {
     this.worker.postMessage(command);
+  }
+
+  private postCommandWithOptionalDelay(
+    command: RuntimeCommand,
+    options: { delayMs?: number } = {},
+  ): void {
+    const delayMs = Number(options.delayMs);
+    if (!Number.isFinite(delayMs) || delayMs <= 0) {
+      this.postCommand(command);
+      return;
+    }
+    globalThis.setTimeout(() => {
+      this.postCommand(command);
+    }, delayMs);
   }
 
   private isLikelyNameInputForDebug(input: string): boolean {
