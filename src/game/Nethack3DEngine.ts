@@ -10406,6 +10406,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileGlyphChar = " ";
       tileTextColor = renderBehavior.textColor;
     }
+    if (shouldUseElevatedBillboard && renderBehavior.isWall) {
+      const fallbackGlyph = this.isFpsMode()
+        ? getDefaultDarkFloorGlyph()
+        : getDefaultFloorGlyph();
+      renderBehavior = classifyTileBehavior({
+        glyph: fallbackGlyph,
+        runtimeChar: ".",
+        runtimeColor: null,
+        priorTerrain: null,
+      });
+      tileTextColor = renderBehavior.textColor;
+    }
 
     const material = this.getMaterialByKind(renderBehavior.materialKind);
     const wallChamferMask =
