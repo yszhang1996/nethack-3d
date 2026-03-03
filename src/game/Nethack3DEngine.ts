@@ -2268,6 +2268,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileShakeChanged =
       previous.tileShakeOnHit !== normalized.tileShakeOnHit;
     const bloodChanged = previous.blood !== normalized.blood;
+    const monsterShatterChanged =
+      previous.monsterShatter !== normalized.monsterShatter;
     const blockAmbientOcclusionChanged =
       previous.blockAmbientOcclusion !== normalized.blockAmbientOcclusion;
     const darkCorridorWallsChanged =
@@ -2323,6 +2325,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (bloodChanged && !normalized.blood) {
       this.clearBloodMistParticles();
+    }
+    if (monsterShatterChanged && !normalized.monsterShatter) {
       this.clearMonsterBillboardShardParticles();
     }
     if (tilesetPathChanged) {
@@ -4172,7 +4176,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const damage = Math.max(1, Math.round(Math.abs(amount)));
     const key = `${x},${y}`;
     if (variant === "defeat") {
-      this.spawnMonsterBillboardShatterAtTile(x, y);
+      if (this.clientOptions.monsterShatter) {
+        this.spawnMonsterBillboardShatterAtTile(x, y);
+      } else {
+        this.removeMonsterBillboard(key);
+      }
     }
     const useMonsterBillboardFlash =
       this.shouldUseMonsterBillboardDamageFlash(key);
@@ -9657,16 +9665,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
           sourceHeightPixels,
         );
       }
-      const boundaryRedChance = THREE.MathUtils.clamp(
-        this.monsterBillboardShardBoundaryRedChancePercent / 100,
-        0,
-        1,
-      );
-      const boundaryRedBleedChance = THREE.MathUtils.clamp(
-        this.monsterBillboardShardBoundaryRedBleedChancePercent / 100,
-        0,
-        1,
-      );
+      const boundaryRedChance = this.clientOptions.monsterShatterBloodBorders
+        ? THREE.MathUtils.clamp(
+            this.monsterBillboardShardBoundaryRedChancePercent / 100,
+            0,
+            1,
+          )
+        : 0;
+      const boundaryRedBleedChance = this.clientOptions
+        .monsterShatterBloodBorders
+        ? THREE.MathUtils.clamp(
+            this.monsterBillboardShardBoundaryRedBleedChancePercent / 100,
+            0,
+            1,
+          )
+        : 0;
       if (boundaryCells.length > 0 && boundaryRedChance > 0) {
         const imageData = context.getImageData(0, 0, shardWidth, shardHeight);
         const data = imageData.data;

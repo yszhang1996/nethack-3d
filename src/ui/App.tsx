@@ -1109,6 +1109,8 @@ type ClientOptionToggleKey =
   | "damageNumbers"
   | "tileShakeOnHit"
   | "blood"
+  | "monsterShatter"
+  | "monsterShatterBloodBorders"
   | "liveMessageLog"
   | "blockAmbientOcclusion"
   | "darkCorridorWalls367"
@@ -1515,6 +1517,20 @@ const clientOptionsConfig: ClientOption[] = [
     key: "blood",
     label: "Blood",
     description: "Render blood mist particle effects on hits.",
+    type: "boolean",
+  },
+  {
+    key: "monsterShatter",
+    label: "Monster shatter",
+    description:
+      "Split defeated monster billboards into physical shard pieces.",
+    type: "boolean",
+  },
+  {
+    key: "monsterShatterBloodBorders",
+    label: "Shatter blood borders",
+    description:
+      "Tint shard pixels near split lines with randomized blood-red edging.",
     type: "boolean",
   },
   {
@@ -5392,85 +5408,89 @@ export default function App(): JSX.Element {
                         <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                           <div className="nh3d-dark-wall-solid-color-controls">
                             <div className="nh3d-dark-wall-solid-color-input-row">
-                              <label className="nh3d-dark-wall-mode-color">
-                                <span>Normal</span>
-                                <input
-                                  aria-label="Dark wall solid color (normal mode)"
-                                  className="nh3d-option-solid-color-native-picker"
-                                  disabled={!enabled}
-                                  onChange={(event) =>
-                                    updateDarkWallSolidColorHexDraft(
-                                      event.target.value,
-                                    )
-                                  }
-                                  type="color"
-                                  value={normalizeSolidChromaKeyHex(
-                                    selectedDarkWallSolidColorHex,
-                                  )}
-                                />
-                              </label>
-                              <label className="nh3d-dark-wall-mode-color">
-                                <span>FPS</span>
-                                <input
-                                  aria-label="Dark wall solid color (FPS mode)"
-                                  className="nh3d-option-solid-color-native-picker"
-                                  disabled={!enabled}
-                                  onChange={(event) =>
-                                    updateDarkWallSolidColorHexFpsDraft(
-                                      event.target.value,
-                                    )
-                                  }
-                                  type="color"
-                                  value={normalizeSolidChromaKeyHex(
-                                    selectedDarkWallSolidColorHexFps,
-                                  )}
-                                />
-                              </label>
-                              <label className="nh3d-dark-wall-grid-toggle">
-                                <input
-                                  checked={
-                                    selectedDarkWallSolidColorGridEnabled
-                                  }
-                                  disabled={!enabled}
-                                  onChange={(event) =>
-                                    updateDarkWallSolidColorGridEnabledDraft(
-                                      event.target.checked,
-                                    )
-                                  }
-                                  type="checkbox"
-                                />
-                                <span>Grid lines</span>
-                              </label>
-                              <label className="nh3d-dark-wall-grid-darkness">
-                                <span>Intensity</span>
-                                <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                              <div className="nh3d-dark-wall-solid-color-input-group">
+                                <label className="nh3d-dark-wall-mode-color">
+                                  <span>Normal</span>
                                   <input
-                                    className="nh3d-dark-wall-grid-darkness-input"
-                                    disabled={
-                                      !enabled ||
-                                      !selectedDarkWallSolidColorGridEnabled
-                                    }
-                                    max={100}
-                                    min={0}
+                                    aria-label="Dark wall solid color (normal mode)"
+                                    className="nh3d-option-solid-color-native-picker"
+                                    disabled={!enabled}
                                     onChange={(event) =>
-                                      updateDarkWallSolidColorGridDarknessPercentDraft(
-                                        Number(event.target.value),
+                                      updateDarkWallSolidColorHexDraft(
+                                        event.target.value,
                                       )
                                     }
-                                    step={1}
-                                    type="number"
-                                    value={
-                                      selectedDarkWallSolidColorGridDarknessPercent
-                                    }
+                                    type="color"
+                                    value={normalizeSolidChromaKeyHex(
+                                      selectedDarkWallSolidColorHex,
+                                    )}
                                   />
-                                  <span
-                                    aria-hidden="true"
-                                    className="nh3d-dark-wall-grid-darkness-suffix"
-                                  >
-                                    %
+                                </label>
+                                <label className="nh3d-dark-wall-mode-color">
+                                  <span>FPS</span>
+                                  <input
+                                    aria-label="Dark wall solid color (FPS mode)"
+                                    className="nh3d-option-solid-color-native-picker"
+                                    disabled={!enabled}
+                                    onChange={(event) =>
+                                      updateDarkWallSolidColorHexFpsDraft(
+                                        event.target.value,
+                                      )
+                                    }
+                                    type="color"
+                                    value={normalizeSolidChromaKeyHex(
+                                      selectedDarkWallSolidColorHexFps,
+                                    )}
+                                  />
+                                </label>
+                              </div>
+                              <div className="nh3d-dark-wall-solid-color-input-group">
+                                <label className="nh3d-dark-wall-grid-toggle">
+                                  <input
+                                    checked={
+                                      selectedDarkWallSolidColorGridEnabled
+                                    }
+                                    disabled={!enabled}
+                                    onChange={(event) =>
+                                      updateDarkWallSolidColorGridEnabledDraft(
+                                        event.target.checked,
+                                      )
+                                    }
+                                    type="checkbox"
+                                  />
+                                  <span>Grid lines</span>
+                                </label>
+                                <label className="nh3d-dark-wall-grid-darkness">
+                                  <span>Intensity</span>
+                                  <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                                    <input
+                                      className="nh3d-dark-wall-grid-darkness-input"
+                                      disabled={
+                                        !enabled ||
+                                        !selectedDarkWallSolidColorGridEnabled
+                                      }
+                                      max={100}
+                                      min={0}
+                                      onChange={(event) =>
+                                        updateDarkWallSolidColorGridDarknessPercentDraft(
+                                          Number(event.target.value),
+                                        )
+                                      }
+                                      step={1}
+                                      type="number"
+                                      value={
+                                        selectedDarkWallSolidColorGridDarknessPercent
+                                      }
+                                    />
+                                    <span
+                                      aria-hidden="true"
+                                      className="nh3d-dark-wall-grid-darkness-suffix"
+                                    >
+                                      %
+                                    </span>
                                   </span>
-                                </span>
-                              </label>
+                                </label>
+                              </div>
                             </div>
                           </div>
                         </div>

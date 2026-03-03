@@ -1713,11 +1713,21 @@ canvas {
 
 .nh3d-dark-wall-solid-color-input-row {
   display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.nh3d-dark-wall-solid-color-input-group {
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  width: 100%;
 
   @media (pointer: coarse) {
+    justify-content: flex-start;
     align-items: center;
     gap: 8px;
   }

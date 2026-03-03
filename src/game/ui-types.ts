@@ -145,6 +145,8 @@ export type Nh3dClientOptions = {
   damageNumbers: boolean;
   tileShakeOnHit: boolean;
   blood: boolean;
+  monsterShatter: boolean;
+  monsterShatterBloodBorders: boolean;
   liveMessageLog: boolean;
   liveMessageDisplayTimeMs: number;
   liveMessageFadeOutTimeMs: number;
@@ -200,6 +202,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   damageNumbers: true,
   tileShakeOnHit: true,
   blood: true,
+  monsterShatter: true,
+  monsterShatterBloodBorders: true,
   liveMessageLog: true,
   liveMessageDisplayTimeMs: 3000,
   liveMessageFadeOutTimeMs: 520,
@@ -716,6 +720,14 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.blood === "boolean"
         ? overrides.blood
         : defaultNh3dClientOptions.blood,
+    monsterShatter:
+      typeof overrides?.monsterShatter === "boolean"
+        ? overrides.monsterShatter
+        : defaultNh3dClientOptions.monsterShatter,
+    monsterShatterBloodBorders:
+      typeof overrides?.monsterShatterBloodBorders === "boolean"
+        ? overrides.monsterShatterBloodBorders
+        : defaultNh3dClientOptions.monsterShatterBloodBorders,
     liveMessageLog:
       typeof overrides?.liveMessageLog === "boolean"
         ? overrides.liveMessageLog
