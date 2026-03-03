@@ -699,6 +699,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardVerticalBaseSpeed: number = -2.5;
   private readonly monsterBillboardShardVerticalVariance: number = 5;
   private readonly monsterBillboardShardMaxPieces: number = 18;
+  private readonly monsterBillboardShardBoundaryRedChancePercent: number = 70;
+  private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number =
+    42;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -719,7 +722,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardDeltaQuaternion =
     new THREE.Quaternion();
   private readonly damageParticleFloorZ: number = 0.02;
-  private readonly damageParticleWallBounce: number = 0.24;
+  private readonly damageParticleWallBounce: number = 0.46;
   private minimapContainer: HTMLDivElement | null = null;
   private minimapCanvasContext: CanvasRenderingContext2D | null = null;
   private minimapViewportContext: CanvasRenderingContext2D | null = null;
@@ -6182,6 +6185,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const baseHorizontalSpeed = variant === "defeat" ? 4.2 : 3.1;
     const horizontalBoost = variant === "defeat" ? 0.24 : 0.16;
     const baseVerticalSpeed = variant === "defeat" ? 3.1 : 2.3;
+    const horizontalVarianceScale = variant === "defeat" ? 1.35 : 1.1;
+    const horizontalVarianceJitter = variant === "defeat" ? 1.4 : 0.9;
     const minScale = variant === "defeat" ? 0.086 : 0.049;
     const maxScale = variant === "defeat" ? 0.214 : 0.118;
 
@@ -6222,7 +6227,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         (Math.random() - 0.5) * spreadRadians;
       const horizontalSpeed =
         baseHorizontalSpeed +
-        Math.random() * (baseHorizontalSpeed * 0.7) +
+        Math.random() * (baseHorizontalSpeed * horizontalVarianceScale) +
+        (Math.random() - 0.5) * horizontalVarianceJitter +
         sanitized * horizontalBoost +
         (1 - sizeFactor) * (variant === "defeat" ? 2.6 : 1.9);
       const verticalSpeed =
@@ -9599,6 +9605,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       context.clearRect(0, 0, shardWidth, shardHeight);
       context.imageSmoothingEnabled = false;
+      const boundaryCells: Array<{
+        cellIndex: number;
+        towardSplitSteps: Array<{ dx: number; dy: number }>;
+      }> = [];
+      for (const cellIndex of region) {
+        const cellXIndex = cellIndex % gridWidth;
+        const cellYIndex = Math.floor(cellIndex / gridWidth);
+        const left = cellXIndex > 0 ? cellIndex - 1 : -1;
+        const rightNeighbor =
+          cellXIndex < gridWidth - 1 ? cellIndex + 1 : -1;
+        const up = cellYIndex > 0 ? cellIndex - gridWidth : -1;
+        const down =
+          cellYIndex < gridHeight - 1 ? cellIndex + gridWidth : -1;
+        const towardSplitSteps: Array<{ dx: number; dy: number }> = [];
+        if (left >= 0 && splitMask[left] === 1) {
+          towardSplitSteps.push({ dx: -1, dy: 0 });
+        }
+        if (rightNeighbor >= 0 && splitMask[rightNeighbor] === 1) {
+          towardSplitSteps.push({ dx: 1, dy: 0 });
+        }
+        if (up >= 0 && splitMask[up] === 1) {
+          towardSplitSteps.push({ dx: 0, dy: -1 });
+        }
+        if (down >= 0 && splitMask[down] === 1) {
+          towardSplitSteps.push({ dx: 0, dy: 1 });
+        }
+        if (towardSplitSteps.length > 0) {
+          boundaryCells.push({ cellIndex, towardSplitSteps });
+        }
+      }
       for (const cellIndex of region) {
         const cellXIndex = cellIndex % gridWidth;
         const cellYIndex = Math.floor(cellIndex / gridWidth);
@@ -9620,6 +9656,87 @@ class Nethack3DEngine implements Nethack3DEngineController {
           sourceWidthPixels,
           sourceHeightPixels,
         );
+      }
+      const boundaryRedChance = THREE.MathUtils.clamp(
+        this.monsterBillboardShardBoundaryRedChancePercent / 100,
+        0,
+        1,
+      );
+      const boundaryRedBleedChance = THREE.MathUtils.clamp(
+        this.monsterBillboardShardBoundaryRedBleedChancePercent / 100,
+        0,
+        1,
+      );
+      if (boundaryCells.length > 0 && boundaryRedChance > 0) {
+        const imageData = context.getImageData(0, 0, shardWidth, shardHeight);
+        const data = imageData.data;
+        for (const boundaryCell of boundaryCells) {
+          const { cellIndex, towardSplitSteps } = boundaryCell;
+          const cellXIndex = cellIndex % gridWidth;
+          const cellYIndex = Math.floor(cellIndex / gridWidth);
+          const sourceX = cellX[cellXIndex];
+          const sourceY = cellY[cellYIndex];
+          const sourceWidthPixels = cellX[cellXIndex + 1] - sourceX;
+          const sourceHeightPixels = cellY[cellYIndex + 1] - sourceY;
+          if (sourceWidthPixels <= 0 || sourceHeightPixels <= 0) {
+            continue;
+          }
+          const localX = sourceX - minPixelX;
+          const localY = sourceY - minPixelY;
+          for (let py = 0; py < sourceHeightPixels; py += 1) {
+            const pixelY = localY + py;
+            if (pixelY < 0 || pixelY >= shardHeight) {
+              continue;
+            }
+            for (let px = 0; px < sourceWidthPixels; px += 1) {
+              const pixelX = localX + px;
+              if (pixelX < 0 || pixelX >= shardWidth) {
+                continue;
+              }
+              const baseIndex = (pixelY * shardWidth + pixelX) * 4;
+              const alphaIndex = baseIndex + 3;
+              if (data[alphaIndex] === 0) {
+                continue;
+              }
+              if (Math.random() > boundaryRedChance) {
+                continue;
+              }
+              data[baseIndex] = 255;
+              data[baseIndex + 1] = 30;
+              data[baseIndex + 2] = 30;
+              if (
+                boundaryRedBleedChance <= 0 ||
+                towardSplitSteps.length === 0 ||
+                Math.random() > boundaryRedBleedChance
+              ) {
+                continue;
+              }
+              const towardStep =
+                towardSplitSteps[
+                  THREE.MathUtils.randInt(0, towardSplitSteps.length - 1)
+                ];
+              const bleedPixelX = pixelX + towardStep.dx;
+              const bleedPixelY = pixelY + towardStep.dy;
+              if (
+                bleedPixelX < 0 ||
+                bleedPixelX >= shardWidth ||
+                bleedPixelY < 0 ||
+                bleedPixelY >= shardHeight
+              ) {
+                continue;
+              }
+              const bleedBaseIndex =
+                (bleedPixelY * shardWidth + bleedPixelX) * 4;
+              if (data[bleedBaseIndex + 3] === 0) {
+                continue;
+              }
+              data[bleedBaseIndex] = 255;
+              data[bleedBaseIndex + 1] = 30;
+              data[bleedBaseIndex + 2] = 30;
+            }
+          }
+        }
+        context.putImageData(imageData, 0, 0);
       }
 
       const shardTexture = new THREE.CanvasTexture(canvas);
