@@ -67,6 +67,8 @@ class LocalNetHackRuntime {
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
     this.travelSpeedDelayMs = 60; // Default to normal
+    this.travelClickMoveBlockExtraMs = 5;
+    this.clickMoveBlockedUntilMs = 0;
 
     // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
     this.pendingMapGlyphs = [];
@@ -388,6 +390,12 @@ class LocalNetHackRuntime {
     if (clickMod === null) {
       return;
     }
+    if (clickButton === 0 && this.isClickMoveBlocked()) {
+      console.log(
+        `Discarding click-move during travel overlap window: button=${clickButton} tile=(${tileX}, ${tileY})`,
+      );
+      return;
+    }
 
     console.log(
       `Received client mouse input: button=${clickButton} tile=(${tileX}, ${tileY}) mod=${clickMod}`,
@@ -629,6 +637,22 @@ class LocalNetHackRuntime {
       return this.mouseClickSecondaryMod;
     }
     return null;
+  }
+
+  getClickMoveBlockDurationMs() {
+    const baseDelayMs = Number(this.travelSpeedDelayMs);
+    if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) {
+      return this.travelClickMoveBlockExtraMs;
+    }
+    return baseDelayMs + this.travelClickMoveBlockExtraMs;
+  }
+
+  beginClickMoveBlockWindow() {
+    this.clickMoveBlockedUntilMs = Date.now() + this.getClickMoveBlockDurationMs();
+  }
+
+  isClickMoveBlocked() {
+    return Date.now() < this.clickMoveBlockedUntilMs;
   }
 
   enqueueMouseInput(x, y, mod, source = "user") {
@@ -4057,6 +4081,7 @@ class LocalNetHackRuntime {
         return 0;
 
       case "shim_delay_output":
+        this.beginClickMoveBlockWindow();
         if (this.travelSpeedDelayMs <= 0) {
           return 0; // No delay for instant
         }
