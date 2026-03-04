@@ -1819,6 +1819,108 @@ const commonExtendedCommandWhitelist = [
   "travel",
 ];
 
+const overflowGlowClassName = "nh3d-overflow-glow";
+const overflowGlowStartXClassName = "nh3d-overflow-glow-x-start";
+const overflowGlowEndXClassName = "nh3d-overflow-glow-x-end";
+const overflowGlowStartYClassName = "nh3d-overflow-glow-y-start";
+const overflowGlowEndYClassName = "nh3d-overflow-glow-y-end";
+const overflowGlowAxisThresholdPx = 1;
+const overflowGlowTargetSelector = [
+  "#game-log",
+  ".nh3d-mobile-log",
+  ".nh3d-dialog",
+  "#position-dialog",
+  "#stats-bar",
+  ".nh3d-options-panel",
+  ".nh3d-options-nav",
+  ".nh3d-tileset-manager-upload",
+  ".nh3d-tileset-manager-list",
+  ".nh3d-solid-chroma-picker-atlas-shell",
+  ".nh3d-dark-wall-tile-grid",
+  ".nh3d-inventory-items",
+  ".nh3d-inventory-context-menu",
+  ".nh3d-mobile-actions-grid",
+  ".nh3d-mobile-actions-sections",
+].join(", ");
+
+function supportsScrollableOverflowAxis(value: string): boolean {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === "auto" || normalized === "scroll" || normalized === "overlay"
+  );
+}
+
+function clearOverflowGlowState(element: HTMLElement): void {
+  element.classList.remove(
+    overflowGlowClassName,
+    overflowGlowStartXClassName,
+    overflowGlowEndXClassName,
+    overflowGlowStartYClassName,
+    overflowGlowEndYClassName,
+  );
+  element.style.removeProperty("--nh3d-overflow-existing-shadow");
+}
+
+function updateOverflowGlowState(element: HTMLElement): boolean {
+  const computedStyle = window.getComputedStyle(element);
+  const canOverflowX = supportsScrollableOverflowAxis(computedStyle.overflowX);
+  const canOverflowY = supportsScrollableOverflowAxis(computedStyle.overflowY);
+  const overflowX = Math.max(0, element.scrollWidth - element.clientWidth);
+  const overflowY = Math.max(0, element.scrollHeight - element.clientHeight);
+  const hasOverflowX = canOverflowX && overflowX > overflowGlowAxisThresholdPx;
+  const hasOverflowY = canOverflowY && overflowY > overflowGlowAxisThresholdPx;
+
+  if (!hasOverflowX && !hasOverflowY) {
+    clearOverflowGlowState(element);
+    return false;
+  }
+
+  if (!element.classList.contains(overflowGlowClassName)) {
+    const existingShadow =
+      computedStyle.boxShadow && computedStyle.boxShadow !== "none"
+        ? computedStyle.boxShadow
+        : "none";
+    element.style.setProperty("--nh3d-overflow-existing-shadow", existingShadow);
+    element.classList.add(overflowGlowClassName);
+  }
+
+  if (hasOverflowX) {
+    element.classList.toggle(
+      overflowGlowStartXClassName,
+      element.scrollLeft > overflowGlowAxisThresholdPx,
+    );
+    element.classList.toggle(
+      overflowGlowEndXClassName,
+      element.scrollLeft < overflowX - overflowGlowAxisThresholdPx,
+    );
+  } else {
+    element.classList.remove(
+      overflowGlowStartXClassName,
+      overflowGlowEndXClassName,
+    );
+  }
+
+  if (hasOverflowY) {
+    element.classList.toggle(
+      overflowGlowStartYClassName,
+      element.scrollTop > overflowGlowAxisThresholdPx,
+    );
+    element.classList.toggle(
+      overflowGlowEndYClassName,
+      element.scrollTop < overflowY - overflowGlowAxisThresholdPx,
+    );
+  } else {
+    element.classList.remove(
+      overflowGlowStartYClassName,
+      overflowGlowEndYClassName,
+    );
+  }
+
+  return true;
+}
+
 function normalizeStartupCharacterName(value: string): string {
   const normalized = String(value || "")
     .replace(/,/g, " ")
@@ -2302,6 +2404,88 @@ export default function App(): JSX.Element {
     clientOptions.liveMessageLogFontScale,
     clientOptions.minimapScale,
   ]);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const trackedElements = new Map<HTMLElement, () => void>();
+    let refreshRafId: number | null = null;
+
+    const refreshOverflowGlowTargets = (): void => {
+      const activeElements = new Set<HTMLElement>();
+      const candidates = document.querySelectorAll<HTMLElement>(
+        overflowGlowTargetSelector,
+      );
+      for (const element of candidates) {
+        if (!element.isConnected) {
+          continue;
+        }
+        const hasOverflowGlow = updateOverflowGlowState(element);
+        if (!hasOverflowGlow) {
+          continue;
+        }
+        activeElements.add(element);
+        if (trackedElements.has(element)) {
+          continue;
+        }
+        const onScroll = (): void => {
+          updateOverflowGlowState(element);
+        };
+        element.addEventListener("scroll", onScroll, { passive: true });
+        trackedElements.set(element, onScroll);
+      }
+
+      for (const [element, onScroll] of trackedElements.entries()) {
+        if (activeElements.has(element) && element.isConnected) {
+          continue;
+        }
+        element.removeEventListener("scroll", onScroll);
+        trackedElements.delete(element);
+        clearOverflowGlowState(element);
+      }
+    };
+
+    const scheduleOverflowGlowRefresh = (): void => {
+      if (refreshRafId !== null) {
+        return;
+      }
+      refreshRafId = window.requestAnimationFrame(() => {
+        refreshRafId = null;
+        refreshOverflowGlowTargets();
+      });
+    };
+
+    scheduleOverflowGlowRefresh();
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleOverflowGlowRefresh();
+    });
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+
+    window.addEventListener("resize", scheduleOverflowGlowRefresh);
+    window.addEventListener("orientationchange", scheduleOverflowGlowRefresh);
+
+    return () => {
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", scheduleOverflowGlowRefresh);
+      window.removeEventListener(
+        "orientationchange",
+        scheduleOverflowGlowRefresh,
+      );
+      if (refreshRafId !== null) {
+        window.cancelAnimationFrame(refreshRafId);
+      }
+      for (const [element, onScroll] of trackedElements.entries()) {
+        element.removeEventListener("scroll", onScroll);
+        clearOverflowGlowState(element);
+      }
+      trackedElements.clear();
+    };
+  }, []);
   const [
     reopenNewGamePromptOnInteraction,
     setReopenNewGamePromptOnInteraction,
