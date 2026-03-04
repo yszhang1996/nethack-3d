@@ -9,12 +9,14 @@ import {
 } from "react";
 import {
   cloneNh3dSoundPack,
+  createNh3dSoundUploadSlotKey,
   createNh3dSoundPack,
   deleteNh3dSoundPackFromIndexedDb,
   exportNh3dSoundPackToZip,
   importNh3dSoundPackFromZip,
   loadNh3dSoundPackStateFromIndexedDb,
   loadStoredNh3dSoundBlob,
+  nh3dBaseSoundVariationId,
   nh3dDefaultSoundPackId,
   nh3dSoundEffectDefinitions,
   normalizeNh3dSoundPackName,
@@ -23,6 +25,7 @@ import {
   saveNh3dSoundPackToIndexedDb,
   setActiveNh3dSoundPackId,
   type Nh3dSoundEffectKey,
+  type Nh3dSoundEffectVariation,
   type Nh3dSoundPackRecord,
   type Nh3dSoundFileUploadOverrides,
 } from "../audio/sound-pack-storage";
@@ -57,6 +60,48 @@ function stripHtmlToPlainText(value: string): string {
   return withoutTags.replace(/\s+/g, " ").trim();
 }
 
+type SoundVariationView = {
+  id: string;
+  isBase: boolean;
+  value: Nh3dSoundEffectVariation;
+};
+
+function createVariationId(soundKey: Nh3dSoundEffectKey): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${soundKey}-${crypto.randomUUID()}`;
+  }
+  return `${soundKey}-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+}
+
+function getSoundVariationViews(
+  soundKey: Nh3dSoundEffectKey,
+  sound: Nh3dSoundPackRecord["sounds"][Nh3dSoundEffectKey],
+): SoundVariationView[] {
+  const base: Nh3dSoundEffectVariation = {
+    id: nh3dBaseSoundVariationId,
+    key: soundKey,
+    enabled: sound.enabled,
+    volume: sound.volume,
+    fileName: sound.fileName,
+    mimeType: sound.mimeType,
+    path: sound.path,
+    source: sound.source,
+    attribution: sound.attribution,
+  };
+  const extras = Array.isArray(sound.variations) ? sound.variations : [];
+  return [
+    { id: nh3dBaseSoundVariationId, isBase: true, value: base },
+    ...extras.map((variation) => ({
+      id: variation.id,
+      isBase: false,
+      value: {
+        ...variation,
+        key: soundKey,
+      },
+    })),
+  ];
+}
+
 export default function SoundPackSettings({
   visible,
   onDialogActionsChange,
@@ -73,12 +118,10 @@ export default function SoundPackSettings({
   const [statusText, setStatusText] = useState("");
   const [isCreateMode, setIsCreateMode] = useState(false);
   const [newPackName, setNewPackName] = useState("");
-  const [playingSoundKey, setPlayingSoundKey] =
-    useState<Nh3dSoundEffectKey | null>(null);
+  const [playingSoundSlotKey, setPlayingSoundSlotKey] =
+    useState<string | null>(null);
   const importFileInputRef = useRef<HTMLInputElement | null>(null);
-  const soundFileInputRefs = useRef<
-    Partial<Record<Nh3dSoundEffectKey, HTMLInputElement | null>>
-  >({});
+  const soundFileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
   const hasLoadedRef = useRef(false);
@@ -101,7 +144,7 @@ export default function SoundPackSettings({
       URL.revokeObjectURL(previewObjectUrlRef.current);
       previewObjectUrlRef.current = null;
     }
-    setPlayingSoundKey(null);
+    setPlayingSoundSlotKey(null);
   }, []);
 
   useEffect(() => {
@@ -184,6 +227,98 @@ export default function SoundPackSettings({
       };
     });
     markDraftAsDirty();
+  };
+
+  const updateDraftSoundVariation = (
+    soundKey: Nh3dSoundEffectKey,
+    variationId: string,
+    updater: (current: Nh3dSoundEffectVariation) => Nh3dSoundEffectVariation,
+  ): void => {
+    updateDraftSound(soundKey, (current) => {
+      const views = getSoundVariationViews(soundKey, current);
+      const nextViews = views.map((view) =>
+        view.id === variationId
+          ? {
+              ...view,
+              value: {
+                ...updater(view.value),
+                id: view.id,
+                key: soundKey,
+              },
+            }
+          : view,
+      );
+      const baseView =
+        nextViews.find((view) => view.id === nh3dBaseSoundVariationId) ??
+        nextViews[0];
+      if (!baseView) {
+        return current;
+      }
+      return {
+        ...current,
+        enabled: baseView.value.enabled,
+        volume: baseView.value.volume,
+        fileName: baseView.value.fileName,
+        mimeType: baseView.value.mimeType,
+        path: baseView.value.path,
+        source: baseView.value.source,
+        attribution: baseView.value.attribution,
+        variations: nextViews
+          .filter((view) => view.id !== nh3dBaseSoundVariationId)
+          .map((view) => ({
+            ...view.value,
+            id: view.id,
+            key: soundKey,
+          })),
+      };
+    });
+  };
+
+  const addDraftSoundVariation = (soundKey: Nh3dSoundEffectKey): void => {
+    updateDraftSound(soundKey, (current) => {
+      const nextVariation: Nh3dSoundEffectVariation = {
+        id: createVariationId(soundKey),
+        key: soundKey,
+        enabled: current.enabled,
+        volume: current.volume,
+        fileName: current.fileName,
+        mimeType: current.mimeType,
+        path: current.path,
+        source: current.source,
+        attribution: current.attribution,
+      };
+      return {
+        ...current,
+        variations: [...(current.variations ?? []), nextVariation],
+      };
+    });
+  };
+
+  const removeDraftSoundVariation = (
+    soundKey: Nh3dSoundEffectKey,
+    variationId: string,
+  ): void => {
+    if (variationId === nh3dBaseSoundVariationId) {
+      return;
+    }
+    const slotKey = createNh3dSoundUploadSlotKey(soundKey, variationId);
+    if (playingSoundSlotKey === slotKey) {
+      stopPreview();
+    }
+    setPendingUploads((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, slotKey)) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next[slotKey];
+      return next;
+    });
+    updateDraftSound(soundKey, (current) => ({
+      ...current,
+      variations: (current.variations ?? []).filter(
+        (variation) => variation.id !== variationId,
+      ),
+    }));
   };
 
   const discardPendingChangesIfNeeded = useCallback((): boolean => {
@@ -357,14 +492,29 @@ export default function SoundPackSettings({
     }
   };
 
-  const handlePlayPreview = async (soundKey: Nh3dSoundEffectKey): Promise<void> => {
+  const handlePlayPreview = async (
+    soundKey: Nh3dSoundEffectKey,
+    variationId: string = nh3dBaseSoundVariationId,
+  ): Promise<void> => {
     if (!draftPack) {
       return;
     }
     setErrorText("");
     stopPreview();
-    const pendingUpload = pendingUploads[soundKey];
     const sound = draftPack.sounds[soundKey];
+    const variation =
+      getSoundVariationViews(soundKey, sound).find(
+        (entry) => entry.id === variationId,
+      )?.value ?? null;
+    if (!variation) {
+      return;
+    }
+    const uploadSlotKey = createNh3dSoundUploadSlotKey(soundKey, variationId);
+    const pendingUpload =
+      pendingUploads[uploadSlotKey] ??
+      (variationId === nh3dBaseSoundVariationId
+        ? pendingUploads[soundKey]
+        : undefined);
     const fallbackSound = defaultPack?.sounds[soundKey];
     let previewUrl = "";
     let revokeAfterPlay = false;
@@ -375,16 +525,16 @@ export default function SoundPackSettings({
         revokeAfterPlay = true;
       } else if (pendingUpload === null) {
         previewUrl = fallbackSound?.path || resolveNh3dDefaultSoundPath(soundKey);
-      } else if (sound.source === "user") {
-        const storedBlob = await loadStoredNh3dSoundBlob(sound.path);
+      } else if (variation.source === "user") {
+        const storedBlob = await loadStoredNh3dSoundBlob(variation.path);
         if (storedBlob) {
           previewUrl = URL.createObjectURL(storedBlob);
           revokeAfterPlay = true;
         } else {
-          previewUrl = sound.path;
+          previewUrl = variation.path;
         }
       } else {
-        previewUrl = sound.path;
+        previewUrl = variation.path;
       }
 
       if (!previewUrl) {
@@ -393,18 +543,23 @@ export default function SoundPackSettings({
 
       const audio = previewAudioRef.current ?? new Audio();
       previewAudioRef.current = audio;
+      const previewVolume = Math.max(
+        0,
+        Math.min(1, Number(variation.volume ?? 1)),
+      );
       audio.pause();
       audio.currentTime = 0;
+      audio.volume = Number.isFinite(previewVolume) ? previewVolume : 1;
       audio.src = previewUrl;
       audio.onended = () => {
-        setPlayingSoundKey(null);
+        setPlayingSoundSlotKey(null);
         if (revokeAfterPlay && previewObjectUrlRef.current) {
           URL.revokeObjectURL(previewObjectUrlRef.current);
           previewObjectUrlRef.current = null;
         }
       };
       audio.onerror = () => {
-        setPlayingSoundKey(null);
+        setPlayingSoundSlotKey(null);
         if (revokeAfterPlay && previewObjectUrlRef.current) {
           URL.revokeObjectURL(previewObjectUrlRef.current);
           previewObjectUrlRef.current = null;
@@ -417,7 +572,7 @@ export default function SoundPackSettings({
       }
 
       await audio.play();
-      setPlayingSoundKey(soundKey);
+      setPlayingSoundSlotKey(uploadSlotKey);
     } catch (error) {
       if (revokeAfterPlay) {
         URL.revokeObjectURL(previewUrl);
@@ -428,7 +583,7 @@ export default function SoundPackSettings({
   };
 
   const handleAttributionPaste =
-    (soundKey: Nh3dSoundEffectKey) =>
+    (soundKey: Nh3dSoundEffectKey, variationId: string) =>
     (event: ClipboardEvent<HTMLInputElement>): void => {
       event.preventDefault();
       const input = event.currentTarget;
@@ -442,7 +597,7 @@ export default function SoundPackSettings({
       const selectionEnd = input.selectionEnd ?? input.value.length;
       const nextValue = `${input.value.slice(0, selectionStart)}${pastedText}${input.value.slice(selectionEnd)}`;
 
-      updateDraftSound(soundKey, (current) => ({
+      updateDraftSoundVariation(soundKey, variationId, (current) => ({
         ...current,
         attribution: nextValue,
       }));
@@ -602,7 +757,7 @@ export default function SoundPackSettings({
             Delete soundpack
           </button>
         ) : null}
-        {playingSoundKey ? (
+        {playingSoundSlotKey ? (
           <button
             className="nh3d-menu-action-button"
             onClick={stopPreview}
@@ -636,184 +791,264 @@ export default function SoundPackSettings({
             const soundKey = definition.key;
             const sound = draftPack.sounds[soundKey];
             const fallbackSound = defaultPack?.sounds[soundKey];
-            const pendingUpload = pendingUploads[soundKey];
-            const pendingFileName =
-              pendingUpload instanceof File && pendingUpload.name
-                ? pendingUpload.name
-                : sound.fileName;
-            const displayFileName =
-              pendingUpload instanceof Blob
-                ? `${pendingFileName} (pending save)`
-                : pendingUpload === null
-                  ? `${fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey)} (default)`
-                  : sound.source === "user"
-                    ? `${sound.fileName} (custom)`
-                    : `${sound.fileName} (built-in)`;
-            const volumePercent = Math.round(sound.volume * 100);
-            const canResetCustom =
-              !isDefaultDraft &&
-              (pendingUpload instanceof Blob || sound.source === "user");
-            const isPlaying = playingSoundKey === soundKey;
+            const variationViews = getSoundVariationViews(soundKey, sound);
             return (
-              <div className="nh3d-soundpack-row" key={soundKey}>
-                <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-primary">
+              <div
+                className={`nh3d-soundpack-row${isDefaultDraft ? " is-default-pack" : ""}`}
+                key={soundKey}
+              >
+                <div className="nh3d-soundpack-variation-list">
+                  {variationViews.map((variationView, variationIndex) => {
+                    const variationId = variationView.id;
+                    const variation = variationView.value;
+                    const uploadSlotKey = createNh3dSoundUploadSlotKey(
+                      soundKey,
+                      variationId,
+                    );
+                    const pendingUpload =
+                      pendingUploads[uploadSlotKey] ??
+                      (variationView.isBase ? pendingUploads[soundKey] : undefined);
+                    const pendingFileName =
+                      pendingUpload instanceof File && pendingUpload.name
+                        ? pendingUpload.name
+                        : variation.fileName;
+                    const displayFileName =
+                      pendingUpload instanceof Blob
+                        ? `${pendingFileName} (pending save)`
+                        : pendingUpload === null
+                          ? `${fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey)} (default)`
+                          : variation.source === "user"
+                            ? `${variation.fileName} (custom)`
+                            : `${variation.fileName} (built-in)`;
+                    const volumePercent = Math.round(variation.volume * 100);
+                    const canResetCustom =
+                      !isDefaultDraft &&
+                      (pendingUpload instanceof Blob || variation.source === "user");
+                    const isPlaying = playingSoundSlotKey === uploadSlotKey;
+                    const soundDisplayLabel =
+                      variationViews.length > 1 && variationIndex > 0
+                        ? `${definition.label} ${variationIndex + 1}`
+                        : definition.label;
+                    return (
+                      <div className="nh3d-soundpack-variation-row" key={uploadSlotKey}>
+                        <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-primary">
+                          <button
+                            aria-checked={variation.enabled}
+                            aria-label={`Enable ${soundDisplayLabel}`}
+                            className={`nh3d-option-switch nh3d-soundpack-toggle${
+                              variation.enabled ? " is-on" : ""
+                            }`}
+                            disabled={isBusy}
+                            onClick={() =>
+                              updateDraftSoundVariation(
+                                soundKey,
+                                variationId,
+                                (current) => ({
+                                  ...current,
+                                  enabled: !current.enabled,
+                                }),
+                              )
+                            }
+                            role="switch"
+                            type="button"
+                          >
+                            <span className="nh3d-option-switch-thumb" />
+                          </button>
+                          <div className="nh3d-soundpack-sound-type">
+                            <div className="nh3d-option-label">{soundDisplayLabel}</div>
+                          </div>
+                          <div className="nh3d-soundpack-info-box nh3d-soundpack-volume-box">
+                            <div className="nh3d-option-description">Volume</div>
+                            <div className="nh3d-soundpack-volume-control">
+                              <input
+                                aria-label={`Volume for ${soundDisplayLabel}`}
+                                className="nh3d-option-slider"
+                                disabled={isBusy}
+                                max={100}
+                                min={0}
+                                onChange={(event) =>
+                                  updateDraftSoundVariation(
+                                    soundKey,
+                                    variationId,
+                                    (current) => ({
+                                      ...current,
+                                      volume: Math.max(
+                                        0,
+                                        Math.min(1, Number(event.target.value) / 100),
+                                      ),
+                                    }),
+                                  )
+                                }
+                                step={1}
+                                type="range"
+                                value={volumePercent}
+                              />
+                              <span className="nh3d-soundpack-volume-value">
+                                {volumePercent}%
+                              </span>
+                            </div>
+                          </div>
+                          <button
+                            className={`nh3d-menu-action-button nh3d-soundpack-play-button${
+                              isPlaying ? " nh3d-menu-action-confirm" : ""
+                            }`}
+                            disabled={isBusy}
+                            onClick={() => {
+                              void handlePlayPreview(soundKey, variationId);
+                            }}
+                            type="button"
+                          >
+                            {isPlaying ? "Playing..." : "Play"}
+                          </button>
+                        </div>
+
+                        {!isDefaultDraft ? (
+                          <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-secondary">
+                            <div
+                              className={`nh3d-soundpack-file-action-group${
+                                variationView.isBase ? " is-single-action" : ""
+                              }`}
+                            >
+                              {!variationView.isBase ? (
+                                <button
+                                  className="nh3d-menu-action-button nh3d-menu-action-cancel nh3d-soundpack-remove-variation-button"
+                                  disabled={isBusy}
+                                  onClick={() => {
+                                    removeDraftSoundVariation(soundKey, variationId);
+                                  }}
+                                  type="button"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                              <button
+                                className="nh3d-menu-action-button nh3d-soundpack-choose-file-button"
+                                disabled={isBusy}
+                                onClick={() => {
+                                  soundFileInputRefs.current[uploadSlotKey]?.click();
+                                }}
+                                type="button"
+                              >
+                                Replace
+                              </button>
+                            </div>
+                            <input
+                              accept=".wav,.ogg,.mp3,.m4a,.aac,.flac,.opus,audio/*"
+                              className="nh3d-soundpack-file-input-hidden"
+                              disabled={isBusy}
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] ?? null;
+                                event.target.value = "";
+                                if (!file || !draftPack || isDefaultDraft) {
+                                  return;
+                                }
+                                setPendingUploads((previous) => ({
+                                  ...previous,
+                                  [uploadSlotKey]: file,
+                                }));
+                                updateDraftSoundVariation(
+                                  soundKey,
+                                  variationId,
+                                  (current) => ({
+                                    ...current,
+                                    fileName: file.name || current.fileName,
+                                    mimeType: file.type || current.mimeType,
+                                    path: resolveNh3dUserSoundPath(
+                                      draftPack.name,
+                                      soundKey,
+                                      file.name || current.fileName,
+                                      variationId,
+                                    ),
+                                    source: "user",
+                                  }),
+                                );
+                              }}
+                              ref={(node) => {
+                                soundFileInputRefs.current[uploadSlotKey] = node;
+                              }}
+                              type="file"
+                            />
+                            <div className="nh3d-soundpack-info-box nh3d-soundpack-path">
+                              <div className="nh3d-option-description">Sound file</div>
+                              <div className="nh3d-soundpack-path-value">
+                                {displayFileName}
+                              </div>
+                            </div>
+                            <button
+                              className="nh3d-menu-action-button nh3d-soundpack-reset-button"
+                              disabled={!canResetCustom || isBusy}
+                              onClick={() => {
+                                if (!draftPack || isDefaultDraft) {
+                                  return;
+                                }
+                                setPendingUploads((previous) => ({
+                                  ...previous,
+                                  [uploadSlotKey]: null,
+                                }));
+                                updateDraftSoundVariation(
+                                  soundKey,
+                                  variationId,
+                                  (current) => ({
+                                    ...current,
+                                    fileName:
+                                      fallbackSound?.fileName ||
+                                      resolveNh3dDefaultSoundPath(soundKey),
+                                    mimeType: fallbackSound?.mimeType || "audio/ogg",
+                                    path:
+                                      fallbackSound?.path ||
+                                      resolveNh3dDefaultSoundPath(soundKey),
+                                    source: "builtin",
+                                  }),
+                                );
+                              }}
+                              type="button"
+                            >
+                              Reset
+                            </button>
+                          </div>
+                        ) : null}
+
+                        <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-tertiary">
+                          <div className="nh3d-soundpack-info-box nh3d-soundpack-attribution-box">
+                            <div className="nh3d-option-description">Attribution</div>
+                            <input
+                              aria-label={`Attribution for ${soundDisplayLabel}`}
+                              className="nh3d-text-input nh3d-soundpack-attribution-input"
+                              disabled={isBusy}
+                              onChange={(event) =>
+                                updateDraftSoundVariation(
+                                  soundKey,
+                                  variationId,
+                                  (current) => ({
+                                    ...current,
+                                    attribution: event.target.value,
+                                  }),
+                                )
+                              }
+                              onPaste={handleAttributionPaste(soundKey, variationId)}
+                              placeholder="Source, creator, or license details"
+                              readOnly={isDefaultDraft}
+                              type="text"
+                              value={variation.attribution}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {!isDefaultDraft ? (
                   <button
-                    aria-checked={sound.enabled}
-                    aria-label={`Enable ${definition.label} sound`}
-                    className={`nh3d-option-switch nh3d-soundpack-toggle${
-                      sound.enabled ? " is-on" : ""
-                    }`}
+                    className="nh3d-menu-action-button"
                     disabled={isBusy}
-                    onClick={() =>
-                      updateDraftSound(soundKey, (current) => ({
-                        ...current,
-                        enabled: !current.enabled,
-                      }))
-                    }
-                    role="switch"
-                    type="button"
-                  >
-                    <span className="nh3d-option-switch-thumb" />
-                  </button>
-                  <div className="nh3d-soundpack-sound-type">
-                    <div className="nh3d-option-label">{definition.label}</div>
-                  </div>
-                  <div className="nh3d-soundpack-info-box nh3d-soundpack-volume-box">
-                    <div className="nh3d-option-description">Volume</div>
-                    <div className="nh3d-soundpack-volume-control">
-                      <input
-                        aria-label={`Volume for ${definition.label}`}
-                        className="nh3d-option-slider"
-                        disabled={isBusy}
-                        max={100}
-                        min={0}
-                        onChange={(event) =>
-                          updateDraftSound(soundKey, (current) => ({
-                            ...current,
-                            volume: Math.max(
-                              0,
-                              Math.min(1, Number(event.target.value) / 100),
-                            ),
-                          }))
-                        }
-                        step={1}
-                        type="range"
-                        value={volumePercent}
-                      />
-                      <span className="nh3d-soundpack-volume-value">
-                        {volumePercent}%
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    className={`nh3d-menu-action-button nh3d-soundpack-play-button${
-                      isPlaying ? " nh3d-menu-action-confirm" : ""
-                    }`}
-                    disabled={isBusy}
                     onClick={() => {
-                      void handlePlayPreview(soundKey);
+                      addDraftSoundVariation(soundKey);
                     }}
                     type="button"
                   >
-                    {isPlaying ? "Playing..." : "Play"}
+                    + Add variation
                   </button>
-                </div>
-                <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-secondary">
-                  <button
-                    className="nh3d-menu-action-button nh3d-soundpack-choose-file-button"
-                    disabled={isDefaultDraft || isBusy}
-                    onClick={() => {
-                      soundFileInputRefs.current[soundKey]?.click();
-                    }}
-                    type="button"
-                  >
-                    Choose File
-                  </button>
-                  <input
-                    accept=".wav,.ogg,.mp3,.m4a,.aac,.flac,.opus,audio/*"
-                    className="nh3d-soundpack-file-input-hidden"
-                    disabled={isDefaultDraft || isBusy}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0] ?? null;
-                      event.target.value = "";
-                      if (!file || !draftPack || isDefaultDraft) {
-                        return;
-                      }
-                      setPendingUploads((previous) => ({
-                        ...previous,
-                        [soundKey]: file,
-                      }));
-                      updateDraftSound(soundKey, (current) => ({
-                        ...current,
-                        fileName: file.name || current.fileName,
-                        mimeType: file.type || current.mimeType,
-                        path: resolveNh3dUserSoundPath(
-                          draftPack.name,
-                          soundKey,
-                          file.name || current.fileName,
-                        ),
-                        source: "user",
-                      }));
-                    }}
-                    ref={(node) => {
-                      soundFileInputRefs.current[soundKey] = node;
-                    }}
-                    type="file"
-                  />
-                  <div className="nh3d-soundpack-info-box nh3d-soundpack-path">
-                    <div className="nh3d-option-description">Sound file</div>
-                    <div className="nh3d-soundpack-path-value">
-                      {displayFileName}
-                    </div>
-                  </div>
-                  <button
-                    className="nh3d-menu-action-button nh3d-soundpack-reset-button"
-                    disabled={!canResetCustom || isBusy}
-                    onClick={() => {
-                      if (!draftPack || isDefaultDraft) {
-                        return;
-                      }
-                      setPendingUploads((previous) => ({
-                        ...previous,
-                        [soundKey]: null,
-                      }));
-                      updateDraftSound(soundKey, (current) => ({
-                        ...current,
-                        fileName:
-                          fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey),
-                        mimeType: fallbackSound?.mimeType || "audio/ogg",
-                        path:
-                          fallbackSound?.path ||
-                          resolveNh3dDefaultSoundPath(soundKey),
-                        source: "builtin",
-                      }));
-                    }}
-                    type="button"
-                  >
-                    Reset
-                  </button>
-                </div>
-                <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-tertiary">
-                  <div className="nh3d-soundpack-info-box nh3d-soundpack-attribution-box">
-                    <div className="nh3d-option-description">Attribution</div>
-                    <input
-                      aria-label={`Attribution for ${definition.label}`}
-                      className="nh3d-text-input nh3d-soundpack-attribution-input"
-                      disabled={isBusy}
-                      onChange={(event) =>
-                        updateDraftSound(soundKey, (current) => ({
-                          ...current,
-                          attribution: event.target.value,
-                        }))
-                      }
-                      onPaste={handleAttributionPaste(soundKey)}
-                      placeholder="Source, creator, or license details"
-                      readOnly={isDefaultDraft}
-                      type="text"
-                      value={sound.attribution}
-                    />
-                  </div>
-                </div>
+                ) : null}
               </div>
             );
           })}

@@ -29,6 +29,8 @@ Start here before making changes.
 
 - Treat `src/game/*` and `src/runtime/*` as source of truth.
 - `public/app.js` and `public/runtime-worker.js` are build outputs.
+- Prefer adding new gameplay/runtime features in focused files under `src/game/*` or `src/runtime/*` by function (input, audio, rendering, parsing, UI state, etc.) rather than adding large new blocks to `src/game/Nethack3DEngine.ts`.
+- Keep `src/game/Nethack3DEngine.ts` as an orchestration layer when possible: wire modules together there, but move new domain logic into separate modules to support gradual migration away from the monolithic file.
 - If adding/changing runtime event payloads, update both:
   - event emitter sites in `src/runtime/LocalNetHackRuntime.ts`
   - event handling in `src/game/Nethack3DEngine.ts`

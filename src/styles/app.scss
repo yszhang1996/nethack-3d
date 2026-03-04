@@ -2468,6 +2468,35 @@ canvas {
   background: rgba(12, 31, 48, 0.66);
 }
 
+.nh3d-soundpack-row.is-default-pack {
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.nh3d-soundpack-row.is-default-pack .nh3d-soundpack-variation-row {
+  border: 1px solid rgba(74, 112, 164, 0.54);
+  background: rgba(12, 31, 48, 0.66);
+}
+
+.nh3d-soundpack-variation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nh3d-soundpack-variation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(76, 111, 160, 0.38);
+  border-radius: 6px;
+  background: rgba(6, 16, 26, 0.45);
+}
+
 .nh3d-soundpack-control-row {
   --nh3d-soundpack-leading-column-width: 52px;
   --nh3d-soundpack-action-width: 120px;
@@ -2515,10 +2544,6 @@ canvas {
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid rgba(76, 111, 160, 0.45);
-  border-radius: 6px;
-  background: rgba(8, 18, 29, 0.72);
   display: grid;
   gap: 4px;
 }
@@ -2553,8 +2578,29 @@ canvas {
 }
 
 .nh3d-soundpack-choose-file-button {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
+
+.nh3d-soundpack-remove-variation-button {
+  width: 100%;
+  min-width: 0;
+  justify-self: stretch;
+}
+
+.nh3d-soundpack-file-action-group {
   grid-column: 1 / 3;
-  justify-self: start;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-items: center;
+}
+
+.nh3d-soundpack-file-action-group.is-single-action
+  .nh3d-soundpack-choose-file-button {
+  grid-column: 1 / -1;
 }
 
 .nh3d-soundpack-file-input-hidden {
@@ -2594,8 +2640,19 @@ canvas {
   }
 
   .nh3d-soundpack-choose-file-button {
-    grid-column: 1;
-    justify-self: start;
+    grid-column: auto;
+    justify-self: stretch;
+  }
+
+  .nh3d-soundpack-file-action-group {
+    grid-column: 1 / -1;
+  }
+
+  .nh3d-soundpack-control-row-secondary
+    .nh3d-soundpack-file-action-group
+    .nh3d-menu-action-button {
+    width: 100%;
+    justify-self: stretch;
   }
 
   .nh3d-soundpack-control-row-secondary .nh3d-soundpack-path {
