@@ -37,6 +37,7 @@ export type Nh3dSoundEffectAssignment = {
   mimeType: string;
   path: string;
   source: Nh3dSoundEntrySource;
+  attribution: string;
 };
 
 export type Nh3dSoundPackSoundMap = Record<
@@ -96,6 +97,7 @@ type Nh3dSoundPackExportManifest = {
       mimeType: string;
       path: string;
       source: Nh3dSoundEntrySource;
+      attribution: string;
       archivePath: string | null;
     }>;
   };
@@ -109,6 +111,7 @@ type ParsedImportSoundEntry = {
   mimeType: string;
   path: string;
   source: Nh3dSoundEntrySource;
+  attribution: string;
   archivePath: string | null;
 };
 
@@ -179,6 +182,14 @@ function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function normalizeAttribution(value: unknown, fallback = ""): string {
+  const normalized = normalizeWhitespace(String(value || ""));
+  if (normalized) {
+    return normalized;
+  }
+  return normalizeWhitespace(String(fallback || ""));
+}
+
 export function normalizeNh3dSoundPackName(value: string): string {
   return normalizeWhitespace(String(value || ""));
 }
@@ -238,6 +249,7 @@ function createDefaultSoundAssignment(
   key: Nh3dSoundEffectKey,
 ): Nh3dSoundEffectAssignment {
   const defaultFileName = resolveDefaultFileName(key);
+  const defaultLabel = resolveSoundDefinitionLabel(key);
   return {
     key,
     enabled: true,
@@ -246,6 +258,7 @@ function createDefaultSoundAssignment(
     mimeType: "audio/ogg",
     path: resolveNh3dDefaultSoundPath(key),
     source: "builtin",
+    attribution: `${defaultLabel} (built-in NetHack 3D sound)`,
   };
 }
 
@@ -315,6 +328,7 @@ function normalizeSoundAssignment(
   const mimeType =
     mimeTypeCandidate ||
     (source === "user" ? fallback.mimeType || "application/octet-stream" : "audio/ogg");
+  const attribution = normalizeAttribution(rawValue.attribution, fallback.attribution);
 
   if (source === "user") {
     const rawPath = normalizeWhitespace(String(rawValue.path || ""));
@@ -327,6 +341,7 @@ function normalizeSoundAssignment(
       mimeType,
       path,
       source: "user",
+      attribution,
     };
   }
 
@@ -338,6 +353,7 @@ function normalizeSoundAssignment(
     mimeType: "audio/ogg",
     path: resolveNh3dDefaultSoundPath(soundKey),
     source: "builtin",
+    attribution,
   };
 }
 
@@ -376,6 +392,7 @@ function normalizeSoundPackRecord(rawValue: unknown): Nh3dSoundPackRecord | null
             ...fallback,
             enabled: normalized.enabled,
             volume: normalized.volume,
+            attribution: fallback.attribution,
           }
         : normalized;
   }
@@ -670,6 +687,73 @@ export async function setActiveNh3dSoundPackId(packId: string): Promise<void> {
   }
 }
 
+export async function deleteNh3dSoundPackFromIndexedDb(
+  packId: string,
+): Promise<string> {
+  const normalizedPackId = normalizeWhitespace(String(packId || ""));
+  if (!normalizedPackId) {
+    throw new Error("Sound pack id is required.");
+  }
+  if (normalizedPackId === nh3dDefaultSoundPackId) {
+    throw new Error("The default sound pack cannot be deleted.");
+  }
+
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(
+      [packStoreName, fileStoreName, metaStoreName],
+      "readwrite",
+    );
+    const packStore = transaction.objectStore(packStoreName);
+    const fileStore = transaction.objectStore(fileStoreName);
+    const metaStore = transaction.objectStore(metaStoreName);
+    const packs = await getNormalizedPacksForTransaction(packStore);
+    for (const pack of packs) {
+      await idbRequestToPromise(packStore.put(pack));
+    }
+
+    const targetPack = packs.find((entry) => entry.id === normalizedPackId);
+    if (!targetPack) {
+      throw new Error("Sound pack no longer exists.");
+    }
+    if (targetPack.isDefault) {
+      throw new Error("The default sound pack cannot be deleted.");
+    }
+
+    for (const definition of nh3dSoundEffectDefinitions) {
+      const soundKey = definition.key;
+      const sound = targetPack.sounds[soundKey];
+      if (sound?.source !== "user") {
+        continue;
+      }
+      const path = normalizeWhitespace(sound.path || "");
+      if (!path) {
+        continue;
+      }
+      await idbRequestToPromise(fileStore.delete(path));
+    }
+
+    await idbRequestToPromise(packStore.delete(targetPack.id));
+
+    const rawActiveRecord = await idbRequestToPromise(metaStore.get(activePackMetaKey));
+    const rawActivePackId = parseActivePackId(rawActiveRecord);
+    const nextActivePackId =
+      rawActivePackId && rawActivePackId !== targetPack.id
+        ? rawActivePackId
+        : nh3dDefaultSoundPackId;
+    const nextMeta: Nh3dMetaRecord = {
+      key: activePackMetaKey,
+      value: nextActivePackId,
+      updatedAt: Date.now(),
+    };
+    await idbRequestToPromise(metaStore.put(nextMeta));
+    await idbTransactionDone(transaction);
+    return nextActivePackId;
+  } finally {
+    db.close();
+  }
+}
+
 function cloneDefaultSoundMapForNewPack(
   defaultPack: Nh3dSoundPackRecord,
 ): Nh3dSoundPackSoundMap {
@@ -791,6 +875,7 @@ export async function saveNh3dSoundPackToIndexedDb(
           ...fallbackDefault,
           enabled,
           volume,
+          attribution: fallbackDefault.attribution,
         };
         continue;
       }
@@ -803,6 +888,7 @@ export async function saveNh3dSoundPackToIndexedDb(
           ...fallbackDefault,
           enabled,
           volume,
+          attribution: fallbackDefault.attribution,
         };
         continue;
       }
@@ -845,6 +931,10 @@ export async function saveNh3dSoundPackToIndexedDb(
           mimeType,
           path,
           source: "user",
+          attribution: normalizeAttribution(
+            incomingSound.attribution,
+            existingSound.attribution,
+          ),
         };
         continue;
       }
@@ -900,6 +990,10 @@ export async function saveNh3dSoundPackToIndexedDb(
             "application/octet-stream",
           path: canonicalPath,
           source: "user",
+          attribution: normalizeAttribution(
+            incomingSound.attribution,
+            existingSound.attribution,
+          ),
         };
         continue;
       }
@@ -911,6 +1005,10 @@ export async function saveNh3dSoundPackToIndexedDb(
         ...fallbackDefault,
         enabled,
         volume,
+        attribution: normalizeAttribution(
+          incomingSound.attribution,
+          existingSound.attribution || fallbackDefault.attribution,
+        ),
       };
     }
 
@@ -1049,6 +1147,7 @@ export async function exportNh3dSoundPackToZip(
         "application/octet-stream",
       path: sound.path,
       source: sound.source,
+      attribution: normalizeAttribution(sound.attribution),
       archivePath,
     });
   }
@@ -1105,6 +1204,7 @@ function parseImportManifest(rawManifest: unknown): {
           ? resolveNh3dUserSoundPath(packName, key, `${key}.bin`)
           : resolveNh3dDefaultSoundPath(key)),
       source,
+      attribution: normalizeAttribution(rawEntry.attribution),
       archivePath: normalizeWhitespace(String(rawEntry.archivePath || "")) || null,
     };
     soundsByKey.set(key, parsedEntry);
@@ -1211,6 +1311,10 @@ export async function importNh3dSoundPackFromZip(
           mimeType,
           path,
           source: "user",
+          attribution: normalizeAttribution(
+            imported?.attribution,
+            defaultSound.attribution,
+          ),
         };
         continue;
       }
@@ -1219,6 +1323,10 @@ export async function importNh3dSoundPackFromZip(
         ...defaultSound,
         enabled,
         volume,
+        attribution: normalizeAttribution(
+          imported?.attribution,
+          defaultSound.attribution,
+        ),
       };
     }
 

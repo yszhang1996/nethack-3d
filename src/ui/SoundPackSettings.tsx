@@ -5,10 +5,12 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ClipboardEvent,
 } from "react";
 import {
   cloneNh3dSoundPack,
   createNh3dSoundPack,
+  deleteNh3dSoundPackFromIndexedDb,
   exportNh3dSoundPackToZip,
   importNh3dSoundPackFromZip,
   loadNh3dSoundPackStateFromIndexedDb,
@@ -27,6 +29,12 @@ import {
 
 type SoundPackSettingsProps = {
   visible: boolean;
+  onDialogActionsChange?: (actions: SoundPackDialogActions | null) => void;
+};
+
+export type SoundPackDialogActions = {
+  saveIfNeeded: () => Promise<boolean>;
+  confirmDiscardIfNeeded: () => boolean;
 };
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -44,8 +52,14 @@ function sanitizeArchiveFileName(value: string): string {
   return normalized;
 }
 
+function stripHtmlToPlainText(value: string): string {
+  const withoutTags = String(value || "").replace(/<[^>]*>/g, " ");
+  return withoutTags.replace(/\s+/g, " ").trim();
+}
+
 export default function SoundPackSettings({
   visible,
+  onDialogActionsChange,
 }: SoundPackSettingsProps): JSX.Element | null {
   const [packs, setPacks] = useState<Nh3dSoundPackRecord[]>([]);
   const [activePackId, setActivePackId] = useState("");
@@ -145,11 +159,11 @@ export default function SoundPackSettings({
     void reloadSoundPacks();
   }, [reloadSoundPacks, visible]);
 
-  const markDraftAsDirty = (): void => {
+  const markDraftAsDirty = useCallback((): void => {
     setIsDraftDirty(true);
     setStatusText("");
     setErrorText("");
-  };
+  }, []);
 
   const updateDraftSound = (
     soundKey: Nh3dSoundEffectKey,
@@ -172,7 +186,7 @@ export default function SoundPackSettings({
     markDraftAsDirty();
   };
 
-  const discardPendingChangesIfNeeded = (): boolean => {
+  const discardPendingChangesIfNeeded = useCallback((): boolean => {
     if (!isDraftDirty) {
       return true;
     }
@@ -182,7 +196,7 @@ export default function SoundPackSettings({
     return window.confirm(
       "Discard unsaved sound pack changes and continue?",
     );
-  };
+  }, [isDraftDirty]);
 
   const handleSelectPack = async (nextPackId: string): Promise<void> => {
     if (!nextPackId || nextPackId === activePackId) {
@@ -232,9 +246,9 @@ export default function SoundPackSettings({
     }
   };
 
-  const handleSaveDraft = async (): Promise<void> => {
+  const handleSaveDraft = useCallback(async (): Promise<boolean> => {
     if (!draftPack || !isDraftDirty) {
-      return;
+      return true;
     }
     setIsBusy(true);
     setErrorText("");
@@ -243,12 +257,27 @@ export default function SoundPackSettings({
       const savedPack = await saveNh3dSoundPackToIndexedDb(draftPack, pendingUploads);
       await reloadSoundPacks(savedPack.id);
       setStatusText(`Saved sound pack '${savedPack.name}'.`);
+      return true;
     } catch (error) {
       setErrorText(getErrorMessage(error, "Failed to save sound pack."));
+      return false;
     } finally {
       setIsBusy(false);
     }
-  };
+  }, [draftPack, isDraftDirty, pendingUploads, reloadSoundPacks]);
+
+  useEffect(() => {
+    if (!onDialogActionsChange) {
+      return;
+    }
+    onDialogActionsChange({
+      saveIfNeeded: handleSaveDraft,
+      confirmDiscardIfNeeded: discardPendingChangesIfNeeded,
+    });
+    return () => {
+      onDialogActionsChange(null);
+    };
+  }, [discardPendingChangesIfNeeded, handleSaveDraft, onDialogActionsChange]);
 
   const handleExportDraft = async (): Promise<void> => {
     if (!draftPack) {
@@ -295,6 +324,34 @@ export default function SoundPackSettings({
       setStatusText(`Imported sound pack '${importedPack.name}'.`);
     } catch (error) {
       setErrorText(getErrorMessage(error, "Failed to import sound pack ZIP."));
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const handleDeleteDraftPack = async (): Promise<void> => {
+    if (!draftPack || isDefaultDraft) {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Delete sound pack '${draftPack.name}'? This cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsBusy(true);
+    setErrorText("");
+    setStatusText("");
+    try {
+      const nextActivePackId = await deleteNh3dSoundPackFromIndexedDb(draftPack.id);
+      await reloadSoundPacks(nextActivePackId);
+      setStatusText(`Deleted sound pack '${draftPack.name}'.`);
+    } catch (error) {
+      setErrorText(getErrorMessage(error, "Failed to delete sound pack."));
     } finally {
       setIsBusy(false);
     }
@@ -369,6 +426,27 @@ export default function SoundPackSettings({
       setErrorText(getErrorMessage(error, "Unable to preview this sound."));
     }
   };
+
+  const handleAttributionPaste =
+    (soundKey: Nh3dSoundEffectKey) =>
+    (event: ClipboardEvent<HTMLInputElement>): void => {
+      event.preventDefault();
+      const input = event.currentTarget;
+      const clipboard = event.clipboardData;
+      const htmlText = clipboard.getData("text/html");
+      const plainText = clipboard.getData("text/plain");
+      const pastedText = plainText
+        ? stripHtmlToPlainText(plainText)
+        : stripHtmlToPlainText(htmlText);
+      const selectionStart = input.selectionStart ?? input.value.length;
+      const selectionEnd = input.selectionEnd ?? input.value.length;
+      const nextValue = `${input.value.slice(0, selectionStart)}${pastedText}${input.value.slice(selectionEnd)}`;
+
+      updateDraftSound(soundKey, (current) => ({
+        ...current,
+        attribution: nextValue,
+      }));
+    };
 
   if (!visible) {
     return null;
@@ -453,14 +531,12 @@ export default function SoundPackSettings({
         </div>
       ) : null}
 
-      {draftPack ? (
+      {draftPack && !isDefaultDraft ? (
         <div className="nh3d-option-row nh3d-soundpack-name-row">
           <div className="nh3d-option-copy">
             <div className="nh3d-option-label">Pack name</div>
             <div className="nh3d-option-description">
-              {isDefaultDraft
-                ? "The default pack keeps built-in sound files read-only."
-                : "Rename this pack and save to update its sound file namespace."}
+              Rename this pack and save to update its sound file namespace.
             </div>
           </div>
           <div className="nh3d-soundpack-name-controls">
@@ -514,6 +590,18 @@ export default function SoundPackSettings({
         >
           Import soundpack
         </button>
+        {draftPack && !isDefaultDraft ? (
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-cancel"
+            disabled={isBusy || isLoading}
+            onClick={() => {
+              void handleDeleteDraftPack();
+            }}
+            type="button"
+          >
+            Delete soundpack
+          </button>
+        ) : null}
         {playingSoundKey ? (
           <button
             className="nh3d-menu-action-button"
@@ -704,6 +792,27 @@ export default function SoundPackSettings({
                   >
                     Reset
                   </button>
+                </div>
+                <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-tertiary">
+                  <div className="nh3d-soundpack-info-box nh3d-soundpack-attribution-box">
+                    <div className="nh3d-option-description">Attribution</div>
+                    <input
+                      aria-label={`Attribution for ${definition.label}`}
+                      className="nh3d-text-input nh3d-soundpack-attribution-input"
+                      disabled={isBusy}
+                      onChange={(event) =>
+                        updateDraftSound(soundKey, (current) => ({
+                          ...current,
+                          attribution: event.target.value,
+                        }))
+                      }
+                      onPaste={handleAttributionPaste(soundKey)}
+                      placeholder="Source, creator, or license details"
+                      readOnly={isDefaultDraft}
+                      type="text"
+                      value={sound.attribution}
+                    />
+                  </div>
                 </div>
               </div>
             );

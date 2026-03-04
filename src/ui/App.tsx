@@ -51,7 +51,9 @@ import {
   loadPersistedNh3dClientOptionsWithMigration,
   persistNh3dClientOptionsToIndexedDb,
 } from "../storage/client-options-storage";
-import SoundPackSettings from "./SoundPackSettings";
+import SoundPackSettings, {
+  type SoundPackDialogActions,
+} from "./SoundPackSettings";
 
 type DirectionChoice = {
   key?: string;
@@ -2345,6 +2347,7 @@ export default function App(): JSX.Element {
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
   const [statsBarHeight, setStatsBarHeight] = useState(0);
   const [textInputValue, setTextInputValue] = useState("");
+  const soundPackDialogActionsRef = useRef<SoundPackDialogActions | null>(null);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore(
     (state) => state.setEngineController,
@@ -3975,7 +3978,12 @@ export default function App(): JSX.Element {
     controller?.dismissFpsCrosshairContextMenu();
   };
 
-  const closeClientOptionsDialog = (): void => {
+  const closeClientOptionsDialog = async (): Promise<void> => {
+    const canDiscardSoundPackChanges =
+      soundPackDialogActionsRef.current?.confirmDiscardIfNeeded() ?? true;
+    if (!canDiscardSoundPackChanges) {
+      return;
+    }
     setIsClientOptionsVisible(false);
     setIsDarkWallTilePickerVisible(false);
     setIsTilesetBackgroundTilePickerVisible(false);
@@ -3985,7 +3993,12 @@ export default function App(): JSX.Element {
     setClientOptionsDraft({ ...clientOptions });
   };
 
-  const confirmClientOptionsDialog = (): void => {
+  const confirmClientOptionsDialog = async (): Promise<void> => {
+    const didSaveSoundPackChanges =
+      (await soundPackDialogActionsRef.current?.saveIfNeeded()) ?? true;
+    if (!didSaveSoundPackChanges) {
+      return;
+    }
     const next = normalizeNh3dClientOptions(clientOptionsDraft);
     setClientOptions(next);
     setClientOptionsDraft(next);
@@ -3996,6 +4009,14 @@ export default function App(): JSX.Element {
     setIsTilesetManagerVisible(false);
     setIsResetClientOptionsConfirmationVisible(false);
     controller?.setClientOptions(next);
+  };
+
+  const requestCloseClientOptionsDialog = (): void => {
+    void closeClientOptionsDialog();
+  };
+
+  const requestConfirmClientOptionsDialog = (): void => {
+    void confirmClientOptionsDialog();
   };
 
   const openResetClientOptionsConfirmation = (): void => {
@@ -4920,7 +4941,7 @@ export default function App(): JSX.Element {
           setIsTilesetSolidColorPickerVisible(false);
           return;
         }
-        closeClientOptionsDialog();
+        requestCloseClientOptionsDialog();
         return;
       }
 
@@ -5647,7 +5668,7 @@ export default function App(): JSX.Element {
           id="nh3d-client-options-dialog"
         >
           {renderMobileDialogCloseButton(
-            closeClientOptionsDialog,
+            requestCloseClientOptionsDialog,
             "Close NetHack 3D options",
           )}
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
@@ -6105,6 +6126,9 @@ export default function App(): JSX.Element {
               return null;
             })}
                   <SoundPackSettings
+                    onDialogActionsChange={(actions) => {
+                      soundPackDialogActionsRef.current = actions;
+                    }}
                     visible={selectedClientOptionsTab.id === "sound"}
                   />
               </div>
@@ -6114,14 +6138,14 @@ export default function App(): JSX.Element {
           <div className="nh3d-menu-actions">
             <button
               className="nh3d-menu-action-button nh3d-menu-action-confirm"
-              onClick={confirmClientOptionsDialog}
+              onClick={requestConfirmClientOptionsDialog}
               type="button"
             >
               Confirm
             </button>
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={closeClientOptionsDialog}
+              onClick={requestCloseClientOptionsDialog}
               type="button"
             >
               Cancel

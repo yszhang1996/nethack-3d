@@ -2469,7 +2469,7 @@ canvas {
 }
 
 .nh3d-soundpack-control-row {
-  --nh3d-soundpack-leading-column-width: 56px;
+  --nh3d-soundpack-leading-column-width: 52px;
   --nh3d-soundpack-action-width: 120px;
   width: 100%;
   display: grid;
@@ -2480,7 +2480,7 @@ canvas {
 .nh3d-soundpack-control-row-primary {
   grid-template-columns:
     var(--nh3d-soundpack-leading-column-width)
-    minmax(0, 1fr)
+    minmax(200px, max-content)
     minmax(0, 1fr)
     var(--nh3d-soundpack-action-width);
 }
@@ -2488,9 +2488,14 @@ canvas {
 .nh3d-soundpack-control-row-secondary {
   grid-template-columns:
     var(--nh3d-soundpack-leading-column-width)
-    minmax(0, 1fr)
+    minmax(200px, max-content)
     minmax(0, 1fr)
     var(--nh3d-soundpack-action-width);
+  align-items: stretch;
+}
+
+.nh3d-soundpack-control-row-tertiary {
+  grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
 }
 
@@ -2561,6 +2566,15 @@ canvas {
   align-self: center;
 }
 
+.nh3d-soundpack-attribution-box {
+  grid-column: 1 / -1;
+}
+
+.nh3d-soundpack-attribution-input {
+  width: 100%;
+  min-width: 0;
+}
+
 @media (pointer: coarse) {
   .nh3d-soundpack-control-row-primary {
     grid-template-columns: auto minmax(0, 1fr);
@@ -2569,6 +2583,10 @@ canvas {
   .nh3d-soundpack-control-row-secondary {
     grid-template-columns: auto auto;
     justify-content: space-between;
+  }
+
+  .nh3d-soundpack-control-row-tertiary {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .nh3d-soundpack-control-row-primary .nh3d-soundpack-volume-box {
