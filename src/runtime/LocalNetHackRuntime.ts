@@ -70,14 +70,6 @@ class LocalNetHackRuntime {
     this.travelClickMoveBlockExtraMs = 5;
     this.clickMoveBlockedUntilMs = 0;
 
-    // Batch map glyph updates to reduce runtime event overhead during reveal bursts.
-    this.pendingMapGlyphs = [];
-    this.mapGlyphFlushTimer = null;
-    this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
-    // Internal toggle for runtime map-glyph buffering.
-    // Default disabled for deterministic immediate delivery while testing.
-    this.mapGlyphBatchingEnabled = false;
-
     this.ready = this.initializeNetHack();
   }
 
@@ -275,12 +267,6 @@ class LocalNetHackRuntime {
 
     this.isClosed = true;
     console.log(`Shutting down NetHack session: ${reason}`);
-
-    if (this.mapGlyphFlushTimer) {
-      clearTimeout(this.mapGlyphFlushTimer);
-      this.mapGlyphFlushTimer = null;
-    }
-    this.pendingMapGlyphs = [];
     this.inputBroker.drain();
     this.pendingTextResponses = [];
     this.farLookMode = "none";
@@ -313,40 +299,7 @@ class LocalNetHackRuntime {
     if (this.isClosed || !tile || !this.eventHandler) {
       return;
     }
-
-    if (!this.mapGlyphBatchingEnabled) {
-      this.emit(tile);
-      return;
-    }
-
-    this.pendingMapGlyphs.push(tile);
-    if (this.mapGlyphFlushTimer) {
-      return;
-    }
-
-    this.mapGlyphFlushTimer = setTimeout(() => {
-      this.flushMapGlyphUpdates();
-    }, this.mapGlyphBatchWindowMs);
-  }
-
-  flushMapGlyphUpdates() {
-    if (this.mapGlyphFlushTimer) {
-      clearTimeout(this.mapGlyphFlushTimer);
-      this.mapGlyphFlushTimer = null;
-    }
-
-    if (this.isClosed || !this.pendingMapGlyphs.length || !this.eventHandler) {
-      this.pendingMapGlyphs = [];
-      return;
-    }
-
-    const batch = this.pendingMapGlyphs;
-    this.pendingMapGlyphs = [];
-
-    this.emit({
-      type: "map_glyph_batch",
-      tiles: batch,
-    });
+    this.emit(tile);
   }
 
   handleClientInputSequence(inputs) {
@@ -1289,9 +1242,6 @@ class LocalNetHackRuntime {
     console.log(
       `📤 Refreshed ${tilesRefreshed} tiles in area around (${centerX}, ${centerY})`,
     );
-
-    // Ensure tile updates land before completion notification.
-    this.flushMapGlyphUpdates();
 
     // Send completion message
     if (this.eventHandler) {
@@ -3970,10 +3920,6 @@ class LocalNetHackRuntime {
         // Update player position when NetHack requests clipping around a position
         const oldPlayerPos = { ...this.playerPosition };
         this.playerPosition = { x: clipX, y: clipY };
-
-        // Emit any queued map glyphs first so position-driven client inference
-        // can reconcile once with the complete post-move tile state.
-        this.flushMapGlyphUpdates();
 
         // Send updated player position to client
         if (this.eventHandler) {

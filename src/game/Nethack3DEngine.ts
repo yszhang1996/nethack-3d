@@ -11,6 +11,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.js";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
+import { FmodRuntime } from "../audio";
 import {
   isLoggingEnabled,
   logWithOriginal,
@@ -457,6 +458,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
 
   private session: RuntimeBridge | null = null;
+  private readonly fmodRuntime: FmodRuntime;
+  private fmodRuntimeInitializationInFlight: boolean = false;
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
@@ -1149,6 +1152,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
+    this.fmodRuntime = new FmodRuntime();
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -2362,6 +2366,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       this.markLightingDirty();
     }
+    this.syncFmodRuntimeWithClientOptions(normalized.soundEnabled);
   }
 
   private shouldUseDesktopTextureAnisotropy(): boolean {
@@ -3018,6 +3023,66 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setExtendedCommands([]);
     this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
     this.uiAdapter.setGameOver({ ...this.gameOverState });
+  }
+
+  private async initializeFmodRuntime(): Promise<void> {
+    if (
+      this.fmodRuntime.isInitialized() ||
+      this.fmodRuntimeInitializationInFlight
+    ) {
+      return;
+    }
+    this.fmodRuntimeInitializationInFlight = true;
+    try {
+      await this.fmodRuntime.initialize();
+      this.fmodRuntime.setEnabled(this.clientOptions.soundEnabled);
+      if (!this.clientOptions.soundEnabled) {
+        logWithOriginal(
+          "[NetHack 3D] FMOD Studio runtime initialized (audio disabled in client options).",
+        );
+        return;
+      }
+      logWithOriginal("[NetHack 3D] FMOD Studio runtime initialized.");
+      const diagnostics = this.fmodRuntime.getThreadingDiagnostics();
+      logWithOriginal(
+        `[NetHack 3D] FMOD audio backend: ${diagnostics.backendMode} (update ${diagnostics.updateIntervalMs}ms).`,
+      );
+      if (!this.fmodRuntime.isUsingThreadedAudioMixing()) {
+        console.warn(
+          "FMOD fell back to ScriptProcessor (main-thread audio). AudioWorklet support is recommended for best performance.",
+        );
+      } else if (diagnostics.backendMode === "audio-worklet-copy") {
+        console.warn(
+          "FMOD is using AudioWorklet copy mode. Enable cross-origin isolation (COOP/COEP) for lower-overhead shared-buffer mode.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "FMOD Studio runtime is unavailable; continuing without audio.",
+        error,
+      );
+    } finally {
+      this.fmodRuntimeInitializationInFlight = false;
+    }
+  }
+
+  private syncFmodRuntimeWithClientOptions(soundEnabled: boolean): void {
+    const enabled = Boolean(soundEnabled);
+    this.fmodRuntime.setEnabled(enabled);
+    if (!enabled) {
+      return;
+    }
+    if (this.fmodRuntime.isInitialized()) {
+      return;
+    }
+    void this.initializeFmodRuntime();
+  }
+
+  private resumeFmodFromUserGesture(): void {
+    if (!this.clientOptions.soundEnabled) {
+      return;
+    }
+    this.fmodRuntime.resumeFromUserGesture();
   }
 
   private async connectToRuntime(): Promise<void> {
@@ -13399,6 +13464,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (this.isTextInputActive) {
       const target = event.target as HTMLElement | null;
       if (
@@ -16122,6 +16189,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (
       !this.isFpsMode() &&
       event.button === 0 &&
@@ -16238,6 +16307,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchStart(event: TouchEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (
       !this.isFpsMode() &&
       this.shouldConsumeSuppressedMapPrimaryPointerEvent(

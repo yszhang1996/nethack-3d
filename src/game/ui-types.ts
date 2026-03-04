@@ -152,6 +152,7 @@ export type Nh3dClientOptions = {
   liveMessageFadeOutTimeMs: number;
   uiFontScale: number;
   liveMessageLogFontScale: number;
+  soundEnabled: boolean;
   blockAmbientOcclusion: boolean;
   darkCorridorWalls367: boolean;
   darkCorridorWallTileOverrideEnabled: boolean;
@@ -209,6 +210,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageFadeOutTimeMs: 520,
   uiFontScale: 1,
   liveMessageLogFontScale: 1,
+  soundEnabled: true,
   blockAmbientOcclusion: true,
   darkCorridorWalls367: true,
   darkCorridorWallTileOverrideEnabled: false,
@@ -736,6 +738,10 @@ export function normalizeNh3dClientOptions(
     liveMessageFadeOutTimeMs,
     uiFontScale,
     liveMessageLogFontScale,
+    soundEnabled:
+      typeof overrides?.soundEnabled === "boolean"
+        ? overrides.soundEnabled
+        : defaultNh3dClientOptions.soundEnabled,
     blockAmbientOcclusion:
       typeof overrides?.blockAmbientOcclusion === "boolean"
         ? overrides.blockAmbientOcclusion

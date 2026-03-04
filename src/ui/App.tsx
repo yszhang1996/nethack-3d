@@ -1101,6 +1101,21 @@ type ClientOption =
   | ClientOptionSelect
   | ClientOptionSlider;
 
+type ClientOptionsTabId =
+  | "controls"
+  | "display"
+  | "sound"
+  | "mobile"
+  | "combat"
+  | "compatibility";
+
+type ClientOptionsTab = {
+  id: ClientOptionsTabId;
+  label: string;
+  description: string;
+  groupKey: string;
+};
+
 type ClientOptionToggleKey =
   | "fpsMode"
   | "invertLookYAxis"
@@ -1112,6 +1127,7 @@ type ClientOptionToggleKey =
   | "monsterShatter"
   | "monsterShatterBloodBorders"
   | "liveMessageLog"
+  | "soundEnabled"
   | "blockAmbientOcclusion"
   | "darkCorridorWalls367"
   | "darkCorridorWallTileOverrideEnabled"
@@ -1485,6 +1501,18 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
+    key: "group-sound",
+    label: "Sound",
+    type: "group",
+  },
+  {
+    key: "soundEnabled",
+    label: "Enable sound",
+    description:
+      "Turn FMOD audio on or off. Disabling reduces audio processing overhead on lower-end devices.",
+    type: "boolean",
+  },
+  {
     key: "group-mobile-controls",
     label: "Mobile controls",
     type: "group",
@@ -1559,6 +1587,62 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
 ];
+
+const clientOptionsDefaultTabId: ClientOptionsTabId = "display";
+
+const clientOptionsTabs: ClientOptionsTab[] = [
+  {
+    id: "controls",
+    label: "Controls",
+    description: "Mouselook, perspective, and first-person behavior.",
+    groupKey: "group-controls",
+  },
+  {
+    id: "display",
+    label: "Display",
+    description: "Interface layout, tileset rendering, and visual effects.",
+    groupKey: "group-display",
+  },
+  {
+    id: "sound",
+    label: "Sound",
+    description: "Audio output and performance-related sound controls.",
+    groupKey: "group-sound",
+  },
+  {
+    id: "mobile",
+    label: "Mobile",
+    description: "Touch and drag behavior on mobile devices.",
+    groupKey: "group-mobile-controls",
+  },
+  {
+    id: "combat",
+    label: "Combat",
+    description: "Combat impact feedback and visual response.",
+    groupKey: "group-combat",
+  },
+  {
+    id: "compatibility",
+    label: "Compatibility",
+    description: "Runtime compatibility and NetHack behavior toggles.",
+    groupKey: "group-compatibility",
+  },
+];
+
+function getClientOptionsForGroup(groupKey: string): ClientOption[] {
+  const options: ClientOption[] = [];
+  let currentGroupKey = "";
+  for (const option of clientOptionsConfig) {
+    if (option.type === "group") {
+      currentGroupKey = option.key;
+      continue;
+    }
+    if (currentGroupKey === groupKey) {
+      options.push(option);
+    }
+  }
+  return options;
+}
 
 const clampInventoryContextMenuPosition = (
   x: number,
@@ -2082,6 +2166,8 @@ export default function App(): JSX.Element {
     useState<Nh3dClientOptions>(() => initialClientOptions);
   const [hasHydratedUserTilesets, setHasHydratedUserTilesets] = useState(false);
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
+  const [activeClientOptionsTab, setActiveClientOptionsTab] =
+    useState<ClientOptionsTabId>(clientOptionsDefaultTabId);
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
   const [
@@ -2252,6 +2338,16 @@ export default function App(): JSX.Element {
           }))
         : [{ value: "", label: "No tilesets found" }],
     [hasAnyTilesets, tilesetCatalog],
+  );
+  const selectedClientOptionsTab = useMemo<ClientOptionsTab>(
+    () =>
+      clientOptionsTabs.find((tab) => tab.id === activeClientOptionsTab) ??
+      clientOptionsTabs[0],
+    [activeClientOptionsTab],
+  );
+  const visibleClientOptions = useMemo(
+    () => getClientOptionsForGroup(selectedClientOptionsTab.groupKey),
+    [selectedClientOptionsTab.groupKey],
   );
   const isFpsPlayMode = clientOptions.fpsMode;
   const fpsContextTitle = String(fpsCrosshairContext?.title || "");
@@ -3673,6 +3769,7 @@ export default function App(): JSX.Element {
 
   const openClientOptionsDialog = (): void => {
     setClientOptionsDraft({ ...clientOptions });
+    setActiveClientOptionsTab(clientOptionsDefaultTabId);
     setIsClientOptionsVisible(true);
     setIsDarkWallTilePickerVisible(false);
     setIsTilesetBackgroundTilePickerVisible(false);
@@ -5327,8 +5424,47 @@ export default function App(): JSX.Element {
             "Close NetHack 3D options",
           )}
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
-          <div className="nh3d-options-list">
-            {clientOptionsConfig.map((option) => {
+          <div className="nh3d-options-layout">
+            <div
+              aria-label="Settings categories"
+              className="nh3d-options-nav"
+              role="tablist"
+            >
+              {clientOptionsTabs.map((tab) => {
+                const isSelected = tab.id === selectedClientOptionsTab.id;
+                return (
+                  <button
+                    aria-controls="nh3d-client-options-panel"
+                    aria-selected={isSelected}
+                    className={`nh3d-options-tab${isSelected ? " is-selected" : ""}`}
+                    id={`nh3d-client-options-tab-${tab.id}`}
+                    key={tab.id}
+                    onClick={() => setActiveClientOptionsTab(tab.id)}
+                    role="tab"
+                    tabIndex={isSelected ? 0 : -1}
+                    type="button"
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div
+              aria-labelledby={`nh3d-client-options-tab-${selectedClientOptionsTab.id}`}
+              className="nh3d-options-panel"
+              id="nh3d-client-options-panel"
+              role="tabpanel"
+            >
+              <div className="nh3d-options-panel-heading">
+                <div className="nh3d-options-panel-title">
+                  {selectedClientOptionsTab.label}
+                </div>
+                <div className="nh3d-options-panel-description">
+                  {selectedClientOptionsTab.description}
+                </div>
+              </div>
+              <div className="nh3d-options-list">
+                {visibleClientOptions.map((option) => {
               if (
                 option.type === "boolean" &&
                 option.key === "invertLookYAxis" &&
@@ -5350,13 +5486,6 @@ export default function App(): JSX.Element {
                 clientOptionsDraft.tilesetMode !== "tiles"
               ) {
                 return null;
-              }
-              if (option.type === "group") {
-                return (
-                  <div className="nh3d-options-group-title" key={option.key}>
-                    {option.label}
-                  </div>
-                );
               }
               if (option.type === "boolean") {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
@@ -5741,6 +5870,8 @@ export default function App(): JSX.Element {
               }
               return null;
             })}
+              </div>
+            </div>
           </div>
           <div className="nh3d-menu-actions">
             <button
