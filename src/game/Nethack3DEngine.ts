@@ -395,8 +395,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
   private pendingInventoryDialogOptions: InventoryDialogOptions | null = null;
   private inventoryRefreshInFlight: boolean = false;
-  private lastInventoryRefreshRequestedAtMs: number = 0;
-  private readonly inventoryRefreshDebounceMs: number = 250;
   private runtimeTerminationPromptShown: boolean = false;
   private runtimeConnectionState: NethackConnectionState = "disconnected";
   private lastInfoMenu: { title: string; lines: string[] } | null = null;
@@ -3284,26 +3282,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         // Update inventory display if we have an inventory UI element
         this.updateInventoryDisplay(nextInventory);
 
-        break;
-
-      case "inventory_updated_signal":
-        if (!this.session) {
-          break;
-        }
-        {
-          const nowMs = Date.now();
-          if (
-            this.inventoryRefreshInFlight ||
-            nowMs - this.lastInventoryRefreshRequestedAtMs <
-              this.inventoryRefreshDebounceMs
-          ) {
-            break;
-          }
-          this.inventoryRefreshInFlight = true;
-          this.lastInventoryRefreshRequestedAtMs = nowMs;
-          console.log("📦 Inventory changed; requesting latest snapshot");
-          this.sendInput("i");
-        }
         break;
 
       case "info_menu":
@@ -11882,8 +11860,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     console.log("Requesting current inventory from NetHack...");
     this.inventoryRefreshInFlight = true;
-    this.lastInventoryRefreshRequestedAtMs = Date.now();
-    this.runExtendedCommand("inventory");
+    this.sendInput("i");
     this.pendingInventoryDialog = true;
   }
 
