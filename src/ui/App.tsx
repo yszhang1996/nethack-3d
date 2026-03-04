@@ -51,6 +51,7 @@ import {
   loadPersistedNh3dClientOptionsWithMigration,
   persistNh3dClientOptionsToIndexedDb,
 } from "../storage/client-options-storage";
+import SoundPackSettings from "./SoundPackSettings";
 
 type DirectionChoice = {
   key?: string;
@@ -6103,6 +6104,9 @@ export default function App(): JSX.Element {
               }
               return null;
             })}
+                  <SoundPackSettings
+                    visible={selectedClientOptionsTab.id === "sound"}
+                  />
               </div>
             </div>
           </div>
