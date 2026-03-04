@@ -104,7 +104,7 @@
   --nh3d-scrollbar-thumb-active: #7bc7f2;
   --nh3d-scrollbar-thumb-border: rgba(8, 22, 36, 0.9);
   --nh3d-overflow-glow-rgb: 102, 204, 255;
-  --nh3d-overflow-glow-opacity: 0.34;
+  --nh3d-overflow-glow-opacity: 0.4;
   --nh3d-overflow-glow-size: 20px;
   --nh3d-ui-font-scale: 1;
   --nh3d-live-log-font-scale: 1;
@@ -167,13 +167,15 @@
 }
 
 .nh3d-overflow-glow {
-  --nh3d-overflow-existing-shadow: none;
   --nh3d-overflow-glow-top-opacity: 0;
   --nh3d-overflow-glow-bottom-opacity: 0;
   --nh3d-overflow-glow-left-opacity: 0;
   --nh3d-overflow-glow-right-opacity: 0;
+}
+
+.nh3d-overflow-glow:not(.nh3d-overflow-glow-frame) {
   box-shadow:
-    var(--nh3d-overflow-existing-shadow),
+    var(--nh3d-overflow-existing-shadow, none),
     inset 0 calc(var(--nh3d-overflow-glow-size) * 0.9)
       var(--nh3d-overflow-glow-size)
       calc(var(--nh3d-overflow-glow-size) * -1.05)
@@ -199,7 +201,63 @@
         var(--nh3d-overflow-glow-rgb),
         var(--nh3d-overflow-glow-right-opacity)
       );
-  transition: box-shadow 140ms ease;
+  transition: box-shadow 280ms ease;
+}
+
+.nh3d-overflow-glow-frame {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.nh3d-overflow-glow-shell-fill {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.nh3d-overflow-glow-shell-fill
+  > [data-nh3d-overflow-glow][data-nh3d-overflow-glow-host="parent"] {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.nh3d-overflow-glow-frame.nh3d-overflow-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+  border-radius: inherit;
+  box-shadow:
+    inset 0 calc(var(--nh3d-overflow-glow-size) * 0.9)
+      var(--nh3d-overflow-glow-size)
+      calc(var(--nh3d-overflow-glow-size) * -1.05)
+      rgba(var(--nh3d-overflow-glow-rgb), var(--nh3d-overflow-glow-top-opacity)),
+    inset 0 calc(var(--nh3d-overflow-glow-size) * -0.9)
+      var(--nh3d-overflow-glow-size)
+      calc(var(--nh3d-overflow-glow-size) * -1.05)
+      rgba(
+        var(--nh3d-overflow-glow-rgb),
+        var(--nh3d-overflow-glow-bottom-opacity)
+      ),
+    inset calc(var(--nh3d-overflow-glow-size) * 0.9) 0
+      var(--nh3d-overflow-glow-size)
+      calc(var(--nh3d-overflow-glow-size) * -1.05)
+      rgba(
+        var(--nh3d-overflow-glow-rgb),
+        var(--nh3d-overflow-glow-left-opacity)
+      ),
+    inset calc(var(--nh3d-overflow-glow-size) * -0.9) 0
+      var(--nh3d-overflow-glow-size)
+      calc(var(--nh3d-overflow-glow-size) * -1.05)
+      rgba(
+        var(--nh3d-overflow-glow-rgb),
+        var(--nh3d-overflow-glow-right-opacity)
+      );
+  transition: box-shadow 280ms ease;
 }
 
 .nh3d-overflow-glow.nh3d-overflow-glow-y-start {
@@ -219,7 +277,11 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nh3d-overflow-glow {
+  .nh3d-overflow-glow:not(.nh3d-overflow-glow-frame) {
+    transition: none;
+  }
+
+  .nh3d-overflow-glow-frame.nh3d-overflow-glow::after {
     transition: none;
   }
 }
@@ -395,7 +457,7 @@ canvas {
   color: var(--nh3d-ui-accent-soft);
 }
 
-#game-log {
+.top-left-ui #game-log {
   @extend %custom-scrollbar;
   max-height: calc(250px * var(--nh3d-ui-font-scale, 1));
   overflow-y: auto;
@@ -404,7 +466,6 @@ canvas {
 }
 
 .nh3d-mobile-log {
-  @extend %custom-scrollbar;
   position: fixed;
   // Mobile log only: include left safe-area inset to avoid notch/cutout overlap.
   left: calc(8px + env(safe-area-inset-left));
@@ -414,8 +475,7 @@ canvas {
   bottom: var(--nh3d-mobile-overlay-bottom-inset);
   z-index: 1800;
   max-height: none;
-  overflow-y: auto;
-  padding: calc(10px * var(--nh3d-ui-font-scale, 1));
+  overflow: hidden;
   background: var(--nh3d-ui-panel-bg);
   border: 1px solid var(--nh3d-ui-border);
   border-radius: calc(8px * var(--nh3d-ui-font-scale, 1));
@@ -424,6 +484,15 @@ canvas {
   font-size: nh3d-scale-font(12px);
   line-height: 1.4;
   box-shadow: var(--nh3d-ui-shadow);
+
+  .nh3d-mobile-log-scroll {
+    @extend %custom-scrollbar;
+    width: 100%;
+    height: 100%;
+    overflow-y: auto;
+    padding: calc(10px * var(--nh3d-ui-font-scale, 1));
+    box-sizing: border-box;
+  }
 
   @media (pointer: coarse) {
     .nh3d-mobile-dialog-close {
@@ -1452,8 +1521,18 @@ canvas {
   min-width: 0;
   max-width: min(92vw, 680px);
   max-height: 90vh;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+
+  .nh3d-dialog-info-scroll {
+    @extend %custom-scrollbar;
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
 
   @media (pointer: coarse) {
     min-width: 0;
@@ -1564,6 +1643,19 @@ canvas {
   overflow: hidden;
 }
 
+.nh3d-options-nav-shell {
+  min-width: 0;
+  min-height: 0;
+  align-self: stretch;
+}
+
+.nh3d-options-panel-shell {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+}
+
 .nh3d-options-nav {
   display: flex;
   flex-direction: column;
@@ -1610,6 +1702,7 @@ canvas {
   min-width: 0;
   height: 100%;
   min-height: 0;
+  flex: 1 1 auto;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -1644,6 +1737,14 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .nh3d-options-nav-shell {
+    width: 100%;
+  }
+
+  .nh3d-options-panel-shell {
+    flex: 1 1 auto;
   }
 
   .nh3d-options-nav {
@@ -2481,9 +2582,16 @@ canvas {
   font-family: "Courier New", monospace;
   text-align: center;
   display: none;
+  overflow: hidden;
 
   &.is-visible {
     display: block;
+  }
+
+  .nh3d-position-dialog-scroll {
+    width: 100%;
+    max-height: inherit;
+    overflow-y: auto;
   }
 
   @media (pointer: coarse) {
@@ -2491,7 +2599,6 @@ canvas {
     top: var(--nh3d-mobile-overlay-top-inset);
     max-width: calc(100vw - 16px);
     max-height: var(--nh3d-mobile-overlay-max-height);
-    overflow-y: auto;
     padding-right: 42px;
   }
 }
@@ -2990,10 +3097,14 @@ canvas {
 }
 
 .nh3d-inventory-context-menu {
-  @extend %custom-scrollbar;
   width: 260px;
   min-width: 260px;
   max-width: 260px;
+  overflow: hidden;
+}
+
+.nh3d-inventory-context-menu-scroll {
+  @extend %custom-scrollbar;
   max-height: min(70vh, 450px);
   overflow-y: auto;
 }
@@ -3659,6 +3770,7 @@ canvas {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  overflow-x: hidden;
 
   &.is-extended {
     grid-template-columns: repeat(4, minmax(0, 1fr));
