@@ -72,6 +72,9 @@ class LocalNetHackRuntime {
     this.pendingMapGlyphs = [];
     this.mapGlyphFlushTimer = null;
     this.mapGlyphBatchWindowMs = Number(process.env.NH_MAP_BATCH_MS || 16);
+    // Internal toggle for runtime map-glyph buffering.
+    // Default disabled for deterministic immediate delivery while testing.
+    this.mapGlyphBatchingEnabled = false;
 
     this.ready = this.initializeNetHack();
   }
@@ -306,6 +309,11 @@ class LocalNetHackRuntime {
 
   queueMapGlyphUpdate(tile) {
     if (this.isClosed || !tile || !this.eventHandler) {
+      return;
+    }
+
+    if (!this.mapGlyphBatchingEnabled) {
+      this.emit(tile);
       return;
     }
 

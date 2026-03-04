@@ -10,11 +10,6 @@ import type {
   TileMaterialKind,
 } from "./types";
 
-// NetHack hero role glyph block starts at 329 (e.g. archeologist),
-// so 330 misses one valid player glyph and can leak a player sprite in FPS.
-const PLAYER_GLYPH_MIN = 327;
-const PLAYER_GLYPH_MAX = 360;
-
 function getGlyphKindRange(
   kind: string,
 ): { start: number; endExclusive: number } | null {
@@ -163,13 +158,6 @@ function semanticForCmapGlyph(glyph: number): CmapSemantic | null {
   return semanticForCmapIndex(cmapIndex);
 }
 
-function isPlayerGlyph(glyph: number, runtimeChar: string | null): boolean {
-  if (glyph < PLAYER_GLYPH_MIN || glyph > PLAYER_GLYPH_MAX) {
-    return false;
-  }
-  return runtimeChar === "@" || !runtimeChar;
-}
-
 function fallbackGlyphChar(glyph: number, resolved: ResolvedGlyph): string {
   if (resolved.char && resolved.char.length > 0) {
     return resolved.char;
@@ -177,14 +165,7 @@ function fallbackGlyphChar(glyph: number, resolved: ResolvedGlyph): string {
   return glyph >= 0 ? "?" : " ";
 }
 
-function inferDisposition(
-  effective: ResolvedGlyph,
-  isPlayer: boolean,
-): GlyphDisposition {
-  if (isPlayer) {
-    return "friendly";
-  }
-
+function inferDisposition(effective: ResolvedGlyph): GlyphDisposition {
   switch (effective.kind) {
     case "pet":
     case "ridden":
@@ -346,24 +327,12 @@ function baseMaterialForDisposition(
   }
 }
 
-function classifyByKind(
-  effective: ResolvedGlyph,
-  isPlayer: boolean,
-): {
+function classifyByKind(effective: ResolvedGlyph): {
   materialKind: TileMaterialKind;
   geometryKind: TileGeometryKind;
   isWall: boolean;
   effectKind: TileEffectKind | null;
 } {
-  if (isPlayer) {
-    return {
-      materialKind: "player",
-      geometryKind: "floor",
-      isWall: false,
-      effectKind: null,
-    };
-  }
-
   switch (effective.kind) {
     case "cmap": {
       const semantic = semanticForCmapGlyph(effective.glyph) || "feature";
@@ -418,9 +387,7 @@ function classifyByKind(
     case "ridden":
     case "invis":
       return {
-        materialKind: baseMaterialForDisposition(
-          inferDisposition(effective, false),
-        ),
+        materialKind: baseMaterialForDisposition(inferDisposition(effective)),
         geometryKind: "floor",
         isWall: false,
         effectKind: null,
@@ -463,7 +430,9 @@ export function classifyTileBehavior(input: {
     darkOverlayIndex === 0 ||
     darkOverlayIndex === 20 ||
     darkOverlayIndex === 21;
-  const isPlayer = isPlayerGlyph(input.glyph, runtimeChar);
+  // Player location is authoritative from shim_cliparound (player_position),
+  // not from glyph range heuristics.
+  const isPlayerGlyph = false;
 
   let effective = resolved;
   let darkenFactor = 1;
@@ -480,8 +449,8 @@ export function classifyTileBehavior(input: {
     darkenFactor = darkOverlayIndex === 21 ? 0.45 : 0.6;
   }
 
-  const disposition = inferDisposition(effective, isPlayer);
-  const byKind = classifyByKind(effective, isPlayer);
+  const disposition = inferDisposition(effective);
+  const byKind = classifyByKind(effective);
   let materialKind = byKind.materialKind;
   let geometryKind = byKind.geometryKind;
   let isWall = byKind.isWall;
@@ -541,7 +510,7 @@ export function classifyTileBehavior(input: {
     materialKind,
     geometryKind,
     isWall,
-    isPlayerGlyph: isPlayer,
+    isPlayerGlyph,
     isDarkOverlay,
     darkenFactor,
     glyphChar,

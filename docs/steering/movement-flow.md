@@ -165,10 +165,9 @@ waiting/resolution is centralized to menu-specific state.
 
 ## Position Updates And Player Tracking
 
-Player position update paths in engine are unchanged:
+Player position update path in engine:
 
-1. `player_position` event
-2. player-glyph detection in tile update path
+1. `player_position` event (from `shim_cliparound`)
 
 Movement-dependent UX logic in engine (`recordPlayerMovement`) remains
 compatible with the new runtime consume model.

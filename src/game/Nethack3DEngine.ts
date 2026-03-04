@@ -3678,8 +3678,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     previousTile: any,
     nextTile: any,
   ): void {
-    const nextBehavior = this.classifyTilePayload(nextTile);
-    if (!nextBehavior?.isPlayerGlyph) {
+    if (
+      !nextTile ||
+      typeof nextTile.x !== "number" ||
+      typeof nextTile.y !== "number"
+    ) {
+      return;
+    }
+    const isPlayerTile =
+      nextTile.x === this.playerPos.x && nextTile.y === this.playerPos.y;
+    if (!isPlayerTile) {
       return;
     }
     const previousBehavior = this.classifyTilePayload(previousTile);
@@ -10240,7 +10248,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : null,
       priorTerrain: this.lastKnownTerrain.get(key) ?? null,
     });
-    const isPlayerCharacter = behavior.isPlayerGlyph;
     const isMonsterLikeCharacter = this.isMonsterLikeBehavior(behavior);
     const isLootLikeCharacter = this.isLootLikeBehavior(behavior);
     const isSink = isSinkCmapGlyph(behavior.effective.glyph);
@@ -10254,7 +10261,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsPreviousPlayerTileForSuppression;
     const shouldSuppressRecentPreviousPlayerTileInFps =
       this.isFpsMode() &&
-      behavior.isPlayerGlyph &&
       previousPlayerTileForSuppression !== null &&
       nowMs - previousPlayerTileForSuppression.capturedAtMs <= 450 &&
       x === previousPlayerTileForSuppression.x &&
@@ -10273,7 +10279,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
           isFountain ||
           isStairsUp ||
           isAltarOrTombstone ||
-          isPlayerCharacter ||
           isStatue));
     const shouldUseElevatedBillboard =
       shouldElevateEntity && (useTiles || this.isFpsMode());
@@ -10316,100 +10321,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (behavior.isPlayerGlyph && this.isFpsMode()) {
-      const oldPos = { ...this.playerPos };
-      this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
-      this.playerPos = { x, y };
-      this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
-      for (const [tileKey, tileMesh] of this.tileMap.entries()) {
-        if (!tileMesh.userData?.isPlayerGlyph) {
-          continue;
-        }
-        this.disposeWallSideTileOverlay(tileMesh);
-        this.scene.remove(tileMesh);
-        this.tileMap.delete(tileKey);
-        this.tileRevealStartMs.delete(tileKey);
-        this.tileStateCache.delete(tileKey);
-        const staleOverlay = this.glyphOverlayMap.get(tileKey);
-        if (staleOverlay) {
-          this.disposeGlyphOverlay(staleOverlay);
-          this.glyphOverlayMap.delete(tileKey);
-        }
+    if (!isInferredDarkCorridorWall) {
+      const shouldCacheFlatUnderPlayer =
+        this.shouldRenderFlatFeatureUnderFpsPlayer(behavior);
+      if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
+        this.lastKnownTerrain.set(key, {
+          glyph,
+          char: behavior.resolved.char ?? undefined,
+          color: behavior.resolved.color ?? undefined,
+          tileIndex: behavior.resolved.tileIndex,
+        });
       }
-      this.removeMonsterBillboard(key);
-      if (mesh && mesh.userData?.isPlayerGlyph) {
-        this.disposeWallSideTileOverlay(mesh);
-        this.scene.remove(mesh);
-        this.tileMap.delete(key);
-        this.removeFloorBlockAmbientOcclusionOverlay(key);
-        this.tileStateCache.delete(key);
-        this.tileRevealStartMs.delete(key);
-      }
-      const overlay = this.glyphOverlayMap.get(key);
-      if (overlay) {
-        this.disposeGlyphOverlay(overlay);
-        this.glyphOverlayMap.delete(key);
-      }
-      if (
-        !this.lastKnownTerrain.has(key) &&
-        !this.fpsFlatFeatureUnderPlayerCache.has(key)
-      ) {
-        this.requestTileUpdate(x, y);
-      }
-      const cachedTerrain =
-        this.fpsFlatFeatureUnderPlayerCache.get(key) ??
-        this.lastKnownTerrain.get(key);
-      if (cachedTerrain) {
-        this.updateTile(
-          x,
-          y,
-          cachedTerrain.glyph,
-          cachedTerrain.char,
-          cachedTerrain.color,
-          {
-            runtimeTileIndex:
-              typeof cachedTerrain.tileIndex === "number"
-                ? cachedTerrain.tileIndex
-                : undefined,
-          },
-        );
+      if (shouldCacheFlatUnderPlayer) {
+        this.fpsFlatFeatureUnderPlayerCache.set(key, {
+          glyph,
+          char: behavior.resolved.char ?? undefined,
+          color: behavior.resolved.color ?? undefined,
+          tileIndex: behavior.resolved.tileIndex,
+        });
       } else {
-        this.updateTile(x, y, getDefaultFloorGlyph(), ".", undefined);
+        this.fpsFlatFeatureUnderPlayerCache.delete(key);
       }
-      this.refreshFloorBlockAmbientOcclusionNear(oldPos.x, oldPos.y);
-      this.refreshFloorBlockAmbientOcclusionNear(x, y);
-      this.markLightingDirty();
-      return;
-    }
-
-    if (!behavior.isPlayerGlyph) {
-      if (!isInferredDarkCorridorWall) {
-        const shouldCacheFlatUnderPlayer =
-          this.shouldRenderFlatFeatureUnderFpsPlayer(behavior);
-        if (this.isPersistentTerrainKind(behavior.resolved.kind)) {
-          this.lastKnownTerrain.set(key, {
-            glyph,
-            char: behavior.resolved.char ?? undefined,
-            color: behavior.resolved.color ?? undefined,
-            tileIndex: behavior.resolved.tileIndex,
-          });
-        }
-        if (shouldCacheFlatUnderPlayer) {
-          this.fpsFlatFeatureUnderPlayerCache.set(key, {
-            glyph,
-            char: behavior.resolved.char ?? undefined,
-            color: behavior.resolved.color ?? undefined,
-            tileIndex: behavior.resolved.tileIndex,
-          });
-        } else {
-          this.fpsFlatFeatureUnderPlayerCache.delete(key);
-        }
-      }
-    } else {
-      const oldPos = { ...this.playerPos };
-      this.recordPlayerMovement(oldPos.x, oldPos.y, x, y);
-      this.playerPos = { x, y };
-      this.updateStatus(`Player at (${x}, ${y}) - NetHack 3D`);
     }
 
     let renderBehavior = behavior;
