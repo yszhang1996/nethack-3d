@@ -578,6 +578,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly rotationSpeed: number = 0.01;
   private isMiddleMouseDown: boolean = false;
   private isRightMouseDown: boolean = false;
+  private rightMouseDownStartX: number = 0;
+  private rightMouseDownStartY: number = 0;
+  private rightMouseDragExceededDeadzone: boolean = false;
+  private rightMouseCanOpenContextMenuOnRelease: boolean = false;
+  private readonly rightMouseContextDeadzonePx: number = 10;
   private lastMouseX: number = 0;
   private lastMouseY: number = 0;
   private touchSwipeStart: {
@@ -2203,6 +2208,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.clearFpsTouchGestures();
     this.isMiddleMouseDown = false;
     this.isRightMouseDown = false;
+    this.rightMouseCanOpenContextMenuOnRelease = false;
+    this.rightMouseDragExceededDeadzone = false;
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
     this.fpsStepCameraActive = false;
@@ -12784,6 +12791,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
     this.clearFpsTouchGestures();
+    this.isMiddleMouseDown = false;
+    this.isRightMouseDown = false;
+    this.rightMouseCanOpenContextMenuOnRelease = false;
+    this.rightMouseDragExceededDeadzone = false;
     this.exitMetaCommandMode();
     this.closeAnyTileContextMenu(false);
     this.stopMinimapDrag();
@@ -16294,32 +16305,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.openFpsCrosshairContextMenu();
       }
       this.isRightMouseDown = false;
-      return;
-    }
-
-    if (
-      !this.isFpsMode() &&
-      this.canOpenNormalTileContextMenuFromMouse(event)
-    ) {
-      event.preventDefault();
-      const target = this.getClickedTilePosition(event);
-      if (!target) {
-        this.closeAnyTileContextMenu(false);
-        return;
-      }
-      const key = `${target.x},${target.y}`;
-      const mesh = this.tileMap.get(key);
-      if (!mesh) {
-        this.closeAnyTileContextMenu(false);
-        return;
-      }
-      this.openNormalTileContextMenuAtTarget({
-        key,
-        x: target.x,
-        y: target.y,
-        mesh,
-      });
-      this.isRightMouseDown = false;
+      this.rightMouseCanOpenContextMenuOnRelease = false;
+      this.rightMouseDragExceededDeadzone = false;
       return;
     }
 
@@ -16339,6 +16326,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       event.preventDefault();
       this.isRightMouseDown = true;
       this.isCameraCenteredOnPlayer = false;
+      this.rightMouseDownStartX = event.clientX;
+      this.rightMouseDownStartY = event.clientY;
+      this.rightMouseDragExceededDeadzone = false;
+      this.rightMouseCanOpenContextMenuOnRelease =
+        !this.isFpsMode() && this.canOpenNormalTileContextMenuFromMouse(event);
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     }
@@ -17025,6 +17017,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else if (this.isRightMouseDown) {
       // Right mouse - pan camera
       event.preventDefault();
+      if (!this.rightMouseDragExceededDeadzone) {
+        const movedDistance = Math.hypot(
+          event.clientX - this.rightMouseDownStartX,
+          event.clientY - this.rightMouseDownStartY,
+        );
+        if (movedDistance > this.rightMouseContextDeadzonePx) {
+          this.rightMouseDragExceededDeadzone = true;
+        }
+      }
       const deltaX = event.clientX - this.lastMouseX;
       const deltaY = event.clientY - this.lastMouseY;
 
@@ -17046,7 +17047,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.isMiddleMouseDown = false;
     } else if (event.button === 2) {
       // Right mouse button
+      const wasRightMouseDown = this.isRightMouseDown;
       this.isRightMouseDown = false;
+      if (
+        wasRightMouseDown &&
+        this.rightMouseCanOpenContextMenuOnRelease &&
+        !this.rightMouseDragExceededDeadzone
+      ) {
+        const target = this.getTilePositionFromClientCoordinates(
+          this.rightMouseDownStartX,
+          this.rightMouseDownStartY,
+        );
+        if (!target) {
+          this.closeAnyTileContextMenu(false);
+        } else {
+          const key = `${target.x},${target.y}`;
+          const mesh = this.tileMap.get(key);
+          if (!mesh) {
+            this.closeAnyTileContextMenu(false);
+          } else {
+            this.openNormalTileContextMenuAtTarget({
+              key,
+              x: target.x,
+              y: target.y,
+              mesh,
+            });
+          }
+        }
+        event.preventDefault();
+      }
+      this.rightMouseCanOpenContextMenuOnRelease = false;
+      this.rightMouseDragExceededDeadzone = false;
     }
   }
 
