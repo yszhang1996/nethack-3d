@@ -4193,9 +4193,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const hadElevatedBillboard = this.monsterBillboards.has(key);
     if (variant === "defeat") {
       if (this.clientOptions.monsterShatter) {
-        this.spawnMonsterBillboardShatterAtTile(x, y);
-      } else {
-        this.removeMonsterBillboard(key);
+        this.spawnMonsterBillboardShatterEffectAtTile(x, y);
       }
     }
     const useMonsterBillboardFlash =
@@ -4286,6 +4284,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}|ti:${typeof tile.tileIndex === "number" ? Math.trunc(tile.tileIndex) : ""}`;
       if (this.tileStateCache.get(key) === signature) {
+        const shouldHaveMonsterBillboard =
+          behavior !== null &&
+          (this.isMonsterLikeBehavior(behavior) ||
+            this.isLootLikeBehavior(behavior)) &&
+          (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
+          !(tile.x === this.playerPos.x && tile.y === this.playerPos.y);
+        if (
+          shouldHaveMonsterBillboard &&
+          !this.monsterBillboards.has(key)
+        ) {
+          this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
+            runtimeTileIndex:
+              typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
+          });
+        }
         continue;
       }
 
@@ -9960,54 +9973,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private spawnMonsterBillboardShatterAtTile(
+  private spawnMonsterBillboardShatterEffectAtTile(
     tileX: number,
     tileY: number,
   ): boolean {
     const key = `${tileX},${tileY}`;
-    const sprite = this.detachMonsterBillboard(key);
+    const sprite = this.monsterBillboards.get(key);
     if (!sprite) {
       return false;
     }
 
-    const textureKey =
-      typeof sprite.userData?.textureKey === "string"
-        ? sprite.userData.textureKey
-        : "";
     const material = sprite.material;
     if (!(material instanceof THREE.SpriteMaterial)) {
-      if (textureKey) {
-        this.releaseMonsterBillboardTexture(textureKey);
-      }
-      if (Array.isArray(material)) {
-        for (const entry of material) {
-          entry.dispose();
-        }
-      } else {
-        material.dispose();
-      }
       return false;
     }
 
     const sourceTexture = material.map;
-    const descriptors = sourceTexture
-      ? this.createMonsterBillboardShardDescriptors(sourceTexture)
-      : [];
-    if (descriptors.length > 0) {
-      this.spawnMonsterBillboardShardParticlesFromDescriptors(
-        sprite,
-        descriptors,
-      );
+    if (!sourceTexture) {
+      return false;
+    }
+    const descriptors =
+      this.createMonsterBillboardShardDescriptors(sourceTexture);
+    if (!descriptors.length) {
+      return false;
     }
 
-    if (textureKey) {
-      this.releaseMonsterBillboardTexture(textureKey);
-    } else if (sourceTexture) {
-      sourceTexture.dispose();
-    }
-    material.dispose();
-
-    return descriptors.length > 0;
+    this.spawnMonsterBillboardShardParticlesFromDescriptors(sprite, descriptors);
+    return true;
   }
 
   private getLowestPixelOffset(
