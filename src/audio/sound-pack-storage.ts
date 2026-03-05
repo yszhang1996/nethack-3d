@@ -10,6 +10,7 @@ type Nh3dSoundEffectDefinitionShape = {
 
 export const nh3dSoundEffectDefinitions = [
   { key: "player-walk", label: "Player walk" },
+  { key: "player-run", label: "Player run" },
   { key: "monster-footstep", label: "Monster footstep" },
   { key: "hit", label: "Hit" },
   { key: "monster-killed", label: "Monster killed (player)" },
@@ -98,7 +99,7 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "level-up",
     label: "Level up",
-    messageLogKeywords: ["unlock"],
+    messageLogKeywords: ["Welcome to experience level"],
   },
   {
     key: "unlock",
@@ -274,10 +275,15 @@ const packStoreName = "sound-packs";
 const fileStoreName = "sound-files";
 const metaStoreName = "meta";
 const activePackMetaKey = "active-sound-pack-id";
+const bundledDefaultSoundPackZipPath = "/soundpacks/Default.soundpack.zip";
 const soundPackManifestPath = "manifest.json";
 
 export const nh3dDefaultSoundPackId = "default-sound-pack";
 export const nh3dDefaultSoundPackName = "Default";
+
+let bundledDefaultSoundPackImportWarningLogged = false;
+let bundledDefaultSoundPackImportAttempted = false;
+let bundledDefaultSoundPackImportInFlight: Promise<void> | null = null;
 
 function isRecordLike(value: unknown): value is RecordLike {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -494,7 +500,7 @@ function createDefaultSoundAssignment(
     mimeType: "audio/ogg",
     path: resolveNh3dDefaultSoundPath(key),
     source: "builtin",
-    attribution: `${defaultLabel} (built-in NetHack 3D sound)`,
+    attribution: `Sound not added yet`,
     variations: [],
   };
 }
@@ -817,17 +823,8 @@ function normalizeSoundPackRecord(
             name,
           )
         : null;
-    sounds[soundKey] = isDefault
-      ? {
-          ...fallback,
-          enabled: normalized.enabled,
-          volume: normalized.volume,
-          attribution: fallback.attribution,
-          variations: [],
-        }
-      : rawSound !== undefined
-        ? normalized
-        : normalizedLegacy || normalized;
+    sounds[soundKey] =
+      rawSound !== undefined ? normalized : normalizedLegacy || normalized;
   }
 
   return {
@@ -1072,7 +1069,69 @@ async function getNormalizedPacksForTransaction(
   return readNormalizedSoundPacks(rawValues as unknown[]);
 }
 
+async function deleteUserSoundFilesForPack(
+  fileStore: IDBObjectStore,
+  pack: Nh3dSoundPackRecord,
+): Promise<void> {
+  for (const definition of nh3dSoundEffectDefinitions) {
+    const soundKey = definition.key;
+    const sound = pack.sounds[soundKey];
+    const entries = soundAssignmentToVariations(sound);
+    for (const entry of entries) {
+      if (entry.source !== "user") {
+        continue;
+      }
+      const path = normalizeWhitespace(entry.path || "");
+      if (!path) {
+        continue;
+      }
+      await idbRequestToPromise(fileStore.delete(path));
+    }
+  }
+}
+
+async function importBundledDefaultSoundPackOnLoad(): Promise<void> {
+  if (bundledDefaultSoundPackImportAttempted) {
+    return;
+  }
+
+  if (!bundledDefaultSoundPackImportInFlight) {
+    bundledDefaultSoundPackImportInFlight = (async () => {
+      bundledDefaultSoundPackImportAttempted = true;
+      if (typeof fetch !== "function") {
+        return;
+      }
+      try {
+        const response = await fetch(bundledDefaultSoundPackZipPath, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          return;
+        }
+        await importNh3dSoundPackFromZip(await response.blob(), {
+          intoDefaultSlot: true,
+        });
+      } catch (error) {
+        if (!bundledDefaultSoundPackImportWarningLogged) {
+          bundledDefaultSoundPackImportWarningLogged = true;
+          console.warn(
+            "Unable to import bundled default sound pack ZIP on load.",
+            error,
+          );
+        }
+      }
+    })();
+  }
+
+  try {
+    await bundledDefaultSoundPackImportInFlight;
+  } finally {
+    bundledDefaultSoundPackImportInFlight = null;
+  }
+}
+
 export async function loadNh3dSoundPackStateFromIndexedDb(): Promise<Nh3dLoadedSoundPackState> {
+  await importBundledDefaultSoundPackOnLoad();
   const db = await openDatabase();
   try {
     const transaction = db.transaction(
@@ -2003,6 +2062,9 @@ async function unzipArchiveEntries(
 
 export async function importNh3dSoundPackFromZip(
   zipBlob: Blob,
+  options: {
+    intoDefaultSlot?: boolean;
+  } = {},
 ): Promise<Nh3dSoundPackRecord> {
   const archiveEntries = await unzipArchiveEntries(zipBlob);
   const manifestBytes = archiveEntries[soundPackManifestPath];
@@ -2034,15 +2096,24 @@ export async function importNh3dSoundPackFromZip(
       await idbRequestToPromise(packStore.put(pack));
     }
 
-    const uniqueName = resolveUniqueSoundPackName(
-      manifest.packName,
-      existingPacks,
-    );
+    const intoDefaultSlot = options.intoDefaultSlot === true;
+    const uniqueName = intoDefaultSlot
+      ? nh3dDefaultSoundPackName
+      : resolveUniqueSoundPackName(manifest.packName, existingPacks);
     const now = Date.now();
-    const nextPackId = generateSoundPackId();
+    const nextPackId = intoDefaultSlot
+      ? nh3dDefaultSoundPackId
+      : generateSoundPackId();
+    const existingDefaultPack = intoDefaultSlot
+      ? (existingPacks.find((pack) => pack.id === nh3dDefaultSoundPackId) ??
+        createDefaultSoundPackRecord(now))
+      : null;
     const defaultPack =
       existingPacks.find((pack) => pack.id === nh3dDefaultSoundPackId) ??
       createDefaultSoundPackRecord(now);
+    if (intoDefaultSlot && existingDefaultPack) {
+      await deleteUserSoundFilesForPack(fileStore, existingDefaultPack);
+    }
 
     const nextSounds = {} as Nh3dSoundPackSoundMap;
 
@@ -2181,8 +2252,10 @@ export async function importNh3dSoundPackFromZip(
     const importedPack: Nh3dSoundPackRecord = {
       id: nextPackId,
       name: uniqueName,
-      isDefault: false,
-      createdAt: now,
+      isDefault: intoDefaultSlot,
+      createdAt: intoDefaultSlot
+        ? (existingDefaultPack?.createdAt ?? now)
+        : now,
       updatedAt: now,
       sounds: nextSounds,
     };
@@ -2190,7 +2263,7 @@ export async function importNh3dSoundPackFromZip(
     await idbRequestToPromise(packStore.put(importedPack));
     const metaRecord: Nh3dMetaRecord = {
       key: activePackMetaKey,
-      value: importedPack.id,
+      value: intoDefaultSlot ? nh3dDefaultSoundPackId : importedPack.id,
       updatedAt: now,
     };
     await idbRequestToPromise(metaStore.put(metaRecord));
