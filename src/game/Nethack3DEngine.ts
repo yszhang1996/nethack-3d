@@ -6450,8 +6450,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const baseWorldHeightFar = 4.3;
     const worldHeightCenter = (baseWorldHeightNear + baseWorldHeightFar) * 0.5;
     const worldHeightHalfRange =
-      ((baseWorldHeightFar - baseWorldHeightNear) * 0.5) *
-      zoomHeightAggression;
+      (baseWorldHeightFar - baseWorldHeightNear) * 0.5 * zoomHeightAggression;
     const worldBaseHeightOffset = useFpsFloating
       ? 0.5
       : worldHeightCenter + (0.5 - zoomFactor) * (2 * worldHeightHalfRange);
@@ -6476,10 +6475,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const baseUiHeightFar = 40;
     const uiHeightCenter = (baseUiHeightNear + baseUiHeightFar) * 0.5;
     const uiHeightHalfRange =
-      ((baseUiHeightNear - baseUiHeightFar) * 0.5) * zoomSizeAggression;
+      (baseUiHeightNear - baseUiHeightFar) * 0.5 * zoomSizeAggression;
     const baseHeightPx = useFpsFloating
       ? 144
-      : Math.round(uiHeightCenter + (zoomFactor - 0.5) * (2 * uiHeightHalfRange));
+      : Math.round(
+          uiHeightCenter + (zoomFactor - 0.5) * (2 * uiHeightHalfRange),
+        );
     const uiHeightPx = Math.max(12, Math.round(baseHeightPx * scaleMultiplier));
     const uiWidthPx = Math.max(12, Math.round(uiHeightPx * aspectRatio));
     element.style.width = `${uiWidthPx}px`;
@@ -7393,14 +7394,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       width: number;
       height: number;
     }> = [];
-    const overlapGapPx = 3;
+    const overlapGapPx = 12;
+    const overlapWidthScale = 0.82;
+    const overlapHeightScale = 0.52;
     layoutCandidates.sort((a, b) => a.particle.ageMs - b.particle.ageMs);
     for (const candidate of layoutCandidates) {
       const { particle } = candidate;
       const x = candidate.screenX;
       let y = candidate.screenY - candidate.risePx;
-      const width = particle.uiWidthPx;
-      const height = particle.uiHeightPx;
+      const width = Math.max(8, particle.uiWidthPx * overlapWidthScale);
+      const height = Math.max(8, particle.uiHeightPx * overlapHeightScale);
 
       let moved = true;
       let guard = 0;
@@ -11768,7 +11771,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (mappedField === "experience" && typeof parsedValue === "number") {
       const previousExperience = this.lastKnownPlayerExperience;
-      if (typeof previousExperience === "number" && Number.isFinite(previousExperience)) {
+      if (
+        typeof previousExperience === "number" &&
+        Number.isFinite(previousExperience)
+      ) {
         const delta = Math.round(parsedValue - previousExperience);
         if (delta !== 0) {
           playerExperienceDelta = delta;
