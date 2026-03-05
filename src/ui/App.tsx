@@ -51,6 +51,9 @@ import {
   loadPersistedNh3dClientOptionsWithMigration,
   persistNh3dClientOptionsToIndexedDb,
 } from "../storage/client-options-storage";
+import SoundPackSettings, {
+  type SoundPackDialogActions,
+} from "./SoundPackSettings";
 
 type DirectionChoice = {
   key?: string;
@@ -354,39 +357,45 @@ function TilesetTilePickerDialog({
       {!tileAtlasLoaded ? (
         <div className="nh3d-dark-wall-picker-status">{statusText}</div>
       ) : (
-        <div className="nh3d-dark-wall-tile-grid">
-          {entries.map((entry) => {
-            const isSelected = entry.tileId === selectedTileId;
-            const isDefault = entry.tileId === defaultTileId;
-            return (
-              <button
-                className={`nh3d-dark-wall-tile-card${
-                  isSelected ? " is-selected" : ""
-                }${isDefault ? " is-default" : ""}`}
-                key={entry.tileId}
-                onClick={() => onSelectTile(entry.tileId)}
-                type="button"
-              >
-                <span className="nh3d-dark-wall-tile-card-preview">
-                  {renderTilePreviewImage(entry.tileId)}
-                </span>
-                <span className="nh3d-dark-wall-tile-card-glyph">
-                  Glyph {entry.glyphLabel}
-                  {showGlyphNumber && typeof entry.glyphNumber === "number"
-                    ? ` (${entry.glyphNumber})`
-                    : ""}
-                </span>
-                <span className="nh3d-dark-wall-tile-card-id">
-                  Tile {entry.tileId}
-                </span>
-                {isDefault ? (
-                  <span className="nh3d-dark-wall-tile-card-default">
-                    Default
+        <div className="nh3d-overflow-glow-frame">
+          <div
+            className="nh3d-dark-wall-tile-grid"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+          >
+            {entries.map((entry) => {
+              const isSelected = entry.tileId === selectedTileId;
+              const isDefault = entry.tileId === defaultTileId;
+              return (
+                <button
+                  className={`nh3d-dark-wall-tile-card${
+                    isSelected ? " is-selected" : ""
+                  }${isDefault ? " is-default" : ""}`}
+                  key={entry.tileId}
+                  onClick={() => onSelectTile(entry.tileId)}
+                  type="button"
+                >
+                  <span className="nh3d-dark-wall-tile-card-preview">
+                    {renderTilePreviewImage(entry.tileId)}
                   </span>
-                ) : null}
-              </button>
-            );
-          })}
+                  <span className="nh3d-dark-wall-tile-card-glyph">
+                    Glyph {entry.glyphLabel}
+                    {showGlyphNumber && typeof entry.glyphNumber === "number"
+                      ? ` (${entry.glyphNumber})`
+                      : ""}
+                  </span>
+                  <span className="nh3d-dark-wall-tile-card-id">
+                    Tile {entry.tileId}
+                  </span>
+                  {isDefault ? (
+                    <span className="nh3d-dark-wall-tile-card-default">
+                      Default
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
       <div className="nh3d-menu-actions">
@@ -817,14 +826,20 @@ function TilesetSolidColorPickerDialog({
       {!tileAtlasLoaded ? (
         <div className="nh3d-dark-wall-picker-status">{statusText}</div>
       ) : (
-        <div className="nh3d-solid-chroma-picker-atlas-shell">
-          <canvas
-            className="nh3d-solid-chroma-picker-atlas-canvas"
-            onClick={handleAtlasClick}
-            onMouseLeave={() => setHoverState(null)}
-            onMouseMove={handleAtlasMouseMove}
-            ref={atlasCanvasRef}
-          />
+        <div className="nh3d-overflow-glow-frame">
+          <div
+            className="nh3d-solid-chroma-picker-atlas-shell"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+          >
+            <canvas
+              className="nh3d-solid-chroma-picker-atlas-canvas"
+              onClick={handleAtlasClick}
+              onMouseLeave={() => setHoverState(null)}
+              onMouseMove={handleAtlasMouseMove}
+              ref={atlasCanvasRef}
+            />
+          </div>
         </div>
       )}
       {typeof document !== "undefined" && hoverTooltip
@@ -1101,6 +1116,21 @@ type ClientOption =
   | ClientOptionSelect
   | ClientOptionSlider;
 
+type ClientOptionsTabId =
+  | "controls"
+  | "display"
+  | "sound"
+  | "mobile"
+  | "combat"
+  | "compatibility";
+
+type ClientOptionsTab = {
+  id: ClientOptionsTabId;
+  label: string;
+  description: string;
+  groupKey: string;
+};
+
 type ClientOptionToggleKey =
   | "fpsMode"
   | "invertLookYAxis"
@@ -1112,6 +1142,7 @@ type ClientOptionToggleKey =
   | "monsterShatter"
   | "monsterShatterBloodBorders"
   | "liveMessageLog"
+  | "soundEnabled"
   | "blockAmbientOcclusion"
   | "darkCorridorWalls367"
   | "darkCorridorWallTileOverrideEnabled"
@@ -1485,6 +1516,18 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
+    key: "group-sound",
+    label: "Sound",
+    type: "group",
+  },
+  {
+    key: "soundEnabled",
+    label: "Enable sound",
+    description:
+      "Turn FMOD audio on or off. Disabling reduces audio processing overhead on lower-end devices.",
+    type: "boolean",
+  },
+  {
     key: "group-mobile-controls",
     label: "Mobile controls",
     type: "group",
@@ -1559,6 +1602,62 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
 ];
+
+const clientOptionsDefaultTabId: ClientOptionsTabId = "display";
+
+const clientOptionsTabs: ClientOptionsTab[] = [
+  {
+    id: "controls",
+    label: "Controls",
+    description: "Mouselook, perspective, and first-person behavior.",
+    groupKey: "group-controls",
+  },
+  {
+    id: "display",
+    label: "Display",
+    description: "Interface layout, tileset rendering, and visual effects.",
+    groupKey: "group-display",
+  },
+  {
+    id: "sound",
+    label: "Sound",
+    description: "Audio output and performance-related sound controls.",
+    groupKey: "group-sound",
+  },
+  {
+    id: "mobile",
+    label: "Mobile",
+    description: "Touch and drag behavior on mobile devices.",
+    groupKey: "group-mobile-controls",
+  },
+  {
+    id: "combat",
+    label: "Combat",
+    description: "Combat impact feedback and visual response.",
+    groupKey: "group-combat",
+  },
+  {
+    id: "compatibility",
+    label: "Compatibility",
+    description: "Runtime compatibility and NetHack behavior toggles.",
+    groupKey: "group-compatibility",
+  },
+];
+
+function getClientOptionsForGroup(groupKey: string): ClientOption[] {
+  const options: ClientOption[] = [];
+  let currentGroupKey = "";
+  for (const option of clientOptionsConfig) {
+    if (option.type === "group") {
+      currentGroupKey = option.key;
+      continue;
+    }
+    if (currentGroupKey === groupKey) {
+      options.push(option);
+    }
+  }
+  return options;
+}
 
 const clampInventoryContextMenuPosition = (
   x: number,
@@ -1734,6 +1833,108 @@ const commonExtendedCommandWhitelist = [
   "throw",
   "travel",
 ];
+
+const overflowGlowClassName = "nh3d-overflow-glow";
+const overflowGlowStartXClassName = "nh3d-overflow-glow-x-start";
+const overflowGlowEndXClassName = "nh3d-overflow-glow-x-end";
+const overflowGlowStartYClassName = "nh3d-overflow-glow-y-start";
+const overflowGlowEndYClassName = "nh3d-overflow-glow-y-end";
+const overflowGlowAxisThresholdPx = 1;
+const overflowGlowTargetSelector = "[data-nh3d-overflow-glow]";
+
+function resolveOverflowGlowHost(element: HTMLElement): HTMLElement {
+  if (
+    element.dataset.nh3dOverflowGlowHost === "parent" &&
+    element.parentElement instanceof HTMLElement
+  ) {
+    return element.parentElement;
+  }
+  return element;
+}
+
+function supportsScrollableOverflowAxis(value: string): boolean {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  return (
+    normalized === "auto" || normalized === "scroll" || normalized === "overlay"
+  );
+}
+
+function clearOverflowGlowState(element: HTMLElement): void {
+  const hostElement = resolveOverflowGlowHost(element);
+  hostElement.classList.remove(
+    overflowGlowClassName,
+    overflowGlowStartXClassName,
+    overflowGlowEndXClassName,
+    overflowGlowStartYClassName,
+    overflowGlowEndYClassName,
+  );
+  hostElement.style.removeProperty("--nh3d-overflow-existing-shadow");
+}
+
+function updateOverflowGlowState(element: HTMLElement): boolean {
+  const hostElement = resolveOverflowGlowHost(element);
+  const computedStyle = window.getComputedStyle(element);
+  const canOverflowX = supportsScrollableOverflowAxis(computedStyle.overflowX);
+  const canOverflowY = supportsScrollableOverflowAxis(computedStyle.overflowY);
+  const overflowX = Math.max(0, element.scrollWidth - element.clientWidth);
+  const overflowY = Math.max(0, element.scrollHeight - element.clientHeight);
+  const hasOverflowX = canOverflowX && overflowX > overflowGlowAxisThresholdPx;
+  const hasOverflowY = canOverflowY && overflowY > overflowGlowAxisThresholdPx;
+
+  if (!hasOverflowX && !hasOverflowY) {
+    clearOverflowGlowState(element);
+    return false;
+  }
+
+  if (!hostElement.classList.contains(overflowGlowClassName)) {
+    const hostStyle = window.getComputedStyle(hostElement);
+    const existingShadow =
+      hostStyle.boxShadow && hostStyle.boxShadow !== "none"
+        ? hostStyle.boxShadow
+        : "none";
+    hostElement.style.setProperty(
+      "--nh3d-overflow-existing-shadow",
+      existingShadow,
+    );
+    hostElement.classList.add(overflowGlowClassName);
+  }
+
+  if (hasOverflowX) {
+    hostElement.classList.toggle(
+      overflowGlowStartXClassName,
+      element.scrollLeft > overflowGlowAxisThresholdPx,
+    );
+    hostElement.classList.toggle(
+      overflowGlowEndXClassName,
+      element.scrollLeft < overflowX - overflowGlowAxisThresholdPx,
+    );
+  } else {
+    hostElement.classList.remove(
+      overflowGlowStartXClassName,
+      overflowGlowEndXClassName,
+    );
+  }
+
+  if (hasOverflowY) {
+    hostElement.classList.toggle(
+      overflowGlowStartYClassName,
+      element.scrollTop > overflowGlowAxisThresholdPx,
+    );
+    hostElement.classList.toggle(
+      overflowGlowEndYClassName,
+      element.scrollTop < overflowY - overflowGlowAxisThresholdPx,
+    );
+  } else {
+    hostElement.classList.remove(
+      overflowGlowStartYClassName,
+      overflowGlowEndYClassName,
+    );
+  }
+
+  return true;
+}
 
 function normalizeStartupCharacterName(value: string): string {
   const normalized = String(value || "")
@@ -2082,6 +2283,8 @@ export default function App(): JSX.Element {
     useState<Nh3dClientOptions>(() => initialClientOptions);
   const [hasHydratedUserTilesets, setHasHydratedUserTilesets] = useState(false);
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
+  const [activeClientOptionsTab, setActiveClientOptionsTab] =
+    useState<ClientOptionsTabId>(clientOptionsDefaultTabId);
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
   const [
@@ -2144,6 +2347,7 @@ export default function App(): JSX.Element {
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
   const [statsBarHeight, setStatsBarHeight] = useState(0);
   const [textInputValue, setTextInputValue] = useState("");
+  const soundPackDialogActionsRef = useRef<SoundPackDialogActions | null>(null);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
   const setEngineController = useGameStore(
     (state) => state.setEngineController,
@@ -2216,6 +2420,87 @@ export default function App(): JSX.Element {
     clientOptions.liveMessageLogFontScale,
     clientOptions.minimapScale,
   ]);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const trackedElements = new Map<HTMLElement, () => void>();
+    let refreshRafId: number | null = null;
+
+    const refreshOverflowGlowTargets = (): void => {
+      const activeElements = new Set<HTMLElement>();
+      const candidates = document.querySelectorAll<HTMLElement>(
+        overflowGlowTargetSelector,
+      );
+      for (const element of candidates) {
+        if (!element.isConnected) {
+          continue;
+        }
+        const hasOverflowGlow = updateOverflowGlowState(element);
+        if (!hasOverflowGlow) {
+          continue;
+        }
+        activeElements.add(element);
+        if (trackedElements.has(element)) {
+          continue;
+        }
+        const onScroll = (): void => {
+          updateOverflowGlowState(element);
+        };
+        element.addEventListener("scroll", onScroll, { passive: true });
+        trackedElements.set(element, onScroll);
+      }
+
+      for (const [element, onScroll] of trackedElements.entries()) {
+        if (activeElements.has(element) && element.isConnected) {
+          continue;
+        }
+        element.removeEventListener("scroll", onScroll);
+        trackedElements.delete(element);
+        clearOverflowGlowState(element);
+      }
+    };
+
+    const scheduleOverflowGlowRefresh = (): void => {
+      if (refreshRafId !== null) {
+        return;
+      }
+      refreshRafId = window.requestAnimationFrame(() => {
+        refreshRafId = null;
+        refreshOverflowGlowTargets();
+      });
+    };
+
+    scheduleOverflowGlowRefresh();
+
+    const mutationObserver = new MutationObserver(() => {
+      scheduleOverflowGlowRefresh();
+    });
+    mutationObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+
+    window.addEventListener("resize", scheduleOverflowGlowRefresh);
+    window.addEventListener("orientationchange", scheduleOverflowGlowRefresh);
+
+    return () => {
+      mutationObserver.disconnect();
+      window.removeEventListener("resize", scheduleOverflowGlowRefresh);
+      window.removeEventListener(
+        "orientationchange",
+        scheduleOverflowGlowRefresh,
+      );
+      if (refreshRafId !== null) {
+        window.cancelAnimationFrame(refreshRafId);
+      }
+      for (const [element, onScroll] of trackedElements.entries()) {
+        element.removeEventListener("scroll", onScroll);
+        clearOverflowGlowState(element);
+      }
+      trackedElements.clear();
+    };
+  }, []);
   const [
     reopenNewGamePromptOnInteraction,
     setReopenNewGamePromptOnInteraction,
@@ -2252,6 +2537,16 @@ export default function App(): JSX.Element {
           }))
         : [{ value: "", label: "No tilesets found" }],
     [hasAnyTilesets, tilesetCatalog],
+  );
+  const selectedClientOptionsTab = useMemo<ClientOptionsTab>(
+    () =>
+      clientOptionsTabs.find((tab) => tab.id === activeClientOptionsTab) ??
+      clientOptionsTabs[0],
+    [activeClientOptionsTab],
+  );
+  const visibleClientOptions = useMemo(
+    () => getClientOptionsForGroup(selectedClientOptionsTab.groupKey),
+    [selectedClientOptionsTab.groupKey],
   );
   const isFpsPlayMode = clientOptions.fpsMode;
   const fpsContextTitle = String(fpsCrosshairContext?.title || "");
@@ -3673,6 +3968,7 @@ export default function App(): JSX.Element {
 
   const openClientOptionsDialog = (): void => {
     setClientOptionsDraft({ ...clientOptions });
+    setActiveClientOptionsTab(clientOptionsDefaultTabId);
     setIsClientOptionsVisible(true);
     setIsDarkWallTilePickerVisible(false);
     setIsTilesetBackgroundTilePickerVisible(false);
@@ -3682,7 +3978,12 @@ export default function App(): JSX.Element {
     controller?.dismissFpsCrosshairContextMenu();
   };
 
-  const closeClientOptionsDialog = (): void => {
+  const closeClientOptionsDialog = async (): Promise<void> => {
+    const canDiscardSoundPackChanges =
+      soundPackDialogActionsRef.current?.confirmDiscardIfNeeded() ?? true;
+    if (!canDiscardSoundPackChanges) {
+      return;
+    }
     setIsClientOptionsVisible(false);
     setIsDarkWallTilePickerVisible(false);
     setIsTilesetBackgroundTilePickerVisible(false);
@@ -3692,7 +3993,12 @@ export default function App(): JSX.Element {
     setClientOptionsDraft({ ...clientOptions });
   };
 
-  const confirmClientOptionsDialog = (): void => {
+  const confirmClientOptionsDialog = async (): Promise<void> => {
+    const didSaveSoundPackChanges =
+      (await soundPackDialogActionsRef.current?.saveIfNeeded()) ?? true;
+    if (!didSaveSoundPackChanges) {
+      return;
+    }
     const next = normalizeNh3dClientOptions(clientOptionsDraft);
     setClientOptions(next);
     setClientOptionsDraft(next);
@@ -3703,6 +4009,14 @@ export default function App(): JSX.Element {
     setIsTilesetManagerVisible(false);
     setIsResetClientOptionsConfirmationVisible(false);
     controller?.setClientOptions(next);
+  };
+
+  const requestCloseClientOptionsDialog = (): void => {
+    void closeClientOptionsDialog();
+  };
+
+  const requestConfirmClientOptionsDialog = (): void => {
+    void confirmClientOptionsDialog();
   };
 
   const openResetClientOptionsConfirmation = (): void => {
@@ -4627,7 +4941,7 @@ export default function App(): JSX.Element {
           setIsTilesetSolidColorPickerVisible(false);
           return;
         }
-        closeClientOptionsDialog();
+        requestCloseClientOptionsDialog();
         return;
       }
 
@@ -4712,47 +5026,53 @@ export default function App(): JSX.Element {
         id="pause-menu-dialog"
       >
         <div className="nh3d-options-title">Game Paused</div>
-        <div className="nh3d-choice-list">
-          <button
-            className="nh3d-choice-button"
-            onClick={() => setIsPauseMenuVisible(false)}
-            type="button"
+        <div className="nh3d-overflow-glow-frame">
+          <div
+            className="nh3d-choice-list"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
           >
-            Resume
-          </button>
-          <button
-            className="nh3d-choice-button"
-            onClick={openClientOptionsDialog}
-            type="button"
-          >
-            Options
-          </button>
-          <button
-            className="nh3d-choice-button"
-            onClick={() => {
-              controller?.sendInput("S");
-              setIsPauseMenuVisible(false);
-            }}
-            type="button"
-          >
-            Save game
-          </button>
-          <button
-            className="nh3d-choice-button"
-            onClick={() => setIsExitConfirmationVisible(true)}
-            type="button"
-          >
-            Exit to main menu
-          </button>
-          <button
-            className="nh3d-choice-button"
-            onClick={() => {
-              window.close();
-            }}
-            type="button"
-          >
-            Quit Game
-          </button>
+            <button
+              className="nh3d-choice-button"
+              onClick={() => setIsPauseMenuVisible(false)}
+              type="button"
+            >
+              Resume
+            </button>
+            <button
+              className="nh3d-choice-button"
+              onClick={openClientOptionsDialog}
+              type="button"
+            >
+              Options
+            </button>
+            <button
+              className="nh3d-choice-button"
+              onClick={() => {
+                controller?.sendInput("S");
+                setIsPauseMenuVisible(false);
+              }}
+              type="button"
+            >
+              Save game
+            </button>
+            <button
+              className="nh3d-choice-button"
+              onClick={() => setIsExitConfirmationVisible(true)}
+              type="button"
+            >
+              Exit to main menu
+            </button>
+            <button
+              className="nh3d-choice-button"
+              onClick={() => {
+                window.close();
+              }}
+              type="button"
+            >
+              Quit Game
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -4844,78 +5164,90 @@ export default function App(): JSX.Element {
                 <div className="nh3d-question-text">
                   Choose your character setup:
                 </div>
-                <div className="nh3d-choice-list nh3d-choice-list-startup-choose">
-                  <div className="nh3d-startup-config-grid centered">
-                    <label className="nh3d-startup-config-field">
-                      <span>NetHack Version</span>
-                      <select
-                        className="nh3d-startup-config-select"
-                        onChange={(event) =>
-                          setRuntimeVersion(
-                            event.target.value as NethackRuntimeVersion,
-                          )
-                        }
-                        value={runtimeVersion}
-                      >
-                        <option value="3.6.7">3.6.x (3.6.7)</option>
-                        {import.meta.env.DEV && (
-                          <option value="3.7">3.7</option>
-                        )}
-                      </select>
-                    </label>
+                <div className="nh3d-overflow-glow-frame">
+                  <div
+                    className="nh3d-choice-list nh3d-choice-list-startup-choose"
+                    data-nh3d-overflow-glow
+                    data-nh3d-overflow-glow-host="parent"
+                  >
+                    <div className="nh3d-startup-config-grid centered">
+                      <label className="nh3d-startup-config-field">
+                        <span>NetHack Version</span>
+                        <select
+                          className="nh3d-startup-config-select"
+                          onChange={(event) =>
+                            setRuntimeVersion(
+                              event.target.value as NethackRuntimeVersion,
+                            )
+                          }
+                          value={runtimeVersion}
+                        >
+                          <option value="3.6.7">3.6.x (3.6.7)</option>
+                          {import.meta.env.DEV && (
+                            <option value="3.7">3.7</option>
+                          )}
+                        </select>
+                      </label>
+                    </div>
+                    <button
+                      className="nh3d-choice-button nh3d-character-setup-choice-button"
+                      onClick={() => setStartupFlowStep("random")}
+                      type="button"
+                    >
+                      Random character
+                    </button>
+                    <button
+                      className="nh3d-choice-button nh3d-character-setup-choice-button"
+                      onClick={() => setStartupFlowStep("create")}
+                      type="button"
+                    >
+                      Create character
+                    </button>
+                    <button
+                      className="nh3d-choice-button nh3d-character-setup-choice-button"
+                      onClick={handleResumeClick}
+                      type="button"
+                    >
+                      Load game
+                    </button>
+                    <button
+                      className="nh3d-choice-button nh3d-character-setup-choice-button"
+                      onClick={openClientOptionsDialog}
+                      type="button"
+                    >
+                      NetHack 3D Options
+                    </button>
+                    <button
+                      className="nh3d-choice-button nh3d-character-setup-choice-button"
+                      onClick={() => window.close()}
+                      type="button"
+                    >
+                      Quit Game
+                    </button>
                   </div>
-                  <button
-                    className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={() => setStartupFlowStep("random")}
-                    type="button"
-                  >
-                    Random character
-                  </button>
-                  <button
-                    className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={() => setStartupFlowStep("create")}
-                    type="button"
-                  >
-                    Create character
-                  </button>
-                  <button
-                    className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={handleResumeClick}
-                    type="button"
-                  >
-                    Load game
-                  </button>
-                  <button
-                    className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={openClientOptionsDialog}
-                    type="button"
-                  >
-                    NetHack 3D Options
-                  </button>
-                  <button
-                    className="nh3d-choice-button nh3d-character-setup-choice-button"
-                    onClick={() => window.close()}
-                    type="button"
-                  >
-                    Quit Game
-                  </button>
                 </div>
               </>
             ) : startupFlowStep === "resume" ? (
               <>
                 <div className="nh3d-question-text">Select a saved game:</div>
-                <div className="nh3d-choice-list" style={{ width: "100%" }}>
-                  {isLoadingSaves ? (
-                    <div
-                      style={{
-                        padding: "20px",
-                        color: "var(--nh3d-ui-text-muted)",
-                      }}
-                    >
-                      Loading saves...
-                    </div>
-                  ) : savedGames.length > 0 ? (
-                    savedGames.map((save) => (
+                <div className="nh3d-overflow-glow-frame">
+                  <div
+                    className="nh3d-choice-list"
+                    data-nh3d-overflow-glow
+                    data-nh3d-overflow-glow-host="parent"
+                    style={{ width: "100%" }}
+                  >
+                    {isLoadingSaves ? (
+                      <div
+                        style={{
+                          padding: "20px",
+                          color: "var(--nh3d-ui-text-muted)",
+                        }}
+                      >
+                        Loading saves...
+                      </div>
+                    ) : savedGames.length > 0 ? (
+                      savedGames.map((save) => (
                       <button
                         key={save.name}
                         className="nh3d-choice-button nh3d-character-setup-choice-button"
@@ -4973,17 +5305,18 @@ export default function App(): JSX.Element {
                           </button>
                         </div>
                       </button>
-                    ))
-                  ) : (
-                    <div
-                      style={{
-                        padding: "20px",
-                        color: "var(--nh3d-ui-text-muted)",
-                      }}
-                    >
-                      No saved games found.
-                    </div>
-                  )}
+                      ))
+                    ) : (
+                      <div
+                        style={{
+                          padding: "20px",
+                          color: "var(--nh3d-ui-text-muted)",
+                        }}
+                      >
+                        No saved games found.
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="nh3d-menu-actions">
                   <button
@@ -5174,32 +5507,44 @@ export default function App(): JSX.Element {
         <div className="top-left-ui with-stats">
           <div id="game-status">{statusText}</div>
           {clientOptions.liveMessageLog ? (
-            <div id="game-log">
-              {gameMessages.map((message, index) => (
-                <div key={`${index}-${message}`}>{message}</div>
-              ))}
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+                id="game-log"
+              >
+                {gameMessages.map((message, index) => (
+                  <div key={`${index}-${message}`}>{message}</div>
+                ))}
+              </div>
             </div>
           ) : null}
         </div>
       ) : isMobileGameRunning && clientOptions.liveMessageLog ? (
         <div
-          className={`nh3d-mobile-log${
+          className={`nh3d-mobile-log nh3d-overflow-glow-frame${
             isMobileLogVisible ? "" : " nh3d-mobile-log-hidden"
           }`}
-          id="game-log"
           style={
             {
               "--nh3d-mobile-log-top": `${statsBarHeight}px`,
             } as React.CSSProperties
           }
         >
-          {renderMobileDialogCloseButton(
-            () => setIsMobileLogVisible(false),
-            "Close message log",
-          )}
-          {gameMessages.map((message, index) => (
-            <div key={`${index}-${message}`}>{message}</div>
-          ))}
+          <div
+            className="nh3d-mobile-log-scroll"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+            id="game-log"
+          >
+            {renderMobileDialogCloseButton(
+              () => setIsMobileLogVisible(false),
+              "Close message log",
+            )}
+            {gameMessages.map((message, index) => (
+              <div key={`${index}-${message}`}>{message}</div>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -5323,12 +5668,58 @@ export default function App(): JSX.Element {
           id="nh3d-client-options-dialog"
         >
           {renderMobileDialogCloseButton(
-            closeClientOptionsDialog,
+            requestCloseClientOptionsDialog,
             "Close NetHack 3D options",
           )}
           <div className="nh3d-options-title">NetHack 3D Client Options</div>
-          <div className="nh3d-options-list">
-            {clientOptionsConfig.map((option) => {
+          <div className="nh3d-options-layout">
+            <div className="nh3d-overflow-glow-frame nh3d-options-nav-shell">
+              <div
+                aria-label="Settings categories"
+                className="nh3d-options-nav"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+                role="tablist"
+              >
+                {clientOptionsTabs.map((tab) => {
+                  const isSelected = tab.id === selectedClientOptionsTab.id;
+                  return (
+                    <button
+                      aria-controls="nh3d-client-options-panel"
+                      aria-selected={isSelected}
+                      className={`nh3d-options-tab${isSelected ? " is-selected" : ""}`}
+                      id={`nh3d-client-options-tab-${tab.id}`}
+                      key={tab.id}
+                      onClick={() => setActiveClientOptionsTab(tab.id)}
+                      role="tab"
+                      tabIndex={isSelected ? 0 : -1}
+                      type="button"
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="nh3d-overflow-glow-frame nh3d-options-panel-shell">
+              <div
+                aria-labelledby={`nh3d-client-options-tab-${selectedClientOptionsTab.id}`}
+                className="nh3d-options-panel"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+                id="nh3d-client-options-panel"
+                role="tabpanel"
+              >
+                <div className="nh3d-options-panel-heading">
+                  <div className="nh3d-options-panel-title">
+                    {selectedClientOptionsTab.label}
+                  </div>
+                  <div className="nh3d-options-panel-description">
+                    {selectedClientOptionsTab.description}
+                  </div>
+                </div>
+                <div className="nh3d-options-list">
+                  {visibleClientOptions.map((option) => {
               if (
                 option.type === "boolean" &&
                 option.key === "invertLookYAxis" &&
@@ -5350,13 +5741,6 @@ export default function App(): JSX.Element {
                 clientOptionsDraft.tilesetMode !== "tiles"
               ) {
                 return null;
-              }
-              if (option.type === "group") {
-                return (
-                  <div className="nh3d-options-group-title" key={option.key}>
-                    {option.label}
-                  </div>
-                );
               }
               if (option.type === "boolean") {
                 const enabled = Boolean(clientOptionsDraft[option.key]);
@@ -5741,18 +6125,27 @@ export default function App(): JSX.Element {
               }
               return null;
             })}
+                  <SoundPackSettings
+                    onDialogActionsChange={(actions) => {
+                      soundPackDialogActionsRef.current = actions;
+                    }}
+                    visible={selectedClientOptionsTab.id === "sound"}
+                  />
+              </div>
+            </div>
+          </div>
           </div>
           <div className="nh3d-menu-actions">
             <button
               className="nh3d-menu-action-button nh3d-menu-action-confirm"
-              onClick={confirmClientOptionsDialog}
+              onClick={requestConfirmClientOptionsDialog}
               type="button"
             >
               Confirm
             </button>
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={closeClientOptionsDialog}
+              onClick={requestCloseClientOptionsDialog}
               type="button"
             >
               Cancel
@@ -5808,7 +6201,12 @@ export default function App(): JSX.Element {
           <div className="nh3d-option-description">
             Add tile sets and edit per-tileset background/chroma settings.
           </div>
-          <div className="nh3d-tileset-manager-upload">
+          <div className="nh3d-overflow-glow-frame">
+            <div
+              className="nh3d-tileset-manager-upload"
+              data-nh3d-overflow-glow
+              data-nh3d-overflow-glow-host="parent"
+            >
             <div className="nh3d-tileset-manager-header">
               <div className="nh3d-option-label">
                 {tilesetManagerInNewMode
@@ -6034,6 +6432,7 @@ export default function App(): JSX.Element {
                     : "Save Tile Settings"}
               </button>
             </div>
+            </div>
           </div>
           {tilesetManagerError ? (
             <div className="nh3d-tileset-manager-error">
@@ -6049,7 +6448,12 @@ export default function App(): JSX.Element {
           >
             + Import New Tile Set
           </button>
-          <div className="nh3d-tileset-manager-list">
+          <div className="nh3d-overflow-glow-frame">
+            <div
+              className="nh3d-tileset-manager-list"
+              data-nh3d-overflow-glow
+              data-nh3d-overflow-glow-host="parent"
+            >
             {tilesetManagerListTilesets.length === 0 ? (
               <div className="nh3d-option-description">
                 No uploaded tilesets available.
@@ -6107,6 +6511,7 @@ export default function App(): JSX.Element {
                 );
               })
             )}
+            </div>
           </div>
           <div className="nh3d-menu-actions">
             <button
@@ -6407,35 +6812,39 @@ export default function App(): JSX.Element {
               </>
             )
           ) : (
-            <div
-              className={`nh3d-choice-list${
-                parsedQuestionChoices.length > 0 &&
-                parsedQuestionChoices.every(
-                  (choice) => choice.trim().length === 1,
-                )
-                  ? " is-compact"
-                  : ""
-              }${isYesNoQuestionChoices ? " is-yes-no" : ""}`}
-            >
-              {parsedQuestionChoices.map((choice) => (
-                <button
-                  className={`nh3d-choice-button${
-                    choice === question.defaultChoice
-                      ? " nh3d-choice-button-default"
-                      : ""
-                  }`}
-                  key={choice}
-                  onClick={() => controller?.chooseQuestionChoice(choice)}
-                  type="button"
-                >
-                  {getQuestionChoiceLabel(
-                    question.text,
-                    choice,
-                    inventory.items,
-                    useInventoryChoiceLabels,
-                  )}
-                </button>
-              ))}
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                className={`nh3d-choice-list${
+                  parsedQuestionChoices.length > 0 &&
+                  parsedQuestionChoices.every(
+                    (choice) => choice.trim().length === 1,
+                  )
+                    ? " is-compact"
+                    : ""
+                }${isYesNoQuestionChoices ? " is-yes-no" : ""}`}
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                {parsedQuestionChoices.map((choice) => (
+                  <button
+                    className={`nh3d-choice-button${
+                      choice === question.defaultChoice
+                        ? " nh3d-choice-button-default"
+                        : ""
+                    }`}
+                    key={choice}
+                    onClick={() => controller?.chooseQuestionChoice(choice)}
+                    type="button"
+                  >
+                    {getQuestionChoiceLabel(
+                      question.text,
+                      choice,
+                      inventory.items,
+                      useInventoryChoiceLabels,
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
           {question.menuItems.length > 0 && questionMenuPageCount > 1 ? (
@@ -6586,23 +6995,29 @@ export default function App(): JSX.Element {
 
       {infoMenu ? (
         <div
-          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
+          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-overflow-glow-frame"
           id="info-menu-dialog"
         >
           {renderMobileDialogCloseButton(
             () => controller?.closeInfoMenuDialog(),
             "Close information window",
           )}
-          <div className="nh3d-info-title">
-            {infoMenu.title || "NetHack Information"}
-          </div>
-          <div className="nh3d-info-body">
-            {infoMenu.lines.length > 0
-              ? infoMenu.lines.join("\n")
-              : "(No details)"}
-          </div>
-          <div className="nh3d-info-hint">
-            Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
+          <div
+            className="nh3d-dialog-info-scroll"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+          >
+            <div className="nh3d-info-title">
+              {infoMenu.title || "NetHack Information"}
+            </div>
+            <div className="nh3d-info-body">
+              {infoMenu.lines.length > 0
+                ? infoMenu.lines.join("\n")
+                : "(No details)"}
+            </div>
+            <div className="nh3d-info-hint">
+              Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
+            </div>
           </div>
           <div className="nh3d-menu-actions">
             <button
@@ -6626,83 +7041,91 @@ export default function App(): JSX.Element {
             "Close inventory",
           )}
           <div className="nh3d-inventory-title">INVENTORY</div>
-          <div className="nh3d-inventory-items">
-            {inventory.items.length === 0 ? (
-              <div className="nh3d-inventory-empty">
-                Your inventory is empty.
-              </div>
-            ) : (
-              inventory.items.map((item, index) =>
-                item.isCategory ? (
-                  <div
-                    className={`nh3d-inventory-category${
-                      index === 0 ? " nh3d-inventory-category-first" : ""
-                    }`}
-                    key={`cat-${index}`}
-                  >
-                    {item.text}
-                  </div>
-                ) : (
-                  <div
-                    className={`nh3d-inventory-item${
-                      !inventoryContextActionsEnabled
-                        ? " nh3d-inventory-item-disabled"
-                        : ""
-                    }${
-                      inventoryContextMenu?.accelerator === item.accelerator
-                        ? " nh3d-inventory-item-active"
-                        : ""
-                    }`}
-                    key={`item-${index}`}
-                    onClick={(event) => {
-                      if (!inventoryContextActionsEnabled) {
-                        return;
-                      }
-                      openInventoryContextMenu(
-                        item,
-                        event.clientX,
-                        event.clientY,
-                      );
-                    }}
-                    onContextMenu={(event) => {
-                      if (!inventoryContextActionsEnabled) {
-                        return;
-                      }
-                      event.preventDefault();
-                      openInventoryContextMenu(
-                        item,
-                        event.clientX,
-                        event.clientY,
-                      );
-                    }}
-                    onKeyDown={(event) => {
-                      if (!inventoryContextActionsEnabled) {
-                        return;
-                      }
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        const target =
-                          event.currentTarget.getBoundingClientRect();
+          <div className="nh3d-overflow-glow-frame nh3d-overflow-glow-shell-fill">
+            <div
+              className="nh3d-inventory-items"
+              data-nh3d-overflow-glow
+              data-nh3d-overflow-glow-host="parent"
+            >
+              {inventory.items.length === 0 ? (
+                <div className="nh3d-inventory-empty">
+                  Your inventory is empty.
+                </div>
+              ) : (
+                inventory.items.map((item, index) =>
+                  item.isCategory ? (
+                    <div
+                      className={`nh3d-inventory-category${
+                        index === 0 ? " nh3d-inventory-category-first" : ""
+                      }`}
+                      key={`cat-${index}`}
+                    >
+                      {item.text}
+                    </div>
+                  ) : (
+                    <div
+                      className={`nh3d-inventory-item${
+                        !inventoryContextActionsEnabled
+                          ? " nh3d-inventory-item-disabled"
+                          : ""
+                      }${
+                        inventoryContextMenu?.accelerator === item.accelerator
+                          ? " nh3d-inventory-item-active"
+                          : ""
+                      }`}
+                      key={`item-${index}`}
+                      onClick={(event) => {
+                        if (!inventoryContextActionsEnabled) {
+                          return;
+                        }
                         openInventoryContextMenu(
                           item,
-                          target.right,
-                          target.top + target.height / 2,
+                          event.clientX,
+                          event.clientY,
                         );
+                      }}
+                      onContextMenu={(event) => {
+                        if (!inventoryContextActionsEnabled) {
+                          return;
+                        }
+                        event.preventDefault();
+                        openInventoryContextMenu(
+                          item,
+                          event.clientX,
+                          event.clientY,
+                        );
+                      }}
+                      onKeyDown={(event) => {
+                        if (!inventoryContextActionsEnabled) {
+                          return;
+                        }
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          const target =
+                            event.currentTarget.getBoundingClientRect();
+                          openInventoryContextMenu(
+                            item,
+                            target.right,
+                            target.top + target.height / 2,
+                          );
+                        }
+                      }}
+                      role={
+                        inventoryContextActionsEnabled ? "button" : undefined
                       }
-                    }}
-                    role={inventoryContextActionsEnabled ? "button" : undefined}
-                    tabIndex={inventoryContextActionsEnabled ? 0 : -1}
-                  >
-                    <span className="nh3d-inventory-key">
-                      {item.accelerator || "?"})
-                    </span>
-                    <span className={item.className as string}>
-                      {item.text || "Unknown item"}
-                    </span>
-                  </div>
-                ),
-              )
-            )}
+                      tabIndex={inventoryContextActionsEnabled ? 0 : -1}
+                    >
+                      <span className="nh3d-inventory-key">
+                        {item.accelerator || "?"})
+                      </span>
+                      <span className={item.className as string}>
+                        {item.text || "Unknown item"}
+                      </span>
+                    </div>
+                  ),
+                )
+              )}
+            </div>
           </div>
           <div className="nh3d-inventory-close">
             {inventoryCloseInstructionText}
@@ -6721,7 +7144,7 @@ export default function App(): JSX.Element {
 
       {inventoryContextMenu && inventoryContextActionsEnabled ? (
         <div
-          className="nh3d-context-menu nh3d-inventory-context-menu"
+          className="nh3d-context-menu nh3d-inventory-context-menu nh3d-overflow-glow-frame"
           onContextMenu={(event) => event.preventDefault()}
           ref={inventoryContextMenuRef}
           style={{
@@ -6730,48 +7153,54 @@ export default function App(): JSX.Element {
           }}
         >
           <div
-            className={`nh3d-context-menu-title${
-              shouldScrollInventoryContextTitle
-                ? " nh3d-context-menu-title-scroll"
-                : ""
-            }`}
-            style={inventoryContextTitleStyle}
+            className="nh3d-inventory-context-menu-scroll"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
           >
-            {shouldScrollInventoryContextTitle ? (
-              <span className="nh3d-context-menu-title-scroll-track">
-                <span>{inventoryContextTitle}</span>
-                <span aria-hidden="true">{inventoryContextTitle}</span>
-              </span>
-            ) : (
-              inventoryContextTitle
-            )}
-          </div>
-          <div className="nh3d-context-menu-actions nh3d-context-menu-actions-inventory">
-            {inventoryContextMenuActions.map((action) => (
-              <button
-                className="nh3d-context-menu-button"
-                key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
-                onClick={() => {
-                  if (action.kind === "extended" && action.value) {
-                    // Use the special prefix to ensure the runtime intercepts it and reliably
-                    // applies it to the next inventory prompt menu without race conditions
-                    controller?.sendInput(
-                      `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
-                    );
-                    controller?.runExtendedCommand(action.value);
-                  } else {
-                    controller?.runInventoryItemAction(
-                      action.id,
-                      inventoryContextMenu.accelerator,
-                    );
-                  }
-                  setInventoryContextMenu(null);
-                }}
-                type="button"
-              >
-                {action.label}
-              </button>
-            ))}
+            <div
+              className={`nh3d-context-menu-title${
+                shouldScrollInventoryContextTitle
+                  ? " nh3d-context-menu-title-scroll"
+                  : ""
+              }`}
+              style={inventoryContextTitleStyle}
+            >
+              {shouldScrollInventoryContextTitle ? (
+                <span className="nh3d-context-menu-title-scroll-track">
+                  <span>{inventoryContextTitle}</span>
+                  <span aria-hidden="true">{inventoryContextTitle}</span>
+                </span>
+              ) : (
+                inventoryContextTitle
+              )}
+            </div>
+            <div className="nh3d-context-menu-actions nh3d-context-menu-actions-inventory">
+              {inventoryContextMenuActions.map((action) => (
+                <button
+                  className="nh3d-context-menu-button"
+                  key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
+                  onClick={() => {
+                    if (action.kind === "extended" && action.value) {
+                      // Use the special prefix to ensure the runtime intercepts it and reliably
+                      // applies it to the next inventory prompt menu without race conditions
+                      controller?.sendInput(
+                        `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
+                      );
+                      controller?.runExtendedCommand(action.value);
+                    } else {
+                      controller?.runInventoryItemAction(
+                        action.id,
+                        inventoryContextMenu.accelerator,
+                      );
+                    }
+                    setInventoryContextMenu(null);
+                  }}
+                  type="button"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       ) : null}
@@ -6884,43 +7313,81 @@ export default function App(): JSX.Element {
             </div>
           </div>
           {mobileActionSheetMode === "quick" ? (
-            <div className="nh3d-mobile-actions-grid is-fixed-layout">
-              {mobileActions.map((action) => (
-                <button
-                  className="nh3d-mobile-actions-button"
-                  key={action.id}
-                  onClick={() => {
-                    controller?.dismissFpsCrosshairContextMenu();
-                    if (action.id === "extended") {
-                      setMobileActionSheetMode("extended");
-                      return;
-                    }
-                    if (action.kind === "quick") {
-                      controller?.runQuickAction(action.value);
-                    } else {
-                      controller?.runExtendedCommand(action.value);
-                    }
-                    setIsMobileActionSheetVisible(false);
-                    setMobileActionSheetMode("quick");
-                  }}
-                  type="button"
-                >
-                  {action.label}
-                </button>
-              ))}
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                className="nh3d-mobile-actions-grid is-fixed-layout"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                {mobileActions.map((action) => (
+                  <button
+                    className="nh3d-mobile-actions-button"
+                    key={action.id}
+                    onClick={() => {
+                      controller?.dismissFpsCrosshairContextMenu();
+                      if (action.id === "extended") {
+                        setMobileActionSheetMode("extended");
+                        return;
+                      }
+                      if (action.kind === "quick") {
+                        controller?.runQuickAction(action.value);
+                      } else {
+                        controller?.runExtendedCommand(action.value);
+                      }
+                      setIsMobileActionSheetVisible(false);
+                      setMobileActionSheetMode("quick");
+                    }}
+                    type="button"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : (
-            <div className="nh3d-mobile-actions-sections">
-              {mobileCommonExtendedCommandNames.length > 0 ? (
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                className="nh3d-mobile-actions-sections"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                {mobileCommonExtendedCommandNames.length > 0 ? (
+                  <div className="nh3d-mobile-actions-section">
+                    <div className="nh3d-mobile-actions-subheader">
+                      Common commands
+                    </div>
+                    <div
+                      className="nh3d-mobile-actions-grid is-extended"
+                    >
+                      {mobileCommonExtendedCommandNames.map((command) => (
+                        <button
+                          className="nh3d-mobile-actions-button"
+                          key={`common-${command}`}
+                          onClick={() => {
+                            controller?.dismissFpsCrosshairContextMenu();
+                            controller?.runExtendedCommand(command);
+                            setIsMobileActionSheetVisible(false);
+                            setMobileActionSheetMode("quick");
+                          }}
+                          type="button"
+                        >
+                          {command}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="nh3d-mobile-actions-section">
                   <div className="nh3d-mobile-actions-subheader">
-                    Common commands
+                    All commands
                   </div>
-                  <div className="nh3d-mobile-actions-grid is-extended">
-                    {mobileCommonExtendedCommandNames.map((command) => (
+                  <div
+                    className="nh3d-mobile-actions-grid is-extended"
+                  >
+                    {mobileExtendedCommandNames.map((command) => (
                       <button
                         className="nh3d-mobile-actions-button"
-                        key={`common-${command}`}
+                        key={`all-${command}`}
                         onClick={() => {
                           controller?.dismissFpsCrosshairContextMenu();
                           controller?.runExtendedCommand(command);
@@ -6933,28 +7400,6 @@ export default function App(): JSX.Element {
                       </button>
                     ))}
                   </div>
-                </div>
-              ) : null}
-              <div className="nh3d-mobile-actions-section">
-                <div className="nh3d-mobile-actions-subheader">
-                  All commands
-                </div>
-                <div className="nh3d-mobile-actions-grid is-extended">
-                  {mobileExtendedCommandNames.map((command) => (
-                    <button
-                      className="nh3d-mobile-actions-button"
-                      key={`all-${command}`}
-                      onClick={() => {
-                        controller?.dismissFpsCrosshairContextMenu();
-                        controller?.runExtendedCommand(command);
-                        setIsMobileActionSheetVisible(false);
-                        setMobileActionSheetMode("quick");
-                      }}
-                      type="button"
-                    >
-                      {command}
-                    </button>
-                  ))}
                 </div>
               </div>
             </div>
@@ -7050,21 +7495,30 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      <div className={positionRequest ? "is-visible" : ""} id="position-dialog">
-        {isMobileViewport && positionRequest ? (
-          <button
-            aria-label="Close position prompt"
-            className="nh3d-position-dialog-close"
-            onClick={() => {
-              controller?.cancelActivePrompt();
-              setPositionRequest(null);
-            }}
-            type="button"
-          >
-            {"\u00D7"}
-          </button>
-        ) : null}
-        {positionRequest}
+      <div
+        className={`${positionRequest ? "is-visible" : ""} nh3d-overflow-glow-frame`.trim()}
+        id="position-dialog"
+      >
+        <div
+          className="nh3d-position-dialog-scroll"
+          data-nh3d-overflow-glow
+          data-nh3d-overflow-glow-host="parent"
+        >
+          {isMobileViewport && positionRequest ? (
+            <button
+              aria-label="Close position prompt"
+              className="nh3d-position-dialog-close"
+              onClick={() => {
+                controller?.cancelActivePrompt();
+                setPositionRequest(null);
+              }}
+              type="button"
+            >
+              {"\u00D7"}
+            </button>
+          ) : null}
+          {positionRequest}
+        </div>
       </div>
     </>
   );

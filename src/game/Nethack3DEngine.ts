@@ -11,6 +11,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.js";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
+import { FmodRuntime } from "../audio";
 import {
   isLoggingEnabled,
   logWithOriginal,
@@ -67,6 +68,7 @@ import {
   resolveNh3dTilesetAssetUrl,
 } from "./tilesets";
 import { getItemTextClassName } from "./helpers";
+import { MessageSoundHooks } from "./message-sound-hooks";
 
 type PendingCharacterDamage = {
   amount: number;
@@ -385,6 +387,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private hasPlayerMovedOnce: boolean = false;
   private autoPickupEnabled: boolean = true;
   private lastMovementInputAtMs: number = 0;
+  private pendingPlayerFootstepSoundArmed: boolean = false;
+  private playerCliparoundInputCooldownUntilMs: number = 0;
+  private readonly playerCliparoundInputCooldownMs: number = 520;
   private readonly tileRefreshRetryDelayMs: number = 120;
   private readonly movementUnlockWindowMs: number = 5000;
   private statusConditionMask: number = 0;
@@ -457,6 +462,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
 
   private session: RuntimeBridge | null = null;
+  private readonly fmodRuntime: FmodRuntime;
+  private readonly messageSoundHooks: MessageSoundHooks;
+  private fmodRuntimeInitializationInFlight: boolean = false;
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
@@ -1149,6 +1157,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
+    this.fmodRuntime = new FmodRuntime();
+    this.messageSoundHooks = new MessageSoundHooks({
+      isSoundEnabled: () => this.clientOptions.soundEnabled,
+    });
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -2309,6 +2321,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const brightnessChanged = previous.brightness !== normalized.brightness;
     const contrastChanged = previous.contrast !== normalized.contrast;
     const gammaChanged = previous.gamma !== normalized.gamma;
+    const soundEnabledChanged =
+      previous.soundEnabled !== normalized.soundEnabled;
 
     this.clientOptions = normalized;
 
@@ -2362,6 +2376,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       this.markLightingDirty();
     }
+    if (soundEnabledChanged && !normalized.soundEnabled) {
+      this.pendingPlayerFootstepSoundArmed = false;
+      this.clearPlayerCliparoundInputCooldown();
+    }
+    this.syncFmodRuntimeWithClientOptions(normalized.soundEnabled);
   }
 
   private shouldUseDesktopTextureAnisotropy(): boolean {
@@ -3020,6 +3039,66 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setGameOver({ ...this.gameOverState });
   }
 
+  private async initializeFmodRuntime(): Promise<void> {
+    if (
+      this.fmodRuntime.isInitialized() ||
+      this.fmodRuntimeInitializationInFlight
+    ) {
+      return;
+    }
+    this.fmodRuntimeInitializationInFlight = true;
+    try {
+      await this.fmodRuntime.initialize();
+      this.fmodRuntime.setEnabled(this.clientOptions.soundEnabled);
+      if (!this.clientOptions.soundEnabled) {
+        logWithOriginal(
+          "[NetHack 3D] FMOD Studio runtime initialized (audio disabled in client options).",
+        );
+        return;
+      }
+      logWithOriginal("[NetHack 3D] FMOD Studio runtime initialized.");
+      const diagnostics = this.fmodRuntime.getThreadingDiagnostics();
+      logWithOriginal(
+        `[NetHack 3D] FMOD audio backend: ${diagnostics.backendMode} (update ${diagnostics.updateIntervalMs}ms).`,
+      );
+      if (!this.fmodRuntime.isUsingThreadedAudioMixing()) {
+        console.warn(
+          "FMOD fell back to ScriptProcessor (main-thread audio). AudioWorklet support is recommended for best performance.",
+        );
+      } else if (diagnostics.backendMode === "audio-worklet-copy") {
+        console.warn(
+          "FMOD is using AudioWorklet copy mode. Enable cross-origin isolation (COOP/COEP) for lower-overhead shared-buffer mode.",
+        );
+      }
+    } catch (error) {
+      console.warn(
+        "FMOD Studio runtime is unavailable; continuing without audio.",
+        error,
+      );
+    } finally {
+      this.fmodRuntimeInitializationInFlight = false;
+    }
+  }
+
+  private syncFmodRuntimeWithClientOptions(soundEnabled: boolean): void {
+    const enabled = Boolean(soundEnabled);
+    this.fmodRuntime.setEnabled(enabled);
+    if (!enabled) {
+      return;
+    }
+    if (this.fmodRuntime.isInitialized()) {
+      return;
+    }
+    void this.initializeFmodRuntime();
+  }
+
+  private resumeFmodFromUserGesture(): void {
+    if (!this.clientOptions.soundEnabled) {
+      return;
+    }
+    this.fmodRuntime.resumeFromUserGesture();
+  }
+
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
     this.runtimeTerminationPromptShown = false;
@@ -3103,6 +3182,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
         const oldPos = { ...this.playerPos };
+        this.playPlayerFootstepSoundFromCliparoundIfEligible(
+          oldPos.x,
+          oldPos.y,
+          data.x,
+          data.y,
+        );
         this.pendingBoulderPushDarkCorridorInference =
           oldPos.x !== data.x || oldPos.y !== data.y
             ? this.buildBoulderPushDarkCorridorInferenceContext(
@@ -3113,6 +3198,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
               )
             : null;
         this.recordPlayerMovement(oldPos.x, oldPos.y, data.x, data.y);
+        if (oldPos.x !== data.x || oldPos.y !== data.y) {
+          this.refreshPlayerCliparoundInputCooldownFromMovement();
+        }
         this.playerPos = { x: data.x, y: data.y };
         if (oldPos.x !== data.x || oldPos.y !== data.y) {
           this.clearAutomaticGlancePendingState();
@@ -3152,7 +3240,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         this.captureAutopickupStateFromMessage(data.text);
         this.captureFpsCrosshairGlanceMessage(data.text);
-        this.captureMonsterDefeatFromMessage(data.text);
+        {
+          const playerKillHandled = this.captureMonsterDefeatFromMessage(
+            data.text,
+          );
+          this.captureOtherMonsterKilledSoundFromMessage(
+            data.text,
+            playerKillHandled,
+          );
+        }
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
@@ -3163,7 +3259,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         this.captureAutopickupStateFromMessage(data.text);
         this.captureFpsCrosshairGlanceMessage(data.text);
-        this.captureMonsterDefeatFromMessage(data.text);
+        {
+          const playerKillHandled = this.captureMonsterDefeatFromMessage(
+            data.text,
+          );
+          this.captureOtherMonsterKilledSoundFromMessage(
+            data.text,
+            playerKillHandled,
+          );
+        }
         this.captureDamageFromMessage(data.text);
         this.addGameMessage(data.text);
         break;
@@ -3731,7 +3835,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isMonsterDefeatMessage(message: string): boolean {
-    return /\byou (?:kill|destroy) (?:the |an? )?.+[.!]?$/i.test(message);
+    return /\byou (?:kill|kills|killed|destroy|destroys|destroyed) (?:the |an? )?.+[.!]?$/i.test(
+      message,
+    );
+  }
+
+  private isAnyKillMessage(message: string): boolean {
+    return /\b(?:kill|kills|killed)\b/i.test(message);
   }
 
   private getDirectionVectorFromInput(
@@ -3970,14 +4080,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return { x: targetX, y: targetY };
   }
 
-  private captureMonsterDefeatFromMessage(messageLike: unknown): void {
+  private captureMonsterDefeatFromMessage(messageLike: unknown): boolean {
     if (typeof messageLike !== "string") {
-      return;
+      return false;
     }
 
     const normalized = messageLike.replace(/\s+/g, " ").trim();
     if (!normalized || !this.isMonsterDefeatMessage(normalized)) {
-      return;
+      return false;
     }
 
     const now = Date.now();
@@ -3985,15 +4095,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
       normalized === this.lastParsedDefeatMessage &&
       now - this.lastParsedDefeatAtMs < 120
     ) {
-      return;
+      return true;
     }
 
     this.lastParsedDefeatMessage = normalized;
     this.lastParsedDefeatAtMs = now;
     if (this.tryTriggerPointerMonsterDefeatSpray()) {
-      return;
+      return true;
     }
     this.tryTriggerDirectionalMonsterDefeatSpray();
+    return true;
+  }
+
+  private captureOtherMonsterKilledSoundFromMessage(
+    messageLike: unknown,
+    playerKillHandled: boolean,
+  ): void {
+    if (playerKillHandled || typeof messageLike !== "string") {
+      return;
+    }
+    const normalized = messageLike.replace(/\s+/g, " ").trim();
+    if (!normalized || !this.isAnyKillMessage(normalized)) {
+      return;
+    }
+    this.messageSoundHooks.playOtherMonsterKilledSound();
   }
 
   private queuePendingCharacterDamage(amount: number): void {
@@ -4167,6 +4292,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const damage = Math.max(1, Math.round(Math.abs(amount)));
+    this.messageSoundHooks.playDamageEffectSound(variant);
     const key = `${x},${y}`;
     const hadElevatedBillboard = this.monsterBillboards.has(key);
     if (variant === "defeat") {
@@ -6944,6 +7070,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastParsedDamageAtMs = 0;
     this.lastParsedDefeatMessage = "";
     this.lastParsedDefeatAtMs = 0;
+    this.pendingPlayerFootstepSoundArmed = false;
+    this.clearPlayerCliparoundInputCooldown();
+    this.messageSoundHooks.reset();
   }
 
   private applyGlyphMaterial(
@@ -10613,6 +10742,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
+    this.messageSoundHooks.playMessageLogSoundEffects(message);
 
     this.gameMessages.unshift(message);
     if (this.gameMessages.length > 100) {
@@ -10788,6 +10918,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.hideQuestion();
     this.hideDirectionQuestion();
     this.hideTextInputRequest();
+    this.clearPlayerCliparoundInputCooldown();
     this.hideInventoryDialog();
     this.closeAnyTileContextMenu(false);
 
@@ -12327,6 +12458,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lastManualDirectionalInputAtMs = Date.now();
       this.fpsAutoMoveDirection = null;
       this.fpsAutoTurnTargetYaw = null;
+      this.armPendingPlayerFootstepSound();
+      if (this.isRunMovementInput(resolvedInput)) {
+        this.armPlayerCliparoundInputCooldown();
+      } else if (this.isNumpadRunPrefixInput(resolvedInput)) {
+        this.armPlayerCliparoundInputCooldown();
+      }
     }
 
     if (
@@ -12370,12 +12507,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const nowMs = Date.now();
+    let hasMovementInput = false;
     for (const input of inputs) {
       if (this.isMovementInput(input)) {
         this.lastManualDirectionalInputAtMs = nowMs;
         this.fpsAutoMoveDirection = null;
         this.fpsAutoTurnTargetYaw = null;
+        hasMovementInput = true;
         break;
+      }
+    }
+    const hasRunPrefixInput = inputs.some((entry) =>
+      this.isRunPrefixInput(entry),
+    );
+    if (hasMovementInput) {
+      this.armPendingPlayerFootstepSound();
+      if (hasRunPrefixInput) {
+        this.armPlayerCliparoundInputCooldown();
       }
     }
 
@@ -12390,6 +12538,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.updateDirectionalAttackContext(direction);
+    this.armPlayerCliparoundInputCooldown();
     this.sendInputSequence(["5", direction]);
   }
 
@@ -12419,6 +12568,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (!options.keepContextMenuOpen) {
       this.closeAnyTileContextMenu(false);
+    }
+    if (this.shouldArmPlayerFootstepFromMouseInput(x, y, button)) {
+      this.armPendingPlayerFootstepSound();
+      this.armPlayerCliparoundInputCooldown();
     }
     this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
     this.session.sendMouseInput(x, y, button);
@@ -12632,6 +12785,105 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private canArmPendingPlayerFootstepSound(): boolean {
+    return (
+      this.clientOptions.soundEnabled &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive
+    );
+  }
+
+  private isRunMovementInput(input: string): boolean {
+    return !this.numberPadModeEnabled && /^[HJKLYUBN]$/.test(input);
+  }
+
+  private isNumpadRunPrefixInput(input: string): boolean {
+    return this.numberPadModeEnabled && input === "Numpad5";
+  }
+
+  private isRunPrefixInput(input: string): boolean {
+    return input === "5" || this.isNumpadRunPrefixInput(input);
+  }
+
+  private armPlayerCliparoundInputCooldown(): void {
+    if (!this.session) {
+      return;
+    }
+    this.playerCliparoundInputCooldownUntilMs =
+      Date.now() + this.playerCliparoundInputCooldownMs;
+  }
+
+  private refreshPlayerCliparoundInputCooldownFromMovement(): void {
+    const nowMs = Date.now();
+    if (nowMs > this.playerCliparoundInputCooldownUntilMs) {
+      return;
+    }
+    this.playerCliparoundInputCooldownUntilMs =
+      nowMs + this.playerCliparoundInputCooldownMs;
+  }
+
+  private clearPlayerCliparoundInputCooldown(): void {
+    this.playerCliparoundInputCooldownUntilMs = 0;
+  }
+
+  private isPlayerCliparoundInputCooldownActive(nowMs: number): boolean {
+    return nowMs <= this.playerCliparoundInputCooldownUntilMs;
+  }
+
+  private armPendingPlayerFootstepSound(): void {
+    if (!this.canArmPendingPlayerFootstepSound()) {
+      return;
+    }
+    this.pendingPlayerFootstepSoundArmed = true;
+  }
+
+  private shouldArmPlayerFootstepFromMouseInput(
+    x: number,
+    y: number,
+    button: number,
+  ): boolean {
+    if (
+      button !== 0 ||
+      this.isFpsMode() ||
+      !this.canArmPendingPlayerFootstepSound()
+    ) {
+      return false;
+    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return false;
+    }
+    const tileX = Math.round(x);
+    const tileY = Math.round(y);
+    const deltaX = Math.abs(tileX - this.playerPos.x);
+    const deltaY = Math.abs(tileY - this.playerPos.y);
+    return deltaX !== 0 || deltaY !== 0;
+  }
+
+  private playPlayerFootstepSoundFromCliparoundIfEligible(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    const nowMs = Date.now();
+    const hadPendingSound = this.pendingPlayerFootstepSoundArmed;
+    this.pendingPlayerFootstepSoundArmed = false;
+    if (!this.clientOptions.soundEnabled) {
+      return;
+    }
+    if (fromX === toX && fromY === toY) {
+      return;
+    }
+    if (
+      !hadPendingSound &&
+      !this.isPlayerCliparoundInputCooldownActive(nowMs)
+    ) {
+      return;
+    }
+    this.messageSoundHooks.playPlayerFootstepSound();
+  }
+
   private isInventoryDialogOpen(): boolean {
     return this.isInventoryDialogVisible;
   }
@@ -12691,6 +12943,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleWindowBlur(): void {
     this.altOrMetaHeld = false;
+    this.clearPlayerCliparoundInputCooldown();
     this.clearFpsTouchGestures();
     this.isMiddleMouseDown = false;
     this.isRightMouseDown = false;
@@ -13399,6 +13652,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (this.isTextInputActive) {
       const target = event.target as HTMLElement | null;
       if (
@@ -16122,6 +16377,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (
       !this.isFpsMode() &&
       event.button === 0 &&
@@ -16238,6 +16495,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchStart(event: TouchEvent): void {
+    this.resumeFmodFromUserGesture();
+
     if (
       !this.isFpsMode() &&
       this.shouldConsumeSuppressedMapPrimaryPointerEvent(

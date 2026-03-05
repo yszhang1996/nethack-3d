@@ -12,6 +12,7 @@
 - `src/ui/App.tsx`: React UI shell (hooks + Zustand).
 - `src/app.ts`: debug helper registration.
 - `src/game/Nethack3DEngine.ts`: browser-side 3D engine and UI controller.
+- `src/audio/FmodRuntime.ts`: FMOD Studio HTML5/WASM bootstrap + runtime wrapper.
 - `src/game/glyphs/behavior.ts`: centralized glyph-to-render behavior rules.
 - `src/game/glyphs/registry.ts`: glyph catalog lookup/resolution helpers.
 - `src/game/glyphs/glyph-catalog.generated.ts`: checked-in glyph source-of-truth generated from runtime.
