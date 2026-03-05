@@ -15,10 +15,17 @@ type MessageSoundHooksOptions = {
   soundPackCacheTtlMs?: number;
 };
 
+type WebAudioPlaybackResult =
+  | "played"
+  | "unsupported"
+  | "not-ready"
+  | "failed";
+
 export class MessageSoundHooks {
   private readonly isSoundEnabled: () => boolean;
   private readonly debounceMs: number;
   private readonly soundPackCacheTtlMs: number;
+  private readonly audioContextRecoveryIntervalMs: number = 1250;
   private readonly repeatedVariationWeight: number = 0.35;
   private readonly footstepFullVolumeRecoveryMs: number = 350;
   private readonly footstepRecencyVolumeCurvePower: number = 1.35;
@@ -32,6 +39,14 @@ export class MessageSoundHooks {
   private lastPlayedVariationIdByKey: Map<Nh3dSoundEffectKey, string> =
     new Map();
   private userSoundBlobUrlByPath: Map<string, string> = new Map();
+  private audioContext: AudioContext | null = null;
+  private audioContextCreationAttempted: boolean = false;
+  private audioContextCreationFailedLogged: boolean = false;
+  private audioContextRecoveryTimerId: number | null = null;
+  private decodedAudioBufferPromiseByUrl: Map<string, Promise<AudioBuffer | null>> =
+    new Map();
+  private audioDecodeErrorLoggedByUrl: Set<string> = new Set();
+  private userGestureAudioResumed: boolean = false;
 
   constructor(options: MessageSoundHooksOptions) {
     this.isSoundEnabled = options.isSoundEnabled;
@@ -70,9 +85,39 @@ export class MessageSoundHooks {
     this.lastPlayedVariationIdByKey.clear();
   }
 
+  public setEnabled(enabled: boolean): void {
+    if (enabled) {
+      if (this.userGestureAudioResumed) {
+        this.startAudioContextRecoveryLoop();
+        void this.resumeAudioContextIfNeeded();
+      }
+      return;
+    }
+    this.stopAudioContextRecoveryLoop();
+    this.userGestureAudioResumed = false;
+    void this.suspendAudioContext();
+  }
+
+  public resumeFromUserGesture(): void {
+    if (!this.isSoundEnabled()) {
+      return;
+    }
+    this.userGestureAudioResumed = true;
+    this.startAudioContextRecoveryLoop();
+    void this.resumeAudioContextIfNeeded();
+  }
+
   public dispose(): void {
     this.reset();
+    this.stopAudioContextRecoveryLoop();
+    this.userGestureAudioResumed = false;
     this.clearUserSoundBlobUrlCache();
+    this.clearDecodedAudioBufferCache();
+    const context = this.audioContext;
+    this.audioContext = null;
+    if (context) {
+      void context.close().catch(() => undefined);
+    }
   }
 
   private clearUserSoundBlobUrlCache(): void {
@@ -80,6 +125,11 @@ export class MessageSoundHooks {
       URL.revokeObjectURL(blobUrl);
     }
     this.userSoundBlobUrlByPath.clear();
+  }
+
+  private clearDecodedAudioBufferCache(): void {
+    this.decodedAudioBufferPromiseByUrl.clear();
+    this.audioDecodeErrorLoggedByUrl.clear();
   }
 
   private async resolveActiveSoundPack(): Promise<Nh3dSoundPackRecord | null> {
@@ -107,6 +157,7 @@ export class MessageSoundHooks {
           : "";
         if (nextRevision !== this.cachedSoundPackRevision) {
           this.clearUserSoundBlobUrlCache();
+          this.clearDecodedAudioBufferCache();
           this.cachedSoundPackRevision = nextRevision;
         }
         this.cachedSoundPack = activePack;
@@ -303,9 +354,170 @@ export class MessageSoundHooks {
       return;
     }
 
+    const webAudioResult = await this.tryPlaySoundEffectViaWebAudio(
+      sourceUrl,
+      effectiveVolume,
+    );
+    if (webAudioResult === "played" || webAudioResult === "not-ready") {
+      return;
+    }
+    this.tryPlaySoundEffectViaHtmlAudio(sourceUrl, effectiveVolume);
+  }
+
+  private ensureAudioContext(): AudioContext | null {
+    if (this.audioContext) {
+      return this.audioContext;
+    }
+    if (
+      this.audioContextCreationAttempted &&
+      this.audioContextCreationFailedLogged
+    ) {
+      return null;
+    }
+    this.audioContextCreationAttempted = true;
+    if (typeof globalThis === "undefined") {
+      return null;
+    }
+    const globalWithWebkit = globalThis as typeof globalThis & {
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextCtor =
+      globalWithWebkit.AudioContext ?? globalWithWebkit.webkitAudioContext;
+    if (!AudioContextCtor) {
+      this.audioContextCreationFailedLogged = true;
+      return null;
+    }
+    try {
+      const context = new AudioContextCtor();
+      this.audioContext = context;
+      return context;
+    } catch (error) {
+      if (!this.audioContextCreationFailedLogged) {
+        this.audioContextCreationFailedLogged = true;
+        console.warn("Unable to create WebAudio context for gameplay sounds.", error);
+      }
+      return null;
+    }
+  }
+
+  private async resumeAudioContextIfNeeded(): Promise<void> {
+    const context = this.ensureAudioContext();
+    if (!context) {
+      return;
+    }
+    if (context.state === "running") {
+      return;
+    }
+    try {
+      await context.resume();
+    } catch {
+      // iOS/Safari can reject resume calls outside trusted gestures.
+    }
+  }
+
+  private async suspendAudioContext(): Promise<void> {
+    const context = this.audioContext;
+    if (!context || context.state !== "running") {
+      return;
+    }
+    try {
+      await context.suspend();
+    } catch {
+      // Ignore suspend errors to keep gameplay paths resilient.
+    }
+  }
+
+  private startAudioContextRecoveryLoop(): void {
+    if (this.audioContextRecoveryTimerId !== null || typeof window === "undefined") {
+      return;
+    }
+    this.audioContextRecoveryTimerId = window.setInterval(() => {
+      if (!this.isSoundEnabled() || !this.userGestureAudioResumed) {
+        return;
+      }
+      void this.resumeAudioContextIfNeeded();
+    }, this.audioContextRecoveryIntervalMs);
+  }
+
+  private stopAudioContextRecoveryLoop(): void {
+    if (this.audioContextRecoveryTimerId === null || typeof window === "undefined") {
+      return;
+    }
+    window.clearInterval(this.audioContextRecoveryTimerId);
+    this.audioContextRecoveryTimerId = null;
+  }
+
+  private async decodeAudioBufferForUrl(
+    sourceUrl: string,
+    context: AudioContext,
+  ): Promise<AudioBuffer | null> {
+    const existing = this.decodedAudioBufferPromiseByUrl.get(sourceUrl);
+    if (existing) {
+      return existing;
+    }
+    const decodePromise = (async () => {
+      try {
+        const response = await fetch(sourceUrl, { credentials: "same-origin" });
+        if (!response.ok) {
+          return null;
+        }
+        const bytes = await response.arrayBuffer();
+        return await context.decodeAudioData(bytes.slice(0));
+      } catch (error) {
+        if (!this.audioDecodeErrorLoggedByUrl.has(sourceUrl)) {
+          this.audioDecodeErrorLoggedByUrl.add(sourceUrl);
+          console.warn(`Unable to decode gameplay sound '${sourceUrl}'.`, error);
+        }
+        return null;
+      }
+    })();
+    this.decodedAudioBufferPromiseByUrl.set(sourceUrl, decodePromise);
+    return decodePromise;
+  }
+
+  private async tryPlaySoundEffectViaWebAudio(
+    sourceUrl: string,
+    volume: number,
+  ): Promise<WebAudioPlaybackResult> {
+    const context = this.ensureAudioContext();
+    if (!context) {
+      return "unsupported";
+    }
+    if (context.state !== "running") {
+      await this.resumeAudioContextIfNeeded();
+      const currentState = this.audioContext?.state ?? context.state;
+      if (currentState !== "running") {
+        return "not-ready";
+      }
+    }
+
+    const buffer = await this.decodeAudioBufferForUrl(sourceUrl, context);
+    if (!buffer) {
+      return "failed";
+    }
+
+    try {
+      const source = context.createBufferSource();
+      source.buffer = buffer;
+      const gainNode = context.createGain();
+      gainNode.gain.value = volume;
+      source.connect(gainNode);
+      gainNode.connect(context.destination);
+      source.onended = () => {
+        source.disconnect();
+        gainNode.disconnect();
+      };
+      source.start();
+      return "played";
+    } catch {
+      return "failed";
+    }
+  }
+
+  private tryPlaySoundEffectViaHtmlAudio(sourceUrl: string, volume: number): void {
     try {
       const audio = new Audio(sourceUrl);
-      audio.volume = effectiveVolume;
+      audio.volume = volume;
       audio.preload = "auto";
       void audio.play().catch(() => undefined);
     } catch {

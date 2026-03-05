@@ -1161,6 +1161,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.messageSoundHooks = new MessageSoundHooks({
       isSoundEnabled: () => this.clientOptions.soundEnabled,
     });
+    this.messageSoundHooks.setEnabled(this.clientOptions.soundEnabled);
     this.initThreeJS();
     this.initUI();
     this.connectToRuntime();
@@ -3083,6 +3084,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private syncFmodRuntimeWithClientOptions(soundEnabled: boolean): void {
     const enabled = Boolean(soundEnabled);
     this.fmodRuntime.setEnabled(enabled);
+    this.messageSoundHooks.setEnabled(enabled);
     if (!enabled) {
       return;
     }
@@ -3096,6 +3098,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.clientOptions.soundEnabled) {
       return;
     }
+    this.messageSoundHooks.resumeFromUserGesture();
     this.fmodRuntime.resumeFromUserGesture();
   }
 
