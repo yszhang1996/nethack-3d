@@ -57,13 +57,13 @@
       ]
     },
     "nsis": {
-      "artifactName": "NetHack ${version} Setup.${ext}",
+      "artifactName": "NetHack 3D ${version} Setup.${ext}",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
     },
     "portable": {
-      "artifactName": "NetHack ${version} Portable.${ext}"
+      "artifactName": "NetHack 3D ${version} Portable.${ext}"
     }
   },
   "dependencies": {

@@ -1,4 +1,8 @@
 apply plugin: 'com.android.application'
+import groovy.json.JsonSlurper
+
+def rootPackage = new JsonSlurper().parse(file('../../package.json'))
+def packageVersion = rootPackage.version ?: "0.0.0"
 
 android {
     namespace = "com.nethack3d.app"
@@ -8,7 +12,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
-        versionName "0.8.0.0"
+        versionName packageVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -20,6 +24,14 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    applicationVariants.configureEach { variant ->
+        if (variant.buildType.name == "release") {
+            variant.outputs.configureEach { output ->
+                output.outputFileName = "NetHack 3D ${variant.versionName}.apk"
+            }
         }
     }
 }
