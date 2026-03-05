@@ -275,7 +275,8 @@ const packStoreName = "sound-packs";
 const fileStoreName = "sound-files";
 const metaStoreName = "meta";
 const activePackMetaKey = "active-sound-pack-id";
-const bundledDefaultSoundPackZipPath = "/soundpacks/Default.soundpack.zip";
+const bundledDefaultSoundPackZipRelativePath =
+  "soundpacks/Default.soundpack.zip";
 const soundPackManifestPath = "manifest.json";
 
 export const nh3dDefaultSoundPackId = "default-sound-pack";
@@ -337,6 +338,25 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function resolvePublicAssetUrl(assetRelativePath: string): string {
+  const normalizedPath = String(assetRelativePath || "").replace(/^\/+/, "");
+  const baseUrl =
+    typeof import.meta.env.BASE_URL === "string" &&
+    import.meta.env.BASE_URL.trim()
+      ? import.meta.env.BASE_URL.trim()
+      : "/";
+  const normalizedBase = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+
+  if (typeof window === "undefined" || !window.location?.href) {
+    return `${normalizedBase}${normalizedPath}`;
+  }
+
+  return new URL(
+    normalizedPath,
+    new URL(normalizedBase, window.location.href),
+  ).toString();
 }
 
 function normalizeAttribution(value: unknown, fallback = ""): string {
@@ -1102,9 +1122,12 @@ async function importBundledDefaultSoundPackOnLoad(): Promise<void> {
         return;
       }
       try {
-        const response = await fetch(bundledDefaultSoundPackZipPath, {
-          cache: "no-store",
-        });
+        const response = await fetch(
+          resolvePublicAssetUrl(bundledDefaultSoundPackZipRelativePath),
+          {
+            cache: "no-store",
+          },
+        );
         if (!response.ok) {
           return;
         }
