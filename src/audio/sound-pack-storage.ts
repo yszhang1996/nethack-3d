@@ -1,30 +1,148 @@
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 
+export type Nh3dMessageLogKeyword = string | RegExp;
+
+type Nh3dSoundEffectDefinitionShape = {
+  key: string;
+  label: string;
+  messageLogKeywords?: readonly Nh3dMessageLogKeyword[];
+};
+
 export const nh3dSoundEffectDefinitions = [
   { key: "player-walk", label: "Player walk" },
-  { key: "player-run", label: "Player run" },
   { key: "monster-footstep", label: "Monster footstep" },
   { key: "hit", label: "Hit" },
   { key: "monster-killed", label: "Monster killed (player)" },
   { key: "monster-killed-other", label: "Monster killed (other)" },
   { key: "player-hurt", label: "Player hurt" },
-  { key: "missed-attack", label: "Missed attack" },
-  { key: "explosion", label: "Explosion" },
-  { key: "wand-casting", label: "Wand casting" },
-  { key: "wand-fizzle", label: "Wand fizzle" },
-  { key: "thrown-weapons", label: "Thrown weapons" },
-  { key: "arrow-impact", label: "Arrow impact" },
-  { key: "eating", label: "Eating" },
-  { key: "quaff-potion", label: "Quaff a potion" },
-  { key: "potion-shattering", label: "Potion shattering" },
+  {
+    key: "missed-attack",
+    label: "Missed attack",
+    messageLogKeywords: [/\bmiss\b/i, /\bmisses\b/i],
+  },
+  {
+    key: "door-opens",
+    label: "Door opens",
+    messageLogKeywords: [/\bdoor\b.*\bopens?\b/i, /\bopens?\b.*\bdoor\b/i],
+  },
+  {
+    key: "door-closes",
+    label: "Door closes",
+    messageLogKeywords: [/\bdoor\b.*\bcloses?\b/i, /\bcloses?\b.*\bdoor\b/i],
+  },
+  {
+    key: "walk-down-stairs",
+    label: "Walk down stairs",
+    messageLogKeywords: ["You descend the stairs."],
+  },
+  {
+    key: "walk-up-stairs",
+    label: "Walk up stairs",
+    messageLogKeywords: [/\b(?:go|walk|climb|ascend)\b.*\bup\b.*\bstairs?\b/i],
+  },
+  {
+    key: "explosion",
+    label: "Explosion",
+    messageLogKeywords: [/\bexplod(?:e|es|ed|ing)\b/i],
+  },
+  {
+    key: "wand-casting",
+    label: "Wand casting",
+    messageLogKeywords: [/^\s*you (?:zap|wave)\b/i],
+  },
+  {
+    key: "wand-fizzle",
+    label: "Wand fizzle",
+    messageLogKeywords: ["nothing happens", /\bfizzle(?:s|d)?\b/i],
+  },
+  {
+    key: "thrown-weapons",
+    label: "Thrown weapons",
+    messageLogKeywords: [/^\s*you (?:throw|toss|hurl)\b/i],
+  },
+  {
+    key: "arrow-impact",
+    label: "Arrow impact",
+    messageLogKeywords: [/\barrow\b.*\b(?:hit|hits|miss|misses|strikes?)\b/i],
+  },
+  {
+    key: "eating",
+    label: "Eating",
+    messageLogKeywords: ["you eat", "you finish eating", "tastes"],
+  },
+  {
+    key: "drink",
+    label: "Drink",
+    messageLogKeywords: ["The cool draught refreshes you."],
+  },
+  {
+    key: "quaff-potion",
+    label: "Quaff a potion",
+    messageLogKeywords: ["you quaff"],
+  },
+  {
+    key: "pickup-gold",
+    label: "Pick up gold",
+    messageLogKeywords: ["gold pieces"],
+  },
+  {
+    key: "pickup-item",
+    label: "Pick up item",
+    messageLogKeywords: [/[a-z] - /i],
+  },
+  {
+    key: "find-hidden",
+    label: "Find hidden door/passage",
+    messageLogKeywords: ["find a hidden"],
+  },
+  {
+    key: "level-up",
+    label: "Level up",
+    messageLogKeywords: ["unlock"],
+  },
+  {
+    key: "unlock",
+    label: "Unlock",
+    messageLogKeywords: ["unlock"],
+  },
+  {
+    key: "potion-shattering",
+    label: "Potion shattering",
+    messageLogKeywords: [/\bpotion\b.*\b(?:shatter|smash|crash|break)\w*\b/i],
+  },
   { key: "scroll-reading-good", label: "Scroll reading (good)" },
   { key: "scroll-reading-bad", label: "Scroll reading (bad)" },
-  { key: "scroll-reading-neutral", label: "Scroll reading (neutral)" },
-  { key: "searching", label: "Searching" },
-  { key: "magic-cast", label: "Magic cast" },
-  { key: "magic-heal", label: "Magic heal" },
-  { key: "magic-buff", label: "Magic buff" },
-] as const;
+  {
+    key: "scroll-reading-neutral",
+    label: "Scroll reading (neutral)",
+    messageLogKeywords: [/\byou read (?:the )?scroll\b/i],
+  },
+  {
+    key: "searching",
+    label: "Searching",
+    messageLogKeywords: [
+      /\byou find\b.*\b(?:hidden|secret|trap|door)\b/i,
+      /\byou pick up\b.*\bgold\b/i,
+    ],
+  },
+  {
+    key: "magic-cast",
+    label: "Magic cast",
+    messageLogKeywords: ["you cast"],
+  },
+  {
+    key: "magic-heal",
+    label: "Magic heal",
+    messageLogKeywords: ["you feel better"],
+  },
+  {
+    key: "magic-buff",
+    label: "Magic buff",
+    messageLogKeywords: [
+      /\byou feel (?:stronger|faster|more agile|wiser|tougher|powerful)\b/i,
+    ],
+  },
+] as const satisfies ReadonlyArray<Nh3dSoundEffectDefinitionShape>;
 
 export type Nh3dSoundEffectDefinition =
   (typeof nh3dSoundEffectDefinitions)[number];
@@ -259,6 +377,65 @@ function resolveDefaultFileName(key: Nh3dSoundEffectKey): string {
 
 export function resolveNh3dDefaultSoundPath(key: Nh3dSoundEffectKey): string {
   return `soundpacks/default/${resolveDefaultFileName(key)}`;
+}
+
+function normalizeMessageLogText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function doesMessageLogKeywordMatch(
+  keyword: Nh3dMessageLogKeyword,
+  message: string,
+  normalizedLowerMessage: string,
+): boolean {
+  if (typeof keyword === "string") {
+    const normalizedKeyword = normalizeMessageLogText(keyword).toLowerCase();
+    if (!normalizedKeyword) {
+      return false;
+    }
+    return normalizedLowerMessage.includes(normalizedKeyword);
+  }
+
+  keyword.lastIndex = 0;
+  const matched = keyword.test(message);
+  keyword.lastIndex = 0;
+  return matched;
+}
+
+export function resolveNh3dMessageLogSoundEffectKeys(
+  messageLike: unknown,
+): Nh3dSoundEffectKey[] {
+  if (typeof messageLike !== "string") {
+    return [];
+  }
+
+  const normalizedMessage = normalizeMessageLogText(messageLike);
+  if (!normalizedMessage) {
+    return [];
+  }
+
+  const normalizedLowerMessage = normalizedMessage.toLowerCase();
+  const matchedKeys: Nh3dSoundEffectKey[] = [];
+  for (const definition of nh3dSoundEffectDefinitions) {
+    const keywords =
+      "messageLogKeywords" in definition
+        ? definition.messageLogKeywords
+        : undefined;
+    if (!keywords) {
+      continue;
+    }
+    const matched = keywords.some((keyword: Nh3dMessageLogKeyword) =>
+      doesMessageLogKeywordMatch(
+        keyword,
+        normalizedMessage,
+        normalizedLowerMessage,
+      ),
+    );
+    if (matched) {
+      matchedKeys.push(definition.key);
+    }
+  }
+  return matchedKeys;
 }
 
 export function resolveNh3dUserSoundPath(

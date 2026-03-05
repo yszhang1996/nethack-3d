@@ -10742,6 +10742,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
   private addGameMessage(message: string): void {
     if (!message || message.trim() === "") return;
+    this.messageSoundHooks.playMessageLogSoundEffects(message);
 
     this.gameMessages.unshift(message);
     if (this.gameMessages.length > 100) {

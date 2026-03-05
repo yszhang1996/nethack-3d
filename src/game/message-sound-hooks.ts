@@ -2,6 +2,7 @@ import {
   nh3dBaseSoundVariationId,
   loadNh3dSoundPackStateFromIndexedDb,
   loadStoredNh3dSoundBlob,
+  resolveNh3dMessageLogSoundEffectKeys,
   resolveNh3dDefaultSoundPath,
   type Nh3dSoundEffectKey,
   type Nh3dSoundEffectVariation,
@@ -55,6 +56,13 @@ export class MessageSoundHooks {
 
   public playPlayerFootstepSound(): void {
     void this.playSoundEffect("player-walk");
+  }
+
+  public playMessageLogSoundEffects(messageLike: unknown): void {
+    const soundKeys = resolveNh3dMessageLogSoundEffectKeys(messageLike);
+    for (const soundKey of soundKeys) {
+      void this.playSoundEffect(soundKey);
+    }
   }
 
   public reset(): void {
