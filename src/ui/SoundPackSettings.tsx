@@ -38,6 +38,7 @@ type SoundPackSettingsProps = {
 export type SoundPackDialogActions = {
   saveIfNeeded: () => Promise<boolean>;
   confirmDiscardIfNeeded: () => boolean;
+  reloadFromStorage: () => Promise<void>;
 };
 
 function getErrorMessage(error: unknown, fallback: string): string {
@@ -418,6 +419,9 @@ export default function SoundPackSettings({
     onDialogActionsChange({
       saveIfNeeded: handleSaveDraft,
       confirmDiscardIfNeeded: discardPendingChangesIfNeeded,
+      reloadFromStorage: async () => {
+        await reloadSoundPacks();
+      },
     });
     return () => {
       onDialogActionsChange(null);
@@ -841,7 +845,7 @@ export default function SoundPackSettings({
                           ? `${fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey)} (default)`
                           : variation.source === "user"
                             ? `${variation.fileName} (custom)`
-                            : `${variation.fileName} (built-in)`;
+                            : variation.fileName;
                     const volumePercent = Math.round(variation.volume * 100);
                     const canResetCustom =
                       !isDefaultDraft &&

@@ -51,6 +51,7 @@ import {
   loadPersistedNh3dClientOptionsWithMigration,
   persistNh3dClientOptionsToIndexedDb,
 } from "../storage/client-options-storage";
+import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-pack-storage";
 import SoundPackSettings, {
   type SoundPackDialogActions,
 } from "./SoundPackSettings";
@@ -4037,6 +4038,25 @@ export default function App(): JSX.Element {
     setIsTilesetManagerVisible(false);
     setIsResetClientOptionsConfirmationVisible(false);
     controller?.setClientOptions(next);
+    void (async () => {
+      try {
+        await resetNh3dDefaultSoundPackVolumeLevelsToDefaults();
+      } catch (error) {
+        console.warn(
+          "Failed to reset default sound-pack volume levels to defaults:",
+          error,
+        );
+      } finally {
+        try {
+          await soundPackDialogActionsRef.current?.reloadFromStorage();
+        } catch (error) {
+          console.warn(
+            "Failed to reload sound-pack state after resetting defaults:",
+            error,
+          );
+        }
+      }
+    })();
   };
 
   const updateClientOptionDraft = <

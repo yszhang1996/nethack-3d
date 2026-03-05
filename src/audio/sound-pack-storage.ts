@@ -10,12 +10,11 @@ type Nh3dSoundEffectDefinitionShape = {
 
 export const nh3dSoundEffectDefinitions = [
   { key: "player-walk", label: "Player walk" },
-  { key: "player-run", label: "Player run" },
-  { key: "monster-footstep", label: "Monster footstep" },
+  // { key: "monster-footstep", label: "Monster footstep" },
   { key: "hit", label: "Hit" },
   { key: "monster-killed", label: "Monster killed (player)" },
   { key: "monster-killed-other", label: "Monster killed (other)" },
-  { key: "player-hurt", label: "Player hurt" },
+  // { key: "player-hurt", label: "Player hurt" },
   {
     key: "missed-attack",
     label: "Missed attack",
@@ -39,33 +38,33 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "walk-up-stairs",
     label: "Walk up stairs",
-    messageLogKeywords: [/\b(?:go|walk|climb|ascend)\b.*\bup\b.*\bstairs?\b/i],
+    messageLogKeywords: ["You ascend the stairs."],
   },
-  {
-    key: "explosion",
-    label: "Explosion",
-    messageLogKeywords: [/\bexplod(?:e|es|ed|ing)\b/i],
-  },
-  {
-    key: "wand-casting",
-    label: "Wand casting",
-    messageLogKeywords: [/^\s*you (?:zap|wave)\b/i],
-  },
-  {
-    key: "wand-fizzle",
-    label: "Wand fizzle",
-    messageLogKeywords: ["nothing happens", /\bfizzle(?:s|d)?\b/i],
-  },
-  {
-    key: "thrown-weapons",
-    label: "Thrown weapons",
-    messageLogKeywords: [/^\s*you (?:throw|toss|hurl)\b/i],
-  },
-  {
-    key: "arrow-impact",
-    label: "Arrow impact",
-    messageLogKeywords: [/\barrow\b.*\b(?:hit|hits|miss|misses|strikes?)\b/i],
-  },
+  // {
+  //   key: "explosion",
+  //   label: "Explosion",
+  //   messageLogKeywords: [/\bexplod(?:e|es|ed|ing)\b/i],
+  // },
+  // {
+  //   key: "wand-casting",
+  //   label: "Wand casting",
+  //   messageLogKeywords: [/^\s*you (?:zap|wave)\b/i],
+  // },
+  // {
+  //   key: "wand-fizzle",
+  //   label: "Wand fizzle",
+  //   messageLogKeywords: ["nothing happens", /\bfizzle(?:s|d)?\b/i],
+  // },
+  // {
+  //   key: "thrown-weapons",
+  //   label: "Thrown weapons",
+  //   messageLogKeywords: [/^\s*you (?:throw|toss|hurl)\b/i],
+  // },
+  // {
+  //   key: "arrow-impact",
+  //   label: "Arrow impact",
+  //   messageLogKeywords: [/\barrow\b.*\b(?:hit|hits|miss|misses|strikes?)\b/i],
+  // },
   {
     key: "eating",
     label: "Eating",
@@ -106,18 +105,18 @@ export const nh3dSoundEffectDefinitions = [
     label: "Unlock",
     messageLogKeywords: ["unlock"],
   },
-  {
-    key: "potion-shattering",
-    label: "Potion shattering",
-    messageLogKeywords: [/\bpotion\b.*\b(?:shatter|smash|crash|break)\w*\b/i],
-  },
-  { key: "scroll-reading-good", label: "Scroll reading (good)" },
-  { key: "scroll-reading-bad", label: "Scroll reading (bad)" },
-  {
-    key: "scroll-reading-neutral",
-    label: "Scroll reading (neutral)",
-    messageLogKeywords: [/\byou read (?:the )?scroll\b/i],
-  },
+  // {
+  //   key: "potion-shattering",
+  //   label: "Potion shattering",
+  //   messageLogKeywords: [/\bpotion\b.*\b(?:shatter|smash|crash|break)\w*\b/i],
+  // },
+  // { key: "scroll-reading-good", label: "Scroll reading (good)" },
+  // { key: "scroll-reading-bad", label: "Scroll reading (bad)" },
+  // {
+  //   key: "scroll-reading-neutral",
+  //   label: "Scroll reading (neutral)",
+  //   messageLogKeywords: [/\byou read (?:the )?scroll\b/i],
+  // },
   {
     key: "searching",
     label: "Searching",
@@ -1153,6 +1152,147 @@ async function importBundledDefaultSoundPackOnLoad(): Promise<void> {
   }
 }
 
+type Nh3dDefaultSoundVolumeTemplate = {
+  baseVolume: number;
+  variationVolumeById: Map<string, number>;
+};
+
+function createFallbackDefaultSoundVolumeTemplates(): Map<
+  Nh3dSoundEffectKey,
+  Nh3dDefaultSoundVolumeTemplate
+> {
+  const templates = new Map<
+    Nh3dSoundEffectKey,
+    Nh3dDefaultSoundVolumeTemplate
+  >();
+  for (const definition of nh3dSoundEffectDefinitions) {
+    const fallback = createDefaultSoundAssignment(definition.key);
+    templates.set(definition.key, {
+      baseVolume: fallback.volume,
+      variationVolumeById: new Map<string, number>(),
+    });
+  }
+  return templates;
+}
+
+async function loadBundledDefaultSoundVolumeTemplates(): Promise<
+  Map<Nh3dSoundEffectKey, Nh3dDefaultSoundVolumeTemplate>
+> {
+  const templates = createFallbackDefaultSoundVolumeTemplates();
+  if (typeof fetch !== "function") {
+    return templates;
+  }
+
+  try {
+    const response = await fetch(
+      resolvePublicAssetUrl(bundledDefaultSoundPackZipRelativePath),
+      {
+        cache: "no-store",
+      },
+    );
+    if (!response.ok) {
+      return templates;
+    }
+
+    const archiveEntries = await unzipArchiveEntries(await response.blob());
+    const manifestBytes = archiveEntries[soundPackManifestPath];
+    if (!manifestBytes) {
+      return templates;
+    }
+
+    let parsedManifest: unknown;
+    try {
+      parsedManifest = JSON.parse(strFromU8(manifestBytes));
+    } catch {
+      return templates;
+    }
+
+    const manifest = parseImportManifest(parsedManifest);
+    for (const definition of nh3dSoundEffectDefinitions) {
+      const soundKey = definition.key;
+      const template = templates.get(soundKey);
+      if (!template) {
+        continue;
+      }
+      const imported = manifest.soundsByKey.get(soundKey);
+      if (!imported) {
+        continue;
+      }
+      template.baseVolume = clampUnit(imported.volume, template.baseVolume);
+      const nextVariationVolumeById = new Map<string, number>();
+      for (const variation of imported.variations ?? []) {
+        const variationId = normalizeWhitespace(String(variation.id || ""));
+        if (!variationId || variationId === nh3dBaseSoundVariationId) {
+          continue;
+        }
+        nextVariationVolumeById.set(
+          variationId,
+          clampUnit(variation.volume, template.baseVolume),
+        );
+      }
+      template.variationVolumeById = nextVariationVolumeById;
+    }
+  } catch {
+    return templates;
+  }
+
+  return templates;
+}
+
+export async function resetNh3dDefaultSoundPackVolumeLevelsToDefaults(): Promise<Nh3dSoundPackRecord> {
+  const templates = await loadBundledDefaultSoundVolumeTemplates();
+  const db = await openDatabase();
+  try {
+    const transaction = db.transaction(packStoreName, "readwrite");
+    const packStore = transaction.objectStore(packStoreName);
+    const packs = await getNormalizedPacksForTransaction(packStore);
+    for (const pack of packs) {
+      await idbRequestToPromise(packStore.put(pack));
+    }
+
+    const now = Date.now();
+    const defaultPack =
+      packs.find((pack) => pack.id === nh3dDefaultSoundPackId) ??
+      createDefaultSoundPackRecord(now);
+    const nextSounds = {} as Nh3dSoundPackSoundMap;
+
+    for (const definition of nh3dSoundEffectDefinitions) {
+      const soundKey = definition.key;
+      const fallback = createDefaultSoundAssignment(soundKey);
+      const current = defaultPack.sounds[soundKey] ?? fallback;
+      const template = templates.get(soundKey);
+      const baseVolume = clampUnit(template?.baseVolume, fallback.volume);
+      const variationVolumeById = template?.variationVolumeById;
+      const nextVariations = (current.variations ?? []).map((variation) => ({
+        ...variation,
+        volume: clampUnit(variationVolumeById?.get(variation.id), baseVolume),
+      }));
+
+      nextSounds[soundKey] = {
+        ...current,
+        volume: baseVolume,
+        variations: nextVariations,
+      };
+    }
+
+    const nextPack: Nh3dSoundPackRecord = {
+      ...defaultPack,
+      id: nh3dDefaultSoundPackId,
+      name: nh3dDefaultSoundPackName,
+      isDefault: true,
+      updatedAt: now,
+      sounds: nextSounds,
+    };
+
+    await idbRequestToPromise(packStore.put(nextPack));
+    await idbTransactionDone(transaction);
+
+    return cloneNh3dSoundPack(nextPack);
+  } finally {
+    db.close();
+  }
+}
+
 export async function loadNh3dSoundPackStateFromIndexedDb(): Promise<Nh3dLoadedSoundPackState> {
   await importBundledDefaultSoundPackOnLoad();
   const db = await openDatabase();
@@ -1300,24 +1440,116 @@ export async function deleteNh3dSoundPackFromIndexedDb(
   }
 }
 
-function cloneDefaultSoundMapForNewPack(
+async function cloneDefaultSoundMapForNewPack(
   defaultPack: Nh3dSoundPackRecord,
-): Nh3dSoundPackSoundMap {
+  fileStore: IDBObjectStore,
+  nextPackId: string,
+  nextPackName: string,
+  now: number,
+): Promise<Nh3dSoundPackSoundMap> {
   const sounds = {} as Nh3dSoundPackSoundMap;
+
   for (const definition of nh3dSoundEffectDefinitions) {
-    const key = definition.key;
+    const soundKey = definition.key;
+    const fallbackDefault = createDefaultSoundAssignment(soundKey);
     const defaultSound =
-      defaultPack.sounds[key] ?? createDefaultSoundAssignment(key);
-    sounds[key] = {
-      ...defaultSound,
-      key,
-      source: "builtin",
-      fileName: resolveDefaultFileName(key),
-      mimeType: "audio/ogg",
-      path: resolveNh3dDefaultSoundPath(key),
-      variations: [],
-    };
+      defaultPack.sounds[soundKey] ?? createDefaultSoundAssignment(soundKey);
+    const nextEntries: Nh3dSoundEffectVariation[] = [];
+    const defaultEntries = soundAssignmentToVariations(defaultSound);
+
+    for (const defaultEntry of defaultEntries) {
+      const isBase = defaultEntry.id === nh3dBaseSoundVariationId;
+      if (defaultEntry.source !== "user") {
+        nextEntries.push({
+          id: defaultEntry.id,
+          key: soundKey,
+          enabled: defaultEntry.enabled,
+          volume: defaultEntry.volume,
+          fileName: resolveDefaultFileName(soundKey),
+          mimeType: "audio/ogg",
+          path: resolveNh3dDefaultSoundPath(soundKey),
+          source: "builtin",
+          attribution: normalizeAttribution(
+            defaultEntry.attribution,
+            fallbackDefault.attribution,
+          ),
+        });
+        continue;
+      }
+
+      const sourcePath = normalizeWhitespace(defaultEntry.path || "");
+      const fileName = sanitizeFileName(
+        defaultEntry.fileName,
+        `${soundKey}.bin`,
+      );
+      const canonicalPath = resolveNh3dUserSoundPath(
+        nextPackName,
+        soundKey,
+        fileName,
+        defaultEntry.id,
+      );
+      const storedRecord = sourcePath
+        ? await readSoundFileRecord(fileStore, sourcePath)
+        : null;
+
+      if (!storedRecord) {
+        if (isBase) {
+          nextEntries.push({
+            id: nh3dBaseSoundVariationId,
+            key: soundKey,
+            enabled: defaultEntry.enabled,
+            volume: defaultEntry.volume,
+            fileName: fallbackDefault.fileName,
+            mimeType: fallbackDefault.mimeType,
+            path: fallbackDefault.path,
+            source: "builtin",
+            attribution: normalizeAttribution(
+              defaultEntry.attribution,
+              fallbackDefault.attribution,
+            ),
+          });
+        }
+        continue;
+      }
+
+      const nextMimeType =
+        normalizeWhitespace(defaultEntry.mimeType || "") ||
+        normalizeWhitespace(storedRecord.mimeType || "") ||
+        normalizeWhitespace(storedRecord.blob.type || "") ||
+        "application/octet-stream";
+      await writeSoundFileRecord(fileStore, {
+        path: canonicalPath,
+        packId: nextPackId,
+        soundKey,
+        fileName,
+        mimeType: nextMimeType,
+        blob: storedRecord.blob,
+        now,
+      });
+
+      nextEntries.push({
+        id: defaultEntry.id,
+        key: soundKey,
+        enabled: defaultEntry.enabled,
+        volume: defaultEntry.volume,
+        fileName,
+        mimeType: nextMimeType,
+        path: canonicalPath,
+        source: "user",
+        attribution: normalizeAttribution(
+          defaultEntry.attribution,
+          fallbackDefault.attribution,
+        ),
+      });
+    }
+
+    sounds[soundKey] = soundAssignmentFromVariations(
+      soundKey,
+      nextEntries,
+      fallbackDefault,
+    );
   }
+
   return sounds;
 }
 
@@ -1329,13 +1561,16 @@ export async function createNh3dSoundPack(
     throw new Error("Sound pack name is required.");
   }
 
+  await importBundledDefaultSoundPackOnLoad();
+
   const db = await openDatabase();
   try {
     const transaction = db.transaction(
-      [packStoreName, metaStoreName],
+      [packStoreName, fileStoreName, metaStoreName],
       "readwrite",
     );
     const packStore = transaction.objectStore(packStoreName);
+    const fileStore = transaction.objectStore(fileStoreName);
     const metaStore = transaction.objectStore(metaStoreName);
     const packs = await getNormalizedPacksForTransaction(packStore);
     for (const pack of packs) {
@@ -1347,13 +1582,21 @@ export async function createNh3dSoundPack(
       packs.find((pack) => pack.id === nh3dDefaultSoundPackId) ??
       createDefaultSoundPackRecord();
     const now = Date.now();
+    const nextPackId = generateSoundPackId();
+    const nextSounds = await cloneDefaultSoundMapForNewPack(
+      defaultPack,
+      fileStore,
+      nextPackId,
+      normalizedName,
+      now,
+    );
     const nextPack: Nh3dSoundPackRecord = {
-      id: generateSoundPackId(),
+      id: nextPackId,
       name: normalizedName,
       isDefault: false,
       createdAt: now,
       updatedAt: now,
-      sounds: cloneDefaultSoundMapForNewPack(defaultPack),
+      sounds: nextSounds,
     };
 
     await idbRequestToPromise(packStore.put(nextPack));
