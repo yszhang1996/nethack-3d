@@ -145,12 +145,15 @@ type DamageNumberParticle = {
   fpsFloating: boolean;
   fpsLateralOffset: number;
   fpsBaseHeightOffset: number;
+  fpsCameraLocalAnchor: THREE.Vector3 | null;
 };
 
 type PlayerUiNumberParticle = {
   element: HTMLElement;
   uiWidthPx: number;
   uiHeightPx: number;
+  lockedScreenXNorm: number;
+  lockedScreenYNorm: number;
   ageMs: number;
   lifetimeMs: number;
   fadeDelayMs: number;
@@ -711,6 +714,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private playerDamageNumberParticles: DamageNumberParticle[] = [];
   private playerUiNumberParticles: PlayerUiNumberParticle[] = [];
   private playerUiNumberOverlay: HTMLDivElement | null = null;
+  private playerUiNumbersUseWorldProjectionForVr: boolean = false;
   private readonly playerUiNumberAnchor = new THREE.Vector3();
   private readonly playerUiNumberScreenAnchor = new THREE.Vector3();
   private playerUiOverlayBounds = {
@@ -779,6 +783,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly playerDamageNumberForwardLift: number = 0.07;
   private readonly playerDamageNumberForwardDirection = new THREE.Vector3();
   private readonly playerDamageNumberRightDirection = new THREE.Vector3();
+  private readonly playerDamageNumberCameraLocalScratch = new THREE.Vector3();
+  private readonly playerDamageNumberCameraInverseQuaternion =
+    new THREE.Quaternion();
   private readonly monsterBillboardShardAngularAxis = new THREE.Vector3();
   private readonly monsterBillboardShardDeltaQuaternion =
     new THREE.Quaternion();
@@ -3296,6 +3303,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingInventoryDialog = false;
     this.pendingInventoryDialogOptions = null;
     this.statusConditionMask = 0;
+    this.resetPlayerStatusDeltaTracking();
     this.pendingBoulderPushDarkCorridorInference = null;
     this.updateConnectionStatus("Starting", "starting");
     this.pendingPlayerTileRefreshOnNextPosition = true;
@@ -6251,7 +6259,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private createDamageNumberCanvas(
     label: string,
-    options?: { fillStyle?: string; strokeStyle?: string },
+    options?: {
+      fillStyle?: string;
+      strokeStyle?: string;
+      strokeWidthMultiplier?: number;
+    },
   ): { canvas: HTMLCanvasElement; aspectRatio: number } {
     const height = 256;
     const fontSize = Math.floor(height * 0.52);
@@ -6287,7 +6299,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.font = fontSpec;
-    context.lineWidth = Math.max(3, Math.floor(height * 0.045));
+    const strokeWidthMultiplier =
+      typeof options?.strokeWidthMultiplier === "number" &&
+      Number.isFinite(options.strokeWidthMultiplier)
+        ? options.strokeWidthMultiplier
+        : 1;
+    context.lineWidth = Math.max(
+      3,
+      Math.floor(height * 0.045 * strokeWidthMultiplier),
+    );
     context.lineJoin = "round";
     context.lineCap = "round";
     context.strokeStyle = options?.strokeStyle ?? "rgba(18, 0, 0, 0.95)";
@@ -6363,6 +6383,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     sprite.renderOrder = 940;
     this.scene.add(sprite);
 
+    let fpsCameraLocalAnchor: THREE.Vector3 | null = null;
+    if (useFpsFloating && !this.playerUiNumbersUseWorldProjectionForVr) {
+      fpsCameraLocalAnchor = this.toCameraLocalOffset(
+        sprite.position,
+        new THREE.Vector3(),
+      );
+    }
+
     let velocity = new THREE.Vector3(0, 0, 0);
     if (!useFpsFloating) {
       const launchSpeed = (1.95 + Math.random() * 0.45) * 5;
@@ -6388,6 +6416,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       fpsFloating: useFpsFloating,
       fpsLateralOffset,
       fpsBaseHeightOffset,
+      fpsCameraLocalAnchor,
     });
   }
 
@@ -6403,26 +6432,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     void tileX;
     void tileY;
-    const isLabeledStatText = Boolean(options?.label);
     const label =
       options?.label ?? `+${Math.max(1, Math.round(Math.abs(healAmount)))}`;
     const scaleMultiplier =
       typeof options?.scaleMultiplier === "number" &&
       Number.isFinite(options.scaleMultiplier)
         ? options.scaleMultiplier
-        : isLabeledStatText
-          ? 0.68
-          : 1.1;
+        : 1.1;
     const useFpsFloating = this.isFpsMode();
+    const zoomFactor = this.resolveThirdPersonZoomFactor();
+    const zoomHeightAggression = 5;
+    const zoomSizeAggression = 5;
     const fpsLateralOffset = useFpsFloating
       ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
       : 0;
-    const worldBaseHeightOffset = useFpsFloating ? 0.5 : 3.5;
+    const baseWorldHeightNear = 3.1;
+    const baseWorldHeightFar = 4.3;
+    const worldHeightCenter = (baseWorldHeightNear + baseWorldHeightFar) * 0.5;
+    const worldHeightHalfRange =
+      ((baseWorldHeightFar - baseWorldHeightNear) * 0.5) *
+      zoomHeightAggression;
+    const worldBaseHeightOffset = useFpsFloating
+      ? 0.5
+      : worldHeightCenter + (0.5 - zoomFactor) * (2 * worldHeightHalfRange);
     const fillStyle = options?.fillStyle ?? "#72ec9e";
-    const outlineColor = this.resolveUiNumberOutlineColor(fillStyle);
+    const uiStrokeStyle = "rgba(46, 22, 22, 0.72)";
     const { canvas, aspectRatio } = this.createDamageNumberCanvas(label, {
       fillStyle,
-      strokeStyle: outlineColor,
+      strokeStyle: uiStrokeStyle,
+      strokeWidthMultiplier: 1.2,
     });
     const overlay = this.ensurePlayerUiNumberOverlay();
     if (!overlay) {
@@ -6434,7 +6472,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     element.style.left = "0px";
     element.style.top = "0px";
     element.style.transform = "translate(-50%, -50%)";
-    const baseHeightPx = useFpsFloating ? 36 : 48;
+    const baseUiHeightNear = 50;
+    const baseUiHeightFar = 40;
+    const uiHeightCenter = (baseUiHeightNear + baseUiHeightFar) * 0.5;
+    const uiHeightHalfRange =
+      ((baseUiHeightNear - baseUiHeightFar) * 0.5) * zoomSizeAggression;
+    const baseHeightPx = useFpsFloating
+      ? 144
+      : Math.round(uiHeightCenter + (zoomFactor - 0.5) * (2 * uiHeightHalfRange));
     const uiHeightPx = Math.max(12, Math.round(baseHeightPx * scaleMultiplier));
     const uiWidthPx = Math.max(12, Math.round(uiHeightPx * aspectRatio));
     element.style.width = `${uiWidthPx}px`;
@@ -6446,10 +6491,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
     element.style.opacity = "1";
     overlay.appendChild(element);
 
+    let lockedScreenXNorm = 0.5;
+    let lockedScreenYNorm = 0.5;
+    if (!this.playerUiNumbersUseWorldProjectionForVr) {
+      const viewportRect = this.syncPlayerUiNumberOverlayBounds();
+      if (viewportRect && viewportRect.width > 0 && viewportRect.height > 0) {
+        const projected = this.projectPlayerUiNumberWorldAnchor(viewportRect, {
+          fpsFloating: useFpsFloating,
+          fpsLateralOffset,
+          worldBaseHeightOffset,
+        });
+        if (Number.isFinite(projected.screenX)) {
+          lockedScreenXNorm = projected.screenX / viewportRect.width;
+        }
+        if (Number.isFinite(projected.screenY)) {
+          lockedScreenYNorm = projected.screenY / viewportRect.height;
+        }
+      }
+    }
+
     this.playerUiNumberParticles.push({
       element,
       uiWidthPx,
       uiHeightPx,
+      lockedScreenXNorm,
+      lockedScreenYNorm,
       ageMs: 0,
       lifetimeMs: Math.round(this.playerHealNumberLifetimeMs * 1.65),
       fadeDelayMs: Math.round(this.playerHealNumberFadeDelayMs * 2.2),
@@ -6458,12 +6524,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       fpsLateralOffset,
       worldBaseHeightOffset,
     });
-  }
-
-  private resolveUiNumberOutlineColor(fillStyle: string): string {
-    const color = new THREE.Color(fillStyle || "#ffffff");
-    const outline = color.clone().lerp(new THREE.Color("#000000"), 0.35);
-    return `#${outline.getHexString()}`;
   }
 
   private applyFpsForwardOffsetToPlayerNumberPosition(
@@ -6512,6 +6572,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private alignPlayerDamageNumberToCamera(sprite: THREE.Sprite): void {
     sprite.quaternion.copy(this.camera.quaternion);
+  }
+
+  private toCameraLocalOffset(
+    worldPosition: THREE.Vector3,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
+    this.playerDamageNumberCameraInverseQuaternion
+      .copy(this.camera.quaternion)
+      .invert();
+    return target
+      .copy(worldPosition)
+      .sub(this.camera.position)
+      .applyQuaternion(this.playerDamageNumberCameraInverseQuaternion);
+  }
+
+  private fromCameraLocalOffset(
+    cameraLocalOffset: THREE.Vector3,
+    target: THREE.Vector3,
+  ): THREE.Vector3 {
+    return target
+      .copy(cameraLocalOffset)
+      .applyQuaternion(this.camera.quaternion)
+      .add(this.camera.position);
+  }
+
+  private resolveThirdPersonZoomFactor(): number {
+    if (this.isFpsMode()) {
+      return 1;
+    }
+
+    const zoomSpan = Math.max(0.001, this.maxDistance - this.minDistance);
+    return THREE.MathUtils.clamp(
+      (this.maxDistance - this.cameraDistance) / zoomSpan,
+      0,
+      1,
+    );
   }
 
   private spawnBloodMistParticles(
@@ -7175,6 +7271,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private projectPlayerUiNumberWorldAnchor(
+    viewportRect: DOMRect,
+    particle: Pick<
+      PlayerUiNumberParticle,
+      "fpsFloating" | "fpsLateralOffset" | "worldBaseHeightOffset"
+    >,
+  ): { screenX: number; screenY: number; isVisible: boolean } {
+    this.playerUiNumberAnchor.set(
+      this.playerPos.x * TILE_SIZE,
+      -this.playerPos.y * TILE_SIZE,
+      this.damageParticleFloorZ + particle.worldBaseHeightOffset,
+    );
+    if (particle.fpsFloating) {
+      this.applyFpsForwardOffsetToPlayerNumberPosition(
+        this.playerUiNumberAnchor,
+        false,
+        particle.fpsLateralOffset,
+      );
+    }
+
+    this.playerUiNumberScreenAnchor
+      .copy(this.playerUiNumberAnchor)
+      .project(this.camera);
+    const ndc = this.playerUiNumberScreenAnchor;
+    return {
+      screenX: (ndc.x + 1) * 0.5 * viewportRect.width,
+      screenY: (-ndc.y + 1) * 0.5 * viewportRect.height,
+      isVisible:
+        ndc.z >= -1 &&
+        ndc.z <= 1 &&
+        ndc.x >= -1.2 &&
+        ndc.x <= 1.2 &&
+        ndc.y >= -1.2 &&
+        ndc.y <= 1.2,
+    };
+  }
+
   private updatePlayerUiNumberParticles(deltaSeconds: number): void {
     if (!this.playerUiNumberParticles.length) {
       return;
@@ -7201,35 +7334,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
         1,
       );
 
-      this.playerUiNumberAnchor.set(
-        this.playerPos.x * TILE_SIZE,
-        -this.playerPos.y * TILE_SIZE,
-        this.damageParticleFloorZ + particle.worldBaseHeightOffset,
-      );
-      if (particle.fpsFloating) {
-        this.applyFpsForwardOffsetToPlayerNumberPosition(
-          this.playerUiNumberAnchor,
-          false,
-          particle.fpsLateralOffset,
+      let screenX = particle.lockedScreenXNorm * viewportRect.width;
+      let screenY = particle.lockedScreenYNorm * viewportRect.height;
+      let isVisible = true;
+      if (this.playerUiNumbersUseWorldProjectionForVr) {
+        const projected = this.projectPlayerUiNumberWorldAnchor(
+          viewportRect,
+          particle,
         );
+        screenX = projected.screenX;
+        screenY = projected.screenY;
+        isVisible = projected.isVisible;
+      } else {
+        const visibilityMarginX = viewportRect.width * 0.1;
+        const visibilityMarginY = viewportRect.height * 0.1;
+        isVisible =
+          screenX >= -visibilityMarginX &&
+          screenX <= viewportRect.width + visibilityMarginX &&
+          screenY >= -visibilityMarginY &&
+          screenY <= viewportRect.height + visibilityMarginY;
       }
-
-      this.playerUiNumberScreenAnchor
-        .copy(this.playerUiNumberAnchor)
-        .project(this.camera);
-      const ndc = this.playerUiNumberScreenAnchor;
-      const isVisible =
-        ndc.z >= -1 &&
-        ndc.z <= 1 &&
-        ndc.x >= -1.2 &&
-        ndc.x <= 1.2 &&
-        ndc.y >= -1.2 &&
-        ndc.y <= 1.2;
 
       const risePx = particle.risePx * lifeT;
       if (isVisible) {
-        const screenX = (ndc.x + 1) * 0.5 * viewportRect.width;
-        const screenY = (-ndc.y + 1) * 0.5 * viewportRect.height;
         layoutCandidates.push({
           particle,
           screenX,
@@ -7266,7 +7393,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       width: number;
       height: number;
     }> = [];
-    const overlapGapPx = 6;
+    const overlapGapPx = 3;
     layoutCandidates.sort((a, b) => a.particle.ageMs - b.particle.ageMs);
     for (const candidate of layoutCandidates) {
       const { particle } = candidate;
@@ -7319,18 +7446,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
 
       if (this.isFpsMode() && particle.fpsFloating) {
-        particle.sprite.position.set(
-          this.playerPos.x * TILE_SIZE,
-          -this.playerPos.y * TILE_SIZE,
-          this.damageParticleFloorZ +
-            particle.fpsBaseHeightOffset +
-            this.playerDamageNumberFpsRiseDistance * lifeT,
-        );
-        this.applyFpsForwardOffsetToPlayerNumberPosition(
-          particle.sprite.position,
-          false,
-          particle.fpsLateralOffset,
-        );
+        if (
+          !this.playerUiNumbersUseWorldProjectionForVr &&
+          particle.fpsCameraLocalAnchor
+        ) {
+          this.playerDamageNumberCameraLocalScratch.copy(
+            particle.fpsCameraLocalAnchor,
+          );
+          this.playerDamageNumberCameraLocalScratch.y +=
+            this.playerDamageNumberFpsRiseDistance * lifeT;
+          this.fromCameraLocalOffset(
+            this.playerDamageNumberCameraLocalScratch,
+            particle.sprite.position,
+          );
+        } else {
+          particle.sprite.position.set(
+            this.playerPos.x * TILE_SIZE,
+            -this.playerPos.y * TILE_SIZE,
+            this.damageParticleFloorZ +
+              particle.fpsBaseHeightOffset +
+              this.playerDamageNumberFpsRiseDistance * lifeT,
+          );
+          this.applyFpsForwardOffsetToPlayerNumberPosition(
+            particle.sprite.position,
+            false,
+            particle.fpsLateralOffset,
+          );
+        }
         this.alignPlayerDamageNumberToCamera(particle.sprite);
 
         const material = particle.sprite.material;
@@ -9358,10 +9500,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private clearScene(): void {
     this.clearDamageEffects();
-    this.lastKnownPlayerHp = null;
-    this.lastKnownPlayerExperience = null;
-    this.lastKnownPlayerLevel = null;
-    this.lastKnownPlayerCoreStats = {};
+    // Keep last-known status baselines across scene clears so status deltas
+    // (damage numbers, AC/stat change text) are not dropped after map redraws.
     this.pendingPlayerTileRefreshOnNextPosition = true;
     this.lightingCenterInitialized = false;
     this.positionInputModeActive = false;
@@ -11317,6 +11457,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.runtimeConnectionState = state;
     this.uiAdapter.setConnectionStatus(status, state);
     this.updateMinimapVisibility();
+  }
+
+  private resetPlayerStatusDeltaTracking(): void {
+    this.lastKnownPlayerHp = null;
+    this.lastKnownPlayerExperience = null;
+    this.lastKnownPlayerLevel = null;
+    this.lastKnownPlayerCoreStats = {};
   }
 
   private setNewGamePrompt(visible: boolean, reason: string | null): void {
