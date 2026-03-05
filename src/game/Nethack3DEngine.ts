@@ -11587,7 +11587,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const previousDungeon = this.playerStats.dungeon;
     let playerDamageTaken: number | null = null;
     let playerHealingGained: number | null = null;
-    let playerExperienceGained: number | null = null;
+    let playerExperienceDelta: number | null = null;
     let playerLevelUpTo: number | null = null;
     let playerCoreStatDeltaLabel: string | null = null;
     let playerCoreStatDeltaImproved: boolean | null = null;
@@ -11621,12 +11621,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (mappedField === "experience" && typeof parsedValue === "number") {
       const previousExperience = this.lastKnownPlayerExperience;
-      if (
-        typeof previousExperience === "number" &&
-        Number.isFinite(previousExperience) &&
-        parsedValue > previousExperience
-      ) {
-        playerExperienceGained = Math.round(parsedValue - previousExperience);
+      if (typeof previousExperience === "number" && Number.isFinite(previousExperience)) {
+        const delta = Math.round(parsedValue - previousExperience);
+        if (delta !== 0) {
+          playerExperienceDelta = delta;
+        }
       }
     }
     if (mappedField === "level" && typeof parsedValue === "number") {
@@ -11709,17 +11708,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
     }
     if (
-      playerExperienceGained &&
-      playerExperienceGained > 0 &&
+      playerExperienceDelta &&
+      playerExperienceDelta !== 0 &&
       this.clientOptions.displayXpGainsAbovePlayer
     ) {
+      const xpIncreased = playerExperienceDelta > 0;
+      const signPrefix = xpIncreased ? "+" : "";
       this.spawnPlayerHealNumberParticle(
         this.playerPos.x,
         this.playerPos.y,
         1,
         {
-          label: `XP +${playerExperienceGained}`,
-          fillStyle: "#7ebfff",
+          label: `XP ${signPrefix}${playerExperienceDelta}`,
+          fillStyle: xpIncreased ? "#7ebfff" : "#ff6b6b",
           scaleMultiplier: 0.68,
         },
       );
