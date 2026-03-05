@@ -148,7 +148,9 @@ type DamageNumberParticle = {
 };
 
 type PlayerUiNumberParticle = {
-  element: HTMLDivElement;
+  element: HTMLElement;
+  uiWidthPx: number;
+  uiHeightPx: number;
   ageMs: number;
   lifetimeMs: number;
   fadeDelayMs: number;
@@ -6247,13 +6249,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return texture;
   }
 
-  private createDamageNumberTexture(
+  private createDamageNumberCanvas(
     label: string,
     options?: { fillStyle?: string; strokeStyle?: string },
-  ): {
-    texture: THREE.CanvasTexture;
-    aspectRatio: number;
-  } {
+  ): { canvas: HTMLCanvasElement; aspectRatio: number } {
     const height = 256;
     const fontSize = Math.floor(height * 0.52);
     const fontSpec = `600 ${fontSize}px "Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif`;
@@ -6289,11 +6288,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
     context.textBaseline = "middle";
     context.font = fontSpec;
     context.lineWidth = Math.max(3, Math.floor(height * 0.045));
+    context.lineJoin = "round";
+    context.lineCap = "round";
     context.strokeStyle = options?.strokeStyle ?? "rgba(18, 0, 0, 0.95)";
     context.fillStyle = options?.fillStyle ?? "#ff3a3a";
     context.strokeText(label, width / 2, height / 2);
     context.fillText(label, width / 2, height / 2);
-    const aspectRatio = width / height;
+    return { canvas, aspectRatio: width / height };
+  }
+
+  private createDamageNumberTexture(
+    label: string,
+    options?: { fillStyle?: string; strokeStyle?: string },
+  ): {
+    texture: THREE.CanvasTexture;
+    aspectRatio: number;
+  } {
+    const { canvas, aspectRatio } = this.createDamageNumberCanvas(
+      label,
+      options,
+    );
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
@@ -6397,48 +6411,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(options.scaleMultiplier)
         ? options.scaleMultiplier
         : isLabeledStatText
-          ? 0.78
+          ? 0.68
           : 1.1;
     const useFpsFloating = this.isFpsMode();
     const fpsLateralOffset = useFpsFloating
       ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
       : 0;
-    const worldBaseHeightOffset = useFpsFloating ? 0.58 : 1.25;
+    const worldBaseHeightOffset = useFpsFloating ? 0.5 : 3.5;
     const fillStyle = options?.fillStyle ?? "#72ec9e";
     const outlineColor = this.resolveUiNumberOutlineColor(fillStyle);
+    const { canvas, aspectRatio } = this.createDamageNumberCanvas(label, {
+      fillStyle,
+      strokeStyle: outlineColor,
+    });
     const overlay = this.ensurePlayerUiNumberOverlay();
     if (!overlay) {
       return;
     }
 
-    const element = document.createElement("div");
-    element.textContent = label;
+    const element = canvas;
     element.style.position = "absolute";
     element.style.left = "0px";
     element.style.top = "0px";
     element.style.transform = "translate(-50%, -50%)";
-    element.style.whiteSpace = "nowrap";
+    const baseHeightPx = useFpsFloating ? 36 : 48;
+    const uiHeightPx = Math.max(12, Math.round(baseHeightPx * scaleMultiplier));
+    const uiWidthPx = Math.max(12, Math.round(uiHeightPx * aspectRatio));
+    element.style.width = `${uiWidthPx}px`;
+    element.style.height = `${uiHeightPx}px`;
+    element.style.imageRendering = "auto";
     element.style.pointerEvents = "none";
     element.style.userSelect = "none";
     element.style.willChange = "transform, opacity";
     element.style.opacity = "1";
-    element.style.fontFamily =
-      '"Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif';
-    element.style.fontWeight = "600";
-    const baseFontPx = useFpsFloating ? 70 : 30;
-    element.style.fontSize = `${Math.max(10, Math.round(baseFontPx * scaleMultiplier))}px`;
-    element.style.lineHeight = "1";
-    element.style.color = fillStyle;
-    element.style.textShadow = `0 0 1px ${outlineColor}, 1px 1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px -1px 0 ${outlineColor}`;
-    element.style.setProperty("-webkit-text-stroke", `0.8px ${outlineColor}`);
     overlay.appendChild(element);
 
     this.playerUiNumberParticles.push({
       element,
+      uiWidthPx,
+      uiHeightPx,
       ageMs: 0,
-      lifetimeMs: this.playerHealNumberLifetimeMs,
-      fadeDelayMs: this.playerHealNumberFadeDelayMs,
-      risePx: useFpsFloating ? 46 : 96,
+      lifetimeMs: Math.round(this.playerHealNumberLifetimeMs * 1.65),
+      fadeDelayMs: Math.round(this.playerHealNumberFadeDelayMs * 2.2),
+      risePx: useFpsFloating ? 40 : 84,
       fpsFloating: useFpsFloating,
       fpsLateralOffset,
       worldBaseHeightOffset,
@@ -6447,7 +6462,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private resolveUiNumberOutlineColor(fillStyle: string): string {
     const color = new THREE.Color(fillStyle || "#ffffff");
-    const outline = color.clone().lerp(new THREE.Color("#ffffff"), 0.12);
+    const outline = color.clone().lerp(new THREE.Color("#000000"), 0.35);
     return `#${outline.getHexString()}`;
   }
 
@@ -7171,6 +7186,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const deltaMs = deltaSeconds * 1000;
+    const layoutCandidates: Array<{
+      particle: PlayerUiNumberParticle;
+      screenX: number;
+      screenY: number;
+      risePx: number;
+    }> = [];
     for (let i = this.playerUiNumberParticles.length - 1; i >= 0; i -= 1) {
       const particle = this.playerUiNumberParticles[i];
       particle.ageMs += deltaMs;
@@ -7206,14 +7227,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ndc.y <= 1.2;
 
       const risePx = particle.risePx * lifeT;
-      const scaleBoost = 1 + (1 - lifeT) * 0.08;
       if (isVisible) {
         const screenX = (ndc.x + 1) * 0.5 * viewportRect.width;
         const screenY = (-ndc.y + 1) * 0.5 * viewportRect.height;
-        particle.element.style.left = `${Math.round(screenX)}px`;
-        particle.element.style.top = `${Math.round(screenY)}px`;
+        layoutCandidates.push({
+          particle,
+          screenX,
+          screenY,
+          risePx,
+        });
       }
-      particle.element.style.transform = `translate(-50%, -50%) translateY(${-risePx.toFixed(1)}px) scale(${scaleBoost.toFixed(3)})`;
+      particle.element.style.transform = "translate(-50%, -50%)";
 
       const fadeDurationMs = Math.max(
         1,
@@ -7224,12 +7248,56 @@ class Nethack3DEngine implements Nethack3DEngineController {
         0,
         1,
       );
-      const opacity = isVisible ? Math.max(0, 1 - fadeT * 1.4) : 0;
+      const opacity = isVisible ? Math.max(0, 1 - fadeT * 1.05) : 0;
       particle.element.style.opacity = opacity.toFixed(3);
 
       if (lifeT >= 1 || opacity <= 0.01) {
         this.disposePlayerUiNumberParticle(i);
       }
+    }
+
+    if (!layoutCandidates.length) {
+      return;
+    }
+
+    const placedBounds: Array<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+    const overlapGapPx = 6;
+    layoutCandidates.sort((a, b) => a.particle.ageMs - b.particle.ageMs);
+    for (const candidate of layoutCandidates) {
+      const { particle } = candidate;
+      const x = candidate.screenX;
+      let y = candidate.screenY - candidate.risePx;
+      const width = particle.uiWidthPx;
+      const height = particle.uiHeightPx;
+
+      let moved = true;
+      let guard = 0;
+      while (moved && guard < 12) {
+        moved = false;
+        guard += 1;
+        for (const placed of placedBounds) {
+          const overlapsX =
+            Math.abs(x - placed.x) <
+            (width + placed.width) * 0.5 + overlapGapPx;
+          const overlapsY =
+            Math.abs(y - placed.y) <
+            (height + placed.height) * 0.5 + overlapGapPx;
+          if (!overlapsX || !overlapsY) {
+            continue;
+          }
+          y = placed.y - (height + placed.height) * 0.5 - overlapGapPx;
+          moved = true;
+        }
+      }
+
+      particle.element.style.left = `${Math.round(x)}px`;
+      particle.element.style.top = `${Math.round(y)}px`;
+      placedBounds.push({ x, y, width, height });
     }
   }
 
