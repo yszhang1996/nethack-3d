@@ -12,6 +12,7 @@ import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.j
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
 import { FmodRuntime } from "../audio";
+import type { FmodRuntimeOptions, FmodThreadingDiagnostics } from "../audio";
 import {
   isLoggingEnabled,
   logWithOriginal,
@@ -145,6 +146,26 @@ type DamageNumberParticle = {
   fpsLateralOffset: number;
   fpsBaseHeightOffset: number;
 };
+
+type PlayerUiNumberParticle = {
+  element: HTMLDivElement;
+  ageMs: number;
+  lifetimeMs: number;
+  fadeDelayMs: number;
+  risePx: number;
+  fpsFloating: boolean;
+  fpsLateralOffset: number;
+  worldBaseHeightOffset: number;
+};
+
+type CorePlayerStatField =
+  | "strength"
+  | "dexterity"
+  | "constitution"
+  | "intelligence"
+  | "wisdom"
+  | "charisma"
+  | "armor";
 
 type BillboardShardDescriptor = {
   texture: THREE.CanvasTexture;
@@ -464,6 +485,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private session: RuntimeBridge | null = null;
   private readonly fmodRuntime: FmodRuntime;
   private readonly messageSoundHooks: MessageSoundHooks;
+  private readonly deploymentTarget: string = this.resolveDeploymentTarget();
   private fmodRuntimeInitializationInFlight: boolean = false;
   private readonly metaInputPrefix = "__META__:";
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
@@ -651,6 +673,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraFollowCurrent = new THREE.Vector3();
   private lastFrameTimeMs: number | null = null;
   private lastKnownPlayerHp: number | null = null;
+  private lastKnownPlayerExperience: number | null = null;
+  private lastKnownPlayerLevel: number | null = null;
+  private lastKnownPlayerCoreStats: Partial<
+    Record<CorePlayerStatField, number>
+  > = {};
+  private readonly playerCoreStatDisplayNameByField: Record<
+    CorePlayerStatField,
+    string
+  > = {
+    strength: "Strength",
+    dexterity: "Dexterity",
+    constitution: "Constitution",
+    intelligence: "Intelligence",
+    wisdom: "Wisdom",
+    charisma: "Charisma",
+    armor: "Armor Class",
+  };
   private pendingCharacterDamageQueue: PendingCharacterDamage[] = [];
   private readonly pendingCharacterDamageMaxAgeMs: number = 420;
   private readonly glyphDamageFlashDurationMs: number = 180;
@@ -668,6 +707,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private damageParticles: BloodMistParticle[] = [];
   private monsterBillboardShardParticles: BillboardShardParticle[] = [];
   private playerDamageNumberParticles: DamageNumberParticle[] = [];
+  private playerUiNumberParticles: PlayerUiNumberParticle[] = [];
+  private playerUiNumberOverlay: HTMLDivElement | null = null;
+  private readonly playerUiNumberAnchor = new THREE.Vector3();
+  private readonly playerUiNumberScreenAnchor = new THREE.Vector3();
+  private playerUiOverlayBounds = {
+    left: Number.NaN,
+    top: Number.NaN,
+    width: Number.NaN,
+    height: Number.NaN,
+  };
   private bloodMistTexture: THREE.CanvasTexture | null = null;
   private lastParsedDamageMessage: string = "";
   private lastParsedDamageAtMs: number = 0;
@@ -711,8 +760,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardVerticalVariance: number = 5;
   private readonly monsterBillboardShardMaxPieces: number = 18;
   private readonly monsterBillboardShardBoundaryRedChancePercent: number = 70;
-  private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number =
-    42;
+  private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number = 42;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -1157,7 +1205,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (typeof options.loggingEnabled === "boolean") {
       setLoggingEnabled(options.loggingEnabled);
     }
-    this.fmodRuntime = new FmodRuntime();
+    this.fmodRuntime = new FmodRuntime(this.resolveFmodRuntimeOptions());
     this.messageSoundHooks = new MessageSoundHooks({
       isSoundEnabled: () => this.clientOptions.soundEnabled,
     });
@@ -3060,16 +3108,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       logWithOriginal("[NetHack 3D] FMOD Studio runtime initialized.");
       const diagnostics = this.fmodRuntime.getThreadingDiagnostics();
       logWithOriginal(
-        `[NetHack 3D] FMOD audio backend: ${diagnostics.backendMode} (update ${diagnostics.updateIntervalMs}ms).`,
+        `[NetHack 3D] FMOD audio backend: ${diagnostics.backendMode} (update ${diagnostics.updateIntervalMs}ms, dsp ${diagnostics.dspBufferLength}x${diagnostics.dspBufferCount}, recover ${diagnostics.resumeRecoveryIntervalMs}ms).`,
       );
       if (!this.fmodRuntime.isUsingThreadedAudioMixing()) {
         console.warn(
           "FMOD fell back to ScriptProcessor (main-thread audio). AudioWorklet support is recommended for best performance.",
         );
       } else if (diagnostics.backendMode === "audio-worklet-copy") {
-        console.warn(
-          "FMOD is using AudioWorklet copy mode. Enable cross-origin isolation (COOP/COEP) for lower-overhead shared-buffer mode.",
-        );
+        const copyModeHint = this.getFmodAudioWorkletCopyModeHint(diagnostics);
+        if (copyModeHint.level === "warn") {
+          console.warn(copyModeHint.message);
+        } else {
+          logWithOriginal(copyModeHint.message);
+        }
       }
     } catch (error) {
       console.warn(
@@ -3100,6 +3151,139 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.messageSoundHooks.resumeFromUserGesture();
     this.fmodRuntime.resumeFromUserGesture();
+  }
+
+  private getFmodAudioWorkletCopyModeHint(
+    diagnostics: FmodThreadingDiagnostics,
+  ): {
+    level: "warn" | "info";
+    message: string;
+  } {
+    if (this.deploymentTarget === "github-pages") {
+      return {
+        level: "info",
+        message:
+          "FMOD is using AudioWorklet copy mode on GitHub Pages. This host does not support custom COOP/COEP response headers.",
+      };
+    }
+
+    if (
+      diagnostics.crossOriginIsolated &&
+      !diagnostics.sharedArrayBufferAvailable
+    ) {
+      return {
+        level: "info",
+        message:
+          "FMOD is using AudioWorklet copy mode. This browser/runtime does not expose SharedArrayBuffer, so shared mode is unavailable.",
+      };
+    }
+
+    const protocol =
+      typeof window !== "undefined"
+        ? window.location.protocol.toLowerCase()
+        : "";
+    if (this.isLikelyCapacitorEnvironment()) {
+      return {
+        level: "info",
+        message:
+          "FMOD is using AudioWorklet copy mode (Capacitor WebView). This is expected unless the embedded host is configured for COOP/COEP and supports SharedArrayBuffer.",
+      };
+    }
+
+    if (this.isLikelyElectronEnvironment() && protocol === "file:") {
+      return {
+        level: "info",
+        message:
+          "FMOD is using AudioWorklet copy mode (Electron packaged file://). Shared-buffer mode requires cross-origin isolation over an HTTP(S) origin.",
+      };
+    }
+
+    if (this.isLikelyLocalhostOrigin()) {
+      return {
+        level: "warn",
+        message:
+          "FMOD is using AudioWorklet copy mode. For localhost dev, run `npm run dev:isolated` to enable COOP/COEP and shared-buffer mode.",
+      };
+    }
+
+    return {
+      level: "warn",
+      message:
+        "FMOD is using AudioWorklet copy mode. Enable cross-origin isolation (COOP/COEP) on your host for lower-overhead shared-buffer mode.",
+    };
+  }
+
+  private isLikelyLocalhostOrigin(): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    const host = window.location.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  }
+
+  private isLikelyElectronEnvironment(): boolean {
+    if (typeof navigator === "undefined") {
+      return false;
+    }
+    return /\belectron\b/i.test(navigator.userAgent || "");
+  }
+
+  private isLikelyCapacitorEnvironment(): boolean {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    const globalWithCapacitor = window as Window & {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    if (globalWithCapacitor.Capacitor?.isNativePlatform?.() === true) {
+      return true;
+    }
+    const protocol = window.location.protocol.toLowerCase();
+    return protocol === "capacitor:" || protocol === "ionic:";
+  }
+
+  private resolveDeploymentTarget(): string {
+    const candidate =
+      typeof import.meta.env.VITE_DEPLOY_TARGET === "string"
+        ? import.meta.env.VITE_DEPLOY_TARGET.trim().toLowerCase()
+        : "";
+    if (!candidate) {
+      return "web";
+    }
+    return candidate;
+  }
+
+  private resolveFmodRuntimeOptions(): FmodRuntimeOptions {
+    switch (this.deploymentTarget) {
+      case "electron":
+        return {
+          dspBufferLength: 1024,
+          dspBufferCount: 4,
+          updateIntervalMs: 16,
+          resumeRecoveryIntervalMs: 1000,
+        };
+      case "capacitor":
+        return {
+          dspBufferLength: 2048,
+          dspBufferCount: 6,
+          updateIntervalMs: 16,
+          resumeRecoveryIntervalMs: 1000,
+        };
+      case "github-pages":
+        return {
+          dspBufferLength: 2048,
+          dspBufferCount: 4,
+          updateIntervalMs: 16,
+          resumeRecoveryIntervalMs: 1250,
+        };
+      default:
+        return {
+          dspBufferLength: 2048,
+          dspBufferCount: 4,
+          updateIntervalMs: 16,
+          resumeRecoveryIntervalMs: 1250,
+        };
+    }
   }
 
   private async connectToRuntime(): Promise<void> {
@@ -4397,10 +4581,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             this.isLootLikeBehavior(behavior)) &&
           (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
           !(tile.x === this.playerPos.x && tile.y === this.playerPos.y);
-        if (
-          shouldHaveMonsterBillboard &&
-          !this.monsterBillboards.has(key)
-        ) {
+        if (shouldHaveMonsterBillboard && !this.monsterBillboards.has(key)) {
           this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
             runtimeTileIndex:
               typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
@@ -6073,31 +6254,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
     texture: THREE.CanvasTexture;
     aspectRatio: number;
   } {
-    const size = 256;
+    const height = 256;
+    const fontSize = Math.floor(height * 0.52);
+    const fontSpec = `600 ${fontSize}px "Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif`;
+    const measureCanvas = document.createElement("canvas");
+    measureCanvas.width = height;
+    measureCanvas.height = height;
+    const measureContext = measureCanvas.getContext("2d");
+    if (!measureContext) {
+      throw new Error("Failed to create damage number canvas context");
+    }
+    measureContext.font = fontSpec;
+    const measuredTextWidth = Math.max(
+      1,
+      Math.ceil(measureContext.measureText(label).width),
+    );
+    const horizontalPadding = Math.ceil(height * 0.22);
+    const width = THREE.MathUtils.clamp(
+      measuredTextWidth + horizontalPadding * 2,
+      height,
+      2048,
+    );
+
     const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext("2d");
     if (!context) {
       throw new Error("Failed to create damage number canvas context");
     }
 
-    context.clearRect(0, 0, size, size);
+    context.clearRect(0, 0, width, height);
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.font = `600 ${Math.floor(size * 0.52)}px "Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif`;
-    context.lineWidth = Math.max(3, Math.floor(size * 0.045));
+    context.font = fontSpec;
+    context.lineWidth = Math.max(3, Math.floor(height * 0.045));
     context.strokeStyle = options?.strokeStyle ?? "rgba(18, 0, 0, 0.95)";
     context.fillStyle = options?.fillStyle ?? "#ff3a3a";
-    context.strokeText(label, size / 2, size / 2);
-    context.fillText(label, size / 2, size / 2);
-
-    const measured = context.measureText(label).width;
-    const aspectRatio = THREE.MathUtils.clamp(
-      measured / (size * 0.42),
-      0.6,
-      2.3,
-    );
+    context.strokeText(label, width / 2, height / 2);
+    context.fillText(label, width / 2, height / 2);
+    const aspectRatio = width / height;
 
     const texture = new THREE.CanvasTexture(canvas);
     texture.needsUpdate = true;
@@ -6132,10 +6328,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ? this.playerDamageNumberFpsScaleFactor
       : this.playerDamageNumberNormalScaleFactor;
     const scaleY = 0.42 * scaleMultiplier * modeScaleFactor;
-    const scaleX = Math.max(
-      0.26 * scaleMultiplier * modeScaleFactor,
-      scaleY * aspectRatio,
-    );
+    const scaleX = scaleY * aspectRatio;
     const baseScale = new THREE.Vector2(scaleX, scaleY);
     const fpsLateralOffset = useFpsFloating
       ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
@@ -6188,65 +6381,74 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileX: number,
     tileY: number,
     healAmount: number,
+    options?: {
+      label?: string;
+      fillStyle?: string;
+      scaleMultiplier?: number;
+    },
   ): void {
-    const label = `+${Math.max(1, Math.round(Math.abs(healAmount)))}`;
-    const { texture, aspectRatio } = this.createDamageNumberTexture(label, {
-      fillStyle: "#5dff86",
-      strokeStyle: "rgba(0, 28, 0, 0.95)",
-    });
-    const material = new THREE.SpriteMaterial({
-      map: texture,
-      transparent: true,
-      depthWrite: false,
-      depthTest: false,
-      toneMapped: false,
-    });
-    material.opacity = 1;
-
-    const sprite = new THREE.Sprite(material);
-    const scaleMultiplier = 1.0;
+    void tileX;
+    void tileY;
+    const isLabeledStatText = Boolean(options?.label);
+    const label =
+      options?.label ?? `+${Math.max(1, Math.round(Math.abs(healAmount)))}`;
+    const scaleMultiplier =
+      typeof options?.scaleMultiplier === "number" &&
+      Number.isFinite(options.scaleMultiplier)
+        ? options.scaleMultiplier
+        : isLabeledStatText
+          ? 0.78
+          : 1.1;
     const useFpsFloating = this.isFpsMode();
-    const modeScaleFactor = useFpsFloating
-      ? this.playerDamageNumberFpsScaleFactor
-      : this.playerDamageNumberNormalScaleFactor;
-    const scaleY = 0.42 * scaleMultiplier * modeScaleFactor;
-    const scaleX = Math.max(
-      0.26 * scaleMultiplier * modeScaleFactor,
-      scaleY * aspectRatio,
-    );
-    const baseScale = new THREE.Vector2(scaleX, scaleY);
     const fpsLateralOffset = useFpsFloating
       ? (Math.random() - 0.5) * this.playerDamageNumberFpsLateralSpread
       : 0;
-    const fpsBaseHeightOffset = 0.24;
-    sprite.scale.set(baseScale.x, baseScale.y, 1);
-    sprite.position.set(
-      tileX * TILE_SIZE,
-      -tileY * TILE_SIZE,
-      this.damageParticleFloorZ + fpsBaseHeightOffset,
-    );
-    this.applyFpsForwardOffsetToPlayerNumberPosition(
-      sprite.position,
-      useFpsFloating,
-      fpsLateralOffset,
-    );
-    this.alignPlayerDamageNumberToCamera(sprite);
-    sprite.renderOrder = 940;
-    this.scene.add(sprite);
+    const worldBaseHeightOffset = useFpsFloating ? 0.58 : 1.25;
+    const fillStyle = options?.fillStyle ?? "#72ec9e";
+    const outlineColor = this.resolveUiNumberOutlineColor(fillStyle);
+    const overlay = this.ensurePlayerUiNumberOverlay();
+    if (!overlay) {
+      return;
+    }
 
-    const verticalSpeed = useFpsFloating ? 0 : 3.2 + Math.random() * 0.8;
-    this.playerDamageNumberParticles.push({
-      kind: "heal",
-      sprite,
-      velocity: new THREE.Vector3(0, 0, verticalSpeed),
+    const element = document.createElement("div");
+    element.textContent = label;
+    element.style.position = "absolute";
+    element.style.left = "0px";
+    element.style.top = "0px";
+    element.style.transform = "translate(-50%, -50%)";
+    element.style.whiteSpace = "nowrap";
+    element.style.pointerEvents = "none";
+    element.style.userSelect = "none";
+    element.style.willChange = "transform, opacity";
+    element.style.opacity = "1";
+    element.style.fontFamily =
+      '"Roboto Condensed", "Segoe UI", "Segoe UI Variable", sans-serif';
+    element.style.fontWeight = "600";
+    const baseFontPx = useFpsFloating ? 70 : 30;
+    element.style.fontSize = `${Math.max(10, Math.round(baseFontPx * scaleMultiplier))}px`;
+    element.style.lineHeight = "1";
+    element.style.color = fillStyle;
+    element.style.textShadow = `0 0 1px ${outlineColor}, 1px 1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px -1px 0 ${outlineColor}`;
+    element.style.setProperty("-webkit-text-stroke", `0.8px ${outlineColor}`);
+    overlay.appendChild(element);
+
+    this.playerUiNumberParticles.push({
+      element,
       ageMs: 0,
       lifetimeMs: this.playerHealNumberLifetimeMs,
-      radius: 0.055,
-      baseScale,
+      fadeDelayMs: this.playerHealNumberFadeDelayMs,
+      risePx: useFpsFloating ? 46 : 96,
       fpsFloating: useFpsFloating,
       fpsLateralOffset,
-      fpsBaseHeightOffset,
+      worldBaseHeightOffset,
     });
+  }
+
+  private resolveUiNumberOutlineColor(fillStyle: string): string {
+    const color = new THREE.Color(fillStyle || "#ffffff");
+    const outline = color.clone().lerp(new THREE.Color("#ffffff"), 0.12);
+    return `#${outline.getHexString()}`;
   }
 
   private applyFpsForwardOffsetToPlayerNumberPosition(
@@ -6889,6 +7091,148 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private ensurePlayerUiNumberOverlay(): HTMLDivElement | null {
+    if (typeof document === "undefined") {
+      return null;
+    }
+
+    if (this.playerUiNumberOverlay?.isConnected) {
+      return this.playerUiNumberOverlay;
+    }
+
+    const overlay = document.createElement("div");
+    overlay.className = "nh3d-player-ui-number-layer";
+    overlay.style.position = "fixed";
+    overlay.style.left = "0px";
+    overlay.style.top = "0px";
+    overlay.style.width = "0px";
+    overlay.style.height = "0px";
+    overlay.style.pointerEvents = "none";
+    overlay.style.overflow = "hidden";
+    overlay.style.zIndex = "1400";
+    document.body.appendChild(overlay);
+    this.playerUiNumberOverlay = overlay;
+    this.playerUiOverlayBounds.left = Number.NaN;
+    this.playerUiOverlayBounds.top = Number.NaN;
+    this.playerUiOverlayBounds.width = Number.NaN;
+    this.playerUiOverlayBounds.height = Number.NaN;
+    return overlay;
+  }
+
+  private syncPlayerUiNumberOverlayBounds(): DOMRect | null {
+    const overlay = this.ensurePlayerUiNumberOverlay();
+    if (!overlay || !this.renderer?.domElement?.isConnected) {
+      return null;
+    }
+
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (
+      rect.left !== this.playerUiOverlayBounds.left ||
+      rect.top !== this.playerUiOverlayBounds.top ||
+      rect.width !== this.playerUiOverlayBounds.width ||
+      rect.height !== this.playerUiOverlayBounds.height
+    ) {
+      overlay.style.left = `${Math.round(rect.left)}px`;
+      overlay.style.top = `${Math.round(rect.top)}px`;
+      overlay.style.width = `${Math.round(rect.width)}px`;
+      overlay.style.height = `${Math.round(rect.height)}px`;
+      this.playerUiOverlayBounds.left = rect.left;
+      this.playerUiOverlayBounds.top = rect.top;
+      this.playerUiOverlayBounds.width = rect.width;
+      this.playerUiOverlayBounds.height = rect.height;
+    }
+
+    return rect;
+  }
+
+  private disposePlayerUiNumberParticle(index: number): void {
+    if (index < 0 || index >= this.playerUiNumberParticles.length) {
+      return;
+    }
+
+    const [particle] = this.playerUiNumberParticles.splice(index, 1);
+    particle.element.remove();
+  }
+
+  private clearPlayerUiNumberParticles(): void {
+    for (let i = this.playerUiNumberParticles.length - 1; i >= 0; i -= 1) {
+      this.disposePlayerUiNumberParticle(i);
+    }
+  }
+
+  private updatePlayerUiNumberParticles(deltaSeconds: number): void {
+    if (!this.playerUiNumberParticles.length) {
+      return;
+    }
+
+    const viewportRect = this.syncPlayerUiNumberOverlayBounds();
+    if (!viewportRect || viewportRect.width <= 0 || viewportRect.height <= 0) {
+      return;
+    }
+
+    const deltaMs = deltaSeconds * 1000;
+    for (let i = this.playerUiNumberParticles.length - 1; i >= 0; i -= 1) {
+      const particle = this.playerUiNumberParticles[i];
+      particle.ageMs += deltaMs;
+      const lifeT = THREE.MathUtils.clamp(
+        particle.ageMs / particle.lifetimeMs,
+        0,
+        1,
+      );
+
+      this.playerUiNumberAnchor.set(
+        this.playerPos.x * TILE_SIZE,
+        -this.playerPos.y * TILE_SIZE,
+        this.damageParticleFloorZ + particle.worldBaseHeightOffset,
+      );
+      if (particle.fpsFloating) {
+        this.applyFpsForwardOffsetToPlayerNumberPosition(
+          this.playerUiNumberAnchor,
+          false,
+          particle.fpsLateralOffset,
+        );
+      }
+
+      this.playerUiNumberScreenAnchor
+        .copy(this.playerUiNumberAnchor)
+        .project(this.camera);
+      const ndc = this.playerUiNumberScreenAnchor;
+      const isVisible =
+        ndc.z >= -1 &&
+        ndc.z <= 1 &&
+        ndc.x >= -1.2 &&
+        ndc.x <= 1.2 &&
+        ndc.y >= -1.2 &&
+        ndc.y <= 1.2;
+
+      const risePx = particle.risePx * lifeT;
+      const scaleBoost = 1 + (1 - lifeT) * 0.08;
+      if (isVisible) {
+        const screenX = (ndc.x + 1) * 0.5 * viewportRect.width;
+        const screenY = (-ndc.y + 1) * 0.5 * viewportRect.height;
+        particle.element.style.left = `${Math.round(screenX)}px`;
+        particle.element.style.top = `${Math.round(screenY)}px`;
+      }
+      particle.element.style.transform = `translate(-50%, -50%) translateY(${-risePx.toFixed(1)}px) scale(${scaleBoost.toFixed(3)})`;
+
+      const fadeDurationMs = Math.max(
+        1,
+        particle.lifetimeMs - particle.fadeDelayMs,
+      );
+      const fadeT = THREE.MathUtils.clamp(
+        (particle.ageMs - particle.fadeDelayMs) / fadeDurationMs,
+        0,
+        1,
+      );
+      const opacity = isVisible ? Math.max(0, 1 - fadeT * 1.4) : 0;
+      particle.element.style.opacity = opacity.toFixed(3);
+
+      if (lifeT >= 1 || opacity <= 0.01) {
+        this.disposePlayerUiNumberParticle(i);
+      }
+    }
+  }
+
   private updatePlayerDamageNumberParticles(deltaSeconds: number): void {
     if (!this.playerDamageNumberParticles.length) {
       return;
@@ -7031,6 +7375,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateDamageParticles(deltaSeconds);
     this.updateMonsterBillboardShardParticles(deltaSeconds);
     this.updatePlayerDamageNumberParticles(deltaSeconds);
+    this.updatePlayerUiNumberParticles(deltaSeconds);
     const now = Date.now();
     this.prunePendingCharacterDamage(now);
   }
@@ -7065,6 +7410,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let i = this.playerDamageNumberParticles.length - 1; i >= 0; i -= 1) {
       this.disposePlayerDamageNumberParticle(i);
     }
+    this.clearPlayerUiNumberParticles();
 
     this.pendingCharacterDamageQueue = [];
     this.lastDirectionalAttackContext = null;
@@ -8945,6 +9291,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.lastKnownPlayerHp = null;
+    this.lastKnownPlayerExperience = null;
+    this.lastKnownPlayerLevel = null;
+    this.lastKnownPlayerCoreStats = {};
     this.pendingPlayerTileRefreshOnNextPosition = true;
     this.lightingCenterInitialized = false;
     this.positionInputModeActive = false;
@@ -9771,11 +10120,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const cellXIndex = cellIndex % gridWidth;
         const cellYIndex = Math.floor(cellIndex / gridWidth);
         const left = cellXIndex > 0 ? cellIndex - 1 : -1;
-        const rightNeighbor =
-          cellXIndex < gridWidth - 1 ? cellIndex + 1 : -1;
+        const rightNeighbor = cellXIndex < gridWidth - 1 ? cellIndex + 1 : -1;
         const up = cellYIndex > 0 ? cellIndex - gridWidth : -1;
-        const down =
-          cellYIndex < gridHeight - 1 ? cellIndex + gridWidth : -1;
+        const down = cellYIndex < gridHeight - 1 ? cellIndex + gridWidth : -1;
         const towardSplitSteps: Array<{ dx: number; dy: number }> = [];
         if (left >= 0 && splitMask[left] === 1) {
           towardSplitSteps.push({ dx: -1, dy: 0 });
@@ -10108,7 +10455,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    this.spawnMonsterBillboardShardParticlesFromDescriptors(sprite, descriptors);
+    this.spawnMonsterBillboardShardParticlesFromDescriptors(
+      sprite,
+      descriptors,
+    );
     return true;
   }
 
@@ -10377,11 +10727,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       isLootLikeCharacter ||
       (this.isFpsMode() && isAltarOrTombstone) ||
       (useTiles &&
-        (isSink ||
-          isFountain ||
-          isStairsUp ||
-          isAltarOrTombstone ||
-          isStatue));
+        (isSink || isFountain || isStairsUp || isAltarOrTombstone || isStatue));
     const shouldUseElevatedBillboard =
       shouldElevateEntity && (useTiles || this.isFpsMode());
 
@@ -11014,6 +11360,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return (this.statusConditionMask & this.statusConditionBlindMask) !== 0;
   }
 
+  private isCorePlayerStatField(field: string): field is CorePlayerStatField {
+    return (
+      field === "strength" ||
+      field === "dexterity" ||
+      field === "constitution" ||
+      field === "intelligence" ||
+      field === "wisdom" ||
+      field === "charisma" ||
+      field === "armor"
+    );
+  }
+
   private updatePlayerStats(
     field: number,
     value: string | number | null,
@@ -11161,6 +11519,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const previousDungeon = this.playerStats.dungeon;
     let playerDamageTaken: number | null = null;
     let playerHealingGained: number | null = null;
+    let playerExperienceGained: number | null = null;
+    let playerLevelUpTo: number | null = null;
+    let playerCoreStatDeltaLabel: string | null = null;
+    let playerCoreStatDeltaImproved: boolean | null = null;
     if (mappedField === "hp" && typeof parsedValue === "number") {
       const previousHp = this.lastKnownPlayerHp;
       if (typeof previousHp === "number" && Number.isFinite(previousHp)) {
@@ -11169,6 +11531,44 @@ class Nethack3DEngine implements Nethack3DEngineController {
         } else if (parsedValue > previousHp) {
           playerHealingGained = Math.round(parsedValue - previousHp);
         }
+      }
+    }
+    if (
+      this.isCorePlayerStatField(mappedField) &&
+      typeof parsedValue === "number"
+    ) {
+      const previousCoreStatValue = this.lastKnownPlayerCoreStats[mappedField];
+      if (
+        typeof previousCoreStatValue === "number" &&
+        Number.isFinite(previousCoreStatValue)
+      ) {
+        const statDelta = Math.round(parsedValue - previousCoreStatValue);
+        if (statDelta !== 0) {
+          const signPrefix = statDelta > 0 ? "+" : "";
+          playerCoreStatDeltaLabel = `${this.playerCoreStatDisplayNameByField[mappedField]} ${signPrefix}${statDelta}`;
+          playerCoreStatDeltaImproved =
+            mappedField === "armor" ? statDelta < 0 : statDelta > 0;
+        }
+      }
+    }
+    if (mappedField === "experience" && typeof parsedValue === "number") {
+      const previousExperience = this.lastKnownPlayerExperience;
+      if (
+        typeof previousExperience === "number" &&
+        Number.isFinite(previousExperience) &&
+        parsedValue > previousExperience
+      ) {
+        playerExperienceGained = Math.round(parsedValue - previousExperience);
+      }
+    }
+    if (mappedField === "level" && typeof parsedValue === "number") {
+      const previousLevel = this.lastKnownPlayerLevel;
+      if (
+        typeof previousLevel === "number" &&
+        Number.isFinite(previousLevel) &&
+        parsedValue > previousLevel
+      ) {
+        playerLevelUpTo = parsedValue;
       }
     }
 
@@ -11193,6 +11593,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
+    if (
+      this.isCorePlayerStatField(mappedField) &&
+      typeof parsedValue === "number"
+    ) {
+      this.lastKnownPlayerCoreStats[mappedField] = parsedValue;
+    }
+    if (mappedField === "experience" && typeof parsedValue === "number") {
+      this.lastKnownPlayerExperience = parsedValue;
+    }
+    if (mappedField === "level" && typeof parsedValue === "number") {
+      this.lastKnownPlayerLevel = parsedValue;
+    }
+
     if (mappedField === "hp") {
       this.lastKnownPlayerHp = parsedValue;
       if (playerDamageTaken && playerDamageTaken > 0) {
@@ -11211,6 +11624,52 @@ class Nethack3DEngine implements Nethack3DEngineController {
           );
         }
       }
+    }
+    if (
+      playerCoreStatDeltaLabel &&
+      typeof playerCoreStatDeltaImproved === "boolean" &&
+      this.clientOptions.displayStatChangesAbovePlayer
+    ) {
+      this.spawnPlayerHealNumberParticle(
+        this.playerPos.x,
+        this.playerPos.y,
+        1,
+        {
+          label: playerCoreStatDeltaLabel,
+          fillStyle: playerCoreStatDeltaImproved ? "#79f2a6" : "#ff6b6b",
+        },
+      );
+    }
+    if (
+      playerExperienceGained &&
+      playerExperienceGained > 0 &&
+      this.clientOptions.displayXpGainsAbovePlayer
+    ) {
+      this.spawnPlayerHealNumberParticle(
+        this.playerPos.x,
+        this.playerPos.y,
+        1,
+        {
+          label: `XP +${playerExperienceGained}`,
+          fillStyle: "#7ebfff",
+          scaleMultiplier: 0.68,
+        },
+      );
+    }
+    if (
+      playerLevelUpTo &&
+      playerLevelUpTo > 0 &&
+      this.clientOptions.displayStatChangesAbovePlayer
+    ) {
+      this.spawnPlayerHealNumberParticle(
+        this.playerPos.x,
+        this.playerPos.y,
+        1,
+        {
+          label: `Experience Level ${playerLevelUpTo}`,
+          fillStyle: "#f2d06f",
+        },
+      );
     }
 
     this.updateStatsDisplay();

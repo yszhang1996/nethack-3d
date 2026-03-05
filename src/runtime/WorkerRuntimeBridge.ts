@@ -29,8 +29,9 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     };
     this.worker.onerror = (error) => {
       const errorMessage = this.extractWorkerErrorMessage(error);
+      const startupErrorMessage = errorMessage || "Runtime worker failed to load";
       if (this.startReject) {
-        this.startReject(error);
+        this.startReject(new Error(startupErrorMessage));
         this.startResolve = null;
         this.startReject = null;
         return;
@@ -46,7 +47,20 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
       console.error("Runtime worker error:", error);
       this.onEvent({
         type: "runtime_error",
-        error: errorMessage || "Runtime worker error",
+        error: startupErrorMessage,
+      });
+    };
+    this.worker.onmessageerror = (event) => {
+      const message = this.extractWorkerErrorMessage(event);
+      if (this.startReject) {
+        this.startReject(new Error(message || "Runtime worker message error"));
+        this.startResolve = null;
+        this.startReject = null;
+        return;
+      }
+      this.onEvent({
+        type: "runtime_error",
+        error: message || "Runtime worker message error",
       });
     };
   }
@@ -159,19 +173,54 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
       const candidate = error as {
         message?: unknown;
         error?: { message?: unknown } | unknown;
+        type?: unknown;
+        filename?: unknown;
+        lineno?: unknown;
+        colno?: unknown;
       };
       if (typeof candidate.message === "string" && candidate.message.trim()) {
-        return candidate.message;
+        const details = this.buildWorkerErrorDetails(candidate);
+        return details ? `${candidate.message} (${details})` : candidate.message;
       }
       if (
         candidate.error &&
         typeof candidate.error === "object" &&
         typeof (candidate.error as { message?: unknown }).message === "string"
       ) {
-        return String((candidate.error as { message?: unknown }).message);
+        const nestedMessage = String(
+          (candidate.error as { message?: unknown }).message,
+        );
+        const details = this.buildWorkerErrorDetails(candidate);
+        return details ? `${nestedMessage} (${details})` : nestedMessage;
+      }
+      const details = this.buildWorkerErrorDetails(candidate);
+      if (details) {
+        return details;
       }
     }
     return String(error ?? "");
+  }
+
+  private buildWorkerErrorDetails(candidate: {
+    type?: unknown;
+    filename?: unknown;
+    lineno?: unknown;
+    colno?: unknown;
+  }): string {
+    const details: string[] = [];
+    if (typeof candidate.type === "string" && candidate.type.trim()) {
+      details.push(`type=${candidate.type}`);
+    }
+    if (typeof candidate.filename === "string" && candidate.filename.trim()) {
+      details.push(`file=${candidate.filename}`);
+    }
+    if (typeof candidate.lineno === "number" && Number.isFinite(candidate.lineno)) {
+      details.push(`line=${candidate.lineno}`);
+    }
+    if (typeof candidate.colno === "number" && Number.isFinite(candidate.colno)) {
+      details.push(`col=${candidate.colno}`);
+    }
+    return details.join(", ");
   }
 
   private handleWorkerMessage(message: RuntimeWorkerEnvelope): void {

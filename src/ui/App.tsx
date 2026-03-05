@@ -17,6 +17,7 @@ import type {
   FpsCrosshairContextState,
   Nh3dClientOptions,
   NethackMenuItem,
+  PlayerStatsSnapshot,
 } from "../game/ui-types";
 import {
   defaultNh3dClientOptions,
@@ -61,6 +62,43 @@ type DirectionChoice = {
   label?: string;
   spacer?: boolean;
 };
+
+type CoreStatKey =
+  | "strength"
+  | "dexterity"
+  | "constitution"
+  | "intelligence"
+  | "wisdom"
+  | "charisma"
+  | "armor";
+
+type CoreStatSnapshot = {
+  turn: number;
+  playerName: string;
+  values: Record<CoreStatKey, number>;
+};
+
+const trackedCoreStatKeys: CoreStatKey[] = [
+  "strength",
+  "dexterity",
+  "constitution",
+  "intelligence",
+  "wisdom",
+  "charisma",
+  "armor",
+];
+
+const getCoreStatValuesFromSnapshot = (
+  stats: PlayerStatsSnapshot,
+): Record<CoreStatKey, number> => ({
+  strength: Number(stats.strength) || 0,
+  dexterity: Number(stats.dexterity) || 0,
+  constitution: Number(stats.constitution) || 0,
+  intelligence: Number(stats.intelligence) || 0,
+  wisdom: Number(stats.wisdom) || 0,
+  charisma: Number(stats.charisma) || 0,
+  armor: Number(stats.armor) || 0,
+});
 
 const numpadDirectionChoices: DirectionChoice[] = [
   { key: "7", label: "\u2196" },
@@ -1138,6 +1176,8 @@ type ClientOptionToggleKey =
   | "invertTouchPanningDirection"
   | "minimap"
   | "damageNumbers"
+  | "displayStatChangesAbovePlayer"
+  | "displayXpGainsAbovePlayer"
   | "tileShakeOnHit"
   | "blood"
   | "monsterShatter"
@@ -1549,6 +1589,18 @@ const clientOptionsConfig: ClientOption[] = [
     key: "damageNumbers",
     label: "Damage numbers",
     description: "Show floating damage and healing numbers.",
+    type: "boolean",
+  },
+  {
+    key: "displayStatChangesAbovePlayer",
+    label: "Display stat changes above player",
+    description: "Show floating labels for stat changes such as Strength and AC.",
+    type: "boolean",
+  },
+  {
+    key: "displayXpGainsAbovePlayer",
+    label: "Display XP gains above player",
+    description: "Show floating XP gain labels when experience increases.",
     type: "boolean",
   },
   {
@@ -2347,6 +2399,10 @@ export default function App(): JSX.Element {
     useState<MobileActionSheetMode>("quick");
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
   const [statsBarHeight, setStatsBarHeight] = useState(0);
+  const [coreStatBoldUntilTurn, setCoreStatBoldUntilTurn] = useState<
+    Partial<Record<CoreStatKey, number>>
+  >({});
+  const previousCoreStatSnapshotRef = useRef<CoreStatSnapshot | null>(null);
   const [textInputValue, setTextInputValue] = useState("");
   const soundPackDialogActionsRef = useRef<SoundPackDialogActions | null>(null);
   const adapter = useMemo(() => createEngineUiAdapter(), []);
@@ -3554,6 +3610,65 @@ export default function App(): JSX.Element {
     }
   }, [textInputRequest]);
 
+  useEffect(() => {
+    const currentTurn = Number.isFinite(playerStats.time)
+      ? Math.trunc(playerStats.time)
+      : 0;
+    const nextSnapshot: CoreStatSnapshot = {
+      turn: currentTurn,
+      playerName: String(playerStats.name || ""),
+      values: getCoreStatValuesFromSnapshot(playerStats),
+    };
+    const previousSnapshot = previousCoreStatSnapshotRef.current;
+    if (
+      !previousSnapshot ||
+      nextSnapshot.turn < previousSnapshot.turn ||
+      nextSnapshot.playerName !== previousSnapshot.playerName
+    ) {
+      previousCoreStatSnapshotRef.current = nextSnapshot;
+      setCoreStatBoldUntilTurn({});
+      return;
+    }
+
+    const changedKeys = trackedCoreStatKeys.filter(
+      (key) => nextSnapshot.values[key] !== previousSnapshot.values[key],
+    );
+    if (changedKeys.length > 0) {
+      const highlightUntilTurn = nextSnapshot.turn + 20;
+      setCoreStatBoldUntilTurn((current) => {
+        const next = { ...current };
+        for (const key of changedKeys) {
+          next[key] = highlightUntilTurn;
+        }
+        return next;
+      });
+    }
+
+    previousCoreStatSnapshotRef.current = nextSnapshot;
+  }, [playerStats]);
+
+  useEffect(() => {
+    const currentTurn = Number.isFinite(playerStats.time)
+      ? Math.trunc(playerStats.time)
+      : 0;
+    setCoreStatBoldUntilTurn((current) => {
+      let changed = false;
+      const next: Partial<Record<CoreStatKey, number>> = {};
+      for (const key of trackedCoreStatKeys) {
+        const untilTurn = current[key];
+        if (typeof untilTurn !== "number") {
+          continue;
+        }
+        if (currentTurn < untilTurn) {
+          next[key] = untilTurn;
+          continue;
+        }
+        changed = true;
+      }
+      return changed ? next : current;
+    });
+  }, [playerStats.time]);
+
   const hpPercentage =
     playerStats.maxHp > 0
       ? Math.max(0, Math.min(100, (playerStats.hp / playerStats.maxHp) * 100))
@@ -3567,6 +3682,25 @@ export default function App(): JSX.Element {
           Math.min(100, (playerStats.power / playerStats.maxPower) * 100),
         )
       : 0;
+  const highlightedCoreStatStyle = useMemo<CSSProperties>(
+    () => ({
+      fontWeight: 700,
+    }),
+    [],
+  );
+  const currentStatsTurn = Number.isFinite(playerStats.time)
+    ? Math.trunc(playerStats.time)
+    : 0;
+  const resolveCoreStatStyle = useCallback(
+    (key: CoreStatKey): CSSProperties | undefined => {
+      const untilTurn = coreStatBoldUntilTurn[key];
+      if (typeof untilTurn !== "number" || currentStatsTurn >= untilTurn) {
+        return undefined;
+      }
+      return highlightedCoreStatStyle;
+    },
+    [coreStatBoldUntilTurn, currentStatsTurn, highlightedCoreStatStyle],
+  );
   const locationStatusText = [playerStats.hunger, playerStats.encumbrance]
     .filter((value) => Boolean(value))
     .join(" ");
@@ -5625,19 +5759,48 @@ export default function App(): JSX.Element {
           ) : null}
           <div className="nh3d-stats-group nh3d-stats-group-core">
             <div className="nh3d-stats-core-row nh3d-stats-core-row-primary">
-              <div className="nh3d-stats-core">St:{playerStats.strength}</div>
-              <div className="nh3d-stats-core">Dx:{playerStats.dexterity}</div>
-              <div className="nh3d-stats-core">
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("strength")}
+              >
+                St:{playerStats.strength}
+              </div>
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("dexterity")}
+              >
+                Dx:{playerStats.dexterity}
+              </div>
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("constitution")}
+              >
                 Co:{playerStats.constitution}
               </div>
-              <div className="nh3d-stats-core">
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("intelligence")}
+              >
                 In:{playerStats.intelligence}
               </div>
-              <div className="nh3d-stats-core">Wi:{playerStats.wisdom}</div>
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("wisdom")}
+              >
+                Wi:{playerStats.wisdom}
+              </div>
             </div>
             <div className="nh3d-stats-core-row nh3d-stats-core-row-secondary">
-              <div className="nh3d-stats-core">Ch:{playerStats.charisma}</div>
-              <div className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary">
+              <div
+                className="nh3d-stats-core"
+                style={resolveCoreStatStyle("charisma")}
+              >
+                Ch:{playerStats.charisma}
+              </div>
+              <div
+                className="nh3d-stats-secondary-ac nh3d-stats-mobile-inline-secondary"
+                style={resolveCoreStatStyle("armor")}
+              >
                 AC:{playerStats.armor}
               </div>
               <div className="nh3d-stats-secondary-exp nh3d-stats-mobile-inline-secondary">
@@ -5652,7 +5815,10 @@ export default function App(): JSX.Element {
             </div>
           </div>
           <div className="nh3d-stats-group nh3d-stats-group-secondary">
-            <div className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary">
+            <div
+              className="nh3d-stats-secondary-ac nh3d-stats-desktop-secondary"
+              style={resolveCoreStatStyle("armor")}
+            >
               AC:{playerStats.armor}
             </div>
             <div className="nh3d-stats-secondary-exp nh3d-stats-desktop-secondary">

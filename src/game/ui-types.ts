@@ -143,6 +143,8 @@ export type Nh3dClientOptions = {
   minimap: boolean;
   minimapScale: number;
   damageNumbers: boolean;
+  displayStatChangesAbovePlayer: boolean;
+  displayXpGainsAbovePlayer: boolean;
   tileShakeOnHit: boolean;
   blood: boolean;
   monsterShatter: boolean;
@@ -201,6 +203,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   minimap: true,
   minimapScale: 1,
   damageNumbers: true,
+  displayStatChangesAbovePlayer: true,
+  displayXpGainsAbovePlayer: true,
   tileShakeOnHit: true,
   blood: true,
   monsterShatter: true,
@@ -714,6 +718,14 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.damageNumbers === "boolean"
         ? overrides.damageNumbers
         : defaultNh3dClientOptions.damageNumbers,
+    displayStatChangesAbovePlayer:
+      typeof overrides?.displayStatChangesAbovePlayer === "boolean"
+        ? overrides.displayStatChangesAbovePlayer
+        : defaultNh3dClientOptions.displayStatChangesAbovePlayer,
+    displayXpGainsAbovePlayer:
+      typeof overrides?.displayXpGainsAbovePlayer === "boolean"
+        ? overrides.displayXpGainsAbovePlayer
+        : defaultNh3dClientOptions.displayXpGainsAbovePlayer,
     tileShakeOnHit:
       typeof overrides?.tileShakeOnHit === "boolean"
         ? overrides.tileShakeOnHit

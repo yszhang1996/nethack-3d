@@ -62,6 +62,8 @@ jobs:
       #   run: npm run glyphs:check
 
       - name: Build
+        env:
+          VITE_DEPLOY_TARGET: github-pages
         run: npm run build
 
       - name: Disable Jekyll

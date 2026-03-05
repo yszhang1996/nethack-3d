@@ -52,6 +52,7 @@ export type FmodRuntimeOptions = {
   dspBufferLength?: number;
   dspBufferCount?: number;
   updateIntervalMs?: number;
+  resumeRecoveryIntervalMs?: number;
 };
 
 type RequiredFmodRuntimeOptions = Required<FmodRuntimeOptions>;
@@ -68,6 +69,9 @@ export type FmodThreadingDiagnostics = {
   crossOriginIsolated: boolean;
   sharedArrayBufferAvailable: boolean;
   updateIntervalMs: number;
+  dspBufferLength: number;
+  dspBufferCount: number;
+  resumeRecoveryIntervalMs: number;
 };
 
 declare global {
@@ -82,8 +86,9 @@ const defaultFmodRuntimeOptions: RequiredFmodRuntimeOptions = {
   initialMemoryBytes: 64 * 1024 * 1024,
   maxVirtualChannels: 1024,
   dspBufferLength: 2048,
-  dspBufferCount: 2,
-  updateIntervalMs: 20,
+  dspBufferCount: 4,
+  updateIntervalMs: 16,
+  resumeRecoveryIntervalMs: 1250,
 };
 
 function isAbsoluteUrl(value: string): boolean {
@@ -121,15 +126,36 @@ export class FmodRuntime {
   private initializePromise: Promise<void> | null = null;
   private loadScriptPromise: Promise<void> | null = null;
   private updateTimerId: number | null = null;
+  private resumeRecoveryTimerId: number | null = null;
   private userGestureAudioResumed: boolean = false;
   private updateErrorLogged: boolean = false;
   private enabled: boolean = true;
+  private audioRecoveryHooksBound: boolean = false;
   private threadingDiagnostics: FmodThreadingDiagnostics = {
     backendMode: "unknown",
     audioWorkletSupported: false,
     crossOriginIsolated: false,
     sharedArrayBufferAvailable: false,
     updateIntervalMs: defaultFmodRuntimeOptions.updateIntervalMs,
+    dspBufferLength: defaultFmodRuntimeOptions.dspBufferLength,
+    dspBufferCount: defaultFmodRuntimeOptions.dspBufferCount,
+    resumeRecoveryIntervalMs:
+      defaultFmodRuntimeOptions.resumeRecoveryIntervalMs,
+  };
+  private readonly handleDocumentVisibilityChange = (): void => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    if (document.visibilityState !== "visible") {
+      return;
+    }
+    this.recoverAudioAfterInterruption("lifecycle");
+  };
+  private readonly handleWindowFocus = (): void => {
+    this.recoverAudioAfterInterruption("lifecycle");
+  };
+  private readonly handleWindowPageShow = (): void => {
+    this.recoverAudioAfterInterruption("lifecycle");
   };
 
   constructor(options?: FmodRuntimeOptions) {
@@ -152,12 +178,17 @@ export class FmodRuntime {
         this.userGestureAudioResumed = false;
         this.updateErrorLogged = false;
         this.stopUpdateLoop();
+        this.stopResumeRecoveryLoop();
+        this.unbindAudioRecoveryHooks();
         this.threadingDiagnostics = {
           backendMode: "unknown",
           audioWorkletSupported: false,
           crossOriginIsolated: false,
           sharedArrayBufferAvailable: false,
           updateIntervalMs: this.options.updateIntervalMs,
+          dspBufferLength: this.options.dspBufferLength,
+          dspBufferCount: this.options.dspBufferCount,
+          resumeRecoveryIntervalMs: this.options.resumeRecoveryIntervalMs,
         };
         throw error;
       });
@@ -199,12 +230,14 @@ export class FmodRuntime {
       return;
     }
     if (nextEnabled) {
-      if (this.resumeMixer()) {
-        this.userGestureAudioResumed = true;
-      }
       this.startUpdateLoop();
+      if (this.userGestureAudioResumed) {
+        this.startResumeRecoveryLoop();
+        this.recoverAudioAfterInterruption("enable");
+      }
       return;
     }
+    this.stopResumeRecoveryLoop();
     this.stopUpdateLoop();
     this.suspendMixer();
     this.userGestureAudioResumed = false;
@@ -234,21 +267,12 @@ export class FmodRuntime {
   }
 
   public resumeFromUserGesture(): void {
-    if (
-      !this.enabled ||
-      this.userGestureAudioResumed ||
-      !this.module ||
-      !this.coreSystem
-    ) {
-      return;
-    }
-    if (!this.suspendMixer()) {
-      return;
-    }
-    if (!this.resumeMixer()) {
+    if (!this.enabled || !this.module || !this.coreSystem) {
       return;
     }
     this.userGestureAudioResumed = true;
+    this.startResumeRecoveryLoop();
+    this.recoverAudioAfterInterruption("user-gesture");
   }
 
   private async initializeInternal(): Promise<void> {
@@ -325,9 +349,13 @@ export class FmodRuntime {
       "Studio System::initialize",
     );
 
+    this.bindAudioRecoveryHooks();
     this.threadingDiagnostics = this.inspectThreadingDiagnostics();
     if (this.enabled) {
       this.startUpdateLoop();
+      if (this.userGestureAudioResumed) {
+        this.startResumeRecoveryLoop();
+      }
     } else {
       this.suspendMixer();
     }
@@ -514,6 +542,146 @@ export class FmodRuntime {
       crossOriginIsolated,
       sharedArrayBufferAvailable,
       updateIntervalMs: this.options.updateIntervalMs,
+      dspBufferLength: this.options.dspBufferLength,
+      dspBufferCount: this.options.dspBufferCount,
+      resumeRecoveryIntervalMs: this.options.resumeRecoveryIntervalMs,
     };
+  }
+
+  private startResumeRecoveryLoop(): void {
+    if (
+      this.resumeRecoveryTimerId !== null ||
+      typeof window === "undefined" ||
+      !this.enabled
+    ) {
+      return;
+    }
+    const intervalMs = Math.max(
+      500,
+      Math.round(this.options.resumeRecoveryIntervalMs),
+    );
+    this.resumeRecoveryTimerId = window.setInterval(() => {
+      this.recoverAudioAfterInterruption("timer");
+    }, intervalMs);
+  }
+
+  private stopResumeRecoveryLoop(): void {
+    if (this.resumeRecoveryTimerId === null || typeof window === "undefined") {
+      return;
+    }
+    window.clearInterval(this.resumeRecoveryTimerId);
+    this.resumeRecoveryTimerId = null;
+  }
+
+  private bindAudioRecoveryHooks(): void {
+    if (
+      this.audioRecoveryHooksBound ||
+      typeof window === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    document.addEventListener(
+      "visibilitychange",
+      this.handleDocumentVisibilityChange,
+      false,
+    );
+    window.addEventListener("focus", this.handleWindowFocus, false);
+    window.addEventListener("pageshow", this.handleWindowPageShow, false);
+    this.audioRecoveryHooksBound = true;
+  }
+
+  private unbindAudioRecoveryHooks(): void {
+    if (
+      !this.audioRecoveryHooksBound ||
+      typeof window === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    document.removeEventListener(
+      "visibilitychange",
+      this.handleDocumentVisibilityChange,
+      false,
+    );
+    window.removeEventListener("focus", this.handleWindowFocus, false);
+    window.removeEventListener("pageshow", this.handleWindowPageShow, false);
+    this.audioRecoveryHooksBound = false;
+  }
+
+  private recoverAudioAfterInterruption(
+    source: "user-gesture" | "enable" | "lifecycle" | "timer",
+  ): void {
+    if (!this.enabled || !this.module || !this.coreSystem) {
+      return;
+    }
+    if (!this.userGestureAudioResumed && source !== "enable") {
+      return;
+    }
+    const audioContextState = this.getModuleAudioContextState();
+    const needsResume =
+      source === "user-gesture" ||
+      audioContextState === "suspended" ||
+      audioContextState === "interrupted" ||
+      (audioContextState === null && source !== "timer");
+    if (!needsResume) {
+      return;
+    }
+    this.resumeMixer();
+    void this.resumeModuleAudioContext();
+  }
+
+  private getModuleAudioContextState():
+    | "running"
+    | "suspended"
+    | "closed"
+    | "interrupted"
+    | null {
+    const moduleAny = this.module as Record<string, unknown> | null;
+    if (!moduleAny) {
+      return null;
+    }
+    const contextCandidate =
+      (moduleAny.mContext as { state?: unknown } | undefined) ??
+      (moduleAny.context as { state?: unknown } | undefined);
+    if (!contextCandidate) {
+      return null;
+    }
+    const state =
+      typeof contextCandidate.state === "string"
+        ? contextCandidate.state
+        : null;
+    if (
+      state === "running" ||
+      state === "suspended" ||
+      state === "closed" ||
+      state === "interrupted"
+    ) {
+      return state;
+    }
+    return null;
+  }
+
+  private async resumeModuleAudioContext(): Promise<void> {
+    const moduleAny = this.module as Record<string, unknown> | null;
+    if (!moduleAny) {
+      return;
+    }
+    const contextCandidate =
+      (moduleAny.mContext as { resume?: unknown } | undefined) ??
+      (moduleAny.context as { resume?: unknown } | undefined);
+    if (!contextCandidate || typeof contextCandidate.resume !== "function") {
+      return;
+    }
+    try {
+      const result = (
+        contextCandidate.resume as () => Promise<unknown> | unknown
+      )();
+      if (result && typeof (result as Promise<unknown>).then === "function") {
+        await (result as Promise<unknown>);
+      }
+    } catch {
+      // Browser policies can reject resume calls if not tied to a trusted gesture.
+    }
   }
 }

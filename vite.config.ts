@@ -53,13 +53,29 @@ function tilesetManifestPlugin() {
 
 const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
 const isElectronBuild = process.env.BUILD_TARGET === "electron";
+const enableCrossOriginIsolation =
+  process.env.NH3D_ENABLE_CROSS_ORIGIN_ISOLATION === "true";
+const crossOriginIsolationHeaders = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+};
 
 export default defineConfig({
   plugins: [copyWasmPlugin(), tilesetManifestPlugin(), react()],
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",
   server: {
     allowedHosts: true,
+    ...(enableCrossOriginIsolation
+      ? { headers: crossOriginIsolationHeaders }
+      : {}),
   },
+  ...(enableCrossOriginIsolation
+    ? {
+        preview: {
+          headers: crossOriginIsolationHeaders,
+        },
+      }
+    : {}),
   worker: {
     format: "es",
   },
