@@ -3,7 +3,7 @@ const fs = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 
-app.setVersion("0.8.3");
+app.setVersion("0.9.1");
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const crossOriginIsolationHeaders = {
@@ -55,7 +55,11 @@ function resolveRequestedPath(rootDir, requestPathname) {
 
 async function createPackagedStaticServer(rootDir) {
   const server = http.createServer(async (request, response) => {
-    const sendResponse = (statusCode, body, contentType = "text/plain; charset=utf-8") => {
+    const sendResponse = (
+      statusCode,
+      body,
+      contentType = "text/plain; charset=utf-8",
+    ) => {
       response.writeHead(statusCode, {
         ...crossOriginIsolationHeaders,
         "Content-Type": contentType,
