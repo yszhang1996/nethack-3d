@@ -73,7 +73,6 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "drink",
     label: "Drink",
-    messageLogKeywords: ["The cool draught refreshes you."],
   },
   {
     key: "quaff-potion",
