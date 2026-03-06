@@ -1981,10 +1981,16 @@ class LocalNetHackRuntime {
     return (
       normalized.includes("pick up what") ||
       normalized.includes("what do you want to pick up") ||
+      normalized.includes("what would you like to drop") ||
+      normalized.includes("drop what type of items") ||
       normalized.includes("take out what") ||
+      normalized.includes("what do you want to take out") ||
+      normalized.includes("what would you like to take out") ||
       normalized.includes("put in what") ||
       normalized.includes("what do you want to put in") ||
-      normalized.includes("put in, then take out what")
+      normalized.includes("what would you like to put in") ||
+      normalized.includes("put in, then take out what") ||
+      normalized.includes("take out, then put in what")
     );
   }
 

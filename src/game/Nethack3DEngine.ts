@@ -12714,10 +12714,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return (
       normalizedQuestion.includes("pick up what") ||
       normalizedQuestion.includes("what do you want to pick up") ||
+      normalizedQuestion.includes("what would you like to drop") ||
+      normalizedQuestion.includes("drop what type of items") ||
       normalizedQuestion.includes("take out what") ||
+      normalizedQuestion.includes("what do you want to take out") ||
+      normalizedQuestion.includes("what would you like to take out") ||
       normalizedQuestion.includes("put in what") ||
       normalizedQuestion.includes("what do you want to put in") ||
-      normalizedQuestion.includes("put in, then take out what")
+      normalizedQuestion.includes("what would you like to put in") ||
+      normalizedQuestion.includes("put in, then take out what") ||
+      normalizedQuestion.includes("take out, then put in what")
     );
   }
 
