@@ -12773,6 +12773,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!item || item.isCategory) {
       return false;
     }
+    if (typeof item.isSelectable === "boolean") {
+      return item.isSelectable;
+    }
+    if (typeof item.identifier === "number") {
+      return item.identifier !== 0;
+    }
     if (Number.isInteger(item.menuIndex)) {
       return true;
     }

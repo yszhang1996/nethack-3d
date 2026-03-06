@@ -79,6 +79,7 @@ import {
   resolveCharacterCommandActions,
   type CharacterSheetStatKey,
 } from "./character-sheet";
+import { parseEnhanceMenu } from "./enhance-menu";
 
 type DirectionChoice = {
   key?: string;
@@ -360,6 +361,12 @@ function getMenuSelectionInput(item: NethackMenuItem): string {
 function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
   if (!item || item.isCategory) {
     return false;
+  }
+  if (typeof item.isSelectable === "boolean") {
+    return item.isSelectable;
+  }
+  if (typeof item.identifier === "number") {
+    return item.identifier !== 0;
   }
   return getMenuSelectionInput(item).trim().length > 0;
 }
@@ -4034,6 +4041,13 @@ export default function App(): JSX.Element {
   const useInventoryChoiceLabels = !isYesNoQuestionChoices;
   const questionMenuPageIndex = question?.menuPageIndex ?? 0;
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
+  const enhanceMenuData = useMemo(
+    () =>
+      question
+        ? parseEnhanceMenu(question.text, question.menuItems)
+        : null,
+    [question],
+  );
   const questionSelectableMenuItemCount = question
     ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item))
         .length
@@ -7287,7 +7301,7 @@ export default function App(): JSX.Element {
             question.menuItems.length === 0 && isYesNoQuestionChoices
               ? " nh3d-dialog-question-yes-no"
               : ""
-          }`}
+          }${enhanceMenuData ? " nh3d-dialog-question-enhance" : ""}`}
           id="question-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -7299,10 +7313,13 @@ export default function App(): JSX.Element {
             question.isPickupDialog ? (
               <>
                 {question.menuItems.map((item, index) =>
-                  item.isCategory ||
-                  !item.accelerator ||
-                  !String(item.accelerator).trim() ? (
-                    <div className="nh3d-menu-category" key={`cat-${index}`}>
+                  !isSelectableQuestionMenuItem(item) ? (
+                    <div
+                      className={
+                        item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                      }
+                      key={`cat-${index}`}
+                    >
                       {item.text}
                     </div>
                   ) : (
@@ -7373,13 +7390,161 @@ export default function App(): JSX.Element {
                   </div>
                 ) : null}
               </>
+            ) : enhanceMenuData ? (
+              <>
+                <div className="nh3d-enhance-menu">
+                  <div className="nh3d-enhance-summary">
+                    <span className="nh3d-enhance-summary-chip is-available">
+                      {enhanceMenuData.availableCount} available
+                    </span>
+                    <span className="nh3d-enhance-summary-chip is-gated">
+                      {enhanceMenuData.needsExperienceCount} gated by experience/slots
+                    </span>
+                    <span className="nh3d-enhance-summary-chip is-practice">
+                      {enhanceMenuData.needsPracticeCount} need practice
+                    </span>
+                    <span className="nh3d-enhance-summary-chip is-maxed">
+                      {enhanceMenuData.maxedOutCount} maxed
+                    </span>
+                  </div>
+                  {enhanceMenuData.legendLines.length > 0 ? (
+                    <div className="nh3d-enhance-legend">
+                      {enhanceMenuData.legendLines.map((line, index) => (
+                        <div className="nh3d-enhance-legend-line" key={`enhance-legend-${index}`}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {enhanceMenuData.groups.map((group) => (
+                    <section className="nh3d-enhance-group" key={`enhance-group-${group.id}`}>
+                      <div className="nh3d-menu-category nh3d-enhance-group-title">
+                        {group.title}
+                      </div>
+                      <div className="nh3d-enhance-skill-grid">
+                        {group.entries.map((entry) => {
+                          const selectionInput = getMenuSelectionInput(entry.menuItem);
+                          const isSelectable = isSelectableQuestionMenuItem(entry.menuItem);
+                          const isActive =
+                            question.activeMenuSelectionInput === selectionInput;
+                          const acceleratorLabel =
+                            typeof entry.menuItem.accelerator === "string" &&
+                            entry.menuItem.accelerator.trim().length > 0
+                              ? `${entry.menuItem.accelerator})`
+                              : "";
+                          return isSelectable ? (
+                            <button
+                              className={`nh3d-enhance-skill-card is-${entry.availability}${
+                                isActive ? " nh3d-menu-button-active" : ""
+                              }`}
+                              key={`enhance-skill-${entry.id}`}
+                              onClick={() =>
+                                controller?.chooseQuestionChoice(selectionInput)
+                              }
+                              type="button"
+                            >
+                              <div className="nh3d-enhance-skill-head">
+                                <span className="nh3d-enhance-skill-name">
+                                  {entry.name}
+                                </span>
+                                <span className="nh3d-enhance-skill-badges">
+                                  {acceleratorLabel ? (
+                                    <span className="nh3d-enhance-key">
+                                      {acceleratorLabel}
+                                    </span>
+                                  ) : null}
+                                  <span className="nh3d-enhance-state-chip">
+                                    {entry.availabilityLabel}
+                                  </span>
+                                </span>
+                              </div>
+                              <div className="nh3d-enhance-rank-row">
+                                <span>{entry.currentRank}</span>
+                                {entry.nextRank ? (
+                                  <>
+                                    <span className="nh3d-enhance-rank-arrow">
+                                      {"->"}
+                                    </span>
+                                    <span>{entry.nextRank}</span>
+                                  </>
+                                ) : (
+                                  <span className="nh3d-enhance-rank-max">Max</span>
+                                )}
+                              </div>
+                              {enhanceMenuData.showSlotCost &&
+                              entry.slotCostForNextRank ? (
+                                <div className="nh3d-enhance-slot-cost">
+                                  {entry.slotCostForNextRank} slot
+                                  {entry.slotCostForNextRank === 1 ? "" : "s"}
+                                </div>
+                              ) : null}
+                            </button>
+                          ) : (
+                            <div
+                              className={`nh3d-enhance-skill-card is-${entry.availability} is-disabled${
+                                isActive ? " nh3d-menu-button-active" : ""
+                              }`}
+                              key={`enhance-skill-${entry.id}`}
+                            >
+                              <div className="nh3d-enhance-skill-head">
+                                <span className="nh3d-enhance-skill-name">
+                                  {entry.name}
+                                </span>
+                                <span className="nh3d-enhance-state-chip">
+                                  {entry.availabilityLabel}
+                                </span>
+                              </div>
+                              <div className="nh3d-enhance-rank-row">
+                                <span>{entry.currentRank}</span>
+                                {entry.nextRank ? (
+                                  <>
+                                    <span className="nh3d-enhance-rank-arrow">
+                                      {"->"}
+                                    </span>
+                                    <span>{entry.nextRank}</span>
+                                  </>
+                                ) : (
+                                  <span className="nh3d-enhance-rank-max">Max</span>
+                                )}
+                              </div>
+                              {enhanceMenuData.showSlotCost &&
+                              entry.slotCostForNextRank ? (
+                                <div className="nh3d-enhance-slot-cost">
+                                  {entry.slotCostForNextRank} slot
+                                  {entry.slotCostForNextRank === 1 ? "" : "s"}
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+                <div className="nh3d-menu-actions">
+                  <button
+                    className={`nh3d-menu-action-button nh3d-menu-action-cancel${
+                      question.activeActionButton === "cancel"
+                        ? " nh3d-action-button-active"
+                        : ""
+                    }`}
+                    onClick={() => controller?.cancelActivePrompt()}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </>
             ) : (
               <>
                 {question.menuItems.map((item, index) =>
-                  item.isCategory ||
-                  !item.accelerator ||
-                  !String(item.accelerator).trim() ? (
-                    <div className="nh3d-menu-category" key={`cat-${index}`}>
+                  !isSelectableQuestionMenuItem(item) ? (
+                    <div
+                      className={
+                        item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                      }
+                      key={`cat-${index}`}
+                    >
                       {item.text}
                     </div>
                   ) : (
@@ -7390,7 +7555,7 @@ export default function App(): JSX.Element {
                           ? " nh3d-menu-button-active"
                           : ""
                       }`}
-                      key={`menu-${item.accelerator}-${index}`}
+                      key={`menu-${getMenuSelectionInput(item)}-${index}`}
                       onClick={() =>
                         controller?.chooseQuestionChoice(
                           getMenuSelectionInput(item),
@@ -7660,7 +7825,9 @@ export default function App(): JSX.Element {
                           characterExperienceProgress.nextLevelThreshold,
                         )}
                         {" \u2022 "}
-                        {formatCharacterNumber(characterExperienceProgress.toNextLevel)}{" "}
+                        {formatCharacterNumber(
+                          characterExperienceProgress.toNextLevel,
+                        )}{" "}
                         to next level
                       </>
                     )}
@@ -7736,7 +7903,7 @@ export default function App(): JSX.Element {
                       <div className="nh3d-character-stat-grid">
                         {hasCharacterStatLimits ? (
                           <div className="nh3d-character-stat-grid-hint">
-                            Current / limit
+                            Current / Limit
                           </div>
                         ) : null}
                         {characterSheet.statEntries.map((entry) => (
@@ -7868,9 +8035,7 @@ export default function App(): JSX.Element {
                           type="button"
                         >
                           <span className="nh3d-character-action-label">
-                            {action.command === "enhance"
-                              ? "Enhance (level up skills)"
-                              : action.label}
+                            {action.label}
                           </span>
                           <span className="nh3d-character-action-detail">
                             {action.detail}

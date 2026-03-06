@@ -3522,6 +3522,14 @@ class LocalNetHackRuntime {
 
         // In this callback shape, category headers are identified by menuAttr=7.
         const isCategory = menuAttr === 7;
+        // In 3.6.7, identifier is a pointer. In 3.7, it's a value.
+        const identifierValue = is_37
+          ? identifier
+          : this.nethackModule.getValue(identifier, "*");
+        const isSelectable =
+          !isCategory &&
+          typeof identifierValue === "number" &&
+          identifierValue !== 0;
         let menuChar = "";
         let glyphChar = "";
 
@@ -3583,14 +3591,14 @@ class LocalNetHackRuntime {
             accelerator < 127;
           const isQuestionMark =
             typeof accelerator === "number" && accelerator === 63;
-          if (isAsciiAccelerator && !isQuestionMark) {
+          if (isSelectable && isAsciiAccelerator && !isQuestionMark) {
             // If accelerator is a valid ASCII character code, use it
             menuChar = String.fromCharCode(accelerator);
-          } else {
+          } else if (isSelectable) {
             // If accelerator is invalid (like the large numbers we're seeing),
-            // assign letters automatically based on the current menu items
+            // assign letters automatically based on the current selectable items
             const existingItems = this.currentMenuItems.filter(
-              (item) => !item.isCategory,
+              (item) => !item.isCategory && item.isSelectable,
             );
             const alphabet =
               "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -3610,11 +3618,6 @@ class LocalNetHackRuntime {
           );
         }
 
-        // In 3.6.7, identifier is a pointer. In 3.7, it's a value.
-        const identifierValue = is_37
-          ? identifier
-          : this.nethackModule.getValue(identifier, "*");
-
         // Store menu item for current question (only store non-category items or all items for display)
         if (this.currentWindow === menuWinid && menuText) {
           this.currentMenuItems.push({
@@ -3626,6 +3629,7 @@ class LocalNetHackRuntime {
             glyph: menuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
             isCategory: isCategory,
+            isSelectable,
             menuIndex: this.currentMenuItems.length, // Store the menu item index
           });
         }
@@ -3640,6 +3644,7 @@ class LocalNetHackRuntime {
             glyph: menuGlyph,
             glyphChar: glyphChar, // Include glyph character in client message
             isCategory: isCategory,
+            isSelectable,
             menuItems: this.currentMenuItems,
           });
         }

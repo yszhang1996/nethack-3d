@@ -15,7 +15,12 @@ export type NethackConnectionState =
 export type NethackMenuItem = {
   text?: string;
   accelerator?: string;
+  originalAccelerator?: string | number;
   isCategory?: boolean;
+  isSelectable?: boolean;
+  selectionInput?: string;
+  identifier?: number;
+  menuIndex?: number;
   glyph?: number;
   glyphChar?: string;
   [key: string]: unknown;
