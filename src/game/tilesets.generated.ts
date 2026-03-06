@@ -32,6 +32,11 @@ export const GENERATED_TILESET_MANIFEST: ReadonlyArray<GeneratedTilesetManifestE
     "tileSize": 32
   },
   {
+    "label": "RZTiles",
+    "path": "assets/3.6/RZTiles.bmp",
+    "tileSize": 32
+  },
+  {
     "label": "Vanilla NetHack Tiles",
     "path": "assets/3.6/Vanilla NetHack Tiles.png",
     "tileSize": 32

@@ -580,6 +580,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
   private readonly firstPersonPitchMin = -Math.PI / 2 + 0.03;
   private readonly firstPersonPitchMax = 1.18;
+  private readonly cameraYawStraightAssistThreshold = Math.PI / 36; // 5 degrees
+  private readonly cameraYawStraightAssistLerpSpeed = 14;
+  private readonly cameraYawStraightAssistEpsilon = Math.PI / 1800; // 0.1 degrees
   private readonly firstPersonMouseSensitivity = 0.0026;
   private readonly fpsDiagonalAimBias = 0.035;
   private fpsPointerLockActive: boolean = false;
@@ -12109,6 +12112,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private applyCameraYawStraightAssist(deltaSeconds: number): void {
+    if (this.isMiddleMouseDown) {
+      return;
+    }
+    if (!Number.isFinite(this.cameraYaw)) {
+      this.cameraYaw = 0;
+      return;
+    }
+    const quarterTurn = Math.PI / 2;
+    const normalizedYaw = this.wrapAngle(this.cameraYaw);
+    const targetYaw = this.wrapAngle(
+      Math.round(normalizedYaw / quarterTurn) * quarterTurn,
+    );
+    const yawDelta = this.wrapAngle(targetYaw - normalizedYaw);
+    if (Math.abs(yawDelta) > this.cameraYawStraightAssistThreshold) {
+      return;
+    }
+    const alpha = THREE.MathUtils.clamp(
+      1 -
+        Math.exp(
+          -Math.max(0, deltaSeconds) * this.cameraYawStraightAssistLerpSpeed,
+        ),
+      0,
+      1,
+    );
+    const nextYaw = this.wrapAngle(normalizedYaw + yawDelta * alpha);
+    this.cameraYaw =
+      Math.abs(this.wrapAngle(targetYaw - nextYaw)) <=
+      this.cameraYawStraightAssistEpsilon
+        ? targetYaw
+        : nextYaw;
+  }
+
   private beginFpsStepCameraTransition(
     fromX: number,
     fromY: number,
@@ -15785,6 +15821,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const eyeZ = this.firstPersonEyeHeight;
 
       this.updateFpsAutoTurnYaw(deltaSeconds);
+      this.applyCameraYawStraightAssist(deltaSeconds);
 
       if (this.fpsStepCameraActive) {
         const progress = THREE.MathUtils.clamp(
@@ -15841,6 +15878,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
       this.cameraFollowCurrent.lerp(this.cameraFollowTarget, alpha);
     }
+
+    this.applyCameraYawStraightAssist(deltaSeconds);
 
     const followX = this.cameraFollowCurrent.x;
     const followY = this.cameraFollowCurrent.y;

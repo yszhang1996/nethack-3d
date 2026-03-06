@@ -227,6 +227,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   darkCorridorWallTileOverrideTileId: 850,
   darkCorridorWallTileOverrideTileIdByTileset: {
     "assets/3.6/DawnHack.bmp": 872,
+    "assets/3.6/RZTiles.bmp": 869,
   },
   darkCorridorWallSolidColorOverrideEnabled: true,
   darkCorridorWallSolidColorOverrideEnabledByTileset: {},
