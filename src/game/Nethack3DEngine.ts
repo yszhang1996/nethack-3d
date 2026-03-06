@@ -12771,6 +12771,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return normalized.startsWith("select number_pad mode");
   }
 
+  private isFountainDrinkQuestion(questionText: string): boolean {
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized.includes("drink from the fountain");
+  }
+
+  private maybePlayFountainDrinkSoundForQuestionAnswer(input: string): void {
+    if (!this.isInQuestion || this.activeQuestionMenuItems.length > 0) {
+      return;
+    }
+    if (!this.isFountainDrinkQuestion(this.activeQuestionText)) {
+      return;
+    }
+    const normalizedChoice = String(input || "")
+      .trim()
+      .toLowerCase();
+    if (normalizedChoice === "y") {
+      this.messageSoundHooks.playDrinkSound();
+    }
+  }
+
   private setNumberPadModeEnabled(enabled: boolean): void {
     const normalized = Boolean(enabled);
     if (this.numberPadModeEnabled === normalized) {
@@ -13657,6 +13682,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.maybePlayFountainDrinkSoundForQuestionAnswer(resolvedChoice);
     this.sendInput(resolvedChoice);
     this.hideQuestion();
   }
@@ -14929,6 +14955,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
+  private isContainerLikeGroundLootText(glanceText: string | null): boolean {
+    const normalizedGlanceText = String(glanceText || "").toLowerCase();
+    return /\b(chest|box|coffer|container|sack|bag)\b/.test(
+      normalizedGlanceText,
+    );
+  }
+
   private tryRunFpsSelfTilePrimaryClickAction(): boolean {
     if (!this.isFpsMode()) {
       return false;
@@ -14952,9 +14985,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const nowMs = Date.now();
     const glanceEntry = this.getCachedFpsCrosshairGlanceEntry(tileKey, nowMs);
     const glanceText = glanceEntry?.sourceText ?? "";
-    const normalizedGlanceText = glanceText.toLowerCase();
-    const isContainerLikeLoot =
-      /\b(chest|box|coffer|container|sack|bag)\b/.test(normalizedGlanceText);
+    const isContainerLikeLoot = this.isContainerLikeGroundLootText(glanceText);
     const actions = this.getFpsCrosshairActionsForTile(
       tileKey,
       tileMesh,
@@ -15805,6 +15836,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.hideQuestion();
         } else if (!isMenuQuestion) {
           this.updateNumberPadModeFromChoice(event.key);
+          this.maybePlayFountainDrinkSoundForQuestionAnswer(event.key);
           this.sendInput(event.key);
           this.hideQuestion();
         } else {
@@ -16792,6 +16824,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       /\b(corpse|food|ration|tin|egg|tripe|carcass)\b/.test(
         normalizedGlanceText,
       );
+    const glanceSuggestsContainerLoot =
+      this.isContainerLikeGroundLootText(glanceText);
     let isTargetPlayerTile = true;
     {
       const [rawX, rawY] = key.split(",");
@@ -16879,6 +16913,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (isTargetPlayerTile) {
         addQuickAction("pickup", "Pick Up");
         addQuickAction("loot", "Loot");
+        if (glanceSuggestsContainerLoot) {
+          addExtendedAction("tip", "Tip");
+        }
         addQuickAction("eat", "Eat");
       }
       return actions;
@@ -16924,6 +16961,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (isTargetPlayerTile) {
       addQuickAction("pickup", "Pick Up");
       addQuickAction("loot", "Loot");
+      if (glanceSuggestsContainerLoot) {
+        addExtendedAction("tip", "Tip");
+      }
       if (glanceSuggestsEdibleLoot) {
         addQuickAction("eat", "Eat");
       }

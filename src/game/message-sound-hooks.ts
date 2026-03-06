@@ -73,6 +73,10 @@ export class MessageSoundHooks {
     void this.playSoundEffect("player-walk");
   }
 
+  public playDrinkSound(): void {
+    void this.playSoundEffect("drink");
+  }
+
   public playMessageLogSoundEffects(messageLike: unknown): void {
     const soundKeys = resolveNh3dMessageLogSoundEffectKeys(messageLike);
     for (const soundKey of soundKeys) {
