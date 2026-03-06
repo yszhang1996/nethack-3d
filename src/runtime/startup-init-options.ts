@@ -55,6 +55,19 @@ export type StartupInitOptionValues = Record<string, StartupInitOptionValue>;
 export const startupInitOptionDefinitions: ReadonlyArray<StartupInitOptionDefinition> =
   [
     {
+      key: "playmode",
+      label: "Play Mode",
+      description:
+        "Choose startup mode. Wizard mode is NetHack debug mode (`playmode:debug`).",
+      control: "select",
+      defaultValue: "normal",
+      options: [
+        { value: "normal", label: "Normal" },
+        { value: "explore", label: "Explore" },
+        { value: "debug", label: "Wizard/Debug" },
+      ],
+    },
+    {
       key: "autopickup",
       label: "Autopickup",
       description:
