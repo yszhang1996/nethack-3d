@@ -2,6 +2,7 @@
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
 import { getBundledDisplayFile } from "./displayFileCatalog";
 import type { NethackRuntimeVersion } from "./types";
+import { sanitizeStartupInitOptionTokens } from "./startup-init-options";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
@@ -185,6 +186,10 @@ class LocalNetHackRuntime {
       options.push(`name:${name}`);
     }
     return options;
+  }
+
+  buildStartupInitRuntimeOptions() {
+    return sanitizeStartupInitOptionTokens(this.startupOptions?.initOptions);
   }
 
   sendReconnectSnapshot() {
@@ -2614,7 +2619,6 @@ class LocalNetHackRuntime {
 
       const runtimeOptions = [
         // Input/menu behavior expected by the browser port.
-        "pickup_types:$",
         "number_pad:1",
         "mouse_support",
         "clicklook",
@@ -2632,6 +2636,10 @@ class LocalNetHackRuntime {
         this.buildCharacterCreationRuntimeOptions();
       if (characterRuntimeOptions.length > 0) {
         runtimeOptions.push(...characterRuntimeOptions);
+      }
+      const startupInitRuntimeOptions = this.buildStartupInitRuntimeOptions();
+      if (startupInitRuntimeOptions.length > 0) {
+        runtimeOptions.push(...startupInitRuntimeOptions);
       }
 
       const createModule = await this.loadRuntimeFactory(runtimeVersion);

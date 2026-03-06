@@ -29,6 +29,12 @@ import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
+import {
+  createDefaultStartupInitOptionValues,
+  serializeStartupInitOptionTokens,
+  type StartupInitOptionValue,
+  type StartupInitOptionValues,
+} from "../runtime/startup-init-options";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 import {
   findNh3dTilesetByPath,
@@ -50,12 +56,24 @@ import {
 } from "../game/user-tileset-storage";
 import {
   loadPersistedNh3dClientOptionsWithMigration,
+  loadPersistedNh3dStartupCharacterPreferences,
+  loadPersistedNh3dStartupInitOptions,
   persistNh3dClientOptionsToIndexedDb,
+  persistNh3dStartupCharacterPreferencesToIndexedDb,
+  persistNh3dStartupInitOptionsToIndexedDb,
+  type StartupCharacterPreferences,
 } from "../storage/client-options-storage";
 import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-pack-storage";
 import SoundPackSettings, {
   type SoundPackDialogActions,
 } from "./SoundPackSettings";
+import StartupInitOptionsAccordion from "./StartupInitOptionsAccordion";
+import {
+  normalizeStartupCreateCharacterSelection,
+  pickRandomStartupGenderForRole,
+  pickRandomStartupRole,
+  resolveStartupCreateCharacterOptionSet,
+} from "./startup-character-constraints";
 
 type DirectionChoice = {
   key?: string;
@@ -1042,47 +1060,19 @@ function createIsolatedAtlasTilePreviewDataUrl(
   return canvas.toDataURL("image/png");
 }
 
-const startupRoleOptions = [
-  "Archeologist",
-  "Barbarian",
-  "Caveman",
-  "Healer",
-  "Knight",
-  "Monk",
-  "Priest",
-  "Ranger",
-  "Rogue",
-  "Samurai",
-  "Tourist",
-  "Valkyrie",
-  "Wizard",
-];
-
-const startupRaceOptions = ["human", "elf", "dwarf", "gnome", "orc"];
-const startupGenderOptions = ["male", "female"];
-const startupAlignOptions = ["lawful", "neutral", "chaotic"];
 type StartupFlowStep = "choose" | "create" | "random" | "resume";
+const startupDefaultCharacterName = "Web_user";
 
-function pickRandomStartupRole(): string {
-  if (startupRoleOptions.length === 0) {
-    return "";
-  }
-  const randomIndex = Math.floor(Math.random() * startupRoleOptions.length);
-  return startupRoleOptions[randomIndex] ?? "";
-}
-
-function pickRandomStartupGender(role: string): string {
-  const normalizedRole = String(role || "")
-    .trim()
-    .toLowerCase();
-  if (normalizedRole === "valkyrie") {
-    return "female";
-  }
-  if (startupGenderOptions.length === 0) {
-    return "male";
-  }
-  const randomIndex = Math.floor(Math.random() * startupGenderOptions.length);
-  return startupGenderOptions[randomIndex] ?? "male";
+function createDefaultStartupCharacterPreferences(): StartupCharacterPreferences {
+  const defaultCreateSelection = normalizeStartupCreateCharacterSelection({});
+  return {
+    randomName: startupDefaultCharacterName,
+    createName: startupDefaultCharacterName,
+    createRole: defaultCreateSelection.role,
+    createRace: defaultCreateSelection.race,
+    createGender: defaultCreateSelection.gender,
+    createAlign: defaultCreateSelection.align,
+  };
 }
 
 type MobileActionEntry = {
@@ -2261,6 +2251,10 @@ async function deleteSavedGame(filename: string): Promise<void> {
 }
 
 export default function App(): JSX.Element {
+  const startupDefaultCharacterPreferences = useMemo(
+    () => createDefaultStartupCharacterPreferences(),
+    [],
+  );
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
   const [characterCreationConfig, setCharacterCreationConfig] =
@@ -2269,13 +2263,50 @@ export default function App(): JSX.Element {
     useState<StartupFlowStep>("choose");
   const [runtimeVersion, setRuntimeVersion] =
     useState<NethackRuntimeVersion>("3.6.7");
-  const [createRole, setCreateRole] = useState(startupRoleOptions[0]);
-  const [createRace, setCreateRace] = useState(startupRaceOptions[0]);
-  const [createGender, setCreateGender] = useState(startupGenderOptions[0]);
-  const [createAlign, setCreateAlign] = useState(startupAlignOptions[0]);
-  const [createName, setCreateName] = useState("Web_user");
+  const [createRole, setCreateRole] = useState(
+    startupDefaultCharacterPreferences.createRole,
+  );
+  const [createRace, setCreateRace] = useState(
+    startupDefaultCharacterPreferences.createRace,
+  );
+  const [createGender, setCreateGender] = useState(
+    startupDefaultCharacterPreferences.createGender,
+  );
+  const [createAlign, setCreateAlign] = useState(
+    startupDefaultCharacterPreferences.createAlign,
+  );
+  const [randomCharacterName, setRandomCharacterName] = useState(
+    startupDefaultCharacterPreferences.randomName,
+  );
+  const [createCharacterName, setCreateCharacterName] = useState(
+    startupDefaultCharacterPreferences.createName,
+  );
+  const [
+    hasHydratedStartupCharacterPreferences,
+    setHasHydratedStartupCharacterPreferences,
+  ] = useState(false);
+  const [startupInitOptionsExpanded, setStartupInitOptionsExpanded] =
+    useState(false);
+  const [startupInitOptionValues, setStartupInitOptionValues] =
+    useState<StartupInitOptionValues>(() =>
+      createDefaultStartupInitOptionValues(),
+    );
+  const [hasHydratedStartupInitOptions, setHasHydratedStartupInitOptions] =
+    useState(false);
   const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
   const [isLoadingSaves, setIsLoadingSaves] = useState(false);
+  const startupCreateCharacterOptionSet = useMemo(
+    () =>
+      resolveStartupCreateCharacterOptionSet({
+        role: createRole,
+        race: createRace,
+        gender: createGender,
+        align: createAlign,
+      }),
+    [createRole, createRace, createGender, createAlign],
+  );
+  const normalizedCreateCharacterSelection =
+    startupCreateCharacterOptionSet.selection;
 
   const handleDeleteSave = async (
     e: ReactMouseEvent<HTMLButtonElement>,
@@ -2322,6 +2353,64 @@ export default function App(): JSX.Element {
     }
     setCharacterCreationConfig(config);
   };
+
+  const updateStartupInitOptionValue = useCallback(
+    (key: string, value: StartupInitOptionValue): void => {
+      setStartupInitOptionValues((previous) => ({
+        ...previous,
+        [key]: value,
+      }));
+    },
+    [],
+  );
+  const resetStartupInitOptionValues = useCallback((): void => {
+    setStartupInitOptionValues(createDefaultStartupInitOptionValues());
+  }, []);
+  const startupInitOptionTokens = useMemo(
+    () => serializeStartupInitOptionTokens(startupInitOptionValues),
+    [startupInitOptionValues],
+  );
+  const startupCharacterPreferences = useMemo<StartupCharacterPreferences>(
+    () => ({
+      randomName: randomCharacterName,
+      createName: createCharacterName,
+      createRole: normalizedCreateCharacterSelection.role,
+      createRace: normalizedCreateCharacterSelection.race,
+      createGender: normalizedCreateCharacterSelection.gender,
+      createAlign: normalizedCreateCharacterSelection.align,
+    }),
+    [
+      randomCharacterName,
+      createCharacterName,
+      normalizedCreateCharacterSelection.role,
+      normalizedCreateCharacterSelection.race,
+      normalizedCreateCharacterSelection.gender,
+      normalizedCreateCharacterSelection.align,
+    ],
+  );
+  useEffect(() => {
+    if (createRole !== normalizedCreateCharacterSelection.role) {
+      setCreateRole(normalizedCreateCharacterSelection.role);
+    }
+    if (createRace !== normalizedCreateCharacterSelection.race) {
+      setCreateRace(normalizedCreateCharacterSelection.race);
+    }
+    if (createGender !== normalizedCreateCharacterSelection.gender) {
+      setCreateGender(normalizedCreateCharacterSelection.gender);
+    }
+    if (createAlign !== normalizedCreateCharacterSelection.align) {
+      setCreateAlign(normalizedCreateCharacterSelection.align);
+    }
+  }, [
+    createRole,
+    createRace,
+    createGender,
+    createAlign,
+    normalizedCreateCharacterSelection.role,
+    normalizedCreateCharacterSelection.race,
+    normalizedCreateCharacterSelection.gender,
+    normalizedCreateCharacterSelection.align,
+  ]);
 
   const initialPersistedClientOptionsRef =
     useRef<Partial<Nh3dClientOptions> | null>(null);
@@ -3101,6 +3190,109 @@ export default function App(): JSX.Element {
       console.warn("Failed to persist client options to IndexedDB:", error);
     });
   }, [clientOptions, hasHydratedUserTilesets]);
+
+  useEffect(() => {
+    let disposed = false;
+    loadPersistedNh3dStartupCharacterPreferences()
+      .then((persistedPreferences) => {
+        if (disposed || !persistedPreferences) {
+          return;
+        }
+        setRandomCharacterName(
+          persistedPreferences.randomName ||
+            startupDefaultCharacterPreferences.randomName,
+        );
+        setCreateCharacterName(
+          persistedPreferences.createName ||
+            startupDefaultCharacterPreferences.createName,
+        );
+        const normalizedPersistedCreateSelection =
+          normalizeStartupCreateCharacterSelection({
+            role: persistedPreferences.createRole,
+            race: persistedPreferences.createRace,
+            gender: persistedPreferences.createGender,
+            align: persistedPreferences.createAlign,
+          });
+        setCreateRole(normalizedPersistedCreateSelection.role);
+        setCreateRace(normalizedPersistedCreateSelection.race);
+        setCreateGender(normalizedPersistedCreateSelection.gender);
+        setCreateAlign(normalizedPersistedCreateSelection.align);
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        console.warn(
+          "Failed to hydrate startup character preferences from IndexedDB:",
+          error,
+        );
+      })
+      .finally(() => {
+        if (disposed) {
+          return;
+        }
+        setHasHydratedStartupCharacterPreferences(true);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [startupDefaultCharacterPreferences]);
+
+  useEffect(() => {
+    if (!hasHydratedStartupCharacterPreferences) {
+      return;
+    }
+    persistNh3dStartupCharacterPreferencesToIndexedDb(
+      startupCharacterPreferences,
+    ).catch((error) => {
+      console.warn(
+        "Failed to persist startup character preferences to IndexedDB:",
+        error,
+      );
+    });
+  }, [
+    hasHydratedStartupCharacterPreferences,
+    startupCharacterPreferences,
+  ]);
+
+  useEffect(() => {
+    let disposed = false;
+    loadPersistedNh3dStartupInitOptions()
+      .then((persistedValues) => {
+        if (disposed || !persistedValues) {
+          return;
+        }
+        setStartupInitOptionValues(persistedValues);
+      })
+      .catch((error) => {
+        if (disposed) {
+          return;
+        }
+        console.warn("Failed to hydrate startup init options from IndexedDB:", error);
+      })
+      .finally(() => {
+        if (disposed) {
+          return;
+        }
+        setHasHydratedStartupInitOptions(true);
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasHydratedStartupInitOptions) {
+      return;
+    }
+    persistNh3dStartupInitOptionsToIndexedDb(startupInitOptionValues).catch(
+      (error) => {
+        console.warn("Failed to persist startup init options to IndexedDB:", error);
+      },
+    );
+  }, [hasHydratedStartupInitOptions, startupInitOptionValues]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -5493,26 +5685,37 @@ export default function App(): JSX.Element {
                     <input
                       className="nh3d-startup-config-input"
                       maxLength={30}
-                      onChange={(event) => setCreateName(event.target.value)}
-                      placeholder="Web_user"
+                      onChange={(event) =>
+                        setRandomCharacterName(event.target.value)
+                      }
+                      placeholder={startupDefaultCharacterName}
                       type="text"
-                      value={createName}
+                      value={randomCharacterName}
                     />
                   </label>
                 </div>
+                <StartupInitOptionsAccordion
+                  expanded={startupInitOptionsExpanded}
+                  onExpandedChange={setStartupInitOptionsExpanded}
+                  onOptionValueChange={updateStartupInitOptionValue}
+                  onResetDefaults={resetStartupInitOptionValues}
+                  values={startupInitOptionValues}
+                />
                 <div className="nh3d-menu-actions">
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-confirm"
                     onClick={() => {
                       const randomRole = pickRandomStartupRole();
-                      const randomGender = pickRandomStartupGender(randomRole);
+                      const randomGender =
+                        pickRandomStartupGenderForRole(randomRole);
                       handleStartNewGame({
                         mode: "random",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
-                        name: normalizeStartupCharacterName(createName),
+                        name: normalizeStartupCharacterName(randomCharacterName),
                         role: randomRole,
                         gender: randomGender,
+                        initOptions: startupInitOptionTokens,
                       });
                     }}
                     type="button"
@@ -5544,10 +5747,12 @@ export default function App(): JSX.Element {
                     <input
                       className="nh3d-startup-config-input"
                       maxLength={30}
-                      onChange={(event) => setCreateName(event.target.value)}
-                      placeholder="Web_user"
+                      onChange={(event) =>
+                        setCreateCharacterName(event.target.value)
+                      }
+                      placeholder={startupDefaultCharacterName}
                       type="text"
-                      value={createName}
+                      value={createCharacterName}
                     />
                   </label>
                   <label className="nh3d-startup-config-field">
@@ -5555,9 +5760,9 @@ export default function App(): JSX.Element {
                     <select
                       className="nh3d-startup-config-select"
                       onChange={(event) => setCreateRole(event.target.value)}
-                      value={createRole}
+                      value={normalizedCreateCharacterSelection.role}
                     >
-                      {startupRoleOptions.map((role) => (
+                      {startupCreateCharacterOptionSet.roleOptions.map((role) => (
                         <option key={role} value={role}>
                           {role}
                         </option>
@@ -5569,9 +5774,9 @@ export default function App(): JSX.Element {
                     <select
                       className="nh3d-startup-config-select"
                       onChange={(event) => setCreateRace(event.target.value)}
-                      value={createRace}
+                      value={normalizedCreateCharacterSelection.race}
                     >
-                      {startupRaceOptions.map((race) => (
+                      {startupCreateCharacterOptionSet.raceOptions.map((race) => (
                         <option key={race} value={race}>
                           {race}
                         </option>
@@ -5583,9 +5788,9 @@ export default function App(): JSX.Element {
                     <select
                       className="nh3d-startup-config-select"
                       onChange={(event) => setCreateGender(event.target.value)}
-                      value={createGender}
+                      value={normalizedCreateCharacterSelection.gender}
                     >
-                      {startupGenderOptions.map((gender) => (
+                      {startupCreateCharacterOptionSet.genderOptions.map((gender) => (
                         <option key={gender} value={gender}>
                           {gender}
                         </option>
@@ -5597,9 +5802,9 @@ export default function App(): JSX.Element {
                     <select
                       className="nh3d-startup-config-select"
                       onChange={(event) => setCreateAlign(event.target.value)}
-                      value={createAlign}
+                      value={normalizedCreateCharacterSelection.align}
                     >
-                      {startupAlignOptions.map((align) => (
+                      {startupCreateCharacterOptionSet.alignOptions.map((align) => (
                         <option key={align} value={align}>
                           {align}
                         </option>
@@ -5607,6 +5812,13 @@ export default function App(): JSX.Element {
                     </select>
                   </label>
                 </div>
+                <StartupInitOptionsAccordion
+                  expanded={startupInitOptionsExpanded}
+                  onExpandedChange={setStartupInitOptionsExpanded}
+                  onOptionValueChange={updateStartupInitOptionValue}
+                  onResetDefaults={resetStartupInitOptionValues}
+                  values={startupInitOptionValues}
+                />
                 <div className="nh3d-menu-actions">
                   <button
                     className="nh3d-menu-action-button nh3d-menu-action-confirm"
@@ -5615,11 +5827,12 @@ export default function App(): JSX.Element {
                         mode: "create",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
-                        name: normalizeStartupCharacterName(createName),
-                        role: createRole,
-                        race: createRace,
-                        gender: createGender,
-                        align: createAlign,
+                        name: normalizeStartupCharacterName(createCharacterName),
+                        role: normalizedCreateCharacterSelection.role,
+                        race: normalizedCreateCharacterSelection.race,
+                        gender: normalizedCreateCharacterSelection.gender,
+                        align: normalizedCreateCharacterSelection.align,
+                        initOptions: startupInitOptionTokens,
                       })
                     }
                     type="button"

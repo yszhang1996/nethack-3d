@@ -800,6 +800,7 @@ export type CharacterCreationConfig = {
   race?: string;
   gender?: string;
   align?: string;
+  initOptions?: string[];
 };
 
 export interface Nethack3DEngineUIAdapter {

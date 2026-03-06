@@ -287,6 +287,38 @@ type TileUpdateOptions = {
   runtimeTileIndex?: number;
 };
 
+type LevelCacheObservedTile = {
+  x: number;
+  y: number;
+  glyph: number;
+  char?: string;
+  color?: number;
+  tileIndex?: number;
+};
+
+type LevelTerrainCacheSnapshot = {
+  tileStateCache: Map<string, string>;
+  lastKnownTerrain: Map<string, TerrainSnapshot>;
+  fpsFlatFeatureUnderPlayerCache: Map<string, TerrainSnapshot>;
+  inferredDarkCorridorWallTiles: Map<string, { x: number; y: number }>;
+  inferredDarkCorridorTileFlags: Set<string>;
+};
+
+type LevelTerrainCacheEntry = LevelTerrainCacheSnapshot & {
+  id: string;
+  levelName: string;
+  updatedAtMs: number;
+};
+
+type PendingLevelCacheTransition = {
+  startedAtMs: number;
+  observedTiles: Map<string, LevelCacheObservedTile>;
+  firstPassComplete: boolean;
+  sawLevelIdentityStatusUpdate: boolean;
+  initialPlayerPosition: { x: number; y: number } | null;
+  preTransitionFallbackLevelName: string | null;
+};
+
 type WallSideTileOverlay = {
   textureKey: string;
   material: THREE.MeshBasicMaterial;
@@ -366,7 +398,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     new Map();
   private inferredDarkCorridorWallTiles: Map<string, { x: number; y: number }> =
     new Map();
+  private inferredDarkCorridorTileFlags: Set<string> = new Set();
+  private levelTerrainCachesByName: Map<string, LevelTerrainCacheEntry[]> =
+    new Map();
+  private activeLevelCacheRef: { levelName: string; entryId: string } | null =
+    null;
+  private currentLevelCacheName: string | null = null;
+  private latestLevelDescriptorName: string | null = null;
+  private pendingLevelCacheTransition: PendingLevelCacheTransition | null = null;
+  private readonly levelCacheDisambiguationWallSampleMin: number = 6;
+  private readonly levelCacheWallComparisonMin: number = 10;
+  private readonly levelCacheWallMismatchToleranceRatio: number = 0.18;
+  private readonly levelCacheWallMismatchToleranceMin: number = 3;
   private darkCorridorInputDiscoveryWindowActive: boolean = false;
+  private darkCorridorBlindSearchInferenceActive: boolean = false;
+  private darkCorridorBlindSearchInferenceUntilMs: number = 0;
+  private readonly darkCorridorBlindSearchInferenceWindowMs: number = 1600;
   private newlyDiscoveredDarkCorridorTilesForCurrentInput: Map<
     string,
     { x: number; y: number }
@@ -1478,6 +1525,271 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.minimapContainer.classList.toggle("nh3d-minimap-fps", fpsMode);
   }
 
+  private buildTileStateSignatureFromPayload(tile: {
+    glyph: number;
+    char?: string;
+    color?: number;
+    tileIndex?: number;
+  }): string {
+    return `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}|ti:${typeof tile.tileIndex === "number" ? Math.trunc(tile.tileIndex) : ""}`;
+  }
+
+  private normalizeLevelCacheName(rawValue: unknown): string | null {
+    const normalized = String(rawValue ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private buildFallbackLevelCacheName(): string | null {
+    const dungeonName = this.normalizeLevelCacheName(this.playerStats.dungeon);
+    const numericDlevel = Number.isFinite(this.playerStats.dlevel)
+      ? Math.trunc(this.playerStats.dlevel)
+      : NaN;
+    const dlevelPart = Number.isFinite(numericDlevel)
+      ? `Dlvl ${numericDlevel}`
+      : null;
+    if (!dungeonName && !dlevelPart) {
+      return null;
+    }
+    if (dungeonName && dlevelPart) {
+      return `${dungeonName} - ${dlevelPart}`;
+    }
+    return dungeonName ?? dlevelPart;
+  }
+
+  private resolvePreferredLevelCacheName(options?: {
+    allowFallback?: boolean;
+  }): string | null {
+    if (this.latestLevelDescriptorName) {
+      return this.latestLevelDescriptorName;
+    }
+    if (options?.allowFallback === false) {
+      return null;
+    }
+    return this.buildFallbackLevelCacheName();
+  }
+
+  private createLevelCacheEntryId(levelName: string): string {
+    return `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}-${levelName.length}`;
+  }
+
+  private cloneTerrainSnapshotMap(
+    source: Map<string, TerrainSnapshot>,
+  ): Map<string, TerrainSnapshot> {
+    const clone = new Map<string, TerrainSnapshot>();
+    for (const [key, value] of source.entries()) {
+      clone.set(key, { ...value });
+    }
+    return clone;
+  }
+
+  private cloneCoordinateMap(
+    source: Map<string, { x: number; y: number }>,
+  ): Map<string, { x: number; y: number }> {
+    const clone = new Map<string, { x: number; y: number }>();
+    for (const [key, value] of source.entries()) {
+      clone.set(key, { x: value.x, y: value.y });
+    }
+    return clone;
+  }
+
+  private cloneStringSet(source: Set<string>): Set<string> {
+    return new Set(source);
+  }
+
+  private addInferredDarkCorridorTile(
+    key: string,
+    x: number,
+    y: number,
+  ): void {
+    this.inferredDarkCorridorWallTiles.set(key, { x, y });
+    this.inferredDarkCorridorTileFlags.add(key);
+  }
+
+  private removeInferredDarkCorridorTile(key: string): void {
+    this.inferredDarkCorridorWallTiles.delete(key);
+    this.inferredDarkCorridorTileFlags.delete(key);
+  }
+
+  private captureCurrentLevelTerrainCacheSnapshot(): LevelTerrainCacheSnapshot {
+    const inferredDarkFlags = this.cloneStringSet(
+      this.inferredDarkCorridorTileFlags,
+    );
+    for (const key of this.inferredDarkCorridorWallTiles.keys()) {
+      inferredDarkFlags.add(key);
+    }
+
+    return {
+      tileStateCache: new Map(this.tileStateCache),
+      lastKnownTerrain: this.cloneTerrainSnapshotMap(this.lastKnownTerrain),
+      fpsFlatFeatureUnderPlayerCache: this.cloneTerrainSnapshotMap(
+        this.fpsFlatFeatureUnderPlayerCache,
+      ),
+      inferredDarkCorridorWallTiles: this.cloneCoordinateMap(
+        this.inferredDarkCorridorWallTiles,
+      ),
+      inferredDarkCorridorTileFlags: inferredDarkFlags,
+    };
+  }
+
+  private upsertLevelTerrainCacheEntry(
+    levelName: string,
+    entryId: string,
+    snapshot: LevelTerrainCacheSnapshot,
+  ): void {
+    const existingEntries = this.levelTerrainCachesByName.get(levelName) ?? [];
+    const nowMs = Date.now();
+    const nextEntry: LevelTerrainCacheEntry = {
+      id: entryId,
+      levelName,
+      updatedAtMs: nowMs,
+      tileStateCache: new Map(snapshot.tileStateCache),
+      lastKnownTerrain: this.cloneTerrainSnapshotMap(snapshot.lastKnownTerrain),
+      fpsFlatFeatureUnderPlayerCache: this.cloneTerrainSnapshotMap(
+        snapshot.fpsFlatFeatureUnderPlayerCache,
+      ),
+      inferredDarkCorridorWallTiles: this.cloneCoordinateMap(
+        snapshot.inferredDarkCorridorWallTiles,
+      ),
+      inferredDarkCorridorTileFlags: this.cloneStringSet(
+        snapshot.inferredDarkCorridorTileFlags,
+      ),
+    };
+
+    const existingIndex = existingEntries.findIndex((entry) => entry.id === entryId);
+    if (existingIndex >= 0) {
+      existingEntries[existingIndex] = nextEntry;
+    } else {
+      existingEntries.push(nextEntry);
+    }
+    this.levelTerrainCachesByName.set(levelName, existingEntries);
+  }
+
+  private retagActiveLevelCacheEntryLevelName(nextLevelName: string): void {
+    const active = this.activeLevelCacheRef;
+    if (!active || active.levelName === nextLevelName) {
+      return;
+    }
+
+    const sourceEntries = this.levelTerrainCachesByName.get(active.levelName) ?? [];
+    const sourceIndex = sourceEntries.findIndex((entry) => entry.id === active.entryId);
+    if (sourceIndex >= 0) {
+      const sourceEntry = sourceEntries[sourceIndex];
+      const movedEntry: LevelTerrainCacheEntry = {
+        ...sourceEntry,
+        levelName: nextLevelName,
+      };
+      sourceEntries.splice(sourceIndex, 1);
+      if (sourceEntries.length > 0) {
+        this.levelTerrainCachesByName.set(active.levelName, sourceEntries);
+      } else {
+        this.levelTerrainCachesByName.delete(active.levelName);
+      }
+
+      const targetEntries = this.levelTerrainCachesByName.get(nextLevelName) ?? [];
+      const targetIndex = targetEntries.findIndex((entry) => entry.id === movedEntry.id);
+      if (targetIndex >= 0) {
+        targetEntries[targetIndex] = movedEntry;
+      } else {
+        targetEntries.push(movedEntry);
+      }
+      this.levelTerrainCachesByName.set(nextLevelName, targetEntries);
+    }
+
+    this.activeLevelCacheRef = {
+      levelName: nextLevelName,
+      entryId: active.entryId,
+    };
+  }
+
+  private persistActiveLevelTerrainCache(): void {
+    if (this.pendingTileUpdates.size > 0) {
+      this.flushPendingTileUpdates();
+    }
+
+    const activeLevelName =
+      this.activeLevelCacheRef?.levelName ??
+      this.currentLevelCacheName ??
+      this.resolvePreferredLevelCacheName();
+    if (!activeLevelName) {
+      return;
+    }
+
+    const snapshot = this.captureCurrentLevelTerrainCacheSnapshot();
+    if (
+      snapshot.tileStateCache.size === 0 &&
+      snapshot.lastKnownTerrain.size === 0 &&
+      snapshot.fpsFlatFeatureUnderPlayerCache.size === 0 &&
+      snapshot.inferredDarkCorridorWallTiles.size === 0 &&
+      snapshot.inferredDarkCorridorTileFlags.size === 0
+    ) {
+      return;
+    }
+
+    const entryId =
+      this.activeLevelCacheRef?.entryId ??
+      this.createLevelCacheEntryId(activeLevelName);
+    this.upsertLevelTerrainCacheEntry(activeLevelName, entryId, snapshot);
+    this.activeLevelCacheRef = { levelName: activeLevelName, entryId };
+    this.currentLevelCacheName = activeLevelName;
+  }
+
+  private resetLevelTerrainCacheTracking(): void {
+    this.levelTerrainCachesByName.clear();
+    this.activeLevelCacheRef = null;
+    this.currentLevelCacheName = null;
+    this.latestLevelDescriptorName = null;
+    this.pendingLevelCacheTransition = null;
+  }
+
+  private beginPendingLevelCacheTransition(): void {
+    const preTransitionFallbackLevelName = this.buildFallbackLevelCacheName();
+    this.activeLevelCacheRef = null;
+    this.currentLevelCacheName = null;
+    this.latestLevelDescriptorName = null;
+    this.pendingLevelCacheTransition = {
+      startedAtMs: Date.now(),
+      observedTiles: new Map(),
+      firstPassComplete: false,
+      sawLevelIdentityStatusUpdate: false,
+      initialPlayerPosition: null,
+      preTransitionFallbackLevelName,
+    };
+  }
+
+  private capturePendingLevelTransitionTile(tile: any): void {
+    const pending = this.pendingLevelCacheTransition;
+    if (!pending || pending.firstPassComplete) {
+      return;
+    }
+    if (
+      !tile ||
+      typeof tile.x !== "number" ||
+      typeof tile.y !== "number" ||
+      typeof tile.glyph !== "number"
+    ) {
+      return;
+    }
+
+    const key = `${tile.x},${tile.y}`;
+    pending.observedTiles.set(key, {
+      x: tile.x,
+      y: tile.y,
+      glyph: tile.glyph,
+      char: typeof tile.char === "string" ? tile.char : undefined,
+      color: typeof tile.color === "number" ? tile.color : undefined,
+      tileIndex:
+        typeof tile.tileIndex === "number" ? Math.trunc(tile.tileIndex) : undefined,
+    });
+  }
+
+  private capturePendingLevelTransitionTiles(tiles: any[]): void {
+    for (const tile of tiles) {
+      this.capturePendingLevelTransitionTile(tile);
+    }
+  }
+
   private parseTileStateSignature(signature: string): {
     glyph: number;
     char?: string;
@@ -1552,6 +1864,314 @@ class Nethack3DEngine implements Nethack3DEngineController {
       color: parsed.color,
       tileIndex: parsed.tileIndex,
     };
+  }
+
+  private isWallTerrainSnapshot(snapshot: TerrainSnapshot): boolean {
+    const behavior = classifyTileBehavior({
+      glyph: snapshot.glyph,
+      runtimeChar: snapshot.char ?? null,
+      runtimeColor: typeof snapshot.color === "number" ? snapshot.color : null,
+      runtimeTileIndex:
+        typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
+      priorTerrain: null,
+    });
+    return behavior.isWall;
+  }
+
+  private countObservedWallTilesForPendingTransition(
+    observedTiles: Map<string, LevelCacheObservedTile>,
+  ): number {
+    let wallCount = 0;
+    for (const observed of observedTiles.values()) {
+      if (this.isWallTerrainSnapshot(observed)) {
+        wallCount += 1;
+      }
+    }
+    return wallCount;
+  }
+
+  private selectMatchingLevelTerrainCacheEntryByWalls(
+    candidates: LevelTerrainCacheEntry[],
+    observedTiles: Map<string, LevelCacheObservedTile>,
+  ): LevelTerrainCacheEntry | null {
+    type WallMatchScore = {
+      entry: LevelTerrainCacheEntry;
+      comparisons: number;
+      matches: number;
+      mismatches: number;
+      matchRatio: number;
+    };
+
+    const scores: WallMatchScore[] = [];
+    for (const entry of candidates) {
+      let comparisons = 0;
+      let matches = 0;
+      let mismatches = 0;
+      for (const [key, observed] of observedTiles.entries()) {
+        const observedIsWall = this.isWallTerrainSnapshot(observed);
+        const candidateSignature = entry.tileStateCache.get(key);
+        if (!candidateSignature) {
+          if (observedIsWall) {
+            comparisons += 1;
+            mismatches += 1;
+          }
+          continue;
+        }
+
+        const parsedCandidate = this.parseTileStateSignature(candidateSignature);
+        if (!parsedCandidate) {
+          continue;
+        }
+        const candidateIsWall = this.isWallTerrainSnapshot(parsedCandidate);
+        if (!observedIsWall && !candidateIsWall) {
+          continue;
+        }
+        comparisons += 1;
+        if (observedIsWall === candidateIsWall) {
+          matches += 1;
+        } else {
+          mismatches += 1;
+        }
+      }
+
+      const matchRatio = comparisons > 0 ? matches / comparisons : 0;
+      scores.push({
+        entry,
+        comparisons,
+        matches,
+        mismatches,
+        matchRatio,
+      });
+    }
+
+    if (scores.length === 0) {
+      return null;
+    }
+
+    scores.sort((a, b) => {
+      if (b.matchRatio !== a.matchRatio) {
+        return b.matchRatio - a.matchRatio;
+      }
+      if (a.mismatches !== b.mismatches) {
+        return a.mismatches - b.mismatches;
+      }
+      if (b.matches !== a.matches) {
+        return b.matches - a.matches;
+      }
+      return b.comparisons - a.comparisons;
+    });
+
+    const best = scores[0];
+    if (!best) {
+      return null;
+    }
+
+    const minComparisons = Math.min(
+      this.levelCacheWallComparisonMin,
+      Math.max(4, observedTiles.size),
+    );
+    if (best.comparisons < minComparisons) {
+      return null;
+    }
+    const allowedMismatchCount = Math.max(
+      this.levelCacheWallMismatchToleranceMin,
+      Math.floor(best.comparisons * this.levelCacheWallMismatchToleranceRatio),
+    );
+    if (best.mismatches > allowedMismatchCount) {
+      return null;
+    }
+    if (best.matches <= best.mismatches) {
+      return null;
+    }
+
+    const second = scores[1];
+    if (
+      second &&
+      second.comparisons >= minComparisons &&
+      Math.abs(best.matchRatio - second.matchRatio) <= 0.03 &&
+      Math.abs(best.mismatches - second.mismatches) <= 1
+    ) {
+      return null;
+    }
+
+    return best.entry;
+  }
+
+  private restoreLevelTerrainCacheEntry(
+    levelName: string,
+    entry: LevelTerrainCacheEntry,
+    observedTiles: Map<string, LevelCacheObservedTile>,
+  ): void {
+    this.tileStateCache = new Map(entry.tileStateCache);
+    this.lastKnownTerrain = this.cloneTerrainSnapshotMap(entry.lastKnownTerrain);
+    this.fpsFlatFeatureUnderPlayerCache = this.cloneTerrainSnapshotMap(
+      entry.fpsFlatFeatureUnderPlayerCache,
+    );
+    this.inferredDarkCorridorWallTiles = this.cloneCoordinateMap(
+      entry.inferredDarkCorridorWallTiles,
+    );
+    this.inferredDarkCorridorTileFlags = this.cloneStringSet(
+      entry.inferredDarkCorridorTileFlags,
+    );
+    for (const key of this.inferredDarkCorridorTileFlags.values()) {
+      if (this.inferredDarkCorridorWallTiles.has(key)) {
+        continue;
+      }
+      const parsed = this.parseTileKey(key);
+      if (!parsed) {
+        continue;
+      }
+      this.inferredDarkCorridorWallTiles.set(key, parsed);
+    }
+    this.refreshTilesFromStateCache();
+
+    for (const observed of observedTiles.values()) {
+      const key = `${observed.x},${observed.y}`;
+      this.tileStateCache.set(key, this.buildTileStateSignatureFromPayload(observed));
+      this.updateTile(
+        observed.x,
+        observed.y,
+        observed.glyph,
+        observed.char,
+        observed.color,
+        {
+          runtimeTileIndex:
+            typeof observed.tileIndex === "number" ? observed.tileIndex : undefined,
+        },
+      );
+    }
+
+    this.activeLevelCacheRef = { levelName, entryId: entry.id };
+    this.currentLevelCacheName = levelName;
+  }
+
+  private activateNewLevelTerrainCacheEntry(levelName: string): void {
+    const entryId = this.createLevelCacheEntryId(levelName);
+    const snapshot = this.captureCurrentLevelTerrainCacheSnapshot();
+    this.upsertLevelTerrainCacheEntry(levelName, entryId, snapshot);
+    this.activeLevelCacheRef = { levelName, entryId };
+    this.currentLevelCacheName = levelName;
+  }
+
+  private resolveLevelNameForPendingTransition(forceFallback: boolean): string | null {
+    const pending = this.pendingLevelCacheTransition;
+    if (!pending) {
+      return null;
+    }
+    if (this.latestLevelDescriptorName) {
+      return this.latestLevelDescriptorName;
+    }
+
+    const allowFallback = forceFallback || pending.sawLevelIdentityStatusUpdate;
+    if (!allowFallback) {
+      return null;
+    }
+
+    const fallbackLevelName = this.buildFallbackLevelCacheName();
+    if (!fallbackLevelName) {
+      return forceFallback
+        ? `Unresolved Level ${pending.startedAtMs}`
+        : null;
+    }
+
+    if (
+      !pending.sawLevelIdentityStatusUpdate &&
+      fallbackLevelName === pending.preTransitionFallbackLevelName
+    ) {
+      return forceFallback
+        ? `Unresolved Level ${pending.startedAtMs}`
+        : null;
+    }
+
+    return fallbackLevelName;
+  }
+
+  private maybeFinalizePendingLevelCacheTransition(
+    trigger: "tile" | "status" | "player_position" | "player_move",
+    forceFallback: boolean = false,
+  ): void {
+    const pending = this.pendingLevelCacheTransition;
+    if (!pending) {
+      return;
+    }
+
+    const levelName = this.resolveLevelNameForPendingTransition(forceFallback);
+    if (!levelName) {
+      return;
+    }
+
+    const candidates = this.levelTerrainCachesByName.get(levelName) ?? [];
+    if (candidates.length === 0) {
+      this.activateNewLevelTerrainCacheEntry(levelName);
+      this.pendingLevelCacheTransition = null;
+      return;
+    }
+
+    if (candidates.length === 1) {
+      this.restoreLevelTerrainCacheEntry(levelName, candidates[0], pending.observedTiles);
+      this.pendingLevelCacheTransition = null;
+      return;
+    }
+
+    const observedWallCount = this.countObservedWallTilesForPendingTransition(
+      pending.observedTiles,
+    );
+    const shouldAttemptWallDisambiguation =
+      observedWallCount >= this.levelCacheDisambiguationWallSampleMin ||
+      pending.firstPassComplete ||
+      trigger === "player_move";
+    if (!shouldAttemptWallDisambiguation) {
+      return;
+    }
+
+    const matchedEntry = this.selectMatchingLevelTerrainCacheEntryByWalls(
+      candidates,
+      pending.observedTiles,
+    );
+    if (matchedEntry) {
+      this.restoreLevelTerrainCacheEntry(levelName, matchedEntry, pending.observedTiles);
+    } else {
+      this.activateNewLevelTerrainCacheEntry(levelName);
+    }
+    this.pendingLevelCacheTransition = null;
+  }
+
+  private handlePendingLevelTransitionPlayerPosition(x: number, y: number): void {
+    const pending = this.pendingLevelCacheTransition;
+    if (!pending) {
+      return;
+    }
+
+    if (!pending.firstPassComplete) {
+      pending.firstPassComplete = true;
+    }
+    if (!pending.initialPlayerPosition) {
+      pending.initialPlayerPosition = { x, y };
+      this.maybeFinalizePendingLevelCacheTransition("player_position");
+      return;
+    }
+
+    const movedWithinLevel =
+      pending.initialPlayerPosition.x !== x || pending.initialPlayerPosition.y !== y;
+    if (movedWithinLevel) {
+      this.maybeFinalizePendingLevelCacheTransition("player_move", true);
+      return;
+    }
+    this.maybeFinalizePendingLevelCacheTransition("player_position");
+  }
+
+  private noteLevelIdentityStatusUpdate(rawFieldName: string | null): void {
+    const pending = this.pendingLevelCacheTransition;
+    if (!pending || !rawFieldName) {
+      return;
+    }
+    if (
+      rawFieldName === "BL_LEVELDESC" ||
+      rawFieldName === "BL_DNUM" ||
+      rawFieldName === "BL_DLEVEL"
+    ) {
+      pending.sawLevelIdentityStatusUpdate = true;
+    }
   }
 
   private hasAuthoritativeTileDataForDarkCorridorInference(
@@ -1708,9 +2328,59 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
-  private beginDarkCorridorDiscoveryWindowFromPlayerInput(): void {
+  private beginDarkCorridorDiscoveryWindowFromPlayerInput(
+    options?: { allowBlindSearchInference?: boolean },
+  ): void {
+    const wasBlindSearchInferenceActive =
+      this.darkCorridorBlindSearchInferenceActive;
     this.darkCorridorInputDiscoveryWindowActive = true;
+    this.darkCorridorBlindSearchInferenceActive =
+      options?.allowBlindSearchInference === true;
+    this.darkCorridorBlindSearchInferenceUntilMs =
+      this.darkCorridorBlindSearchInferenceActive
+        ? Date.now() + this.darkCorridorBlindSearchInferenceWindowMs
+        : 0;
     this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
+
+    if (
+      wasBlindSearchInferenceActive &&
+      !this.darkCorridorBlindSearchInferenceActive &&
+      this.isPlayerBlindForDarkCorridorInference()
+    ) {
+      this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
+    }
+  }
+
+  private shouldEnableBlindDarkCorridorInferenceForInput(input: string): boolean {
+    return (
+      input === "s" &&
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.positionInputModeActive &&
+      !this.isTextInputActive
+    );
+  }
+
+  private isBlindSearchInferenceWindowActive(nowMs: number): boolean {
+    return (
+      this.darkCorridorBlindSearchInferenceActive &&
+      nowMs <= this.darkCorridorBlindSearchInferenceUntilMs
+    );
+  }
+
+  private expireBlindSearchInferenceWindowIfNeeded(): void {
+    if (!this.darkCorridorBlindSearchInferenceActive) {
+      return;
+    }
+    const nowMs = Date.now();
+    if (nowMs <= this.darkCorridorBlindSearchInferenceUntilMs) {
+      return;
+    }
+    this.darkCorridorBlindSearchInferenceActive = false;
+    this.darkCorridorBlindSearchInferenceUntilMs = 0;
+    if (this.isPlayerBlindForDarkCorridorInference()) {
+      this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
+    }
   }
 
   private isTileKnownAsDarkCorridorFromCaches(key: string): boolean {
@@ -2049,7 +2719,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileX: number,
     tileY: number,
   ): void {
-    this.inferredDarkCorridorWallTiles.delete(key);
+    this.removeInferredDarkCorridorTile(key);
 
     const mesh = this.tileMap.get(key);
     if (!mesh || !mesh.userData?.isInferredDarkCorridorWall) {
@@ -2115,11 +2785,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private reconcileInferredDarkCorridorWalls(): void {
+    const nowMs = Date.now();
     const pendingBoulderPushInference =
       this.pendingBoulderPushDarkCorridorInference;
     this.pendingBoulderPushDarkCorridorInference = null;
 
     if (!this.isDarkCorridorWallInferenceEnabled()) {
+      this.clearAllInferredDarkCorridorWallMeshes();
+      return;
+    }
+
+    if (
+      this.isPlayerBlindForDarkCorridorInference() &&
+      !this.isBlindSearchInferenceWindowActive(nowMs)
+    ) {
       this.clearAllInferredDarkCorridorWallMeshes();
       return;
     }
@@ -2190,14 +2869,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!this.inferredDarkCorridorWallTiles.has(key)) {
         newlyInferredKeys.add(key);
       }
-      this.inferredDarkCorridorWallTiles.set(key, tile);
+      this.addInferredDarkCorridorTile(key, tile.x, tile.y);
     }
 
     for (const [key, tile] of Array.from(
       this.inferredDarkCorridorWallTiles.entries(),
     )) {
       if (!this.shouldInferDarkCorridorWallAt(key)) {
-        this.inferredDarkCorridorWallTiles.delete(key);
+        this.removeInferredDarkCorridorTile(key);
         continue;
       }
 
@@ -3297,6 +3976,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private async connectToRuntime(): Promise<void> {
     console.log("Starting local NetHack runtime");
+    this.resetLevelTerrainCacheTracking();
     this.runtimeTerminationPromptShown = false;
     this.setGameOverState(false, null);
     this.inventoryContextActionsEnabled = true;
@@ -3326,6 +4006,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           gender: this.characterCreationConfig.gender,
           align: this.characterCreationConfig.align,
         },
+        initOptions: this.characterCreationConfig.initOptions,
         loggingEnabled: isLoggingEnabled(),
       },
     );
@@ -3355,12 +4036,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const data = event as RuntimeEvent & Record<string, any>;
     switch (data.type) {
       case "map_glyph":
+        this.capturePendingLevelTransitionTile(data);
+        this.maybeFinalizePendingLevelCacheTransition("tile");
         this.tryResolvePendingCharacterDamage(data);
         this.enqueueTileUpdate(data);
         break;
 
       case "map_glyph_batch":
         if (Array.isArray(data.tiles)) {
+          this.capturePendingLevelTransitionTiles(data.tiles);
+          this.maybeFinalizePendingLevelCacheTransition("tile");
           for (const tile of data.tiles) {
             this.tryResolvePendingCharacterDamage(tile);
             this.enqueueTileUpdate(tile);
@@ -3378,6 +4063,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
+        this.handlePendingLevelTransitionPlayerPosition(data.x, data.y);
         const oldPos = { ...this.playerPos };
         this.playPlayerFootstepSoundFromCliparoundIfEligible(
           oldPos.x,
@@ -3637,6 +4323,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       case "clear_scene":
         console.log("🧹 Clearing 3D scene for level transition");
+        this.persistActiveLevelTerrainCache();
+        this.beginPendingLevelCacheTransition();
         this.clearScene();
         this.pendingPlayerTileRefreshOnNextPosition = true;
         if (data.message) {
@@ -4583,7 +5271,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const signature = `${tile.glyph}|${tile.char ?? ""}|${tile.color ?? ""}|ti:${typeof tile.tileIndex === "number" ? Math.trunc(tile.tileIndex) : ""}`;
+      const signature = this.buildTileStateSignatureFromPayload(tile);
       if (this.tileStateCache.get(key) === signature) {
         const shouldHaveMonsterBillboard =
           behavior !== null &&
@@ -9589,8 +10277,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.lastKnownTerrain.clear();
     this.fpsFlatFeatureUnderPlayerCache.clear();
     this.inferredDarkCorridorWallTiles.clear();
+    this.inferredDarkCorridorTileFlags.clear();
     this.pendingBoulderPushDarkCorridorInference = null;
     this.darkCorridorInputDiscoveryWindowActive = false;
+    this.darkCorridorBlindSearchInferenceActive = false;
+    this.darkCorridorBlindSearchInferenceUntilMs = 0;
     this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
     this.activeEffectTileKeys.clear();
     this.pendingTileUpdates.clear();
@@ -10899,7 +11590,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       options.inferredDarkCorridorWall === true;
     const restartRevealFade = options.restartRevealFade === true;
     const hadInferredDarkCorridorWall =
-      this.inferredDarkCorridorWallTiles.has(key);
+      this.inferredDarkCorridorWallTiles.has(key) ||
+      this.inferredDarkCorridorTileFlags.has(key);
     let mesh = this.tileMap.get(key);
     const behavior = classifyTileBehavior({
       glyph,
@@ -10955,7 +11647,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (!isInferredDarkCorridorWall) {
-      this.inferredDarkCorridorWallTiles.delete(key);
+      this.removeInferredDarkCorridorTile(key);
+    } else {
+      this.addInferredDarkCorridorTile(key, x, y);
     }
 
     if (isUndiscovered) {
@@ -11590,6 +12284,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private refreshLevelCacheNameFromStatusFields(
+    rawFieldName: string | null,
+    mappedField: string | null,
+    rawValue: unknown,
+  ): void {
+    if (rawFieldName === "BL_LEVELDESC") {
+      const normalizedLevelDescriptor = this.normalizeLevelCacheName(rawValue);
+      if (normalizedLevelDescriptor) {
+        this.latestLevelDescriptorName = normalizedLevelDescriptor;
+      }
+    }
+
+    this.noteLevelIdentityStatusUpdate(rawFieldName);
+    const pending = this.pendingLevelCacheTransition;
+    if (pending && (mappedField === "dungeon" || mappedField === "dlevel")) {
+      pending.sawLevelIdentityStatusUpdate = true;
+    }
+    const allowFallback = !pending || pending.sawLevelIdentityStatusUpdate;
+    const resolvedLevelName = this.resolvePreferredLevelCacheName({
+      allowFallback,
+    });
+    if (resolvedLevelName) {
+      this.retagActiveLevelCacheEntryLevelName(resolvedLevelName);
+      this.currentLevelCacheName = resolvedLevelName;
+    }
+    this.maybeFinalizePendingLevelCacheTransition("status");
+  }
+
   private updatePlayerStats(
     field: number,
     value: string | number | null,
@@ -11670,14 +12392,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (isConditionMaskField) {
+      const previousConditionMask = this.statusConditionMask;
       const parsedConditionMask = this.parseStatusConditionMaskValue(value);
       if (parsedConditionMask !== null) {
         this.statusConditionMask = parsedConditionMask;
+      }
+      if (previousConditionMask !== this.statusConditionMask) {
+        this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       }
       return;
     }
 
     if (!mappedField || value === null || value === undefined) {
+      this.refreshLevelCacheNameFromStatusFields(rawFieldName, mappedField, value);
       console.log(
         `Skipping status update: field=${field}, fieldName=${rawFieldName}, value=${value}`,
       );
@@ -11895,6 +12622,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.updateStatsDisplay();
+    this.refreshLevelCacheNameFromStatusFields(
+      rawFieldName,
+      mappedField,
+      parsedValue,
+    );
   }
 
   private updateStatsDisplay(): void {
@@ -13171,7 +13903,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.session) {
-      this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
+      const allowBlindSearchInference =
+        this.shouldEnableBlindDarkCorridorInferenceForInput(resolvedInput);
+      this.beginDarkCorridorDiscoveryWindowFromPlayerInput({
+        allowBlindSearchInference,
+      });
       // Workaround for a race condition in contextual command handling.
       // TODO: remove once the underlying ordering issue is fixed.
       this.session.sendInput(resolvedInput, { delayMs: options.delayMs });
@@ -13211,7 +13947,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
+    const allowBlindSearchInference =
+      inputs.length === 1 &&
+      this.shouldEnableBlindDarkCorridorInferenceForInput(inputs[0]);
+    this.beginDarkCorridorDiscoveryWindowFromPlayerInput({
+      allowBlindSearchInference,
+    });
     // Workaround for a race condition in contextual command handling.
     // TODO: remove once the underlying ordering issue is fixed.
     this.session.sendInputSequence(inputs, { delayMs: options.delayMs });
@@ -13257,7 +13998,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.armPendingPlayerFootstepSound();
       this.armPlayerCliparoundInputCooldown();
     }
-    this.beginDarkCorridorDiscoveryWindowFromPlayerInput();
+    this.beginDarkCorridorDiscoveryWindowFromPlayerInput({
+      allowBlindSearchInference: false,
+    });
     this.session.sendMouseInput(x, y, button);
   }
 
@@ -18143,6 +18886,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateNormalTileContextMenu();
     this.updateFpsAimVisuals(timeMs);
     this.updateContextSelectionHighlight(timeMs);
+    this.expireBlindSearchInferenceWindowIfNeeded();
     this.updateLightingCenter(deltaSeconds);
     if (this.clientOptions.minimap) {
       this.renderMinimapViewportOverlay();

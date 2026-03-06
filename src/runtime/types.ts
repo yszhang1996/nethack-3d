@@ -29,6 +29,7 @@ export type RuntimeCharacterCreationConfig = {
 export type RuntimeStartupOptions = {
   runtimeVersion?: NethackRuntimeVersion;
   characterCreation?: RuntimeCharacterCreationConfig;
+  initOptions?: string[];
   loggingEnabled?: boolean;
 };
 

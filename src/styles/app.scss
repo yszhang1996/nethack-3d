@@ -3027,6 +3027,84 @@ canvas {
   }
 }
 
+.nh3d-startup-init-options {
+  width: min(560px, 100%);
+  margin: 10px auto 0;
+  border: 1px solid rgba(84, 118, 168, 0.58);
+  border-radius: 8px;
+  background: rgba(9, 24, 40, 0.74);
+  overflow: hidden;
+  text-align: left;
+}
+
+.nh3d-startup-init-options-summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: nh3d-scale-font(13px);
+  font-weight: bold;
+  color: var(--nh3d-ui-accent-soft);
+  background: rgba(14, 36, 58, 0.78);
+  border-bottom: 1px solid rgba(88, 125, 176, 0.38);
+
+  &::-webkit-details-marker {
+    display: none;
+  }
+
+  &::before {
+    content: "\25b8";
+    margin-right: 8px;
+    display: inline-block;
+    transition: transform 140ms ease;
+  }
+}
+
+.nh3d-startup-init-options[open] .nh3d-startup-init-options-summary::before {
+  transform: rotate(90deg);
+}
+
+.nh3d-startup-init-options-body {
+  padding: 10px;
+}
+
+.nh3d-startup-init-options-description {
+  margin-bottom: 8px;
+}
+
+.nh3d-startup-init-options-list {
+  @extend %custom-scrollbar;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(40vh, 360px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.nh3d-startup-init-options-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.nh3d-startup-init-option-input-shell {
+  width: min(240px, 100%);
+
+  @media (pointer: coarse) {
+    width: 100%;
+  }
+}
+
+@media (pointer: coarse) {
+  .nh3d-startup-init-options-actions {
+    justify-content: stretch;
+  }
+
+  .nh3d-startup-init-options-actions .nh3d-menu-action-button {
+    width: 100%;
+  }
+}
+
 .nh3d-choice-button {
   padding: 8px 16px;
   background: var(--nh3d-ui-button-warm-bg);
