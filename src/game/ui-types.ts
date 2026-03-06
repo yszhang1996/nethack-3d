@@ -209,7 +209,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   minimapScale: 1,
   damageNumbers: true,
   displayStatChangesAbovePlayer: true,
-  displayXpGainsAbovePlayer: false,
+  displayXpGainsAbovePlayer: true,
   tileShakeOnHit: true,
   blood: true,
   monsterShatter: true,
