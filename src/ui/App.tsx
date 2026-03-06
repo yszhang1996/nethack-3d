@@ -74,6 +74,11 @@ import {
   pickRandomStartupRole,
   resolveStartupCreateCharacterOptionSet,
 } from "./startup-character-constraints";
+import {
+  parseCharacterSheetInfoMenu,
+  resolveCharacterCommandActions,
+  type CharacterSheetStatKey,
+} from "./character-sheet";
 
 type DirectionChoice = {
   key?: string;
@@ -105,6 +110,44 @@ const trackedCoreStatKeys: CoreStatKey[] = [
   "charisma",
   "armor",
 ];
+
+const characterStatDescriptionById: Record<CharacterSheetStatKey, string> = {
+  strength: "Affects melee damage, carrying capacity, and forcing actions.",
+  dexterity: "Affects hit chance, trap interaction, and defensive agility.",
+  constitution: "Affects HP growth and resistance to poison and drain effects.",
+  intelligence: "Affects reading and success with many spell-related actions.",
+  wisdom: "Affects spell energy growth and spell-casting reliability.",
+  charisma: "Affects shop interactions, pet handling, and social outcomes.",
+};
+
+const armorClassDescription =
+  "Lower is better. Armor Class reduces enemy hit chance against you.";
+
+const maxExperienceLevel = 30;
+
+function getExperienceThresholdForLevel(level: number): number {
+  if (!Number.isFinite(level)) {
+    return 0;
+  }
+  const normalizedLevel = Math.trunc(level);
+  if (normalizedLevel < 1) {
+    return 0;
+  }
+  if (normalizedLevel < 10) {
+    return 10 * (1 << normalizedLevel);
+  }
+  if (normalizedLevel < 20) {
+    return 10000 * (1 << (normalizedLevel - 10));
+  }
+  return 10000000 * (normalizedLevel - 19);
+}
+
+function formatCharacterNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  return Math.max(0, Math.trunc(value)).toLocaleString("en-US");
+}
 
 const getCoreStatValuesFromSnapshot = (
   stats: PlayerStatsSnapshot,
@@ -1211,6 +1254,7 @@ const inventoryContextActions: InventoryContextAction[] = [
   { id: "read", label: "Read" },
   { id: "throw", label: "Throw" },
   { id: "wield", label: "Wield" },
+  { id: "quiver", label: "Quiver" },
   { id: "wear", label: "Wear" },
   { id: "take-off", label: "Take Off" },
   { id: "put-on", label: "Put On" },
@@ -1584,7 +1628,8 @@ const clientOptionsConfig: ClientOption[] = [
   {
     key: "displayStatChangesAbovePlayer",
     label: "Display stat changes above player",
-    description: "Show floating labels for stat changes such as Strength and AC.",
+    description:
+      "Show floating labels for stat changes such as Strength and AC.",
     type: "boolean",
   },
   {
@@ -2487,6 +2532,9 @@ export default function App(): JSX.Element {
   const [mobileActionSheetMode, setMobileActionSheetMode] =
     useState<MobileActionSheetMode>("quick");
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
+  const [characterSheetInterceptionArmed, setCharacterSheetInterceptionArmed] =
+    useState(false);
+  const characterSheetAwaitingInfoRef = useRef(false);
   const [statsBarHeight, setStatsBarHeight] = useState(0);
   const [coreStatBoldUntilTurn, setCoreStatBoldUntilTurn] = useState<
     Partial<Record<CoreStatKey, number>>
@@ -2528,6 +2576,60 @@ export default function App(): JSX.Element {
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
   const newGamePrompt = useGameStore((state) => state.newGamePrompt);
+  const characterSheet = useMemo(
+    () => parseCharacterSheetInfoMenu(infoMenu),
+    [infoMenu],
+  );
+  const isCharacterSheetVisible = Boolean(
+    infoMenu && characterSheet && characterSheetInterceptionArmed,
+  );
+  const hasCharacterStatValues = Boolean(
+    characterSheet?.statEntries.some((entry) =>
+      Boolean(entry.currentValue || entry.rawValue || entry.limitValue),
+    ),
+  );
+  const hasCharacterStatLimits = Boolean(
+    characterSheet?.statEntries.some((entry) => Boolean(entry.limitValue)),
+  );
+  const characterExperienceProgress = useMemo(() => {
+    const level = Number.isFinite(playerStats.level)
+      ? Math.max(1, Math.trunc(playerStats.level))
+      : 1;
+    const experiencePoints = Number.isFinite(playerStats.experience)
+      ? Math.max(0, Math.trunc(playerStats.experience))
+      : 0;
+    const currentLevelStart = getExperienceThresholdForLevel(level - 1);
+    if (level >= maxExperienceLevel) {
+      return {
+        level,
+        experiencePoints,
+        isMaxLevel: true,
+        currentLevelStart,
+        nextLevelThreshold: currentLevelStart,
+        toNextLevel: 0,
+        progressPercent: 100,
+      };
+    }
+    const nextLevelThreshold = getExperienceThresholdForLevel(level);
+    const levelSpan = Math.max(1, nextLevelThreshold - currentLevelStart);
+    const gainedThisLevel = Math.max(
+      0,
+      Math.min(levelSpan, experiencePoints - currentLevelStart),
+    );
+    const toNextLevel = Math.max(0, nextLevelThreshold - experiencePoints);
+    return {
+      level,
+      experiencePoints,
+      isMaxLevel: false,
+      currentLevelStart,
+      nextLevelThreshold,
+      toNextLevel,
+      progressPercent: Math.max(
+        0,
+        Math.min(100, (gainedThisLevel / levelSpan) * 100),
+      ),
+    };
+  }, [playerStats.level, playerStats.experience]);
   const floatingMessageTextStyle = useMemo(
     () =>
       ({
@@ -2757,13 +2859,21 @@ export default function App(): JSX.Element {
       ) || ""
     );
   }, [inventoryContextMenu, inventoryItemCategoryByAccelerator]);
+  const inventoryContextCategoryId = useMemo(
+    () => classifyInventoryCategory(inventoryContextCategory),
+    [inventoryContextCategory],
+  );
   const inventoryContextMenuActions = useMemo(() => {
     const blocked = getBlockedInventoryActionIdsForCategory(
       inventoryContextCategory,
     );
-    const visibleActions = blocked.size
+    const filteredByCategory = blocked.size
       ? inventoryItemActions.filter((action) => !blocked.has(action.id))
       : inventoryItemActions;
+    const visibleActions =
+      inventoryContextCategoryId === "weapons"
+        ? filteredByCategory
+        : filteredByCategory.filter((action) => action.id !== "quiver");
     const selectedItemText = String(inventoryContextMenu?.itemText || "");
     const selectedItemIsWeaponInHand = /\bweapon in hand\b/i.test(
       selectedItemText,
@@ -2778,6 +2888,7 @@ export default function App(): JSX.Element {
     );
   }, [
     inventoryContextCategory,
+    inventoryContextCategoryId,
     inventoryContextMenu?.itemText,
     inventoryItemActions,
   ]);
@@ -3251,10 +3362,7 @@ export default function App(): JSX.Element {
         error,
       );
     });
-  }, [
-    hasHydratedStartupCharacterPreferences,
-    startupCharacterPreferences,
-  ]);
+  }, [hasHydratedStartupCharacterPreferences, startupCharacterPreferences]);
 
   useEffect(() => {
     let disposed = false;
@@ -3269,7 +3377,10 @@ export default function App(): JSX.Element {
         if (disposed) {
           return;
         }
-        console.warn("Failed to hydrate startup init options from IndexedDB:", error);
+        console.warn(
+          "Failed to hydrate startup init options from IndexedDB:",
+          error,
+        );
       })
       .finally(() => {
         if (disposed) {
@@ -3289,7 +3400,10 @@ export default function App(): JSX.Element {
     }
     persistNh3dStartupInitOptionsToIndexedDb(startupInitOptionValues).catch(
       (error) => {
-        console.warn("Failed to persist startup init options to IndexedDB:", error);
+        console.warn(
+          "Failed to persist startup init options to IndexedDB:",
+          error,
+        );
       },
     );
   }, [hasHydratedStartupInitOptions, startupInitOptionValues]);
@@ -3697,6 +3811,23 @@ export default function App(): JSX.Element {
 
   const startup = !isMobileGameRunning && !isDesktopGameRunning;
 
+  useEffect(() => {
+    if (!characterSheetInterceptionArmed) {
+      characterSheetAwaitingInfoRef.current = false;
+      return;
+    }
+    if (!infoMenu) {
+      if (!characterSheetAwaitingInfoRef.current) {
+        setCharacterSheetInterceptionArmed(false);
+      }
+      return;
+    }
+    characterSheetAwaitingInfoRef.current = false;
+    if (!characterSheet) {
+      setCharacterSheetInterceptionArmed(false);
+    }
+  }, [infoMenu, characterSheet, characterSheetInterceptionArmed]);
+
   useLayoutEffect(() => {
     if (typeof document === "undefined" || typeof window === "undefined") {
       return;
@@ -4011,6 +4142,37 @@ export default function App(): JSX.Element {
       available.has(command),
     );
   }, [mobileExtendedCommandNames]);
+  const characterCommandActions = useMemo(
+    () => resolveCharacterCommandActions(mobileExtendedCommandNames),
+    [mobileExtendedCommandNames],
+  );
+  const openCharacterDialog = useCallback((): void => {
+    setCharacterSheetInterceptionArmed(true);
+    characterSheetAwaitingInfoRef.current = true;
+    controller?.dismissFpsCrosshairContextMenu();
+    setIsMobileActionSheetVisible(false);
+    setMobileActionSheetMode("quick");
+    setIsMobileLogVisible(false);
+    controller?.runExtendedCommand("attributes");
+  }, [controller]);
+  const runCharacterExtendedCommand = useCallback(
+    (command: string): void => {
+      const normalizedCommand = String(command || "")
+        .trim()
+        .toLowerCase();
+      setCharacterSheetInterceptionArmed(normalizedCommand === "attributes");
+      characterSheetAwaitingInfoRef.current =
+        normalizedCommand === "attributes";
+      controller?.dismissFpsCrosshairContextMenu();
+      controller?.runExtendedCommand(command);
+    },
+    [controller],
+  );
+  const closeInfoMenuDialog = useCallback((): void => {
+    setCharacterSheetInterceptionArmed(false);
+    characterSheetAwaitingInfoRef.current = false;
+    controller?.closeInfoMenuDialog();
+  }, [controller]);
 
   const submitTextInput = (value: string): void => {
     controller?.submitTextInput(value);
@@ -5594,63 +5756,65 @@ export default function App(): JSX.Element {
                       </div>
                     ) : savedGames.length > 0 ? (
                       savedGames.map((save) => (
-                      <button
-                        key={save.name}
-                        className="nh3d-choice-button nh3d-character-setup-choice-button"
-                        style={{
-                          flexDirection: "column",
-                          alignItems: "flex-start",
-                          padding: "12px",
-                          width: "100%",
-                        }}
-                        onClick={() => {
-                          setCharacterCreationConfig({
-                            mode: "resume" as any,
-                            playMode: clientOptions.fpsMode ? "fps" : "normal",
-                            runtimeVersion,
-                            name: save.name,
-                          });
-                        }}
-                        type="button"
-                      >
-                        <div
+                        <button
+                          key={save.name}
+                          className="nh3d-choice-button nh3d-character-setup-choice-button"
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            padding: "12px",
                             width: "100%",
-                            alignItems: "center",
                           }}
+                          onClick={() => {
+                            setCharacterCreationConfig({
+                              mode: "resume" as any,
+                              playMode: clientOptions.fpsMode
+                                ? "fps"
+                                : "normal",
+                              runtimeVersion,
+                              name: save.name,
+                            });
+                          }}
+                          type="button"
                         >
-                          <div style={{ flex: 1 }}>
-                            <div
-                              style={{
-                                fontWeight: "bold",
-                                fontSize:
-                                  "calc(16px * var(--nh3d-ui-font-scale, 1))",
-                              }}
-                            >
-                              {save.name}
-                            </div>
-                            <div
-                              style={{
-                                fontSize:
-                                  "calc(12px * var(--nh3d-ui-font-scale, 1))",
-                                color: "var(--nh3d-ui-text-muted)",
-                                marginTop: "4px",
-                                fontWeight: "normal",
-                              }}
-                            >
-                              Saved: {save.dateFormatted}
-                            </div>
-                          </div>
-                          <button
-                            className="delete-button"
-                            onClick={(e) => handleDeleteSave(e, save)}
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              width: "100%",
+                              alignItems: "center",
+                            }}
                           >
-                            X
-                          </button>
-                        </div>
-                      </button>
+                            <div style={{ flex: 1 }}>
+                              <div
+                                style={{
+                                  fontWeight: "bold",
+                                  fontSize:
+                                    "calc(16px * var(--nh3d-ui-font-scale, 1))",
+                                }}
+                              >
+                                {save.name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize:
+                                    "calc(12px * var(--nh3d-ui-font-scale, 1))",
+                                  color: "var(--nh3d-ui-text-muted)",
+                                  marginTop: "4px",
+                                  fontWeight: "normal",
+                                }}
+                              >
+                                Saved: {save.dateFormatted}
+                              </div>
+                            </div>
+                            <button
+                              className="delete-button"
+                              onClick={(e) => handleDeleteSave(e, save)}
+                            >
+                              X
+                            </button>
+                          </div>
+                        </button>
                       ))
                     ) : (
                       <div
@@ -5712,7 +5876,9 @@ export default function App(): JSX.Element {
                         mode: "random",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
-                        name: normalizeStartupCharacterName(randomCharacterName),
+                        name: normalizeStartupCharacterName(
+                          randomCharacterName,
+                        ),
                         role: randomRole,
                         gender: randomGender,
                         initOptions: startupInitOptionTokens,
@@ -5762,11 +5928,13 @@ export default function App(): JSX.Element {
                       onChange={(event) => setCreateRole(event.target.value)}
                       value={normalizedCreateCharacterSelection.role}
                     >
-                      {startupCreateCharacterOptionSet.roleOptions.map((role) => (
-                        <option key={role} value={role}>
-                          {role}
-                        </option>
-                      ))}
+                      {startupCreateCharacterOptionSet.roleOptions.map(
+                        (role) => (
+                          <option key={role} value={role}>
+                            {role}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </label>
                   <label className="nh3d-startup-config-field">
@@ -5776,11 +5944,13 @@ export default function App(): JSX.Element {
                       onChange={(event) => setCreateRace(event.target.value)}
                       value={normalizedCreateCharacterSelection.race}
                     >
-                      {startupCreateCharacterOptionSet.raceOptions.map((race) => (
-                        <option key={race} value={race}>
-                          {race}
-                        </option>
-                      ))}
+                      {startupCreateCharacterOptionSet.raceOptions.map(
+                        (race) => (
+                          <option key={race} value={race}>
+                            {race}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </label>
                   <label className="nh3d-startup-config-field">
@@ -5790,11 +5960,13 @@ export default function App(): JSX.Element {
                       onChange={(event) => setCreateGender(event.target.value)}
                       value={normalizedCreateCharacterSelection.gender}
                     >
-                      {startupCreateCharacterOptionSet.genderOptions.map((gender) => (
-                        <option key={gender} value={gender}>
-                          {gender}
-                        </option>
-                      ))}
+                      {startupCreateCharacterOptionSet.genderOptions.map(
+                        (gender) => (
+                          <option key={gender} value={gender}>
+                            {gender}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </label>
                   <label className="nh3d-startup-config-field">
@@ -5804,11 +5976,13 @@ export default function App(): JSX.Element {
                       onChange={(event) => setCreateAlign(event.target.value)}
                       value={normalizedCreateCharacterSelection.align}
                     >
-                      {startupCreateCharacterOptionSet.alignOptions.map((align) => (
-                        <option key={align} value={align}>
-                          {align}
-                        </option>
-                      ))}
+                      {startupCreateCharacterOptionSet.alignOptions.map(
+                        (align) => (
+                          <option key={align} value={align}>
+                            {align}
+                          </option>
+                        ),
+                      )}
                     </select>
                   </label>
                 </div>
@@ -5827,7 +6001,9 @@ export default function App(): JSX.Element {
                         mode: "create",
                         playMode: clientOptions.fpsMode ? "fps" : "normal",
                         runtimeVersion,
-                        name: normalizeStartupCharacterName(createCharacterName),
+                        name: normalizeStartupCharacterName(
+                          createCharacterName,
+                        ),
                         role: normalizedCreateCharacterSelection.role,
                         race: normalizedCreateCharacterSelection.race,
                         gender: normalizedCreateCharacterSelection.gender,
@@ -6119,420 +6295,441 @@ export default function App(): JSX.Element {
                 </div>
                 <div className="nh3d-options-list">
                   {visibleClientOptions.map((option) => {
-              if (
-                option.type === "boolean" &&
-                option.key === "invertLookYAxis" &&
-                !clientOptionsDraft.fpsMode
-              ) {
-                return null;
-              }
-              if (
-                option.type === "boolean" &&
-                (option.key === "darkCorridorWallTileOverrideEnabled" ||
-                  option.key === "darkCorridorWallSolidColorOverrideEnabled") &&
-                !clientOptionsDraft.darkCorridorWalls367
-              ) {
-                return null;
-              }
-              if (
-                option.type === "select" &&
-                option.key === "tilesetPath" &&
-                clientOptionsDraft.tilesetMode !== "tiles"
-              ) {
-                return null;
-              }
-              if (option.type === "boolean") {
-                const enabled = Boolean(clientOptionsDraft[option.key]);
-                const isDarkWallTileOverrideOption =
-                  option.key === "darkCorridorWallTileOverrideEnabled";
-                const isDarkWallSolidColorOverrideOption =
-                  option.key === "darkCorridorWallSolidColorOverrideEnabled";
-                const isDarkWallOverrideOption =
-                  isDarkWallTileOverrideOption ||
-                  isDarkWallSolidColorOverrideOption;
-                return (
-                  <Fragment key={option.key}>
-                    <div
-                      className={`nh3d-option-row nh3d-option-row-inline-toggle${
-                        isDarkWallOverrideOption
-                          ? " nh3d-option-row-has-secondary-controls"
-                          : ""
-                      }${
-                        isDarkWallOverrideOption && !enabled
-                          ? " nh3d-option-row-mode-inactive"
-                          : ""
-                      }`}
-                    >
-                      <div className="nh3d-option-copy">
-                        <div className="nh3d-option-label">{option.label}</div>
-                        <div className="nh3d-option-description">
-                          {option.description}
-                        </div>
-                      </div>
-                      {isDarkWallTileOverrideOption ? (
-                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                          <button
-                            className={`nh3d-option-tile-picker-button${
-                              enabled ? "" : " is-disabled"
+                    if (
+                      option.type === "boolean" &&
+                      option.key === "invertLookYAxis" &&
+                      !clientOptionsDraft.fpsMode
+                    ) {
+                      return null;
+                    }
+                    if (
+                      option.type === "boolean" &&
+                      (option.key === "darkCorridorWallTileOverrideEnabled" ||
+                        option.key ===
+                          "darkCorridorWallSolidColorOverrideEnabled") &&
+                      !clientOptionsDraft.darkCorridorWalls367
+                    ) {
+                      return null;
+                    }
+                    if (
+                      option.type === "select" &&
+                      option.key === "tilesetPath" &&
+                      clientOptionsDraft.tilesetMode !== "tiles"
+                    ) {
+                      return null;
+                    }
+                    if (option.type === "boolean") {
+                      const enabled = Boolean(clientOptionsDraft[option.key]);
+                      const isDarkWallTileOverrideOption =
+                        option.key === "darkCorridorWallTileOverrideEnabled";
+                      const isDarkWallSolidColorOverrideOption =
+                        option.key ===
+                        "darkCorridorWallSolidColorOverrideEnabled";
+                      const isDarkWallOverrideOption =
+                        isDarkWallTileOverrideOption ||
+                        isDarkWallSolidColorOverrideOption;
+                      return (
+                        <Fragment key={option.key}>
+                          <div
+                            className={`nh3d-option-row nh3d-option-row-inline-toggle${
+                              isDarkWallOverrideOption
+                                ? " nh3d-option-row-has-secondary-controls"
+                                : ""
+                            }${
+                              isDarkWallOverrideOption && !enabled
+                                ? " nh3d-option-row-mode-inactive"
+                                : ""
                             }`}
-                            disabled={!enabled}
-                            onClick={() => setIsDarkWallTilePickerVisible(true)}
-                            type="button"
                           >
-                            <span className="nh3d-option-tile-picker-preview">
-                              {renderTilePreviewImage(selectedDarkWallTileId)}
-                            </span>
-                            <span className="nh3d-option-tile-picker-copy">
-                              <span className="nh3d-option-tile-picker-glyph">
-                                {selectedDarkWallGlyphLabel}
-                              </span>
-                              <span className="nh3d-option-tile-picker-id">
-                                tile #{selectedDarkWallTileId}
-                              </span>
-                            </span>
-                          </button>
-                        </div>
-                      ) : isDarkWallSolidColorOverrideOption ? (
-                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                          <div className="nh3d-dark-wall-solid-color-controls">
-                            <div className="nh3d-dark-wall-solid-color-input-row">
-                              <div className="nh3d-dark-wall-solid-color-input-group">
-                                <label className="nh3d-dark-wall-mode-color">
-                                  <span>Normal</span>
-                                  <input
-                                    aria-label="Dark wall solid color (normal mode)"
-                                    className="nh3d-option-solid-color-native-picker"
-                                    disabled={!enabled}
-                                    onChange={(event) =>
-                                      updateDarkWallSolidColorHexDraft(
-                                        event.target.value,
-                                      )
-                                    }
-                                    type="color"
-                                    value={normalizeSolidChromaKeyHex(
-                                      selectedDarkWallSolidColorHex,
-                                    )}
-                                  />
-                                </label>
-                                <label className="nh3d-dark-wall-mode-color">
-                                  <span>FPS</span>
-                                  <input
-                                    aria-label="Dark wall solid color (FPS mode)"
-                                    className="nh3d-option-solid-color-native-picker"
-                                    disabled={!enabled}
-                                    onChange={(event) =>
-                                      updateDarkWallSolidColorHexFpsDraft(
-                                        event.target.value,
-                                      )
-                                    }
-                                    type="color"
-                                    value={normalizeSolidChromaKeyHex(
-                                      selectedDarkWallSolidColorHexFps,
-                                    )}
-                                  />
-                                </label>
+                            <div className="nh3d-option-copy">
+                              <div className="nh3d-option-label">
+                                {option.label}
                               </div>
-                              <div className="nh3d-dark-wall-solid-color-input-group">
-                                <label className="nh3d-dark-wall-grid-toggle">
-                                  <input
-                                    checked={
-                                      selectedDarkWallSolidColorGridEnabled
-                                    }
-                                    disabled={!enabled}
-                                    onChange={(event) =>
-                                      updateDarkWallSolidColorGridEnabledDraft(
-                                        event.target.checked,
-                                      )
-                                    }
-                                    type="checkbox"
-                                  />
-                                  <span>Grid lines</span>
-                                </label>
-                                <label className="nh3d-dark-wall-grid-darkness">
-                                  <span>Intensity</span>
-                                  <span className="nh3d-dark-wall-grid-darkness-input-wrap">
-                                    <input
-                                      className="nh3d-dark-wall-grid-darkness-input"
-                                      disabled={
-                                        !enabled ||
-                                        !selectedDarkWallSolidColorGridEnabled
-                                      }
-                                      max={100}
-                                      min={0}
-                                      onChange={(event) =>
-                                        updateDarkWallSolidColorGridDarknessPercentDraft(
-                                          Number(event.target.value),
-                                        )
-                                      }
-                                      step={1}
-                                      type="number"
-                                      value={
-                                        selectedDarkWallSolidColorGridDarknessPercent
-                                      }
-                                    />
-                                    <span
-                                      aria-hidden="true"
-                                      className="nh3d-dark-wall-grid-darkness-suffix"
-                                    >
-                                      %
+                              <div className="nh3d-option-description">
+                                {option.description}
+                              </div>
+                            </div>
+                            {isDarkWallTileOverrideOption ? (
+                              <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                                <button
+                                  className={`nh3d-option-tile-picker-button${
+                                    enabled ? "" : " is-disabled"
+                                  }`}
+                                  disabled={!enabled}
+                                  onClick={() =>
+                                    setIsDarkWallTilePickerVisible(true)
+                                  }
+                                  type="button"
+                                >
+                                  <span className="nh3d-option-tile-picker-preview">
+                                    {renderTilePreviewImage(
+                                      selectedDarkWallTileId,
+                                    )}
+                                  </span>
+                                  <span className="nh3d-option-tile-picker-copy">
+                                    <span className="nh3d-option-tile-picker-glyph">
+                                      {selectedDarkWallGlyphLabel}
+                                    </span>
+                                    <span className="nh3d-option-tile-picker-id">
+                                      tile #{selectedDarkWallTileId}
                                     </span>
                                   </span>
-                                </label>
+                                </button>
                               </div>
-                            </div>
+                            ) : isDarkWallSolidColorOverrideOption ? (
+                              <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                                <div className="nh3d-dark-wall-solid-color-controls">
+                                  <div className="nh3d-dark-wall-solid-color-input-row">
+                                    <div className="nh3d-dark-wall-solid-color-input-group">
+                                      <label className="nh3d-dark-wall-mode-color">
+                                        <span>Normal</span>
+                                        <input
+                                          aria-label="Dark wall solid color (normal mode)"
+                                          className="nh3d-option-solid-color-native-picker"
+                                          disabled={!enabled}
+                                          onChange={(event) =>
+                                            updateDarkWallSolidColorHexDraft(
+                                              event.target.value,
+                                            )
+                                          }
+                                          type="color"
+                                          value={normalizeSolidChromaKeyHex(
+                                            selectedDarkWallSolidColorHex,
+                                          )}
+                                        />
+                                      </label>
+                                      <label className="nh3d-dark-wall-mode-color">
+                                        <span>FPS</span>
+                                        <input
+                                          aria-label="Dark wall solid color (FPS mode)"
+                                          className="nh3d-option-solid-color-native-picker"
+                                          disabled={!enabled}
+                                          onChange={(event) =>
+                                            updateDarkWallSolidColorHexFpsDraft(
+                                              event.target.value,
+                                            )
+                                          }
+                                          type="color"
+                                          value={normalizeSolidChromaKeyHex(
+                                            selectedDarkWallSolidColorHexFps,
+                                          )}
+                                        />
+                                      </label>
+                                    </div>
+                                    <div className="nh3d-dark-wall-solid-color-input-group">
+                                      <label className="nh3d-dark-wall-grid-toggle">
+                                        <input
+                                          checked={
+                                            selectedDarkWallSolidColorGridEnabled
+                                          }
+                                          disabled={!enabled}
+                                          onChange={(event) =>
+                                            updateDarkWallSolidColorGridEnabledDraft(
+                                              event.target.checked,
+                                            )
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span>Grid lines</span>
+                                      </label>
+                                      <label className="nh3d-dark-wall-grid-darkness">
+                                        <span>Intensity</span>
+                                        <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                                          <input
+                                            className="nh3d-dark-wall-grid-darkness-input"
+                                            disabled={
+                                              !enabled ||
+                                              !selectedDarkWallSolidColorGridEnabled
+                                            }
+                                            max={100}
+                                            min={0}
+                                            onChange={(event) =>
+                                              updateDarkWallSolidColorGridDarknessPercentDraft(
+                                                Number(event.target.value),
+                                              )
+                                            }
+                                            step={1}
+                                            type="number"
+                                            value={
+                                              selectedDarkWallSolidColorGridDarknessPercent
+                                            }
+                                          />
+                                          <span
+                                            aria-hidden="true"
+                                            className="nh3d-dark-wall-grid-darkness-suffix"
+                                          >
+                                            %
+                                          </span>
+                                        </span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+                            <button
+                              aria-checked={enabled}
+                              className={`nh3d-option-switch nh3d-option-inline-switch${
+                                enabled ? " is-on" : ""
+                              }`}
+                              onClick={() => {
+                                if (isDarkWallTileOverrideOption) {
+                                  updateDarkWallTileOverrideEnabledDraft(
+                                    !enabled,
+                                  );
+                                  return;
+                                }
+                                if (isDarkWallSolidColorOverrideOption) {
+                                  updateDarkWallSolidColorOverrideEnabledDraft(
+                                    !enabled,
+                                  );
+                                  return;
+                                }
+                                updateClientOptionDraft(option.key, !enabled);
+                              }}
+                              role="switch"
+                              type="button"
+                            >
+                              <span className="nh3d-option-switch-thumb" />
+                            </button>
                           </div>
-                        </div>
-                      ) : null}
-                      <button
-                        aria-checked={enabled}
-                        className={`nh3d-option-switch nh3d-option-inline-switch${
-                          enabled ? " is-on" : ""
-                        }`}
-                        onClick={() => {
-                          if (isDarkWallTileOverrideOption) {
-                            updateDarkWallTileOverrideEnabledDraft(!enabled);
-                            return;
-                          }
-                          if (isDarkWallSolidColorOverrideOption) {
-                            updateDarkWallSolidColorOverrideEnabledDraft(
-                              !enabled,
-                            );
-                            return;
-                          }
-                          updateClientOptionDraft(option.key, !enabled);
-                        }}
-                        role="switch"
-                        type="button"
-                      >
-                        <span className="nh3d-option-switch-thumb" />
-                      </button>
-                    </div>
-                    {option.key === "fpsMode" && clientOptionsDraft.fpsMode ? (
-                      <>
-                        <div className="nh3d-option-row nh3d-option-row-slider">
-                          <div className="nh3d-option-copy">
-                            <div className="nh3d-option-label">
-                              FPS Field of View
-                            </div>
-                            <div className="nh3d-option-description">
-                              Adjust first-person camera FOV.
-                            </div>
-                          </div>
-                          <div className="nh3d-option-slider-control">
-                            <input
-                              aria-label="FPS Field of View"
-                              className="nh3d-option-slider"
-                              max={110}
-                              min={45}
-                              onChange={(event) =>
-                                updateClientFovDraft(Number(event.target.value))
-                              }
-                              step={1}
-                              type="range"
-                              value={clientOptionsDraft.fpsFov}
-                            />
-                            <div className="nh3d-option-slider-value">
-                              {clientOptionsDraft.fpsFov}
-                              {"\u00b0"}
-                            </div>
-                          </div>
-                        </div>
+                          {option.key === "fpsMode" &&
+                          clientOptionsDraft.fpsMode ? (
+                            <>
+                              <div className="nh3d-option-row nh3d-option-row-slider">
+                                <div className="nh3d-option-copy">
+                                  <div className="nh3d-option-label">
+                                    FPS Field of View
+                                  </div>
+                                  <div className="nh3d-option-description">
+                                    Adjust first-person camera FOV.
+                                  </div>
+                                </div>
+                                <div className="nh3d-option-slider-control">
+                                  <input
+                                    aria-label="FPS Field of View"
+                                    className="nh3d-option-slider"
+                                    max={110}
+                                    min={45}
+                                    onChange={(event) =>
+                                      updateClientFovDraft(
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    step={1}
+                                    type="range"
+                                    value={clientOptionsDraft.fpsFov}
+                                  />
+                                  <div className="nh3d-option-slider-value">
+                                    {clientOptionsDraft.fpsFov}
+                                    {"\u00b0"}
+                                  </div>
+                                </div>
+                              </div>
 
-                        <div className="nh3d-option-row nh3d-option-row-slider">
-                          <div className="nh3d-option-copy">
-                            <div className="nh3d-option-label">
-                              Look Sensitivity X
-                            </div>
-                            <div className="nh3d-option-description">
-                              Horizontal mouselook/touch-look sensitivity.
-                            </div>
-                          </div>
-                          <div className="nh3d-option-slider-control">
-                            <input
-                              aria-label="Look Sensitivity X"
-                              className="nh3d-option-slider"
-                              max={nh3dFpsLookSensitivityMax}
-                              min={nh3dFpsLookSensitivityMin}
-                              onChange={(event) =>
-                                updateClientLookSensitivityDraft(
-                                  "fpsLookSensitivityX",
-                                  Number(event.target.value),
-                                )
-                              }
-                              step={0.01}
-                              type="range"
-                              value={clientOptionsDraft.fpsLookSensitivityX}
-                            />
-                            <div className="nh3d-option-slider-value">
-                              {clientOptionsDraft.fpsLookSensitivityX.toFixed(
-                                2,
-                              )}
-                              x
-                            </div>
-                          </div>
-                        </div>
+                              <div className="nh3d-option-row nh3d-option-row-slider">
+                                <div className="nh3d-option-copy">
+                                  <div className="nh3d-option-label">
+                                    Look Sensitivity X
+                                  </div>
+                                  <div className="nh3d-option-description">
+                                    Horizontal mouselook/touch-look sensitivity.
+                                  </div>
+                                </div>
+                                <div className="nh3d-option-slider-control">
+                                  <input
+                                    aria-label="Look Sensitivity X"
+                                    className="nh3d-option-slider"
+                                    max={nh3dFpsLookSensitivityMax}
+                                    min={nh3dFpsLookSensitivityMin}
+                                    onChange={(event) =>
+                                      updateClientLookSensitivityDraft(
+                                        "fpsLookSensitivityX",
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    step={0.01}
+                                    type="range"
+                                    value={
+                                      clientOptionsDraft.fpsLookSensitivityX
+                                    }
+                                  />
+                                  <div className="nh3d-option-slider-value">
+                                    {clientOptionsDraft.fpsLookSensitivityX.toFixed(
+                                      2,
+                                    )}
+                                    x
+                                  </div>
+                                </div>
+                              </div>
 
-                        <div className="nh3d-option-row nh3d-option-row-slider">
+                              <div className="nh3d-option-row nh3d-option-row-slider">
+                                <div className="nh3d-option-copy">
+                                  <div className="nh3d-option-label">
+                                    Look Sensitivity Y
+                                  </div>
+                                  <div className="nh3d-option-description">
+                                    Vertical mouselook/touch-look sensitivity.
+                                  </div>
+                                </div>
+                                <div className="nh3d-option-slider-control">
+                                  <input
+                                    aria-label="Look Sensitivity Y"
+                                    className="nh3d-option-slider"
+                                    max={nh3dFpsLookSensitivityMax}
+                                    min={nh3dFpsLookSensitivityMin}
+                                    onChange={(event) =>
+                                      updateClientLookSensitivityDraft(
+                                        "fpsLookSensitivityY",
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    step={0.01}
+                                    type="range"
+                                    value={
+                                      clientOptionsDraft.fpsLookSensitivityY
+                                    }
+                                  />
+                                  <div className="nh3d-option-slider-value">
+                                    {clientOptionsDraft.fpsLookSensitivityY.toFixed(
+                                      2,
+                                    )}
+                                    x
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          ) : null}
+                        </Fragment>
+                      );
+                    }
+                    if (option.type === "select") {
+                      const isTilesetSelect = option.key === "tilesetPath";
+                      const selectOptions = isTilesetSelect
+                        ? tilesetDropdownOptions
+                        : option.options;
+                      const selectDisabled = isTilesetSelect
+                        ? !hasAnyTilesets
+                        : Boolean(option.disabled);
+                      return (
+                        <div className="nh3d-option-row" key={option.key}>
                           <div className="nh3d-option-copy">
                             <div className="nh3d-option-label">
-                              Look Sensitivity Y
+                              {option.label}
                             </div>
                             <div className="nh3d-option-description">
-                              Vertical mouselook/touch-look sensitivity.
+                              {option.description}
                             </div>
                           </div>
-                          <div className="nh3d-option-slider-control">
-                            <input
-                              aria-label="Look Sensitivity Y"
-                              className="nh3d-option-slider"
-                              max={nh3dFpsLookSensitivityMax}
-                              min={nh3dFpsLookSensitivityMin}
-                              onChange={(event) =>
-                                updateClientLookSensitivityDraft(
-                                  "fpsLookSensitivityY",
-                                  Number(event.target.value),
-                                )
-                              }
-                              step={0.01}
-                              type="range"
-                              value={clientOptionsDraft.fpsLookSensitivityY}
-                            />
-                            <div className="nh3d-option-slider-value">
-                              {clientOptionsDraft.fpsLookSensitivityY.toFixed(
-                                2,
-                              )}
-                              x
-                            </div>
+                          <div
+                            className={`nh3d-option-select-controls${
+                              isTilesetSelect
+                                ? " nh3d-option-select-controls-tileset"
+                                : ""
+                            }`}
+                          >
+                            {isTilesetSelect ? (
+                              <button
+                                className="nh3d-menu-action-button"
+                                onClick={openTilesetManager}
+                                type="button"
+                              >
+                                Manage Tile Sets
+                              </button>
+                            ) : null}
+                            <select
+                              className="nh3d-startup-config-select"
+                              disabled={selectDisabled}
+                              onChange={(event) => {
+                                if (option.key === "tilesetMode") {
+                                  updateClientOptionDraft(
+                                    option.key,
+                                    event.target.value === "tiles"
+                                      ? "tiles"
+                                      : "ascii",
+                                  );
+                                  return;
+                                }
+                                if (option.key === "tilesetPath") {
+                                  updateTilesetPathDraft(event.target.value);
+                                  return;
+                                }
+                                updateClientOptionDraft(
+                                  option.key,
+                                  event.target.value === "taa" ? "taa" : "fxaa",
+                                );
+                              }}
+                              value={String(clientOptionsDraft[option.key])}
+                            >
+                              {selectOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
-                      </>
-                    ) : null}
-                  </Fragment>
-                );
-              }
-              if (option.type === "select") {
-                const isTilesetSelect = option.key === "tilesetPath";
-                const selectOptions = isTilesetSelect
-                  ? tilesetDropdownOptions
-                  : option.options;
-                const selectDisabled = isTilesetSelect
-                  ? !hasAnyTilesets
-                  : Boolean(option.disabled);
-                return (
-                  <div className="nh3d-option-row" key={option.key}>
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">{option.label}</div>
-                      <div className="nh3d-option-description">
-                        {option.description}
-                      </div>
-                    </div>
-                    <div
-                      className={`nh3d-option-select-controls${
-                        isTilesetSelect
-                          ? " nh3d-option-select-controls-tileset"
-                          : ""
-                      }`}
-                    >
-                      {isTilesetSelect ? (
-                        <button
-                          className="nh3d-menu-action-button"
-                          onClick={openTilesetManager}
-                          type="button"
+                      );
+                    }
+                    if (option.type === "slider") {
+                      const sliderValue = clientOptionsDraft[option.key];
+                      const sliderLabel =
+                        option.key === "gamma"
+                          ? `${sliderValue.toFixed(2)}x`
+                          : option.key === "uiFontScale" ||
+                              option.key === "liveMessageLogFontScale"
+                            ? `${Math.round(sliderValue * 100)}%`
+                            : option.key === "liveMessageDisplayTimeMs" ||
+                                option.key === "liveMessageFadeOutTimeMs"
+                              ? `${Math.round(sliderValue)}ms`
+                              : `${Math.round(sliderValue * 100)}%`;
+                      return (
+                        <div
+                          className="nh3d-option-row nh3d-option-row-slider"
+                          key={option.key}
                         >
-                          Manage Tile Sets
-                        </button>
-                      ) : null}
-                      <select
-                        className="nh3d-startup-config-select"
-                        disabled={selectDisabled}
-                        onChange={(event) => {
-                          if (option.key === "tilesetMode") {
-                            updateClientOptionDraft(
-                              option.key,
-                              event.target.value === "tiles"
-                                ? "tiles"
-                                : "ascii",
-                            );
-                            return;
-                          }
-                          if (option.key === "tilesetPath") {
-                            updateTilesetPathDraft(event.target.value);
-                            return;
-                          }
-                          updateClientOptionDraft(
-                            option.key,
-                            event.target.value === "taa" ? "taa" : "fxaa",
-                          );
-                        }}
-                        value={String(clientOptionsDraft[option.key])}
-                      >
-                        {selectOptions.map((opt) => (
-                          <option key={opt.value} value={opt.value}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                );
-              }
-              if (option.type === "slider") {
-                const sliderValue = clientOptionsDraft[option.key];
-                const sliderLabel =
-                  option.key === "gamma"
-                    ? `${sliderValue.toFixed(2)}x`
-                    : option.key === "uiFontScale" ||
-                        option.key === "liveMessageLogFontScale"
-                      ? `${Math.round(sliderValue * 100)}%`
-                      : option.key === "liveMessageDisplayTimeMs" ||
-                          option.key === "liveMessageFadeOutTimeMs"
-                        ? `${Math.round(sliderValue)}ms`
-                        : `${Math.round(sliderValue * 100)}%`;
-                return (
-                  <div
-                    className="nh3d-option-row nh3d-option-row-slider"
-                    key={option.key}
-                  >
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">{option.label}</div>
-                      <div className="nh3d-option-description">
-                        {option.description}
-                      </div>
-                    </div>
-                    <div className="nh3d-option-slider-control">
-                      <input
-                        aria-label={option.label}
-                        className="nh3d-option-slider"
-                        max={option.max}
-                        min={option.min}
-                        onChange={(event) =>
-                          updateClientSliderDraft(
-                            option.key,
-                            Number(event.target.value),
-                          )
-                        }
-                        step={option.step}
-                        type="range"
-                        value={sliderValue}
-                      />
-                      <div className="nh3d-option-slider-value">
-                        {sliderLabel}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-              return null;
-            })}
+                          <div className="nh3d-option-copy">
+                            <div className="nh3d-option-label">
+                              {option.label}
+                            </div>
+                            <div className="nh3d-option-description">
+                              {option.description}
+                            </div>
+                          </div>
+                          <div className="nh3d-option-slider-control">
+                            <input
+                              aria-label={option.label}
+                              className="nh3d-option-slider"
+                              max={option.max}
+                              min={option.min}
+                              onChange={(event) =>
+                                updateClientSliderDraft(
+                                  option.key,
+                                  Number(event.target.value),
+                                )
+                              }
+                              step={option.step}
+                              type="range"
+                              value={sliderValue}
+                            />
+                            <div className="nh3d-option-slider-value">
+                              {sliderLabel}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })}
                   <SoundPackSettings
                     onDialogActionsChange={(actions) => {
                       soundPackDialogActionsRef.current = actions;
                     }}
                     visible={selectedClientOptionsTab.id === "sound"}
                   />
+                </div>
               </div>
             </div>
-          </div>
           </div>
           <div className="nh3d-menu-actions">
             <button
@@ -6606,231 +6803,243 @@ export default function App(): JSX.Element {
               data-nh3d-overflow-glow
               data-nh3d-overflow-glow-host="parent"
             >
-            <div className="nh3d-tileset-manager-header">
-              <div className="nh3d-option-label">
-                {tilesetManagerInNewMode
-                  ? "Create New Tile Set"
-                  : selectedTilesetManagerEditEntry
-                    ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
-                    : "Edit Tile Set"}
-              </div>
-            </div>
-            <div className="nh3d-tileset-manager-upload-row">
-              <label className="nh3d-option-label" htmlFor="nh3d-tileset-name">
-                Tile Set Name
-              </label>
-              <input
-                className="nh3d-text-input nh3d-tileset-manager-input"
-                id="nh3d-tileset-name"
-                onChange={(event) => setTilesetManagerName(event.target.value)}
-                placeholder="My Tileset"
-                readOnly={tilesetManagerNameInputDisabled}
-                type="text"
-                value={tilesetManagerName}
-              />
-              {tilesetManagerNameInputDisabled ? (
-                <div className="nh3d-option-description">
-                  Built-in tile set names cannot be changed.
+              <div className="nh3d-tileset-manager-header">
+                <div className="nh3d-option-label">
+                  {tilesetManagerInNewMode
+                    ? "Create New Tile Set"
+                    : selectedTilesetManagerEditEntry
+                      ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
+                      : "Edit Tile Set"}
                 </div>
-              ) : null}
-            </div>
-            {tilesetManagerInNewMode || selectedTilesetManagerEditUserRecord ? (
+              </div>
               <div className="nh3d-tileset-manager-upload-row">
                 <label
                   className="nh3d-option-label"
-                  htmlFor="nh3d-tileset-upload-file"
+                  htmlFor="nh3d-tileset-name"
                 >
-                  {tilesetManagerInNewMode
-                    ? "Tileset Image"
-                    : "Tileset Image (optional replacement)"}
+                  Tile Set Name
                 </label>
                 <input
-                  accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
-                  className="nh3d-tileset-manager-file-input"
-                  id="nh3d-tileset-upload-file"
-                  onChange={handleTilesetManagerFileChange}
-                  ref={tilesetManagerFileInputRef}
-                  type="file"
+                  className="nh3d-text-input nh3d-tileset-manager-input"
+                  id="nh3d-tileset-name"
+                  onChange={(event) =>
+                    setTilesetManagerName(event.target.value)
+                  }
+                  placeholder="My Tileset"
+                  readOnly={tilesetManagerNameInputDisabled}
+                  type="text"
+                  value={tilesetManagerName}
                 />
-                <div className="nh3d-option-description">
-                  {tilesetManagerFile
-                    ? `Selected: ${tilesetManagerFile.name}`
-                    : tilesetManagerInNewMode
-                      ? "Choose a tileset image file."
-                      : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
-                </div>
+                {tilesetManagerNameInputDisabled ? (
+                  <div className="nh3d-option-description">
+                    Built-in tile set names cannot be changed.
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-            {selectedTilesetManagerEditEntry ? (
-              <Fragment>
-                <div className="nh3d-option-description">
-                  Configure billboard background removal for this tileset.
-                </div>
-                <div
-                  className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                    tilesetManagerBackgroundRemovalMode === "tile"
-                      ? ""
-                      : " nh3d-option-row-mode-inactive"
-                  }`}
-                >
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">
-                      Background Tile Removal
-                    </div>
-                    <div className="nh3d-option-description">
-                      Use a selected atlas tile for billboard background
-                      removal.
-                    </div>
-                  </div>
-                  <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                    <button
-                      className={`nh3d-option-tile-picker-button${
-                        tilesetManagerBackgroundRemovalMode === "tile"
-                          ? ""
-                          : " is-disabled"
-                      }`}
-                      disabled={tilesetManagerBackgroundRemovalMode !== "tile"}
-                      onClick={() =>
-                        setIsTilesetBackgroundTilePickerVisible(true)
-                      }
-                      type="button"
-                    >
-                      <span className="nh3d-option-tile-picker-preview">
-                        {renderTilesetManagerTilePreviewImage(
-                          tilesetManagerBackgroundTileId,
-                        )}
-                      </span>
-                      <span className="nh3d-option-tile-picker-copy">
-                        <span className="nh3d-option-tile-picker-glyph">
-                          {tilesetManagerBackgroundGlyphLabel}
-                        </span>
-                        <span className="nh3d-option-tile-picker-id">
-                          tile #{tilesetManagerBackgroundTileId}
-                        </span>
-                      </span>
-                    </button>
-                  </div>
-                  <button
-                    aria-checked={
-                      tilesetManagerBackgroundRemovalMode === "tile"
-                    }
-                    className={`nh3d-option-switch nh3d-option-inline-switch${
-                      tilesetManagerBackgroundRemovalMode === "tile"
-                        ? " is-on"
-                        : ""
-                    }`}
-                    onClick={() =>
-                      updateTilesetBackgroundRemovalModeDraft(
-                        "tile",
-                        selectedTilesetManagerEditPath,
-                      )
-                    }
-                    role="switch"
-                    type="button"
+              {tilesetManagerInNewMode ||
+              selectedTilesetManagerEditUserRecord ? (
+                <div className="nh3d-tileset-manager-upload-row">
+                  <label
+                    className="nh3d-option-label"
+                    htmlFor="nh3d-tileset-upload-file"
                   >
-                    <span className="nh3d-option-switch-thumb" />
-                  </button>
-                </div>
-                <div
-                  className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                    tilesetManagerBackgroundRemovalMode === "solid"
-                      ? ""
-                      : " nh3d-option-row-mode-inactive"
-                  }`}
-                >
-                  <div className="nh3d-option-copy">
-                    <div className="nh3d-option-label">
-                      Solid Color Chroma Key
-                    </div>
-                    <div className="nh3d-option-description">
-                      Use a single solid RGB color for billboard background
-                      removal.
-                    </div>
+                    {tilesetManagerInNewMode
+                      ? "Tileset Image"
+                      : "Tileset Image (optional replacement)"}
+                  </label>
+                  <input
+                    accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
+                    className="nh3d-tileset-manager-file-input"
+                    id="nh3d-tileset-upload-file"
+                    onChange={handleTilesetManagerFileChange}
+                    ref={tilesetManagerFileInputRef}
+                    type="file"
+                  />
+                  <div className="nh3d-option-description">
+                    {tilesetManagerFile
+                      ? `Selected: ${tilesetManagerFile.name}`
+                      : tilesetManagerInNewMode
+                        ? "Choose a tileset image file."
+                        : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
                   </div>
-                  <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                    <button
-                      className={`nh3d-option-tile-picker-button${
-                        tilesetManagerBackgroundRemovalMode === "solid"
-                          ? ""
-                          : " is-disabled"
-                      }`}
-                      disabled={tilesetManagerBackgroundRemovalMode !== "solid"}
-                      onClick={() => setIsTilesetSolidColorPickerVisible(true)}
-                      type="button"
-                    >
-                      <span
-                        aria-hidden="true"
-                        className="nh3d-option-solid-color-preview"
-                        style={{
-                          backgroundColor: normalizeSolidChromaKeyHex(
-                            tilesetManagerSolidChromaKeyColorHex,
-                          ),
-                        }}
-                      />
-                      <span className="nh3d-option-tile-picker-copy">
-                        <span className="nh3d-option-tile-picker-glyph">
-                          {formatSolidChromaKeyHex(
-                            tilesetManagerSolidChromaKeyColorHex,
+                </div>
+              ) : null}
+              {selectedTilesetManagerEditEntry ? (
+                <Fragment>
+                  <div className="nh3d-option-description">
+                    Configure billboard background removal for this tileset.
+                  </div>
+                  <div
+                    className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
+                      tilesetManagerBackgroundRemovalMode === "tile"
+                        ? ""
+                        : " nh3d-option-row-mode-inactive"
+                    }`}
+                  >
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">
+                        Background Tile Removal
+                      </div>
+                      <div className="nh3d-option-description">
+                        Use a selected atlas tile for billboard background
+                        removal.
+                      </div>
+                    </div>
+                    <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                      <button
+                        className={`nh3d-option-tile-picker-button${
+                          tilesetManagerBackgroundRemovalMode === "tile"
+                            ? ""
+                            : " is-disabled"
+                        }`}
+                        disabled={
+                          tilesetManagerBackgroundRemovalMode !== "tile"
+                        }
+                        onClick={() =>
+                          setIsTilesetBackgroundTilePickerVisible(true)
+                        }
+                        type="button"
+                      >
+                        <span className="nh3d-option-tile-picker-preview">
+                          {renderTilesetManagerTilePreviewImage(
+                            tilesetManagerBackgroundTileId,
                           )}
                         </span>
-                        <span className="nh3d-option-tile-picker-id">
-                          click to pick from atlas
+                        <span className="nh3d-option-tile-picker-copy">
+                          <span className="nh3d-option-tile-picker-glyph">
+                            {tilesetManagerBackgroundGlyphLabel}
+                          </span>
+                          <span className="nh3d-option-tile-picker-id">
+                            tile #{tilesetManagerBackgroundTileId}
+                          </span>
                         </span>
-                      </span>
+                      </button>
+                    </div>
+                    <button
+                      aria-checked={
+                        tilesetManagerBackgroundRemovalMode === "tile"
+                      }
+                      className={`nh3d-option-switch nh3d-option-inline-switch${
+                        tilesetManagerBackgroundRemovalMode === "tile"
+                          ? " is-on"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        updateTilesetBackgroundRemovalModeDraft(
+                          "tile",
+                          selectedTilesetManagerEditPath,
+                        )
+                      }
+                      role="switch"
+                      type="button"
+                    >
+                      <span className="nh3d-option-switch-thumb" />
                     </button>
-                    <input
-                      className="nh3d-option-solid-color-input"
-                      readOnly
-                      type="text"
-                      value={formatSolidChromaKeyHex(
-                        tilesetManagerSolidChromaKeyColorHex,
-                      )}
-                    />
                   </div>
-                  <button
-                    aria-checked={
+                  <div
+                    className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
                       tilesetManagerBackgroundRemovalMode === "solid"
-                    }
-                    className={`nh3d-option-switch nh3d-option-inline-switch${
-                      tilesetManagerBackgroundRemovalMode === "solid"
-                        ? " is-on"
-                        : ""
+                        ? ""
+                        : " nh3d-option-row-mode-inactive"
                     }`}
-                    onClick={() =>
-                      updateTilesetBackgroundRemovalModeDraft(
-                        "solid",
-                        selectedTilesetManagerEditPath,
-                      )
-                    }
-                    role="switch"
-                    type="button"
                   >
-                    <span className="nh3d-option-switch-thumb" />
-                  </button>
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">
+                        Solid Color Chroma Key
+                      </div>
+                      <div className="nh3d-option-description">
+                        Use a single solid RGB color for billboard background
+                        removal.
+                      </div>
+                    </div>
+                    <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                      <button
+                        className={`nh3d-option-tile-picker-button${
+                          tilesetManagerBackgroundRemovalMode === "solid"
+                            ? ""
+                            : " is-disabled"
+                        }`}
+                        disabled={
+                          tilesetManagerBackgroundRemovalMode !== "solid"
+                        }
+                        onClick={() =>
+                          setIsTilesetSolidColorPickerVisible(true)
+                        }
+                        type="button"
+                      >
+                        <span
+                          aria-hidden="true"
+                          className="nh3d-option-solid-color-preview"
+                          style={{
+                            backgroundColor: normalizeSolidChromaKeyHex(
+                              tilesetManagerSolidChromaKeyColorHex,
+                            ),
+                          }}
+                        />
+                        <span className="nh3d-option-tile-picker-copy">
+                          <span className="nh3d-option-tile-picker-glyph">
+                            {formatSolidChromaKeyHex(
+                              tilesetManagerSolidChromaKeyColorHex,
+                            )}
+                          </span>
+                          <span className="nh3d-option-tile-picker-id">
+                            click to pick from atlas
+                          </span>
+                        </span>
+                      </button>
+                      <input
+                        className="nh3d-option-solid-color-input"
+                        readOnly
+                        type="text"
+                        value={formatSolidChromaKeyHex(
+                          tilesetManagerSolidChromaKeyColorHex,
+                        )}
+                      />
+                    </div>
+                    <button
+                      aria-checked={
+                        tilesetManagerBackgroundRemovalMode === "solid"
+                      }
+                      className={`nh3d-option-switch nh3d-option-inline-switch${
+                        tilesetManagerBackgroundRemovalMode === "solid"
+                          ? " is-on"
+                          : ""
+                      }`}
+                      onClick={() =>
+                        updateTilesetBackgroundRemovalModeDraft(
+                          "solid",
+                          selectedTilesetManagerEditPath,
+                        )
+                      }
+                      role="switch"
+                      type="button"
+                    >
+                      <span className="nh3d-option-switch-thumb" />
+                    </button>
+                  </div>
+                </Fragment>
+              ) : (
+                <div className="nh3d-option-description">
+                  Save the new tile set first, then edit background/chroma
+                  settings.
                 </div>
-              </Fragment>
-            ) : (
-              <div className="nh3d-option-description">
-                Save the new tile set first, then edit background/chroma
-                settings.
+              )}
+              <div className="nh3d-tileset-manager-upload-actions">
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                  disabled={tilesetManagerBusy}
+                  onClick={() => {
+                    void saveTilesetManager();
+                  }}
+                  type="button"
+                >
+                  {tilesetManagerInNewMode
+                    ? "Create Tile Set"
+                    : selectedTilesetManagerEditUserRecord
+                      ? "Save Tile Set"
+                      : "Save Tile Settings"}
+                </button>
               </div>
-            )}
-            <div className="nh3d-tileset-manager-upload-actions">
-              <button
-                className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                disabled={tilesetManagerBusy}
-                onClick={() => {
-                  void saveTilesetManager();
-                }}
-                type="button"
-              >
-                {tilesetManagerInNewMode
-                  ? "Create Tile Set"
-                  : selectedTilesetManagerEditUserRecord
-                    ? "Save Tile Set"
-                    : "Save Tile Settings"}
-              </button>
-            </div>
             </div>
           </div>
           {tilesetManagerError ? (
@@ -6853,63 +7062,66 @@ export default function App(): JSX.Element {
               data-nh3d-overflow-glow
               data-nh3d-overflow-glow-host="parent"
             >
-            {tilesetManagerListTilesets.length === 0 ? (
-              <div className="nh3d-option-description">
-                No uploaded tilesets available.
-              </div>
-            ) : (
-              tilesetManagerListTilesets.map((tileset) => {
-                const tilesetPath = String(tileset.path || "").trim();
-                const isSelected =
-                  clientOptionsDraft.tilesetPath === tilesetPath;
-                const isEditing =
-                  !tilesetManagerInNewMode &&
-                  selectedTilesetManagerEditPath === tilesetPath;
-                const userRecord = userTilesetRecordByPath.get(tilesetPath);
-                const isUserTileset = tileset.source === "user";
-                return (
-                  <div className="nh3d-tileset-manager-item" key={tilesetPath}>
-                    <div className="nh3d-tileset-manager-item-copy">
-                      <div className="nh3d-option-label">
-                        {tileset.label}
-                        {isSelected ? " (selected)" : ""}
-                        {isEditing ? " (editing)" : ""}
+              {tilesetManagerListTilesets.length === 0 ? (
+                <div className="nh3d-option-description">
+                  No uploaded tilesets available.
+                </div>
+              ) : (
+                tilesetManagerListTilesets.map((tileset) => {
+                  const tilesetPath = String(tileset.path || "").trim();
+                  const isSelected =
+                    clientOptionsDraft.tilesetPath === tilesetPath;
+                  const isEditing =
+                    !tilesetManagerInNewMode &&
+                    selectedTilesetManagerEditPath === tilesetPath;
+                  const userRecord = userTilesetRecordByPath.get(tilesetPath);
+                  const isUserTileset = tileset.source === "user";
+                  return (
+                    <div
+                      className="nh3d-tileset-manager-item"
+                      key={tilesetPath}
+                    >
+                      <div className="nh3d-tileset-manager-item-copy">
+                        <div className="nh3d-option-label">
+                          {tileset.label}
+                          {isSelected ? " (selected)" : ""}
+                          {isEditing ? " (editing)" : ""}
+                        </div>
+                        <div className="nh3d-option-description">
+                          {isUserTileset
+                            ? `${userRecord?.fileName || tilesetPath} | uploaded`
+                            : `${tilesetPath} | built-in`}
+                        </div>
                       </div>
-                      <div className="nh3d-option-description">
-                        {isUserTileset
-                          ? `${userRecord?.fileName || tilesetPath} | uploaded`
-                          : `${tilesetPath} | built-in`}
-                      </div>
-                    </div>
-                    <div className="nh3d-tileset-manager-item-actions">
-                      <button
-                        className="nh3d-menu-action-button"
-                        onClick={() => openTilesetManagerEditor(tilesetPath)}
-                        type="button"
-                      >
-                        Edit
-                      </button>
-                      {isUserTileset ? (
+                      <div className="nh3d-tileset-manager-item-actions">
                         <button
-                          aria-label={`Delete ${tileset.label}`}
-                          className="delete-button"
-                          disabled={tilesetManagerBusy || !userRecord}
-                          onClick={() => {
-                            if (!userRecord) {
-                              return;
-                            }
-                            void removeUserTileset(userRecord);
-                          }}
+                          className="nh3d-menu-action-button"
+                          onClick={() => openTilesetManagerEditor(tilesetPath)}
                           type="button"
                         >
-                          X
+                          Edit
                         </button>
-                      ) : null}
+                        {isUserTileset ? (
+                          <button
+                            aria-label={`Delete ${tileset.label}`}
+                            className="delete-button"
+                            disabled={tilesetManagerBusy || !userRecord}
+                            onClick={() => {
+                              if (!userRecord) {
+                                return;
+                              }
+                              void removeUserTileset(userRecord);
+                            }}
+                            type="button"
+                          >
+                            X
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
-                  </div>
-                );
-              })
-            )}
+                  );
+                })
+              )}
             </div>
           </div>
           <div className="nh3d-menu-actions">
@@ -7394,39 +7606,346 @@ export default function App(): JSX.Element {
 
       {infoMenu ? (
         <div
-          className="nh3d-dialog nh3d-dialog-info nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-overflow-glow-frame"
-          id="info-menu-dialog"
+          className={`nh3d-dialog ${
+            isCharacterSheetVisible
+              ? "nh3d-dialog-character"
+              : "nh3d-dialog-info"
+          } nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-overflow-glow-frame`}
+          id={isCharacterSheetVisible ? "character-dialog" : "info-menu-dialog"}
         >
           {renderMobileDialogCloseButton(
-            () => controller?.closeInfoMenuDialog(),
-            "Close information window",
+            closeInfoMenuDialog,
+            isCharacterSheetVisible
+              ? "Close character window"
+              : "Close information window",
           )}
-          <div
-            className="nh3d-dialog-info-scroll"
-            data-nh3d-overflow-glow
-            data-nh3d-overflow-glow-host="parent"
-          >
-            <div className="nh3d-info-title">
-              {infoMenu.title || "NetHack Information"}
-            </div>
-            <div className="nh3d-info-body">
-              {infoMenu.lines.length > 0
-                ? infoMenu.lines.join("\n")
-                : "(No details)"}
-            </div>
-            <div className="nh3d-info-hint">
-              Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
-            </div>
-          </div>
-          <div className="nh3d-menu-actions">
-            <button
-              className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={() => controller?.closeInfoMenuDialog()}
-              type="button"
-            >
-              Close
-            </button>
-          </div>
+          {isCharacterSheetVisible && characterSheet ? (
+            <>
+              <div
+                className="nh3d-character-sheet-scroll"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                <div className="nh3d-info-title">Character</div>
+                <div className="nh3d-character-xp-block nh3d-character-xp-block-top">
+                  <div className="nh3d-character-xp-header">
+                    <span>Experience Progress</span>
+                    <span>Level {characterExperienceProgress.level}</span>
+                  </div>
+                  <div className="nh3d-character-xp-track">
+                    <div
+                      className="nh3d-character-xp-fill"
+                      style={{
+                        width: `${characterExperienceProgress.progressPercent}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="nh3d-character-xp-meta">
+                    {characterExperienceProgress.isMaxLevel ? (
+                      <>
+                        XP{" "}
+                        {formatCharacterNumber(
+                          characterExperienceProgress.experiencePoints,
+                        )}{" "}
+                        (max level reached)
+                      </>
+                    ) : (
+                      <>
+                        XP{" "}
+                        {formatCharacterNumber(
+                          characterExperienceProgress.experiencePoints,
+                        )}{" "}
+                        /{" "}
+                        {formatCharacterNumber(
+                          characterExperienceProgress.nextLevelThreshold,
+                        )}
+                        {" \u2022 "}
+                        {formatCharacterNumber(characterExperienceProgress.toNextLevel)}{" "}
+                        to next level
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="nh3d-character-grid">
+                  <section className="nh3d-character-panel">
+                    <div className="nh3d-character-panel-title">Background</div>
+                    <div className="nh3d-character-line-stack">
+                      {characterSheet.backgroundLines.length > 0 ? (
+                        characterSheet.backgroundLines.map((line, index) => (
+                          <div
+                            className="nh3d-character-line"
+                            key={`character-bg-${index}`}
+                          >
+                            {line}
+                          </div>
+                        ))
+                      ) : characterSheet.identityLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.identityLine}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className="nh3d-character-panel">
+                    <div className="nh3d-character-panel-title">Vitals</div>
+                    <div className="nh3d-character-line-stack">
+                      {characterSheet.hitPointsLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.hitPointsLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.energyLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.energyLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.armorClassLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.armorClassLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.experienceLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.experienceLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.scoreLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.scoreLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.walletLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.walletLine}
+                        </div>
+                      ) : null}
+                      {characterSheet.autopickupLine ? (
+                        <div className="nh3d-character-line">
+                          {characterSheet.autopickupLine}
+                        </div>
+                      ) : null}
+                    </div>
+                  </section>
+
+                  <section className="nh3d-character-panel nh3d-character-panel-characteristics">
+                    <div className="nh3d-character-panel-title">
+                      Characteristics
+                    </div>
+                    {hasCharacterStatValues ? (
+                      <div className="nh3d-character-stat-grid">
+                        {hasCharacterStatLimits ? (
+                          <div className="nh3d-character-stat-grid-hint">
+                            Current / limit
+                          </div>
+                        ) : null}
+                        {characterSheet.statEntries.map((entry) => (
+                          <div
+                            className="nh3d-character-stat"
+                            key={`character-stat-${entry.id}`}
+                          >
+                            <div className="nh3d-character-stat-label">
+                              {entry.label}
+                            </div>
+                            <div className="nh3d-character-stat-value">
+                              <span className="nh3d-character-stat-current">
+                                {entry.currentValue || entry.rawValue || "--"}
+                              </span>
+                              {entry.limitValue ? (
+                                <>
+                                  <span className="nh3d-character-stat-divider">
+                                    /
+                                  </span>
+                                  <span className="nh3d-character-stat-limit">
+                                    {entry.limitValue}
+                                  </span>
+                                </>
+                              ) : null}
+                            </div>
+                            <div className="nh3d-character-stat-description">
+                              {characterStatDescriptionById[entry.id]}
+                            </div>
+                          </div>
+                        ))}
+                        <div className="nh3d-character-stat">
+                          <div className="nh3d-character-stat-label">
+                            Armor Class
+                          </div>
+                          <div className="nh3d-character-stat-value">
+                            <span className="nh3d-character-stat-current">
+                              {playerStats.armor}
+                            </span>
+                          </div>
+                          <div className="nh3d-character-stat-description">
+                            {armorClassDescription}
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="nh3d-character-line-stack">
+                        {characterSheet.characteristicsLines.map(
+                          (line, index) => (
+                            <div
+                              className="nh3d-character-line"
+                              key={`character-characteristics-${index}`}
+                            >
+                              {line}
+                            </div>
+                          ),
+                        )}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="nh3d-character-panel">
+                    <div className="nh3d-character-panel-title">
+                      Current Status
+                    </div>
+                    <div className="nh3d-character-chip-list">
+                      {characterSheet.statusLines.length > 0 ? (
+                        characterSheet.statusLines.map((line, index) => (
+                          <div
+                            className="nh3d-character-chip"
+                            key={`character-status-${index}`}
+                          >
+                            {line}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="nh3d-character-line">
+                          No active status.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="nh3d-character-panel">
+                    <div className="nh3d-character-panel-title">
+                      Current Attributes
+                    </div>
+                    <div className="nh3d-character-chip-list">
+                      {characterSheet.attributeLines.length > 0 ? (
+                        characterSheet.attributeLines.map((line, index) => (
+                          <div
+                            className="nh3d-character-chip"
+                            key={`character-attributes-${index}`}
+                          >
+                            {line}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="nh3d-character-line">
+                          No temporary attribute effects.
+                        </div>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="nh3d-character-panel nh3d-character-panel-actions">
+                    <div className="nh3d-character-panel-title">
+                      Character Actions
+                    </div>
+                    <div className="nh3d-character-actions-grid">
+                      <button
+                        className="nh3d-character-action-button"
+                        onClick={() => controller?.toggleInventoryDialog()}
+                        type="button"
+                      >
+                        <span className="nh3d-character-action-label">
+                          Inventory
+                        </span>
+                        <span className="nh3d-character-action-detail">
+                          Open carried items
+                        </span>
+                      </button>
+                      {characterCommandActions.map((action) => (
+                        <button
+                          className="nh3d-character-action-button"
+                          key={`character-action-${action.id}`}
+                          onClick={() =>
+                            runCharacterExtendedCommand(action.command)
+                          }
+                          type="button"
+                        >
+                          <span className="nh3d-character-action-label">
+                            {action.command === "enhance"
+                              ? "Enhance (level up skills)"
+                              : action.label}
+                          </span>
+                          <span className="nh3d-character-action-detail">
+                            {action.detail}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  {characterSheet.extraSections.map((section, sectionIndex) => (
+                    <section
+                      className="nh3d-character-panel"
+                      key={`character-extra-${section.title}-${sectionIndex}`}
+                    >
+                      <div className="nh3d-character-panel-title">
+                        {section.title}
+                      </div>
+                      <div className="nh3d-character-line-stack">
+                        {section.lines.map((line, lineIndex) => (
+                          <div
+                            className="nh3d-character-line"
+                            key={`character-extra-line-${sectionIndex}-${lineIndex}`}
+                          >
+                            {line}
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+
+                <div className="nh3d-info-hint">
+                  Press SPACE, ENTER, or ESC to close.
+                </div>
+              </div>
+              <div className="nh3d-menu-actions">
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                  onClick={closeInfoMenuDialog}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className="nh3d-dialog-info-scroll"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                <div className="nh3d-info-title">
+                  {infoMenu.title || "NetHack Information"}
+                </div>
+                <div className="nh3d-info-body">
+                  {infoMenu.lines.length > 0
+                    ? infoMenu.lines.join("\n")
+                    : "(No details)"}
+                </div>
+                <div className="nh3d-info-hint">
+                  Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
+                </div>
+              </div>
+              <div className="nh3d-menu-actions">
+                <button
+                  className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                  onClick={closeInfoMenuDialog}
+                  type="button"
+                >
+                  Close
+                </button>
+              </div>
+            </>
+          )}
         </div>
       ) : null}
 
@@ -7755,9 +8274,7 @@ export default function App(): JSX.Element {
                     <div className="nh3d-mobile-actions-subheader">
                       Common commands
                     </div>
-                    <div
-                      className="nh3d-mobile-actions-grid is-extended"
-                    >
+                    <div className="nh3d-mobile-actions-grid is-extended">
                       {mobileCommonExtendedCommandNames.map((command) => (
                         <button
                           className="nh3d-mobile-actions-button"
@@ -7780,9 +8297,7 @@ export default function App(): JSX.Element {
                   <div className="nh3d-mobile-actions-subheader">
                     All commands
                   </div>
-                  <div
-                    className="nh3d-mobile-actions-grid is-extended"
-                  >
+                  <div className="nh3d-mobile-actions-grid is-extended">
                     {mobileExtendedCommandNames.map((command) => (
                       <button
                         className="nh3d-mobile-actions-button"
@@ -7819,10 +8334,47 @@ export default function App(): JSX.Element {
         </button>
       ) : null}
 
+      {isDesktopGameRunning ? (
+        <div className="nh3d-desktop-bottom-actions">
+          <button
+            className={`nh3d-desktop-bottom-button${
+              isCharacterSheetVisible ? " is-active" : ""
+            }`}
+            onClick={openCharacterDialog}
+            type="button"
+          >
+            Character
+          </button>
+          <button
+            className={`nh3d-desktop-bottom-button${
+              inventory.visible ? " is-active" : ""
+            }`}
+            onClick={() => {
+              controller?.dismissFpsCrosshairContextMenu();
+              controller?.toggleInventoryDialog();
+            }}
+            type="button"
+          >
+            Inventory
+          </button>
+        </div>
+      ) : null}
+
       {isMobileGameRunning ? (
         <div className="nh3d-mobile-bottom-bar">
           <button
-            className="nh3d-mobile-bottom-button"
+            className={`nh3d-mobile-bottom-button${
+              isCharacterSheetVisible ? " is-active" : ""
+            }`}
+            onClick={openCharacterDialog}
+            type="button"
+          >
+            Character
+          </button>
+          <button
+            className={`nh3d-mobile-bottom-button${
+              inventory.visible ? " is-active" : ""
+            }`}
             onClick={() => {
               controller?.dismissFpsCrosshairContextMenu();
               controller?.toggleInventoryDialog();

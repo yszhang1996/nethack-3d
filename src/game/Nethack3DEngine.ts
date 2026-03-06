@@ -13684,6 +13684,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       drop: "d",
       eat: "e",
       quaff: "q",
+      quiver: "Q",
       read: "r",
       throw: "t",
       wield: "w",
