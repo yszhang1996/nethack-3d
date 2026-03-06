@@ -64,6 +64,10 @@ class LocalNetHackRuntime {
     this.extendedCommandEntries = null;
     this.pendingExtendedCommand = null;
     this.extendedCommandTriggerQueued = false;
+    this.pendingExtendedCommandRequest = null;
+    this.startupExtmenuEnabled = this.resolveStartupExtmenuEnabled(
+      this.startupOptions?.initOptions,
+    );
     this.statusPending = new Map();
     this.nameRequestDebugCounter = 0;
     this.nameInitDebugCounter = 0;
@@ -192,6 +196,11 @@ class LocalNetHackRuntime {
     return sanitizeStartupInitOptionTokens(this.startupOptions?.initOptions);
   }
 
+  resolveStartupExtmenuEnabled(rawTokens) {
+    const tokens = sanitizeStartupInitOptionTokens(rawTokens);
+    return tokens.includes("extmenu");
+  }
+
   sendReconnectSnapshot() {
     if (!this.eventHandler) {
       return;
@@ -282,6 +291,7 @@ class LocalNetHackRuntime {
     this.menuSelections.clear();
     this.pendingExtendedCommand = null;
     this.extendedCommandTriggerQueued = false;
+    this.resolvePendingExtendedCommandRequest(-1);
     this.pendingInventoryContextSelection = null;
     this.awaitingQuestionInput = false;
     this.windowTextBuffers.clear();
@@ -323,6 +333,9 @@ class LocalNetHackRuntime {
     const extendedCommandText =
       this.extractExtendedCommandSubmission(normalized);
     if (extendedCommandText !== null) {
+      if (this.resolvePendingExtendedCommandRequestFromText(extendedCommandText)) {
+        return;
+      }
       this.queueExtendedCommandSubmission(extendedCommandText, "synthetic");
       return;
     }
@@ -377,6 +390,10 @@ class LocalNetHackRuntime {
       pendingTextResponses: this.pendingTextResponses.length,
       activeInputRequestType: this.activeInputRequest?.type || null,
     });
+
+    if (this.tryConsumePendingExtendedCommandInput(input)) {
+      return;
+    }
 
     if (this.isTextInputCommand(input)) {
       const text = input.slice(this.textInputPrefix.length);
@@ -819,6 +836,9 @@ class LocalNetHackRuntime {
   queueExtendedCommandSubmission(commandText, source = "synthetic") {
     const normalizedCommand =
       typeof commandText === "string" ? commandText : "";
+    if (this.resolvePendingExtendedCommandRequestFromText(normalizedCommand)) {
+      return;
+    }
     this.pendingExtendedCommand = normalizedCommand;
     if (this.extendedCommandTriggerQueued) {
       return;
@@ -837,6 +857,152 @@ class LocalNetHackRuntime {
       return undefined;
     }
     return pending;
+  }
+
+  buildExtendedCommandPromptMenuItems() {
+    const entries = this.getExtendedCommandEntries();
+    const menuItems = [];
+    let menuIndex = 0;
+    for (const entry of entries) {
+      const commandName = String(entry?.name || "")
+        .trim()
+        .toLowerCase();
+      if (!commandName || commandName === "#" || commandName === "?") {
+        continue;
+      }
+      menuItems.push({
+        menuIndex,
+        commandIndex: entry.index,
+        accelerator: "",
+        text: commandName,
+        isCategory: false,
+      });
+      menuIndex += 1;
+    }
+    return menuItems;
+  }
+
+  requestExtendedCommandSelectionFromUi() {
+    if (
+      this.pendingExtendedCommandRequest &&
+      this.pendingExtendedCommandRequest.promise
+    ) {
+      return this.pendingExtendedCommandRequest.promise;
+    }
+
+    const menuItems = this.buildExtendedCommandPromptMenuItems();
+    if (!menuItems.length || !this.eventHandler) {
+      return Promise.resolve(-1);
+    }
+
+    const menuIndexToCommandIndex = new Map();
+    for (const item of menuItems) {
+      if (Number.isInteger(item.menuIndex) && Number.isInteger(item.commandIndex)) {
+        menuIndexToCommandIndex.set(item.menuIndex, item.commandIndex);
+      }
+    }
+
+    let resolveSelection = null;
+    const requestPromise = new Promise((resolve) => {
+      resolveSelection = resolve;
+    });
+    this.pendingExtendedCommandRequest = {
+      resolve: resolveSelection,
+      promise: requestPromise,
+      commandBuffer: "",
+      menuIndexToCommandIndex,
+    };
+
+    this.emit({
+      type: "question",
+      text: "What extended command?",
+      choices: "",
+      default: "",
+      menuItems,
+      source: "shim_get_ext_cmd",
+    });
+
+    return requestPromise;
+  }
+
+  resolvePendingExtendedCommandRequest(commandIndex) {
+    const pending = this.pendingExtendedCommandRequest;
+    this.pendingExtendedCommandRequest = null;
+    if (!pending || typeof pending.resolve !== "function") {
+      return;
+    }
+    pending.resolve(Number.isInteger(commandIndex) ? commandIndex : -1);
+  }
+
+  resolvePendingExtendedCommandRequestFromText(commandText) {
+    if (!this.pendingExtendedCommandRequest) {
+      return false;
+    }
+
+    const normalized = String(commandText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      this.resolvePendingExtendedCommandRequest(-1);
+      return true;
+    }
+
+    const extCommandIndex = this.resolveExtendedCommandIndex(normalized);
+    if (extCommandIndex < 0) {
+      console.log(
+        `Unknown extended command "${normalized}" while awaiting shim_get_ext_cmd; canceling`,
+      );
+      this.resolvePendingExtendedCommandRequest(-1);
+      return true;
+    }
+
+    this.resolvePendingExtendedCommandRequest(extCommandIndex);
+    return true;
+  }
+
+  tryConsumePendingExtendedCommandInput(input) {
+    const pending = this.pendingExtendedCommandRequest;
+    if (!pending) {
+      return false;
+    }
+
+    if (this.isMenuSelectionInput(input)) {
+      const menuIndex = this.decodeMenuSelectionIndex(input);
+      const extCommandIndex = Number.isInteger(menuIndex)
+        ? pending.menuIndexToCommandIndex.get(menuIndex)
+        : undefined;
+      if (Number.isInteger(extCommandIndex)) {
+        this.resolvePendingExtendedCommandRequest(extCommandIndex);
+      } else {
+        this.resolvePendingExtendedCommandRequest(-1);
+      }
+      return true;
+    }
+
+    const normalizedInput = this.normalizeInputKey(input);
+    if (normalizedInput === "Escape") {
+      this.resolvePendingExtendedCommandRequest(-1);
+      return true;
+    }
+    if (this.isExtendedCommandSubmitToken(normalizedInput)) {
+      this.resolvePendingExtendedCommandRequestFromText(pending.commandBuffer);
+      return true;
+    }
+    if (normalizedInput === "Backspace") {
+      pending.commandBuffer = pending.commandBuffer.slice(0, -1);
+      return true;
+    }
+    if (
+      typeof normalizedInput === "string" &&
+      normalizedInput.length === 1 &&
+      /^[A-Za-z0-9_?-]$/.test(normalizedInput)
+    ) {
+      pending.commandBuffer += normalizedInput.toLowerCase();
+      return true;
+    }
+
+    // Ignore unrelated keys while waiting for extended command selection.
+    return true;
   }
 
   isLiteralTextInput(input) {
@@ -2978,6 +3144,12 @@ class LocalNetHackRuntime {
         }
 
         if (!extCommandText) {
+          if (this.startupExtmenuEnabled) {
+            console.log(
+              "Extended command submission was empty; awaiting extmenu selection",
+            );
+            return this.requestExtendedCommandSelectionFromUi();
+          }
           console.log("Extended command submission was empty");
           return -1;
         }

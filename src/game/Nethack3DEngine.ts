@@ -11,6 +11,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.js";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
+import { sanitizeStartupInitOptionTokens } from "../runtime/startup-init-options";
 import { FmodRuntime } from "../audio";
 import type { FmodRuntimeOptions, FmodThreadingDiagnostics } from "../audio";
 import {
@@ -569,6 +570,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private metaCommandModeActive: boolean = false;
   private metaCommandBuffer: string = "";
   private metaCommandModal: HTMLDivElement | null = null;
+  private useNativeExtendedCommandMenu: boolean = false;
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   private readonly pointerRaycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
@@ -1250,6 +1252,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       playMode: "normal",
       runtimeVersion: "3.6.7",
     };
+    this.useNativeExtendedCommandMenu = this.resolveStartupExtmenuEnabled(
+      this.characterCreationConfig.initOptions,
+    );
     this.clientOptions = normalizeNh3dClientOptions(options.clientOptions);
     const explicitFpsMode = options.clientOptions?.fpsMode;
     const initialFpsMode =
@@ -14022,6 +14027,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return event.shiftKey && event.code === "Digit3";
   }
 
+  private resolveStartupExtmenuEnabled(rawTokens: unknown): boolean {
+    const tokens = sanitizeStartupInitOptionTokens(rawTokens);
+    let extmenuEnabled = false;
+    for (const token of tokens) {
+      if (token === "extmenu") {
+        extmenuEnabled = true;
+      } else if (token === "!extmenu") {
+        extmenuEnabled = false;
+      }
+    }
+    return extmenuEnabled;
+  }
+
   private startMetaCommandMode(): void {
     if (!this.canStartMetaCommandMode()) {
       return;
@@ -15101,10 +15119,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (this.isMetaCommandTriggerKey(event) && this.canStartMetaCommandMode()) {
-      event.preventDefault();
-      this.startMetaCommandMode();
-      return;
+    if (this.isMetaCommandTriggerKey(event)) {
+      if (this.useNativeExtendedCommandMenu) {
+        // extmenu=true: let NetHack handle "#" directly.
+        event.preventDefault();
+        this.sendInput("#");
+        return;
+      }
+      if (this.canStartMetaCommandMode()) {
+        event.preventDefault();
+        this.startMetaCommandMode();
+        return;
+      }
     }
 
     // Handle escape key to close dialogs
