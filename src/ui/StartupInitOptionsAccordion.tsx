@@ -241,6 +241,11 @@ export default function StartupInitOptionsAccordion({
       return null;
     };
 
+    const isMobileLandscape = (): boolean => {
+      return window.matchMedia("(pointer: coarse) and (orientation: landscape)")
+        .matches;
+    };
+
     const updateOptionsListMaxHeight = (): void => {
       const currentDetailsElement = detailsRef.current;
       const currentListElement = optionsListRef.current;
@@ -249,6 +254,12 @@ export default function StartupInitOptionsAccordion({
       }
       if (!currentDetailsElement.open) {
         currentListElement.style.removeProperty("max-height");
+        return;
+      }
+
+      if (isMobileLandscape()) {
+        currentListElement.style.maxHeight =
+          "calc(var(--nh3d-startup-accordion-min-height-landscape) - 100px)";
         return;
       }
 

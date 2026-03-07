@@ -75,9 +75,9 @@
           var(--nh3d-startup-modal-frame-logo-gap)
       ),
       calc(
-        var(--nh3d-mobile-visible-height, 100vh) -
-          var(--nh3d-startup-modal-frame-bottom-inset) -
-          var(--nh3d-startup-modal-frame-preferred-min-height)
+        var(--nh3d-mobile-visible-height, 100vh) - var(
+            --nh3d-startup-modal-frame-bottom-inset
+          ) - var(--nh3d-startup-modal-frame-preferred-min-height)
       )
     )
   );
@@ -1343,7 +1343,9 @@ canvas {
 .nh3d-dialog-question.nh3d-dialog-question-enhance {
   width: min(88vw, 920px);
   max-width: calc(
-    100vw - var(--nh3d-modal-safe-left-inset) - var(--nh3d-modal-safe-right-inset)
+    100vw - var(--nh3d-modal-safe-left-inset) - var(
+        --nh3d-modal-safe-right-inset
+      )
   );
 }
 
@@ -1382,8 +1384,9 @@ canvas {
   --nh3d-character-setup-control-height: 40px;
   --nh3d-startup-fixed-actions-reserve: 104px;
   --nh3d-startup-accordion-max-height: calc(
-    var(--nh3d-startup-modal-frame-max-height) -
-      var(--nh3d-startup-fixed-actions-reserve)
+    var(--nh3d-startup-modal-frame-max-height) - var(
+        --nh3d-startup-fixed-actions-reserve
+      )
   );
   width: min(92vw, 680px);
   max-height: var(--nh3d-startup-modal-frame-max-height);
@@ -1449,7 +1452,8 @@ canvas {
     scroll-padding-bottom: 8px;
   }
 
-  .nh3d-startup-init-options .nh3d-overflow-glow-frame.nh3d-overflow-glow::after {
+  .nh3d-startup-init-options
+    .nh3d-overflow-glow-frame.nh3d-overflow-glow::after {
     content: none;
   }
 
@@ -1545,9 +1549,9 @@ canvas {
       bottom: var(--nh3d-startup-modal-frame-bottom-inset);
       transform: translate(-50%, 0);
       max-height: calc(
-        var(--nh3d-mobile-visible-height, 100vh) -
-          var(--nh3d-modal-safe-top-inset) -
-          var(--nh3d-startup-modal-frame-bottom-inset)
+        var(--nh3d-mobile-visible-height, 100vh) - var(
+            --nh3d-modal-safe-top-inset
+          ) - var(--nh3d-startup-modal-frame-bottom-inset)
       );
     }
   }
@@ -1555,8 +1559,11 @@ canvas {
   @media (orientation: landscape) and (pointer: coarse) {
     --nh3d-startup-fixed-actions-reserve: 112px;
     --nh3d-startup-accordion-max-height: calc(
-      var(--nh3d-modal-safe-max-height) - var(--nh3d-startup-fixed-actions-reserve)
+      var(--nh3d-modal-safe-max-height) - var(
+          --nh3d-startup-fixed-actions-reserve
+        )
     );
+    --nh3d-startup-accordion-min-height-landscape: 400px;
     max-height: var(--nh3d-modal-safe-max-height);
 
     .nh3d-startup-config-grid:not(.centered) {
@@ -1565,7 +1572,7 @@ canvas {
 
     .nh3d-startup-init-options[open] {
       margin-bottom: 10px;
-      min-height: max-content;
+      min-height: var(--nh3d-startup-accordion-min-height-landscape);
     }
 
     .nh3d-startup-init-options-list {
