@@ -112,6 +112,7 @@ export type FpsCrosshairContextState = {
 
 export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
+export type Nh3dDesktopTouchInterfaceMode = "off" | "portrait" | "landscape";
 export type Nh3dInventoryFixedTileSizeMode =
   | "none"
   | "small"
@@ -151,6 +152,7 @@ export type Nh3dClientOptions = {
   fpsLookSensitivityY: number;
   invertLookYAxis: boolean;
   invertTouchPanningDirection: boolean;
+  desktopTouchInterfaceMode: Nh3dDesktopTouchInterfaceMode;
   minimap: boolean;
   minimapScale: number;
   reduceInventoryMotion: boolean;
@@ -214,6 +216,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsLookSensitivityY: isMobile ? 1.5 : 1,
   invertLookYAxis: false,
   invertTouchPanningDirection: true,
+  desktopTouchInterfaceMode: "off",
   minimap: true,
   minimapScale: 1,
   reduceInventoryMotion: true,
@@ -734,6 +737,12 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.invertTouchPanningDirection === "boolean"
         ? overrides.invertTouchPanningDirection
         : defaultNh3dClientOptions.invertTouchPanningDirection,
+    desktopTouchInterfaceMode:
+      overrides?.desktopTouchInterfaceMode === "portrait" ||
+      overrides?.desktopTouchInterfaceMode === "landscape" ||
+      overrides?.desktopTouchInterfaceMode === "off"
+        ? overrides.desktopTouchInterfaceMode
+        : defaultNh3dClientOptions.desktopTouchInterfaceMode,
     minimap:
       typeof overrides?.minimap === "boolean"
         ? overrides.minimap

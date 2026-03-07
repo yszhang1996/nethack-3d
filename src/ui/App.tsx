@@ -1256,7 +1256,8 @@ type ClientOptionSelect = {
     | "tilesetMode"
     | "tilesetPath"
     | "antialiasing"
-    | "inventoryFixedTileSize";
+    | "inventoryFixedTileSize"
+    | "desktopTouchInterfaceMode";
   label: string;
   description: string;
   type: "select";
@@ -1298,10 +1299,10 @@ type ClientOption =
   | ClientOptionSlider;
 
 type ClientOptionsTabId =
-  | "controls"
   | "display"
-  | "sound"
   | "mobile"
+  | "controls"
+  | "sound"
   | "combat"
   | "compatibility";
 
@@ -1578,8 +1579,8 @@ const clientOptionsConfig: ClientOption[] = [
     type: "boolean",
   },
   {
-    key: "group-display",
-    label: "Interface & display",
+    key: "group-interface",
+    label: "Interface",
     type: "group",
   },
   {
@@ -1610,6 +1611,18 @@ const clientOptionsConfig: ClientOption[] = [
     disabled: false,
   },
   {
+    key: "desktopTouchInterfaceMode",
+    label: "Desktop touch interface",
+    description:
+      "Show touch controls on desktop and choose portrait or landscape layout.",
+    type: "select",
+    options: [
+      { value: "off", label: "Off" },
+      { value: "portrait", label: "Use portrait touch UI" },
+      { value: "landscape", label: "Use landscape touch UI" },
+    ],
+  },
+  {
     key: "antialiasing",
     label: "Antialiasing",
     description: "Edge smoothing mode for 3D rendering.",
@@ -1618,6 +1631,12 @@ const clientOptionsConfig: ClientOption[] = [
       { value: "taa", label: "TAA" },
       { value: "fxaa", label: "FXAA" },
     ],
+  },
+  {
+    key: "blockAmbientOcclusion",
+    label: "Ambient occlusion",
+    description: "Adds subtle contact shadowing between floor and wall blocks.",
+    type: "boolean",
   },
   {
     key: "brightness",
@@ -1721,12 +1740,6 @@ const clientOptionsConfig: ClientOption[] = [
     min: 120,
     max: 4000,
     step: 20,
-  },
-  {
-    key: "blockAmbientOcclusion",
-    label: "Ambient occlusion",
-    description: "Adds subtle contact shadowing between floor and wall blocks.",
-    type: "boolean",
   },
   {
     key: "group-sound",
@@ -1833,28 +1846,28 @@ const clientOptionsDefaultTabId: ClientOptionsTabId = "display";
 
 const clientOptionsTabs: ClientOptionsTab[] = [
   {
+    id: "display",
+    label: "Display",
+    description: "Interface and display settings.",
+    groupKey: "group-interface",
+  },
+  {
+    id: "mobile",
+    label: "Mobile",
+    description: "Touch control settings for mobile gameplay.",
+    groupKey: "group-mobile-controls",
+  },
+  {
     id: "controls",
     label: "FPS Mode",
     description: "Mouselook, perspective, and first-person behavior.",
     groupKey: "group-controls",
   },
   {
-    id: "display",
-    label: "Display",
-    description: "Interface layout, tileset rendering, and visual effects.",
-    groupKey: "group-display",
-  },
-  {
     id: "sound",
     label: "Sound",
     description: "Audio output and performance-related sound controls.",
     groupKey: "group-sound",
-  },
-  {
-    id: "mobile",
-    label: "Mobile",
-    description: "Touch and drag behavior on mobile devices.",
-    groupKey: "group-mobile-controls",
   },
   {
     id: "combat",
@@ -4510,16 +4523,50 @@ export default function App(): JSX.Element {
   }, [statsBarHeight]);
 
   const isMobileGameRunning =
-    isMobileViewport &&
+    (isMobileViewport ||
+      (!isMobileViewport &&
+        clientOptions.desktopTouchInterfaceMode !== "off")) &&
     characterCreationConfig !== null &&
     connectionState === "running" &&
     !loadingVisible;
 
   const isDesktopGameRunning =
-    !isMobileViewport &&
+    !(isMobileViewport || clientOptions.desktopTouchInterfaceMode !== "off") &&
     characterCreationConfig !== null &&
     connectionState === "running" &&
     !loadingVisible;
+
+  const forcedDesktopTouchInterfaceMode = !isMobileViewport
+    ? clientOptions.desktopTouchInterfaceMode
+    : "off";
+  const isDesktopTouchInterfaceForced =
+    forcedDesktopTouchInterfaceMode !== "off";
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.toggle(
+      "nh3d-force-touch-layout",
+      isDesktopTouchInterfaceForced,
+    );
+    root.classList.toggle(
+      "nh3d-force-touch-layout-portrait",
+      forcedDesktopTouchInterfaceMode === "portrait",
+    );
+    root.classList.toggle(
+      "nh3d-force-touch-layout-landscape",
+      forcedDesktopTouchInterfaceMode === "landscape",
+    );
+    return () => {
+      root.classList.remove(
+        "nh3d-force-touch-layout",
+        "nh3d-force-touch-layout-portrait",
+        "nh3d-force-touch-layout-landscape",
+      );
+    };
+  }, [forcedDesktopTouchInterfaceMode, isDesktopTouchInterfaceForced]);
 
   const startup = !isMobileGameRunning && !isDesktopGameRunning;
 
@@ -7532,6 +7579,20 @@ export default function App(): JSX.Element {
                                     event.target.value === "large"
                                       ? event.target.value
                                       : "medium";
+                                  updateClientOptionDraft(
+                                    option.key,
+                                    nextValue,
+                                  );
+                                  return;
+                                }
+                                if (
+                                  option.key === "desktopTouchInterfaceMode"
+                                ) {
+                                  const nextValue =
+                                    event.target.value === "portrait" ||
+                                    event.target.value === "landscape"
+                                      ? event.target.value
+                                      : "off";
                                   updateClientOptionDraft(
                                     option.key,
                                     nextValue,
