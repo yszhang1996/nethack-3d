@@ -757,8 +757,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private controllerMoveHighlightTile: { x: number; y: number } | null = null;
   private controllerDpadMovePreviewInput: string | null = null;
   private controllerLeftStickMovePreviewInput: string | null = null;
+  private controllerDirectionPromptPreviewInput: string | null = null;
+  private controllerDirectionPromptPreviewSource:
+    | "left_stick"
+    | "dpad"
+    | null = null;
   private controllerFpsLeftStickLastMoveInput: string | null = null;
   private controllerFpsLeftStickNextMoveAtMs: number = 0;
+  private controllerDialogDpadRepeatDirection:
+    | "up"
+    | "down"
+    | "left"
+    | "right"
+    | null = null;
+  private controllerDialogDpadRepeatNextAtMs: number = 0;
+  private readonly controllerDialogDpadRepeatStartDelayMs: number = 260;
+  private readonly controllerDialogDpadRepeatIntervalMs: number = 95;
   private controllerMinimapExpanded: boolean = false;
   private controllerVirtualCursorElement: HTMLDivElement | null = null;
   private controllerVirtualCursorPulseElement: HTMLDivElement | null = null;
@@ -13592,6 +13606,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private showDirectionQuestion(question: string): void {
     this.isInDirectionQuestion = true;
+    this.clearControllerDirectionPromptPreview();
     this.syncFpsPointerLockForUiState(this.isFpsMode());
     this.uiAdapter.setDirectionQuestion(question);
   }
@@ -13599,6 +13614,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private hideDirectionQuestion(): void {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false;
+    this.clearControllerDirectionPromptPreview();
     this.clearFpsFireSuppression();
     this.uiAdapter.setDirectionQuestion(null);
     this.syncFpsPointerLockForUiState(true);
@@ -18012,6 +18028,76 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.controllerMoveHighlightTile = null;
   }
 
+  private clearControllerDirectionPromptPreview(): void {
+    this.controllerDirectionPromptPreviewInput = null;
+    this.controllerDirectionPromptPreviewSource = null;
+    this.controllerMoveHighlightTile = null;
+  }
+
+  private handleControllerDirectionQuestionInput(
+    snapshot: ControllerActionSnapshot,
+  ): void {
+    const leftX =
+      snapshot.values.left_stick_right - snapshot.values.left_stick_left;
+    const leftY =
+      snapshot.values.left_stick_down - snapshot.values.left_stick_up;
+    const dpadX = snapshot.values.dpad_right - snapshot.values.dpad_left;
+    const dpadY = snapshot.values.dpad_down - snapshot.values.dpad_up;
+
+    const leftDirectionInput = this.getDirectionInputFromControllerAxes(
+      leftX,
+      leftY,
+      this.controllerAxisDeadzone,
+    );
+    const dpadDirectionInput = this.getDirectionInputFromControllerAxes(
+      dpadX,
+      dpadY,
+      this.controllerAxisDeadzone,
+    );
+
+    if (leftDirectionInput) {
+      this.controllerDirectionPromptPreviewInput = leftDirectionInput;
+      this.controllerDirectionPromptPreviewSource = "left_stick";
+    } else if (dpadDirectionInput) {
+      this.controllerDirectionPromptPreviewInput = dpadDirectionInput;
+      this.controllerDirectionPromptPreviewSource = "dpad";
+    }
+
+    if (this.controllerDirectionPromptPreviewInput) {
+      this.setControllerMovePreviewDirection(
+        this.controllerDirectionPromptPreviewInput,
+      );
+    }
+
+    if (snapshot.pressed.search) {
+      this.submitDirectionAnswer("s");
+      this.clearControllerDirectionPromptPreview();
+      return;
+    }
+
+    if (snapshot.released.confirm && this.controllerDirectionPromptPreviewInput) {
+      this.submitDirectionAnswer(this.controllerDirectionPromptPreviewInput);
+      this.clearControllerDirectionPromptPreview();
+      return;
+    }
+
+    const releasedAnyDpad =
+      snapshot.released.dpad_up ||
+      snapshot.released.dpad_down ||
+      snapshot.released.dpad_left ||
+      snapshot.released.dpad_right;
+    if (
+      releasedAnyDpad &&
+      !dpadDirectionInput &&
+      this.controllerDirectionPromptPreviewSource === "dpad" &&
+      this.controllerDirectionPromptPreviewInput
+    ) {
+      this.submitDirectionAnswer(this.controllerDirectionPromptPreviewInput);
+      this.clearControllerDirectionPromptPreview();
+      return;
+    }
+  }
+
   private setControllerMovePreviewDirection(directionInput: string): void {
     const movementDelta = this.getMovementDeltaFromInput(directionInput);
     if (!movementDelta) {
@@ -18078,6 +18164,80 @@ class Nethack3DEngine implements Nethack3DEngineController {
     window.dispatchEvent(event);
   }
 
+  private clearControllerDialogDpadRepeat(): void {
+    this.controllerDialogDpadRepeatDirection = null;
+    this.controllerDialogDpadRepeatNextAtMs = 0;
+  }
+
+  private getPressedControllerDpadDirection(
+    snapshot: ControllerActionSnapshot,
+  ): "up" | "down" | "left" | "right" | null {
+    if (snapshot.pressed.dpad_up) {
+      return "up";
+    }
+    if (snapshot.pressed.dpad_down) {
+      return "down";
+    }
+    if (snapshot.pressed.dpad_left) {
+      return "left";
+    }
+    if (snapshot.pressed.dpad_right) {
+      return "right";
+    }
+    return null;
+  }
+
+  private getActiveControllerDpadDirection(
+    snapshot: ControllerActionSnapshot,
+  ): "up" | "down" | "left" | "right" | null {
+    if (snapshot.active.dpad_up) {
+      return "up";
+    }
+    if (snapshot.active.dpad_down) {
+      return "down";
+    }
+    if (snapshot.active.dpad_left) {
+      return "left";
+    }
+    if (snapshot.active.dpad_right) {
+      return "right";
+    }
+    return null;
+  }
+
+  private getControllerDialogDpadDirectionWithRepeat(
+    snapshot: ControllerActionSnapshot,
+  ): "up" | "down" | "left" | "right" | null {
+    const nowMs = Date.now();
+    const pressedDirection = this.getPressedControllerDpadDirection(snapshot);
+    if (pressedDirection) {
+      this.controllerDialogDpadRepeatDirection = pressedDirection;
+      this.controllerDialogDpadRepeatNextAtMs =
+        nowMs + this.controllerDialogDpadRepeatStartDelayMs;
+      return pressedDirection;
+    }
+
+    const activeDirection = this.getActiveControllerDpadDirection(snapshot);
+    if (!activeDirection) {
+      this.clearControllerDialogDpadRepeat();
+      return null;
+    }
+
+    if (this.controllerDialogDpadRepeatDirection !== activeDirection) {
+      this.controllerDialogDpadRepeatDirection = activeDirection;
+      this.controllerDialogDpadRepeatNextAtMs =
+        nowMs + this.controllerDialogDpadRepeatStartDelayMs;
+      return activeDirection;
+    }
+
+    if (nowMs < this.controllerDialogDpadRepeatNextAtMs) {
+      return null;
+    }
+    this.controllerDialogDpadRepeatNextAtMs =
+      nowMs + this.controllerDialogDpadRepeatIntervalMs;
+    return activeDirection;
+  }
+
   private getTopControllerOverlayElement(): HTMLElement | null {
     const candidates = Array.from(
       document.querySelectorAll<HTMLElement>(
@@ -18136,7 +18296,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     activeElement: HTMLElement | null,
   ): HTMLElement | null {
     const selector =
-      ".nh3d-context-menu-actions-inventory, .nh3d-context-menu-actions";
+      ".nh3d-context-menu-actions-inventory, .nh3d-context-menu-actions, .nh3d-controller-action-wheel-extended";
     if (activeElement && overlay.contains(activeElement)) {
       const activeContainer = activeElement.closest(selector);
       if (activeContainer instanceof HTMLElement && overlay.contains(activeContainer)) {
@@ -18316,6 +18476,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     if (gridTarget) {
       gridTarget.focus();
+      gridTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
       return true;
     }
     const activeIndex =
@@ -18331,7 +18492,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         (((activeIndex + delta) % focusable.length) + focusable.length) %
         focusable.length;
     }
-    focusable[nextIndex]?.focus();
+    const nextElement = focusable[nextIndex];
+    if (nextElement) {
+      nextElement.focus();
+      nextElement.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
     return true;
   }
 
@@ -18379,8 +18544,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!scrollElement) {
       return;
     }
-    scrollElement.scrollTop +=
+    const scrollDelta =
       scrollAxisY * this.controllerDialogScrollPxPerSec * deltaSeconds;
+    if (!Number.isFinite(scrollDelta) || Math.abs(scrollDelta) < 0.01) {
+      return;
+    }
+    const previousScrollTop = scrollElement.scrollTop;
+    scrollElement.scrollTop += scrollDelta;
+    if (
+      !overlay ||
+      Math.abs(scrollElement.scrollTop - previousScrollTop) < 0.01
+    ) {
+      return;
+    }
+    this.maintainControllerFocusAfterDialogScroll(
+      overlay,
+      scrollElement,
+      scrollDelta > 0 ? "down" : "up",
+    );
+  }
+
+  private maintainControllerFocusAfterDialogScroll(
+    overlay: HTMLElement,
+    scrollElement: HTMLElement,
+    direction: "up" | "down",
+  ): void {
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (
+      !activeElement ||
+      !overlay.contains(activeElement) ||
+      !scrollElement.contains(activeElement)
+    ) {
+      return;
+    }
+    const activeRect = activeElement.getBoundingClientRect();
+    const scrollRect = scrollElement.getBoundingClientRect();
+    const fellAboveViewport = activeRect.bottom < scrollRect.top + 2;
+    const fellBelowViewport = activeRect.top > scrollRect.bottom - 2;
+    if (direction === "down" && fellAboveViewport) {
+      this.moveControllerDialogFocus("down");
+      return;
+    }
+    if (direction === "up" && fellBelowViewport) {
+      this.moveControllerDialogFocus("up");
+    }
   }
 
   private moveControllerVirtualCursorByAxes(
@@ -18815,7 +19023,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     snapshot: ControllerActionSnapshot,
     deltaSeconds: number,
   ): void {
-    this.clearControllerMovePreview();
     this.controllerFpsLeftStickLastMoveInput = null;
     this.controllerFpsLeftStickNextMoveAtMs = 0;
 
@@ -18842,15 +19049,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
+    if (this.isInDirectionQuestion) {
+      this.clearControllerDialogDpadRepeat();
+      this.setControllerVirtualCursorVisible(false);
+      this.handleControllerDirectionQuestionInput(snapshot);
+      return;
+    }
+
+    this.clearControllerDirectionPromptPreview();
+    this.clearControllerMovePreview();
+    const controllerActionWheelOverlay = this.getControllerActionWheelOverlayElement();
+    const controllerActionWheelIsQuick = Boolean(
+      controllerActionWheelOverlay?.classList.contains("is-quick"),
+    );
+    const controllerActionWheelIsExtended = Boolean(
+      controllerActionWheelOverlay?.classList.contains("is-extended"),
+    );
+
     let dpadDirection: "up" | "down" | "left" | "right" | null = null;
-    if (snapshot.pressed.dpad_up) {
-      dpadDirection = "up";
-    } else if (snapshot.pressed.dpad_down) {
-      dpadDirection = "down";
-    } else if (snapshot.pressed.dpad_left) {
-      dpadDirection = "left";
-    } else if (snapshot.pressed.dpad_right) {
-      dpadDirection = "right";
+    if (controllerActionWheelIsExtended) {
+      dpadDirection = this.getControllerDialogDpadDirectionWithRepeat(snapshot);
+    } else {
+      this.clearControllerDialogDpadRepeat();
+      dpadDirection = this.getPressedControllerDpadDirection(snapshot);
     }
 
     if (dpadDirection) {
@@ -18874,17 +19095,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const controllerActionWheelOverlay = this.getControllerActionWheelOverlayElement();
     if (controllerActionWheelOverlay) {
-      const didHighlight = this.highlightControllerActionWheelFromSticks(
-        snapshot,
-        controllerActionWheelOverlay,
-      );
-      if (didHighlight) {
-        this.setControllerVirtualCursorVisible(false);
+      if (controllerActionWheelIsQuick) {
+        const didHighlight = this.highlightControllerActionWheelFromSticks(
+          snapshot,
+          controllerActionWheelOverlay,
+        );
+        if (didHighlight) {
+          this.setControllerVirtualCursorVisible(false);
+        }
+        if (snapshot.pressed.confirm) {
+          const didClick = this.tryClickFocusedControllerOverlayElement();
+          if (!didClick) {
+            this.dispatchControllerKeyDown("Enter", "Enter");
+          }
+        }
+        return;
       }
+
+      const scrollAxisY =
+        snapshot.values.right_stick_down - snapshot.values.right_stick_up;
+      this.scrollControllerDialogOverlay(scrollAxisY, deltaSeconds);
+
+      const cursorAxisX =
+        snapshot.values.left_stick_right - snapshot.values.left_stick_left;
+      const cursorAxisY =
+        snapshot.values.left_stick_down - snapshot.values.left_stick_up;
+      const movedCursor = this.moveControllerVirtualCursorByAxes(
+        cursorAxisX,
+        cursorAxisY,
+        deltaSeconds,
+      );
+      if (movedCursor) {
+        this.setControllerVirtualCursorVisible(true);
+      }
+
       if (snapshot.pressed.confirm) {
-        const didClick = this.tryClickFocusedControllerOverlayElement();
+        const didClick = this.clickControllerVirtualCursorTarget();
         if (!didClick) {
           this.dispatchControllerKeyDown("Enter", "Enter");
         }
@@ -18920,6 +19167,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private updateControllerInput(deltaSeconds: number): void {
     if (this.clientOptions.controllerEnabled !== true) {
       this.controllerPreviousActionState = createControllerBooleanActionMap(false);
+      this.clearControllerDialogDpadRepeat();
+      this.clearControllerDirectionPromptPreview();
       this.clearControllerMovePreview();
       this.resetControllerVirtualCursor();
       return;
@@ -18935,6 +19184,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.isControllerGameplayInputContextActive()) {
+      this.clearControllerDialogDpadRepeat();
       this.resetControllerVirtualCursor();
       this.handleControllerGameplayInput(snapshot, deltaSeconds);
       return;
@@ -18945,6 +19195,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.clearControllerDialogDpadRepeat();
     this.clearControllerMovePreview();
     this.resetControllerVirtualCursor();
   }

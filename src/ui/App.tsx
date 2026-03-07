@@ -2645,7 +2645,7 @@ const mobileActions: MobileActionEntry[] = [
 
 const controllerActionWheelOuterRadiusPercent = 50;
 const controllerActionWheelLabelRadiusPercent = 29;
-const controllerActionWheelSliceGapDeg = 3;
+const controllerActionWheelSliceGapDeg = 1;
 
 function getControllerActionWheelPolarPoint(
   angleDeg: number,
@@ -5678,7 +5678,7 @@ export default function App(): JSX.Element {
       "nh3d-controller-action-wheel-dialog",
     )
       ? topOverlay.querySelector<HTMLElement>(
-          "[data-nh3d-wheel-angle]:not(:disabled)",
+          "[data-nh3d-wheel-angle]:not(:disabled), .nh3d-controller-action-wheel-extended .nh3d-mobile-actions-button:not(:disabled)",
         )
       : null;
     const firstSelectableButton =
@@ -5950,6 +5950,42 @@ export default function App(): JSX.Element {
     controllerActionWheelMode,
     isControllerActionWheelVisible,
     controllerActionWheelEntries.length,
+  ]);
+  useEffect(() => {
+    if (
+      !isControllerActionWheelVisible ||
+      controllerActionWheelMode !== "extended"
+    ) {
+      return;
+    }
+    if (typeof document === "undefined") {
+      return;
+    }
+    const overlay = controllerActionWheelDialogRef.current;
+    if (!overlay) {
+      return;
+    }
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (activeElement && overlay.contains(activeElement)) {
+      return;
+    }
+    const timerId = window.setTimeout(() => {
+      const firstExtendedButton = overlay.querySelector<HTMLElement>(
+        ".nh3d-controller-action-wheel-extended .nh3d-mobile-actions-button:not(:disabled)",
+      );
+      firstExtendedButton?.focus({ preventScroll: true });
+    }, 0);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    isControllerActionWheelVisible,
+    controllerActionWheelMode,
+    mobileCommonExtendedCommandNames.length,
+    mobileExtendedCommandNames.length,
   ]);
   const runCharacterExtendedCommand = useCallback(
     (command: string): void => {
@@ -10415,7 +10451,7 @@ export default function App(): JSX.Element {
       ) : null}
 
       {directionQuestion ? (
-        isFpsPlayMode ? (
+        isFpsPlayMode || clientOptions.controllerEnabled ? (
           <div
             className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close is-visible"
             id="direction-dialog"
@@ -10426,8 +10462,9 @@ export default function App(): JSX.Element {
             )}
             <div className="nh3d-direction-text">{directionQuestion}</div>
             <div className="nh3d-direction-fps-hint">
-              Look to aim. Left-click or W confirms. S targets self. A/D or
-              right-click cancels.
+              {isFpsPlayMode
+                ? "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels."
+                : "Left stick or DPAD points direction. Release A / RT to confirm. Releasing DPAD also confirms. B cancels."}
             </div>
           </div>
         ) : (
@@ -11332,22 +11369,6 @@ export default function App(): JSX.Element {
               <div className="nh3d-controller-action-wheel-title-row">
                 <div className="nh3d-controller-action-wheel-title">
                   Extended Commands
-                </div>
-                <div className="nh3d-controller-action-wheel-controls">
-                  <button
-                    className="nh3d-mobile-actions-back"
-                    onClick={() => setControllerActionWheelMode("quick")}
-                    type="button"
-                  >
-                    Back
-                  </button>
-                  <button
-                    className="nh3d-mobile-actions-close"
-                    onClick={closeControllerActionWheel}
-                    type="button"
-                  >
-                    Close
-                  </button>
                 </div>
               </div>
               <div className="nh3d-overflow-glow-frame nh3d-controller-action-wheel-extended-shell">

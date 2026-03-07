@@ -5094,7 +5094,7 @@ canvas {
   }
 }
 
-.nh3d-dialog button,
+.nh3d-dialog button:not(.nh3d-controller-action-wheel-arc),
 .nh3d-dialog summary,
 .nh3d-dialog [role="button"][tabindex="0"],
 #position-dialog button,
@@ -5104,6 +5104,7 @@ canvas {
 .nh3d-choice-button,
 .nh3d-direction-button,
 .nh3d-question-page-button {
+  &:focus,
   &:focus-visible,
   &.nh3d-action-button-active,
   &.nh3d-menu-button-active {
@@ -5111,8 +5112,41 @@ canvas {
     box-shadow:
       0 0 0 1px var(--nh3d-ui-button-warm-ring),
       0 0 0 2px rgba(102, 204, 255, 0.22);
-    filter: brightness(1.08);
+    filter: brightness(1.12);
   }
+}
+
+.nh3d-menu-action-button:focus,
+.nh3d-menu-action-button:focus-visible,
+.nh3d-pickup-action-button:focus,
+.nh3d-pickup-action-button:focus-visible {
+  border-color: var(--nh3d-ui-button-warm-border);
+}
+
+.nh3d-menu-action-button.nh3d-menu-action-confirm:focus,
+.nh3d-menu-action-button.nh3d-menu-action-confirm:focus-visible,
+.nh3d-menu-action-button.nh3d-menu-action-confirm.nh3d-action-button-active,
+.nh3d-pickup-action-button.nh3d-pickup-action-confirm:focus,
+.nh3d-pickup-action-button.nh3d-pickup-action-confirm:focus-visible,
+.nh3d-pickup-action-button.nh3d-pickup-action-confirm.nh3d-action-button-active {
+  background: var(--nh3d-ui-confirm-bg-hover);
+  border-color: var(--nh3d-ui-confirm-border);
+  box-shadow:
+    0 0 0 1px rgba(114, 219, 152, 0.38),
+    0 0 0 2px rgba(102, 204, 255, 0.22);
+}
+
+.nh3d-menu-action-button.nh3d-menu-action-cancel:focus,
+.nh3d-menu-action-button.nh3d-menu-action-cancel:focus-visible,
+.nh3d-menu-action-button.nh3d-menu-action-cancel.nh3d-action-button-active,
+.nh3d-pickup-action-button.nh3d-pickup-action-cancel:focus,
+.nh3d-pickup-action-button.nh3d-pickup-action-cancel:focus-visible,
+.nh3d-pickup-action-button.nh3d-pickup-action-cancel.nh3d-action-button-active {
+  background: var(--nh3d-ui-cancel-bg-hover);
+  border-color: var(--nh3d-ui-cancel-border);
+  box-shadow:
+    0 0 0 1px rgba(241, 138, 149, 0.35),
+    0 0 0 2px rgba(102, 204, 255, 0.22);
 }
 
 .nh3d-menu-button-key {
@@ -5339,6 +5373,14 @@ canvas {
     box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.6);
   }
 
+  &:focus-visible {
+    outline: 2px solid var(--nh3d-ui-accent);
+    outline-offset: 1px;
+    background: var(--nh3d-ui-button-bg-hover);
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.55);
+  }
+
   @media (orientation: landscape) and (pointer: coarse) {
     right: calc(110px + env(safe-area-inset-right));
     bottom: calc(8px + env(safe-area-inset-bottom));
@@ -5422,17 +5464,16 @@ canvas {
 }
 
 .nh3d-controller-action-wheel-dialog.is-extended {
-  width: min(94vw, 900px);
   max-width: calc(100vw - 18px);
-  max-height: min(90vh, 820px);
+  max-height: min(98vh, 1060px);
   border: 2px solid var(--nh3d-ui-border-strong);
   border-radius: 12px;
   background: var(--nh3d-ui-panel-bg-strong);
-  padding: 12px;
+  padding: 16px;
   box-shadow: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .nh3d-dialog.nh3d-controller-action-wheel-dialog.is-visible.is-extended {
@@ -5521,12 +5562,11 @@ canvas {
 
 .nh3d-controller-action-wheel-arc:hover,
 .nh3d-controller-action-wheel-arc.is-chosen,
+.nh3d-controller-action-wheel-arc:focus,
 .nh3d-controller-action-wheel-arc:focus-visible {
   opacity: 1;
   transform: scale(1.1);
-  filter:
-    brightness(1.1)
-    saturate(1.14)
+  filter: brightness(1.1) saturate(1.14)
     drop-shadow(0 0 12px rgba(135, 206, 255, 0.52));
   background-image: radial-gradient(
     circle at 50% 50%,
@@ -5544,7 +5584,9 @@ canvas {
 }
 
 .nh3d-controller-action-wheel-arc:hover .nh3d-controller-action-wheel-arc-label,
-.nh3d-controller-action-wheel-arc.is-chosen .nh3d-controller-action-wheel-arc-label,
+.nh3d-controller-action-wheel-arc.is-chosen
+  .nh3d-controller-action-wheel-arc-label,
+.nh3d-controller-action-wheel-arc:focus .nh3d-controller-action-wheel-arc-label,
 .nh3d-controller-action-wheel-arc:focus-visible
   .nh3d-controller-action-wheel-arc-label {
   color: rgba(11, 30, 47, 0.96);
@@ -5552,12 +5594,51 @@ canvas {
 }
 
 .nh3d-controller-action-wheel-extended-shell {
-  min-height: 220px;
-  max-height: min(72vh, 620px);
+  min-height: 320px;
+  max-height: min(90vh, 900px);
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
 .nh3d-controller-action-wheel-extended {
-  max-height: min(72vh, 620px);
+  max-height: min(90vh, 900px);
+  gap: 14px;
+  padding-left: 6px;
+  padding-right: 6px;
+  padding-bottom: 12px;
+}
+
+.nh3d-controller-action-wheel-dialog.is-extended
+  .nh3d-controller-action-wheel-title-row {
+  justify-content: flex-start;
+  padding-bottom: 12px;
+}
+
+.nh3d-controller-action-wheel-dialog.is-extended
+  .nh3d-controller-action-wheel-title {
+  font-size: nh3d-scale-font(17px);
+}
+
+.nh3d-controller-action-wheel-extended .nh3d-mobile-actions-subheader {
+  font-size: nh3d-scale-font(14px);
+  padding-bottom: 6px;
+}
+
+.nh3d-controller-action-wheel-extended .nh3d-mobile-actions-grid.is-extended {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+  overflow: visible;
+}
+
+.nh3d-controller-action-wheel-extended .nh3d-mobile-actions-button {
+  min-height: 56px;
+  border-radius: 8px;
+  font-size: nh3d-scale-font(14px);
+  padding: 8px 10px;
+}
+
+.nh3d-controller-action-wheel-extended .nh3d-mobile-actions-section {
+  overflow: visible;
 }
 
 .nh3d-mobile-actions-title-row {
@@ -5785,6 +5866,15 @@ canvas {
   &:active {
     border-color: var(--nh3d-ui-border-strong);
     box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.6);
+  }
+
+  &:focus,
+  &:focus-visible {
+    outline: 2px solid var(--nh3d-ui-accent);
+    outline-offset: 1px;
+    background: var(--nh3d-ui-button-bg-hover);
+    border-color: var(--nh3d-ui-border-strong);
+    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.55);
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
