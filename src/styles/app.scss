@@ -1381,6 +1381,10 @@ canvas {
   --nh3d-character-setup-control-width: min(320px, 100%);
   --nh3d-character-setup-control-height: 40px;
   --nh3d-startup-fixed-actions-reserve: 104px;
+  --nh3d-startup-accordion-max-height: calc(
+    var(--nh3d-startup-modal-frame-max-height) -
+      var(--nh3d-startup-fixed-actions-reserve)
+  );
   width: min(92vw, 680px);
   max-height: var(--nh3d-startup-modal-frame-max-height);
   box-sizing: border-box;
@@ -1401,7 +1405,28 @@ canvas {
   }
 
   .nh3d-startup-init-options[open] {
+    flex: 1 1 auto;
+    min-height: 0;
     margin-bottom: 10px;
+  }
+
+  .nh3d-startup-init-options {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    max-height: max(180px, var(--nh3d-startup-accordion-max-height));
+  }
+
+  .nh3d-startup-init-options-body {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .nh3d-startup-init-options .nh3d-overflow-glow-frame {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .nh3d-startup-init-options .nh3d-option-select-controls {
@@ -1414,16 +1439,18 @@ canvas {
   }
 
   .nh3d-startup-init-options-list {
-    max-height: min(
-      40vh,
-      max(
-        140px,
-        calc(
-          var(--nh3d-startup-modal-frame-max-height) -
-            var(--nh3d-startup-fixed-actions-reserve)
-        )
-      )
-    );
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
+    padding-bottom: 4px;
+    scroll-padding-bottom: 8px;
+  }
+
+  .nh3d-startup-init-options .nh3d-overflow-glow-frame.nh3d-overflow-glow::after {
+    content: none;
   }
 
   .nh3d-startup-config-grid.centered {
@@ -1500,6 +1527,10 @@ canvas {
       max-width: 100%;
     }
 
+    .nh3d-startup-init-options[open] {
+      margin-bottom: 10px;
+    }
+
     .nh3d-startup-config-grid + .nh3d-menu-actions {
       margin-top: 24px;
     }
@@ -1522,20 +1553,25 @@ canvas {
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
-    --nh3d-startup-fixed-actions-reserve: 136px;
+    --nh3d-startup-fixed-actions-reserve: 112px;
+    --nh3d-startup-accordion-max-height: calc(
+      var(--nh3d-modal-safe-max-height) - var(--nh3d-startup-fixed-actions-reserve)
+    );
     max-height: var(--nh3d-modal-safe-max-height);
 
+    .nh3d-startup-config-grid:not(.centered) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .nh3d-startup-init-options[open] {
+      margin-bottom: 10px;
+      min-height: max-content;
+    }
+
     .nh3d-startup-init-options-list {
-      max-height: min(
-        56vh,
-        max(
-          120px,
-          calc(
-            var(--nh3d-modal-safe-max-height) -
-              var(--nh3d-startup-fixed-actions-reserve)
-          )
-        )
-      );
+      overflow-y: auto;
+      padding-bottom: 4px;
+      scroll-padding-bottom: 8px;
     }
   }
 }
@@ -3409,10 +3445,6 @@ canvas {
   text-align: left;
 }
 
-.nh3d-startup-init-options[open] {
-  overflow: visible;
-}
-
 .nh3d-startup-init-options-summary {
   list-style: none;
   cursor: pointer;
@@ -3432,6 +3464,11 @@ canvas {
     margin-right: 8px;
     display: inline-block;
     transition: transform 140ms ease;
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(173, 216, 255, 0.9);
+    outline-offset: -2px;
   }
 }
 
