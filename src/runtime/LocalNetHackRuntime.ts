@@ -3538,8 +3538,10 @@ class LocalNetHackRuntime {
           identifierValue !== 0;
         let menuChar = "";
         let glyphChar = "";
+        let menuItemTileIndex = null;
+        let resolvedMenuGlyph = menuGlyph;
 
-        // Convert glyph to visual character using mapglyphHelper
+        // Convert glyph to visual character and tile index using runtime helpers.
         if (menuGlyph) {
           let finalGlyph = menuGlyph;
           if (is_37) {
@@ -3563,28 +3565,75 @@ class LocalNetHackRuntime {
               );
             }
           }
+          resolvedMenuGlyph = finalGlyph;
 
           const helpers = globalThis.nethackGlobal?.helpers;
           const mapHelper = is_37
             ? helpers?.mapGlyphInfoHelper
             : helpers?.mapglyphHelper;
+          const tileIndexForGlyphHelper =
+            typeof helpers?.tileIndexForGlyph === "function"
+              ? helpers.tileIndexForGlyph
+              : null;
 
-          if (mapHelper) {
-            try {
-              const glyphInfo = mapHelper(
-                finalGlyph,
-                0,
-                0,
-                0, // x, y, and other params not needed for menu items
-              );
-              if (glyphInfo && glyphInfo.ch !== undefined) {
-                glyphChar = String.fromCharCode(glyphInfo.ch);
+          if (
+            typeof finalGlyph === "number" &&
+            Number.isFinite(finalGlyph) &&
+            finalGlyph >= 0
+          ) {
+            if (tileIndexForGlyphHelper) {
+              try {
+                const helperTileIndex = tileIndexForGlyphHelper(finalGlyph);
+                if (
+                  typeof helperTileIndex === "number" &&
+                  Number.isFinite(helperTileIndex) &&
+                  helperTileIndex >= 0
+                ) {
+                  menuItemTileIndex = Math.trunc(helperTileIndex);
+                }
+              } catch (error) {
+                console.log(
+                  `Warning: tileIndexForGlyph helper failed for glyph ${finalGlyph}:`,
+                  error,
+                );
               }
-            } catch (error) {
-              console.log(
-                `⚠️ Error getting glyph info for menu glyph ${finalGlyph} (from ptr ${menuGlyph}):`,
-                error,
-              );
+            }
+
+            if (mapHelper) {
+              try {
+                const glyphInfo = mapHelper(
+                  finalGlyph,
+                  0,
+                  0,
+                  0, // x, y, and other params not needed for menu items
+                );
+                if (glyphInfo && glyphInfo.ch !== undefined) {
+                  if (typeof glyphInfo.ch === "number") {
+                    glyphChar = String.fromCharCode(glyphInfo.ch);
+                  } else {
+                    glyphChar = String(glyphInfo.ch).charAt(0);
+                  }
+                }
+
+                if (menuItemTileIndex === null) {
+                  const tileIndexCandidate =
+                    typeof glyphInfo?.tileidx === "number"
+                      ? glyphInfo.tileidx
+                      : glyphInfo?.tileIdx;
+                  if (
+                    typeof tileIndexCandidate === "number" &&
+                    Number.isFinite(tileIndexCandidate) &&
+                    tileIndexCandidate >= 0
+                  ) {
+                    menuItemTileIndex = Math.trunc(tileIndexCandidate);
+                  }
+                }
+              } catch (error) {
+                console.log(
+                  `Warning: Error getting glyph info for menu glyph ${finalGlyph} (from ptr ${menuGlyph}):`,
+                  error,
+                );
+              }
             }
           }
         }
@@ -3616,7 +3665,9 @@ class LocalNetHackRuntime {
           }
 
           console.log(
-            `📋 MENU ITEM: "${menuText}" (key: ${menuChar}) glyph: ${menuGlyph} -> "${glyphChar}" - accelerator code: ${accelerator}`,
+            `📋 MENU ITEM: "${menuText}" (key: ${menuChar}) glyph: ${resolvedMenuGlyph} -> "${glyphChar}" tile: ${
+              menuItemTileIndex !== null ? menuItemTileIndex : "n/a"
+            } - accelerator code: ${accelerator}`,
           );
         } else {
           console.log(
@@ -3632,8 +3683,10 @@ class LocalNetHackRuntime {
             originalAccelerator: accelerator, // Store the original accelerator code
             identifier: identifierValue, // NetHack menu identifier used by shim_select_menu
             window: menuWinid,
-            glyph: menuGlyph,
+            glyph: resolvedMenuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
+            tileIndex:
+              menuItemTileIndex !== null ? menuItemTileIndex : undefined,
             isCategory: isCategory,
             isSelectable,
             menuIndex: this.currentMenuItems.length, // Store the menu item index
@@ -3647,8 +3700,10 @@ class LocalNetHackRuntime {
             text: menuText,
             accelerator: menuChar,
             window: menuWinid,
-            glyph: menuGlyph,
+            glyph: resolvedMenuGlyph,
             glyphChar: glyphChar, // Include glyph character in client message
+            tileIndex:
+              menuItemTileIndex !== null ? menuItemTileIndex : undefined,
             isCategory: isCategory,
             isSelectable,
             menuItems: this.currentMenuItems,

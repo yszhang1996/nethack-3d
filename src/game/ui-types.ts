@@ -22,6 +22,7 @@ export type NethackMenuItem = {
   identifier?: number;
   menuIndex?: number;
   glyph?: number;
+  tileIndex?: number;
   glyphChar?: string;
   [key: string]: unknown;
 };

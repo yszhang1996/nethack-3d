@@ -9,6 +9,8 @@ import {
   type ChangeEvent,
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  type TouchEvent as ReactTouchEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { Nethack3DEngine } from "../game";
@@ -1143,6 +1145,18 @@ type InventoryContextMenuState = {
   itemText: string;
   x: number;
   y: number;
+  anchorBottomY?: number;
+  anchorRightX?: number;
+};
+type InventoryRowPressCandidate = {
+  source: "pointer" | "touch";
+  pointerId: number;
+  accelerator: string;
+  item: NethackMenuItem;
+  rowElement: HTMLDivElement | null;
+  startClientX: number;
+  startClientY: number;
+  startedAtMs: number;
 };
 type TilesetBackgroundRemovalMode =
   Nh3dClientOptions["tilesetBackgroundRemovalMode"];
@@ -1768,6 +1782,54 @@ const clampInventoryContextMenuPosition = (
   return {
     x: Math.min(Math.max(x, padding), maxX),
     y: Math.min(Math.max(y, padding), maxY),
+  };
+};
+
+const inventoryContextMenuAnchorGapPx = 8;
+const inventoryContextMenuAnchorBottomGapPx = 6;
+const inventoryContextMenuScrollRegionPaddingPx = 4;
+const inventorySyntheticRowClickSuppressMs = 180;
+const inventoryDismissGestureSuppressMs = 450;
+const inventoryRowPressPreferInitialMs = 200;
+
+const resolveInventoryContextMenuPosition = (
+  state: InventoryContextMenuState,
+  width: number,
+  height: number,
+  scrollRegionRect?: DOMRect | null,
+): { x: number; y: number } => {
+  const anchorRightX =
+    typeof state.anchorRightX === "number" && Number.isFinite(state.anchorRightX)
+      ? state.anchorRightX
+      : state.x;
+  const anchorBottomY =
+    typeof state.anchorBottomY === "number" && Number.isFinite(state.anchorBottomY)
+      ? state.anchorBottomY
+      : state.y;
+  const clampedToViewport = clampInventoryContextMenuPosition(
+    anchorRightX,
+    anchorBottomY,
+    width,
+    height,
+  );
+  const regionTop = scrollRegionRect?.top;
+  const regionBottom = scrollRegionRect?.bottom;
+  if (
+    typeof regionTop !== "number" ||
+    !Number.isFinite(regionTop) ||
+    typeof regionBottom !== "number" ||
+    !Number.isFinite(regionBottom)
+  ) {
+    return clampedToViewport;
+  }
+  const minY = regionTop + inventoryContextMenuScrollRegionPaddingPx;
+  const maxY = regionBottom - height - inventoryContextMenuScrollRegionPaddingPx;
+  if (!Number.isFinite(minY) || !Number.isFinite(maxY) || maxY < minY) {
+    return clampedToViewport;
+  }
+  return {
+    x: clampedToViewport.x,
+    y: Math.min(Math.max(clampedToViewport.y, minY), maxY),
   };
 };
 
@@ -2823,6 +2885,21 @@ export default function App(): JSX.Element {
   } | null>(null);
   const inventoryItemActions = inventoryContextActions;
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const inventoryItemsContainerRef = useRef<HTMLDivElement | null>(null);
+  const inventoryRowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const inventoryRowHoverValueByIndexRef = useRef<Map<number, number>>(
+    new Map(),
+  );
+  const inventoryPointerClientYRef = useRef<number | null>(null);
+  const inventoryPointerActiveRef = useRef(false);
+  const inventoryRowProximityAnimationFrameRef = useRef<number | null>(null);
+  const inventoryTouchFallbackClearTimerRef = useRef<number | null>(null);
+  const inventoryRowActivationSuppressedAcceleratorRef = useRef("");
+  const inventoryRowActivationSuppressedUntilMsRef = useRef(0);
+  const inventoryRowActivationSuppressedGloballyUntilMsRef = useRef(0);
+  const inventoryRowPressCandidateRef = useRef<InventoryRowPressCandidate | null>(
+    null,
+  );
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
   const inventoryContextTitle = inventoryContextMenu
@@ -2899,6 +2976,531 @@ export default function App(): JSX.Element {
     inventoryContextMenu?.itemText,
     inventoryItemActions,
   ]);
+  const applyInventoryRowProximity = useCallback((): void => {
+    inventoryRowProximityAnimationFrameRef.current = null;
+    const rows = inventoryRowRefs.current;
+    const hoverValuesByIndex = inventoryRowHoverValueByIndexRef.current;
+    if (rows.size === 0) {
+      hoverValuesByIndex.clear();
+      return;
+    }
+    const pointerY = inventoryPointerClientYRef.current;
+    const rawPointerIsActive =
+      inventoryPointerActiveRef.current &&
+      typeof pointerY === "number" &&
+      Number.isFinite(pointerY);
+    const proximityFalloffPx = 240;
+    let needsAnotherFrame = false;
+    const activeIndexes = new Set<number>();
+    let pinnedActiveIndex: number | null = null;
+    let pinnedActiveRowRect: DOMRect | null = null;
+    let virtualPointerY: number | null = null;
+
+    for (const [index, rowElement] of rows.entries()) {
+      if (
+        rowElement.classList.contains("nh3d-inventory-item-active") &&
+        !rowElement.classList.contains("nh3d-inventory-item-disabled")
+      ) {
+        pinnedActiveIndex = index;
+        const activeRowRect = rowElement.getBoundingClientRect();
+        pinnedActiveRowRect = activeRowRect;
+        if (activeRowRect.height > 0) {
+          virtualPointerY = activeRowRect.top + activeRowRect.height / 2;
+        }
+        break;
+      }
+    }
+    const effectivePointerY =
+      typeof virtualPointerY === "number" && Number.isFinite(virtualPointerY)
+        ? virtualPointerY
+        : pointerY;
+    const pointerIsActive =
+      typeof effectivePointerY === "number" &&
+      Number.isFinite(effectivePointerY) &&
+      (pinnedActiveIndex !== null || rawPointerIsActive);
+    const smoothing = pointerIsActive ? 0.26 : 0.2;
+
+    for (const [index, rowElement] of rows.entries()) {
+      activeIndexes.add(index);
+      let targetValue = 0;
+      if (rowElement.classList.contains("nh3d-inventory-item-disabled")) {
+        targetValue = 0;
+      } else if (pointerIsActive) {
+        const rowRect = rowElement.getBoundingClientRect();
+        if (rowRect.height > 0) {
+          const rowCenterY = rowRect.top + rowRect.height / 2;
+          const distancePx = Math.abs(effectivePointerY - rowCenterY);
+          const normalized = Math.max(0, 1 - distancePx / proximityFalloffPx);
+          targetValue = normalized * normalized * (3 - 2 * normalized);
+        }
+      }
+
+      const currentValue = hoverValuesByIndex.get(index) ?? 0;
+      let nextValue = currentValue + (targetValue - currentValue) * smoothing;
+      if (Math.abs(targetValue - nextValue) < 0.0015) {
+        nextValue = targetValue;
+      } else {
+        needsAnotherFrame = true;
+      }
+
+      hoverValuesByIndex.set(index, nextValue);
+      rowElement.style.setProperty("--nh3d-inv-hover", nextValue.toFixed(4));
+    }
+
+    for (const index of Array.from(hoverValuesByIndex.keys())) {
+      if (!activeIndexes.has(index)) {
+        hoverValuesByIndex.delete(index);
+      }
+    }
+
+    const inventoryItemsContainer = inventoryItemsContainerRef.current;
+    const inventoryItemsRect =
+      inventoryItemsContainer?.getBoundingClientRect() ?? null;
+    if (pinnedActiveRowRect && inventoryItemsContainer && inventoryItemsRect) {
+      const viewportInsetPx = 6;
+      const lowerBound = inventoryItemsRect.bottom - viewportInsetPx;
+      const upperBound = inventoryItemsRect.top + viewportInsetPx;
+      const overflowBelow = pinnedActiveRowRect.bottom - lowerBound;
+      const overflowAbove = upperBound - pinnedActiveRowRect.top;
+      if (overflowBelow > 0.5) {
+        inventoryItemsContainer.scrollTop += overflowBelow;
+      } else if (overflowAbove > 0.5) {
+        inventoryItemsContainer.scrollTop -= overflowAbove;
+      }
+    }
+
+    if (pinnedActiveRowRect && inventoryContextMenuRef.current) {
+      const menuRect = inventoryContextMenuRef.current.getBoundingClientRect();
+      const menuWidth =
+        Number.isFinite(menuRect.width) && menuRect.width > 0
+          ? menuRect.width
+          : 220;
+      const menuHeight =
+        Number.isFinite(menuRect.height) && menuRect.height > 0
+          ? menuRect.height
+          : 260;
+      const anchorRightX =
+        pinnedActiveRowRect.right + inventoryContextMenuAnchorGapPx;
+      const anchorBottomY =
+        pinnedActiveRowRect.bottom + inventoryContextMenuAnchorBottomGapPx;
+      setInventoryContextMenu((previous) => {
+        if (!previous) {
+          return previous;
+        }
+        const next = resolveInventoryContextMenuPosition(
+          {
+            ...previous,
+            anchorBottomY,
+            anchorRightX,
+          },
+          menuWidth,
+          menuHeight,
+          inventoryItemsRect,
+        );
+        const previousAnchorBottomY =
+          typeof previous.anchorBottomY === "number" &&
+          Number.isFinite(previous.anchorBottomY)
+            ? previous.anchorBottomY
+            : previous.y;
+        const previousAnchorRightX =
+          typeof previous.anchorRightX === "number" &&
+          Number.isFinite(previous.anchorRightX)
+            ? previous.anchorRightX
+            : previous.x;
+        if (
+          Math.abs(next.x - previous.x) < 0.02 &&
+          Math.abs(next.y - previous.y) < 0.02 &&
+          Math.abs(anchorBottomY - previousAnchorBottomY) < 0.02 &&
+          Math.abs(anchorRightX - previousAnchorRightX) < 0.02
+        ) {
+          return previous;
+        }
+        return {
+          ...previous,
+          x: next.x,
+          y: next.y,
+          anchorBottomY,
+          anchorRightX,
+        };
+      });
+    }
+
+    if (needsAnotherFrame && typeof window !== "undefined") {
+      inventoryRowProximityAnimationFrameRef.current = window.requestAnimationFrame(
+        () => {
+          applyInventoryRowProximity();
+        },
+      );
+    }
+  }, []);
+  const scheduleInventoryRowProximityUpdate = useCallback((): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (inventoryRowProximityAnimationFrameRef.current !== null) {
+      return;
+    }
+    inventoryRowProximityAnimationFrameRef.current = window.requestAnimationFrame(
+      () => {
+        applyInventoryRowProximity();
+      },
+    );
+  }, [applyInventoryRowProximity]);
+  const clearInventoryTouchFallbackClearTimer = useCallback((): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const activeTimer = inventoryTouchFallbackClearTimerRef.current;
+    if (activeTimer === null) {
+      return;
+    }
+    window.clearTimeout(activeTimer);
+    inventoryTouchFallbackClearTimerRef.current = null;
+  }, []);
+  const scheduleInventoryTouchFallbackClear = useCallback((): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    clearInventoryTouchFallbackClearTimer();
+    inventoryTouchFallbackClearTimerRef.current = window.setTimeout(() => {
+      inventoryTouchFallbackClearTimerRef.current = null;
+      inventoryPointerActiveRef.current = false;
+      inventoryPointerClientYRef.current = null;
+      scheduleInventoryRowProximityUpdate();
+    }, 220);
+  }, [
+    clearInventoryTouchFallbackClearTimer,
+    scheduleInventoryRowProximityUpdate,
+  ]);
+  const setInventoryRowRef = useCallback(
+    (index: number, element: HTMLDivElement | null): void => {
+      if (element) {
+        inventoryRowRefs.current.set(index, element);
+        const existingValue =
+          inventoryRowHoverValueByIndexRef.current.get(index) ?? 0;
+        element.style.setProperty("--nh3d-inv-hover", existingValue.toFixed(4));
+      } else {
+        inventoryRowRefs.current.delete(index);
+      }
+      if (inventory.visible) {
+        scheduleInventoryRowProximityUpdate();
+      }
+    },
+    [inventory.visible, scheduleInventoryRowProximityUpdate],
+  );
+  const handleInventoryPointerUpdate = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      clearInventoryTouchFallbackClearTimer();
+      inventoryPointerActiveRef.current = true;
+      inventoryPointerClientYRef.current = event.clientY;
+      scheduleInventoryRowProximityUpdate();
+    },
+    [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate],
+  );
+  const handleInventoryPointerLeave = useCallback((): void => {
+    if (
+      inventoryRowPressCandidateRef.current &&
+      inventoryRowPressCandidateRef.current.source === "pointer"
+    ) {
+      inventoryRowPressCandidateRef.current = null;
+    }
+    clearInventoryTouchFallbackClearTimer();
+    inventoryPointerActiveRef.current = false;
+    inventoryPointerClientYRef.current = null;
+    scheduleInventoryRowProximityUpdate();
+  }, [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate]);
+  const handleInventoryPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+  ): void => {
+    activateInventoryRowPressCandidateFromRelease(
+      "pointer",
+      event.pointerId,
+      event.clientX,
+      event.clientY,
+      event.target,
+    );
+    if (event.pointerType === "mouse") {
+      return;
+    }
+    clearInventoryTouchFallbackClearTimer();
+    inventoryPointerActiveRef.current = false;
+    inventoryPointerClientYRef.current = null;
+    scheduleInventoryRowProximityUpdate();
+  };
+  const handleInventoryPointerCancel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      const pressCandidate = inventoryRowPressCandidateRef.current;
+      if (
+        pressCandidate &&
+        pressCandidate.source === "pointer" &&
+        pressCandidate.pointerId === event.pointerId
+      ) {
+        inventoryRowPressCandidateRef.current = null;
+      }
+      if (event.pointerType === "touch") {
+        scheduleInventoryTouchFallbackClear();
+        return;
+      }
+      handleInventoryPointerLeave();
+    },
+    [handleInventoryPointerLeave, scheduleInventoryTouchFallbackClear],
+  );
+  const handleInventoryTouchUpdate = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>): void => {
+      const primaryTouch = event.touches[0] ?? event.changedTouches[0];
+      if (!primaryTouch) {
+        return;
+      }
+      clearInventoryTouchFallbackClearTimer();
+      inventoryPointerActiveRef.current = true;
+      inventoryPointerClientYRef.current = primaryTouch.clientY;
+      scheduleInventoryRowProximityUpdate();
+    },
+    [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate],
+  );
+  const handleInventoryTouchEnd = (event: ReactTouchEvent<HTMLDivElement>): void => {
+    const releaseTouch = event.changedTouches[0] ?? event.touches[0];
+    if (releaseTouch) {
+      activateInventoryRowPressCandidateFromRelease(
+        "touch",
+        releaseTouch.identifier,
+        releaseTouch.clientX,
+        releaseTouch.clientY,
+        event.target,
+      );
+    } else {
+      const pressCandidate = inventoryRowPressCandidateRef.current;
+      if (pressCandidate && pressCandidate.source === "touch") {
+        inventoryRowPressCandidateRef.current = null;
+      }
+    }
+    clearInventoryTouchFallbackClearTimer();
+    inventoryPointerActiveRef.current = false;
+    inventoryPointerClientYRef.current = null;
+    scheduleInventoryRowProximityUpdate();
+  };
+  const handleInventoryTouchCancel = useCallback((): void => {
+    if (
+      inventoryRowPressCandidateRef.current &&
+      inventoryRowPressCandidateRef.current.source === "touch"
+    ) {
+      inventoryRowPressCandidateRef.current = null;
+    }
+    scheduleInventoryTouchFallbackClear();
+  }, [scheduleInventoryTouchFallbackClear]);
+  const handleInventoryTouchMove = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>): void => {
+      handleInventoryTouchUpdate(event);
+    },
+    [handleInventoryTouchUpdate],
+  );
+  const handleInventoryItemsScroll = useCallback((): void => {
+    if (!inventoryPointerActiveRef.current) {
+      return;
+    }
+    scheduleInventoryRowProximityUpdate();
+  }, [scheduleInventoryRowProximityUpdate]);
+  const suppressInventoryRowActivationGlobally = useCallback(
+    (durationMs = inventorySyntheticRowClickSuppressMs): void => {
+      const safeDurationMs =
+        Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0;
+      inventoryRowActivationSuppressedGloballyUntilMsRef.current =
+        Date.now() + safeDurationMs;
+    },
+    [],
+  );
+  const consumeSuppressedInventoryRowActivationGlobally = useCallback(
+    (): boolean => {
+      const suppressionExpiryMs =
+        inventoryRowActivationSuppressedGloballyUntilMsRef.current;
+      if (!suppressionExpiryMs) {
+        return false;
+      }
+      const now = Date.now();
+      if (now > suppressionExpiryMs) {
+        inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
+        return false;
+      }
+      inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
+      return true;
+    },
+    [],
+  );
+  const beginInventoryRowPressCandidate = useCallback(
+    (
+      source: InventoryRowPressCandidate["source"],
+      pointerId: number,
+      item: NethackMenuItem,
+      accelerator: string,
+      rowElement: HTMLDivElement | null,
+      startClientX: number,
+      startClientY: number,
+    ): void => {
+      if (inventoryContextMenu) {
+        return;
+      }
+      const normalizedAccelerator = String(accelerator || "").trim();
+      if (!normalizedAccelerator || !Number.isFinite(startClientX) || !Number.isFinite(startClientY)) {
+        return;
+      }
+      inventoryRowPressCandidateRef.current = {
+        source,
+        pointerId,
+        accelerator: normalizedAccelerator,
+        item,
+        rowElement,
+        startClientX,
+        startClientY,
+        startedAtMs: Date.now(),
+      };
+    },
+    [inventoryContextMenu],
+  );
+  const suppressInventoryRowActivationForGesture = useCallback(
+    (accelerator: string): void => {
+      const normalizedAccelerator = String(accelerator || "").trim();
+      if (!normalizedAccelerator) {
+        return;
+      }
+      inventoryRowActivationSuppressedAcceleratorRef.current =
+        normalizedAccelerator;
+      inventoryRowActivationSuppressedUntilMsRef.current = Date.now() + 700;
+    },
+    [],
+  );
+  const consumeSuppressedInventoryRowActivation = useCallback(
+    (accelerator: string): boolean => {
+      const normalizedAccelerator = String(accelerator || "").trim();
+      if (!normalizedAccelerator) {
+        return false;
+      }
+      const activeSuppressedAccelerator =
+        inventoryRowActivationSuppressedAcceleratorRef.current;
+      const suppressionExpiryMs =
+        inventoryRowActivationSuppressedUntilMsRef.current;
+      if (
+        !activeSuppressedAccelerator ||
+        Date.now() > suppressionExpiryMs ||
+        activeSuppressedAccelerator !== normalizedAccelerator
+      ) {
+        if (Date.now() > suppressionExpiryMs) {
+          inventoryRowActivationSuppressedAcceleratorRef.current = "";
+          inventoryRowActivationSuppressedUntilMsRef.current = 0;
+        }
+        return false;
+      }
+      inventoryRowActivationSuppressedAcceleratorRef.current = "";
+      inventoryRowActivationSuppressedUntilMsRef.current = 0;
+      return true;
+    },
+    [],
+  );
+  const activateInventoryRowPressCandidateFromRelease = useCallback(
+    (
+      source: InventoryRowPressCandidate["source"],
+      pointerId: number,
+      releaseClientX: number,
+      releaseClientY: number,
+      releaseTarget: EventTarget | null,
+    ): void => {
+      const candidate = inventoryRowPressCandidateRef.current;
+      if (
+        !candidate ||
+        candidate.source !== source ||
+        candidate.pointerId !== pointerId
+      ) {
+        return;
+      }
+      inventoryRowPressCandidateRef.current = null;
+      if (!Number.isFinite(releaseClientX) || !Number.isFinite(releaseClientY)) {
+        return;
+      }
+      const elapsedMs = Date.now() - candidate.startedAtMs;
+      const preferInitialSelection = elapsedMs <= inventoryRowPressPreferInitialMs;
+      if (!preferInitialSelection) {
+        // After the short tap window, fall back to normal release-target behavior.
+        return;
+      }
+
+      const releaseElement = releaseTarget instanceof Element ? releaseTarget : null;
+      const releaseRowElement = releaseElement?.closest(".nh3d-inventory-item");
+      const releaseAccelerator =
+        releaseRowElement instanceof HTMLElement
+          ? String(releaseRowElement.dataset.nh3dAccelerator || "").trim()
+          : "";
+      if (releaseAccelerator && releaseAccelerator === candidate.accelerator) {
+        return;
+      }
+      if (consumeSuppressedInventoryRowActivation(candidate.accelerator)) {
+        return;
+      }
+
+      const activeAccelerator = String(inventoryContextMenu?.accelerator || "").trim();
+      if (activeAccelerator && activeAccelerator === candidate.accelerator) {
+        setInventoryContextMenu(null);
+        suppressInventoryRowActivationGlobally();
+        return;
+      }
+
+      const anchorRect =
+        candidate.rowElement && candidate.rowElement.isConnected
+          ? candidate.rowElement.getBoundingClientRect()
+          : undefined;
+      openInventoryContextMenu(
+        candidate.item,
+        candidate.startClientX,
+        candidate.startClientY,
+        anchorRect,
+      );
+      suppressInventoryRowActivationGlobally();
+    },
+    [
+      consumeSuppressedInventoryRowActivation,
+      inventoryContextMenu?.accelerator,
+      suppressInventoryRowActivationGlobally,
+    ],
+  );
+  const handleInventoryRowActivationDismissCapture = useCallback(
+    (target: EventTarget | null): void => {
+      if (!inventoryContextMenu) {
+        return;
+      }
+      const targetElement = target instanceof Element ? target : null;
+      if (!targetElement) {
+        return;
+      }
+      const rowElement = targetElement.closest(".nh3d-inventory-item");
+      if (!(rowElement instanceof HTMLElement)) {
+        return;
+      }
+      const accelerator = rowElement.dataset.nh3dAccelerator || "";
+      const normalizedAccelerator = String(accelerator).trim();
+      if (!normalizedAccelerator) {
+        return;
+      }
+      inventoryRowPressCandidateRef.current = null;
+      suppressInventoryRowActivationGlobally(inventoryDismissGestureSuppressMs);
+      suppressInventoryRowActivationForGesture(normalizedAccelerator);
+      setInventoryContextMenu(null);
+    },
+    [
+      inventoryContextMenu,
+      suppressInventoryRowActivationForGesture,
+      suppressInventoryRowActivationGlobally,
+    ],
+  );
+  const handleInventoryRowPointerDownCapture = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>): void => {
+      handleInventoryRowActivationDismissCapture(event.target);
+    },
+    [handleInventoryRowActivationDismissCapture],
+  );
+  const handleInventoryRowTouchStartCapture = useCallback(
+    (event: ReactTouchEvent<HTMLDivElement>): void => {
+      handleInventoryRowActivationDismissCapture(event.target);
+    },
+    [handleInventoryRowActivationDismissCapture],
+  );
   const representativeGlyphByTileId = useMemo(
     () => buildRepresentativeGlyphByTileId(GLYPH_CATALOG_367),
     [],
@@ -5114,6 +5716,7 @@ export default function App(): JSX.Element {
     item: NethackMenuItem,
     clientX: number,
     clientY: number,
+    anchorRect?: DOMRect | null,
   ): void => {
     if (!inventoryContextActionsEnabled) {
       return;
@@ -5121,19 +5724,73 @@ export default function App(): JSX.Element {
     if (typeof item.accelerator !== "string") {
       return;
     }
+    const itemAccelerator = item.accelerator.trim();
+    if (!itemAccelerator) {
+      return;
+    }
 
-    const initial = clampInventoryContextMenuPosition(
-      clientX + 8,
-      clientY + 8,
-      220,
-      260,
+    const estimatedMenuWidthPx = 220;
+    const estimatedMenuHeightPx = 260;
+    const pointerOffsetPx = 8;
+    let anchorBottomY: number | undefined;
+    let anchorRightX: number | undefined;
+
+    let initial = clampInventoryContextMenuPosition(
+      clientX + pointerOffsetPx,
+      clientY + pointerOffsetPx,
+      estimatedMenuWidthPx,
+      estimatedMenuHeightPx,
+    );
+
+    if (anchorRect) {
+      if (Number.isFinite(anchorRect.right)) {
+        anchorRightX = anchorRect.right + inventoryContextMenuAnchorGapPx;
+      }
+      if (Number.isFinite(anchorRect.bottom)) {
+        anchorBottomY =
+          anchorRect.bottom + inventoryContextMenuAnchorBottomGapPx;
+      }
+      const preferredRightX =
+        typeof anchorRightX === "number" && Number.isFinite(anchorRightX)
+          ? anchorRightX
+          : clientX + pointerOffsetPx;
+      const preferredRightY =
+        typeof anchorBottomY === "number" && Number.isFinite(anchorBottomY)
+          ? anchorBottomY
+          : clientY + pointerOffsetPx;
+      const rightCandidate = clampInventoryContextMenuPosition(
+        preferredRightX,
+        preferredRightY,
+        estimatedMenuWidthPx,
+        estimatedMenuHeightPx,
+      );
+
+      // Always start as far right as possible.
+      initial = rightCandidate;
+    }
+    const inventoryItemsRect =
+      inventoryItemsContainerRef.current?.getBoundingClientRect() ?? null;
+    const initialWithRegionClamp = resolveInventoryContextMenuPosition(
+      {
+        accelerator: itemAccelerator,
+        itemText: String(item.text || "Unknown item"),
+        x: initial.x,
+        y: initial.y,
+        anchorBottomY,
+        anchorRightX,
+      },
+      estimatedMenuWidthPx,
+      estimatedMenuHeightPx,
+      inventoryItemsRect,
     );
 
     setInventoryContextMenu({
-      accelerator: item.accelerator,
+      accelerator: itemAccelerator,
       itemText: String(item.text || "Unknown item"),
-      x: initial.x,
-      y: initial.y,
+      x: initialWithRegionClamp.x,
+      y: initialWithRegionClamp.y,
+      anchorBottomY,
+      anchorRightX,
     });
   };
 
@@ -5163,6 +5820,66 @@ export default function App(): JSX.Element {
       setInventoryContextMenu(null);
     }
   }, [inventory.visible]);
+
+  useEffect(() => {
+    if (!inventory.visible) {
+      return;
+    }
+    scheduleInventoryRowProximityUpdate();
+  }, [inventory.visible, inventoryContextMenu, scheduleInventoryRowProximityUpdate]);
+
+  useEffect(() => {
+    if (inventory.visible) {
+      scheduleInventoryRowProximityUpdate();
+      return;
+    }
+    inventoryPointerActiveRef.current = false;
+    inventoryPointerClientYRef.current = null;
+    inventoryRowPressCandidateRef.current = null;
+    inventoryRowHoverValueByIndexRef.current.clear();
+    inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
+    inventoryRowActivationSuppressedAcceleratorRef.current = "";
+    inventoryRowActivationSuppressedUntilMsRef.current = 0;
+    for (const rowElement of inventoryRowRefs.current.values()) {
+      rowElement.style.setProperty("--nh3d-inv-hover", "0");
+    }
+  }, [
+    inventory.items,
+    inventory.visible,
+    scheduleInventoryRowProximityUpdate,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleViewportResize = (): void => {
+      if (!inventory.visible) {
+        return;
+      }
+      scheduleInventoryRowProximityUpdate();
+    };
+    window.addEventListener("resize", handleViewportResize);
+    return () => {
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [inventory.visible, scheduleInventoryRowProximityUpdate]);
+
+  useEffect(
+    () => () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      clearInventoryTouchFallbackClearTimer();
+      if (inventoryRowProximityAnimationFrameRef.current === null) {
+        return;
+      }
+      window.cancelAnimationFrame(inventoryRowProximityAnimationFrameRef.current);
+      inventoryRowProximityAnimationFrameRef.current = null;
+      inventoryRowHoverValueByIndexRef.current.clear();
+    },
+    [clearInventoryTouchFallbackClearTimer],
+  );
 
   useEffect(() => {
     if (inventoryContextActionsEnabled) {
@@ -5249,11 +5966,13 @@ export default function App(): JSX.Element {
         }
         const menuElement = inventoryContextMenuRef.current;
         const rect = menuElement?.getBoundingClientRect();
-        const clamped = clampInventoryContextMenuPosition(
-          previous.x,
-          previous.y,
+        const inventoryItemsRect =
+          inventoryItemsContainerRef.current?.getBoundingClientRect() ?? null;
+        const clamped = resolveInventoryContextMenuPosition(
+          previous,
           rect?.width ?? 220,
           rect?.height ?? 260,
+          inventoryItemsRect,
         );
         if (clamped.x === previous.x && clamped.y === previous.y) {
           return previous;
@@ -5289,11 +6008,13 @@ export default function App(): JSX.Element {
     }
 
     const rect = menuElement.getBoundingClientRect();
-    const clamped = clampInventoryContextMenuPosition(
-      inventoryContextMenu.x,
-      inventoryContextMenu.y,
+    const inventoryItemsRect =
+      inventoryItemsContainerRef.current?.getBoundingClientRect() ?? null;
+    const clamped = resolveInventoryContextMenuPosition(
+      inventoryContextMenu,
       rect.width,
       rect.height,
+      inventoryItemsRect,
     );
     if (
       clamped.x === inventoryContextMenu.x &&
@@ -8129,42 +8850,133 @@ export default function App(): JSX.Element {
               className="nh3d-inventory-items"
               data-nh3d-overflow-glow
               data-nh3d-overflow-glow-host="parent"
+              onPointerDownCapture={handleInventoryRowPointerDownCapture}
+              onPointerDown={handleInventoryPointerUpdate}
+              onPointerEnter={handleInventoryPointerUpdate}
+              onPointerCancel={handleInventoryPointerCancel}
+              onPointerLeave={handleInventoryPointerLeave}
+              onPointerMove={handleInventoryPointerUpdate}
+              onPointerUp={handleInventoryPointerUp}
+              onTouchStartCapture={handleInventoryRowTouchStartCapture}
+              onTouchStart={handleInventoryTouchUpdate}
+              onTouchMove={handleInventoryTouchMove}
+              onTouchEnd={handleInventoryTouchEnd}
+              onTouchCancel={handleInventoryTouchCancel}
+              onScroll={handleInventoryItemsScroll}
+              ref={inventoryItemsContainerRef}
             >
               {inventory.items.length === 0 ? (
                 <div className="nh3d-inventory-empty">
                   Your inventory is empty.
                 </div>
               ) : (
-                inventory.items.map((item, index) =>
-                  item.isCategory ? (
-                    <div
-                      className={`nh3d-inventory-category${
-                        index === 0 ? " nh3d-inventory-category-first" : ""
-                      }`}
-                      key={`cat-${index}`}
-                    >
-                      {item.text}
-                    </div>
-                  ) : (
+                inventory.items.map((item, index) => {
+                  if (item.isCategory) {
+                    return (
+                      <div
+                        className={`nh3d-inventory-category${
+                          index === 0 ? " nh3d-inventory-category-first" : ""
+                        }`}
+                        key={`cat-${index}`}
+                      >
+                        {item.text}
+                      </div>
+                    );
+                  }
+
+                  const rawTileIndex =
+                    typeof item.tileIndex === "number"
+                      ? item.tileIndex
+                      : Number.NaN;
+                  const tileIndex =
+                    Number.isFinite(rawTileIndex) && rawTileIndex >= 0
+                      ? Math.trunc(rawTileIndex)
+                      : null;
+                  const tilePreview =
+                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                  const fallbackGlyphRaw =
+                    typeof item.glyphChar === "string" ? item.glyphChar : "";
+                  const fallbackGlyphCodePoint = fallbackGlyphRaw.codePointAt(0);
+                  const fallbackGlyph =
+                    typeof fallbackGlyphCodePoint === "number" &&
+                    fallbackGlyphCodePoint >= 32 &&
+                    fallbackGlyphCodePoint !== 127
+                      ? fallbackGlyphRaw.charAt(0)
+                      : "?";
+                  const itemAccelerator =
+                    typeof item.accelerator === "string"
+                      ? item.accelerator.trim()
+                      : "";
+                  const isContextMenuItemActive =
+                    inventoryContextMenu?.accelerator === itemAccelerator;
+
+                  return (
                     <div
                       className={`nh3d-inventory-item${
                         !inventoryContextActionsEnabled
                           ? " nh3d-inventory-item-disabled"
                           : ""
                       }${
-                        inventoryContextMenu?.accelerator === item.accelerator
+                        isContextMenuItemActive
                           ? " nh3d-inventory-item-active"
                           : ""
                       }`}
+                      data-nh3d-accelerator={itemAccelerator}
                       key={`item-${index}`}
+                      ref={(element) => {
+                        setInventoryRowRef(index, element);
+                      }}
+                      onPointerDown={(event) => {
+                        if (event.pointerType === "mouse" && event.button !== 0) {
+                          return;
+                        }
+                        beginInventoryRowPressCandidate(
+                          "pointer",
+                          event.pointerId,
+                          item,
+                          itemAccelerator,
+                          event.currentTarget,
+                          event.clientX,
+                          event.clientY,
+                        );
+                      }}
+                      onTouchStart={(event) => {
+                        const primaryTouch =
+                          event.changedTouches[0] ?? event.touches[0];
+                        if (!primaryTouch) {
+                          return;
+                        }
+                        beginInventoryRowPressCandidate(
+                          "touch",
+                          primaryTouch.identifier,
+                          item,
+                          itemAccelerator,
+                          event.currentTarget,
+                          primaryTouch.clientX,
+                          primaryTouch.clientY,
+                        );
+                      }}
                       onClick={(event) => {
                         if (!inventoryContextActionsEnabled) {
                           return;
                         }
+                        if (consumeSuppressedInventoryRowActivationGlobally()) {
+                          return;
+                        }
+                        if (consumeSuppressedInventoryRowActivation(itemAccelerator)) {
+                          return;
+                        }
+                        if (isContextMenuItemActive) {
+                          setInventoryContextMenu(null);
+                          return;
+                        }
+                        const targetRect =
+                          event.currentTarget.getBoundingClientRect();
                         openInventoryContextMenu(
                           item,
                           event.clientX,
                           event.clientY,
+                          targetRect,
                         );
                       }}
                       onContextMenu={(event) => {
@@ -8172,10 +8984,19 @@ export default function App(): JSX.Element {
                           return;
                         }
                         event.preventDefault();
+                        if (consumeSuppressedInventoryRowActivationGlobally()) {
+                          return;
+                        }
+                        if (consumeSuppressedInventoryRowActivation(itemAccelerator)) {
+                          return;
+                        }
+                        const targetRect =
+                          event.currentTarget.getBoundingClientRect();
                         openInventoryContextMenu(
                           item,
                           event.clientX,
                           event.clientY,
+                          targetRect,
                         );
                       }}
                       onKeyDown={(event) => {
@@ -8184,12 +9005,17 @@ export default function App(): JSX.Element {
                         }
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
+                          if (isContextMenuItemActive) {
+                            setInventoryContextMenu(null);
+                            return;
+                          }
                           const target =
                             event.currentTarget.getBoundingClientRect();
                           openInventoryContextMenu(
                             item,
                             target.right,
                             target.top + target.height / 2,
+                            target,
                           );
                         }
                       }}
@@ -8198,15 +9024,30 @@ export default function App(): JSX.Element {
                       }
                       tabIndex={inventoryContextActionsEnabled ? 0 : -1}
                     >
-                      <span className="nh3d-inventory-key">
-                        {item.accelerator || "?"})
+                      <span className="nh3d-inventory-item-leading">
+                        <span className="nh3d-inventory-icon-anchor" aria-hidden="true">
+                          <span className="nh3d-inventory-icon-shell">
+                            {tilePreview ? (
+                              <span className="nh3d-inventory-icon-art">
+                                {tilePreview}
+                              </span>
+                            ) : (
+                              <span className="nh3d-inventory-icon-fallback">
+                                {fallbackGlyph}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        <span className="nh3d-inventory-key">
+                          {item.accelerator || "?"})
+                        </span>
                       </span>
                       <span className={item.className as string}>
                         {item.text || "Unknown item"}
                       </span>
                     </div>
-                  ),
-                )
+                  );
+                })
               )}
             </div>
           </div>
