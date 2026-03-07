@@ -329,13 +329,15 @@ function resolveTileIndexForGlyph(glyph: unknown): number | null {
   }
   const normalizedGlyph = Math.trunc(glyph);
   const helpers =
-    (globalThis as {
-      nethackGlobal?: {
-        helpers?: {
-          tileIndexForGlyph?: (glyphValue: number) => unknown;
+    (
+      globalThis as {
+        nethackGlobal?: {
+          helpers?: {
+            tileIndexForGlyph?: (glyphValue: number) => unknown;
+          };
         };
-      };
-    }).nethackGlobal?.helpers ?? null;
+      }
+    ).nethackGlobal?.helpers ?? null;
   const tileIndexForGlyphHelper =
     typeof helpers?.tileIndexForGlyph === "function"
       ? helpers.tileIndexForGlyph
@@ -344,13 +346,17 @@ function resolveTileIndexForGlyph(glyph: unknown): number | null {
     return null;
   }
   try {
-    return normalizeTileIndexCandidate(tileIndexForGlyphHelper(normalizedGlyph));
+    return normalizeTileIndexCandidate(
+      tileIndexForGlyphHelper(normalizedGlyph),
+    );
   } catch {
     return null;
   }
 }
 
-function resolveMenuItemTileIndex(item: NethackMenuItem | null | undefined): number | null {
+function resolveMenuItemTileIndex(
+  item: NethackMenuItem | null | undefined,
+): number | null {
   if (!item) {
     return null;
   }
@@ -365,7 +371,8 @@ function resolveMenuItemFallbackGlyph(
   item: NethackMenuItem | null | undefined,
   fallback = "?",
 ): string {
-  const glyphCandidate = typeof item?.glyphChar === "string" ? item.glyphChar : "";
+  const glyphCandidate =
+    typeof item?.glyphChar === "string" ? item.glyphChar : "";
   const glyphCodePoint = glyphCandidate.codePointAt(0);
   if (
     typeof glyphCodePoint === "number" &&
@@ -1560,7 +1567,7 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "fpsMode",
-    label: "FPS mode",
+    label: "First-person mode",
     description: "Use first-person controls and mouselook.",
     type: "boolean",
   },
@@ -1827,7 +1834,7 @@ const clientOptionsDefaultTabId: ClientOptionsTabId = "display";
 const clientOptionsTabs: ClientOptionsTab[] = [
   {
     id: "controls",
-    label: "Controls",
+    label: "FPS Mode",
     description: "Mouselook, perspective, and first-person behavior.",
     groupKey: "group-controls",
   },
@@ -1907,11 +1914,13 @@ const resolveInventoryContextMenuPosition = (
   scrollRegionRect?: DOMRect | null,
 ): { x: number; y: number } => {
   const anchorRightX =
-    typeof state.anchorRightX === "number" && Number.isFinite(state.anchorRightX)
+    typeof state.anchorRightX === "number" &&
+    Number.isFinite(state.anchorRightX)
       ? state.anchorRightX
       : state.x;
   const anchorBottomY =
-    typeof state.anchorBottomY === "number" && Number.isFinite(state.anchorBottomY)
+    typeof state.anchorBottomY === "number" &&
+    Number.isFinite(state.anchorBottomY)
       ? state.anchorBottomY
       : state.y;
   const clampedToViewport = clampInventoryContextMenuPosition(
@@ -1939,7 +1948,8 @@ const resolveInventoryContextMenuPosition = (
   const minX = regionLeft + inventoryContextMenuScrollRegionPaddingPx;
   const maxX = regionRight - width - inventoryContextMenuScrollRegionPaddingPx;
   const minY = regionTop + inventoryContextMenuScrollRegionPaddingPx;
-  const maxY = regionBottom - height - inventoryContextMenuScrollRegionPaddingPx;
+  const maxY =
+    regionBottom - height - inventoryContextMenuScrollRegionPaddingPx;
   const canClampX =
     Number.isFinite(minX) && Number.isFinite(maxX) && maxX >= minX;
   const canClampY =
@@ -3018,11 +3028,12 @@ export default function App(): JSX.Element {
   const inventoryPointerActiveRef = useRef(false);
   const inventoryRowProximityAnimationFrameRef = useRef<number | null>(null);
   const inventoryTouchFallbackClearTimerRef = useRef<number | null>(null);
-  const inventoryRowPressCandidateRef = useRef<InventoryRowPressCandidate | null>(
-    null,
-  );
+  const inventoryRowPressCandidateRef =
+    useRef<InventoryRowPressCandidate | null>(null);
+  const tilesUiEnabled = clientOptions.tilesetMode === "tiles";
+  const inventoryAsciiModeEnabled = !tilesUiEnabled;
   const inventoryReducedMotionEnabled =
-    clientOptions.reduceInventoryMotion === true;
+    inventoryAsciiModeEnabled || clientOptions.reduceInventoryMotion === true;
   const inventoryTileOnlyMotionEnabled =
     !inventoryReducedMotionEnabled &&
     clientOptions.inventoryTileOnlyMotion === true;
@@ -3268,11 +3279,10 @@ export default function App(): JSX.Element {
     }
 
     if (needsAnotherFrame && typeof window !== "undefined") {
-      inventoryRowProximityAnimationFrameRef.current = window.requestAnimationFrame(
-        () => {
+      inventoryRowProximityAnimationFrameRef.current =
+        window.requestAnimationFrame(() => {
           applyInventoryRowProximity();
-        },
-      );
+        });
     }
   }, [inventoryReducedMotionEnabled]);
   const scheduleInventoryRowProximityUpdate = useCallback((): void => {
@@ -3282,11 +3292,10 @@ export default function App(): JSX.Element {
     if (inventoryRowProximityAnimationFrameRef.current !== null) {
       return;
     }
-    inventoryRowProximityAnimationFrameRef.current = window.requestAnimationFrame(
-      () => {
+    inventoryRowProximityAnimationFrameRef.current =
+      window.requestAnimationFrame(() => {
         applyInventoryRowProximity();
-      },
-    );
+      });
   }, [applyInventoryRowProximity]);
   const clearInventoryTouchFallbackClearTimer = useCallback((): void => {
     if (typeof window === "undefined") {
@@ -3337,7 +3346,10 @@ export default function App(): JSX.Element {
       inventoryPointerClientYRef.current = event.clientY;
       scheduleInventoryRowProximityUpdate();
     },
-    [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate],
+    [
+      clearInventoryTouchFallbackClearTimer,
+      scheduleInventoryRowProximityUpdate,
+    ],
   );
   const handleInventoryPointerLeave = useCallback((): void => {
     if (
@@ -3350,7 +3362,10 @@ export default function App(): JSX.Element {
     inventoryPointerActiveRef.current = false;
     inventoryPointerClientYRef.current = null;
     scheduleInventoryRowProximityUpdate();
-  }, [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate]);
+  }, [
+    clearInventoryTouchFallbackClearTimer,
+    scheduleInventoryRowProximityUpdate,
+  ]);
   const handleInventoryPointerUp = (
     event: ReactPointerEvent<HTMLDivElement>,
   ): void => {
@@ -3398,9 +3413,14 @@ export default function App(): JSX.Element {
       inventoryPointerClientYRef.current = primaryTouch.clientY;
       scheduleInventoryRowProximityUpdate();
     },
-    [clearInventoryTouchFallbackClearTimer, scheduleInventoryRowProximityUpdate],
+    [
+      clearInventoryTouchFallbackClearTimer,
+      scheduleInventoryRowProximityUpdate,
+    ],
   );
-  const handleInventoryTouchEnd = (event: ReactTouchEvent<HTMLDivElement>): void => {
+  const handleInventoryTouchEnd = (
+    event: ReactTouchEvent<HTMLDivElement>,
+  ): void => {
     const releaseTouch = event.changedTouches[0] ?? event.touches[0];
     if (releaseTouch) {
       activateInventoryRowPressCandidateFromRelease(
@@ -3459,7 +3479,11 @@ export default function App(): JSX.Element {
         return;
       }
       const normalizedAccelerator = String(accelerator || "").trim();
-      if (!normalizedAccelerator || !Number.isFinite(startClientX) || !Number.isFinite(startClientY)) {
+      if (
+        !normalizedAccelerator ||
+        !Number.isFinite(startClientX) ||
+        !Number.isFinite(startClientY)
+      ) {
         return;
       }
       inventoryRowPressCandidateRef.current = {
@@ -3496,17 +3520,22 @@ export default function App(): JSX.Element {
         return;
       }
       inventoryRowPressCandidateRef.current = null;
-      if (!Number.isFinite(releaseClientX) || !Number.isFinite(releaseClientY)) {
+      if (
+        !Number.isFinite(releaseClientX) ||
+        !Number.isFinite(releaseClientY)
+      ) {
         return;
       }
       const elapsedMs = Date.now() - candidate.startedAtMs;
-      const preferInitialSelection = elapsedMs <= inventoryRowPressPreferInitialMs;
+      const preferInitialSelection =
+        elapsedMs <= inventoryRowPressPreferInitialMs;
       if (!preferInitialSelection) {
         // After the short tap window, fall back to normal release-target behavior.
         return;
       }
 
-      const releaseElement = releaseTarget instanceof Element ? releaseTarget : null;
+      const releaseElement =
+        releaseTarget instanceof Element ? releaseTarget : null;
       const releaseRowElement = releaseElement?.closest(".nh3d-inventory-item");
       const releaseAccelerator =
         releaseRowElement instanceof HTMLElement
@@ -3516,7 +3545,9 @@ export default function App(): JSX.Element {
         return;
       }
 
-      const activeAccelerator = String(inventoryContextMenu?.accelerator || "").trim();
+      const activeAccelerator = String(
+        inventoryContextMenu?.accelerator || "",
+      ).trim();
       if (activeAccelerator && activeAccelerator === candidate.accelerator) {
         setInventoryContextMenu(null);
         return;
@@ -3533,10 +3564,7 @@ export default function App(): JSX.Element {
         anchorRect,
       );
     },
-    [
-      inventoryContextMenu?.accelerator,
-      inventoryUsesFullRowAnimation,
-    ],
+    [inventoryContextMenu?.accelerator, inventoryUsesFullRowAnimation],
   );
   const handleInventoryRowActivationDismissCapture = useCallback(
     (target: EventTarget | null): void => {
@@ -4720,9 +4748,7 @@ export default function App(): JSX.Element {
   const questionMenuPageCount = Math.max(1, question?.menuPageCount ?? 1);
   const enhanceMenuData = useMemo(
     () =>
-      question
-        ? parseEnhanceMenu(question.text, question.menuItems)
-        : null,
+      question ? parseEnhanceMenu(question.text, question.menuItems) : null,
     [question],
   );
   const questionSelectableMenuItemCount = question
@@ -5901,7 +5927,11 @@ export default function App(): JSX.Element {
       return;
     }
     scheduleInventoryRowProximityUpdate();
-  }, [inventory.visible, inventoryContextMenu, scheduleInventoryRowProximityUpdate]);
+  }, [
+    inventory.visible,
+    inventoryContextMenu,
+    scheduleInventoryRowProximityUpdate,
+  ]);
 
   useEffect(() => {
     if (inventory.visible) {
@@ -5915,11 +5945,7 @@ export default function App(): JSX.Element {
     for (const rowElement of inventoryRowRefs.current.values()) {
       rowElement.style.setProperty("--nh3d-inv-hover", "0");
     }
-  }, [
-    inventory.items,
-    inventory.visible,
-    scheduleInventoryRowProximityUpdate,
-  ]);
+  }, [inventory.items, inventory.visible, scheduleInventoryRowProximityUpdate]);
 
   useEffect(() => {
     if (!inventoryReducedMotionEnabled) {
@@ -5958,7 +5984,9 @@ export default function App(): JSX.Element {
       if (inventoryRowProximityAnimationFrameRef.current === null) {
         return;
       }
-      window.cancelAnimationFrame(inventoryRowProximityAnimationFrameRef.current);
+      window.cancelAnimationFrame(
+        inventoryRowProximityAnimationFrameRef.current,
+      );
       inventoryRowProximityAnimationFrameRef.current = null;
       inventoryRowHoverValueByIndexRef.current.clear();
     },
@@ -7446,11 +7474,13 @@ export default function App(): JSX.Element {
                         ? !hasAnyTilesets
                         : isInventoryFixedTileSizeSelect
                           ? !clientOptionsDraft.reduceInventoryMotion
-                        : Boolean(option.disabled);
+                          : Boolean(option.disabled);
                       return (
                         <div
                           className={`nh3d-option-row${
-                            selectDisabled ? " nh3d-option-row-mode-inactive" : ""
+                            selectDisabled
+                              ? " nh3d-option-row-mode-inactive"
+                              : ""
                           }`}
                           key={option.key}
                         >
@@ -7502,7 +7532,10 @@ export default function App(): JSX.Element {
                                     event.target.value === "large"
                                       ? event.target.value
                                       : "medium";
-                                  updateClientOptionDraft(option.key, nextValue);
+                                  updateClientOptionDraft(
+                                    option.key,
+                                    nextValue,
+                                  );
                                   return;
                                 }
                                 updateClientOptionDraft(
@@ -8154,7 +8187,9 @@ export default function App(): JSX.Element {
                     return (
                       <div
                         className={
-                          item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                          item.isCategory
+                            ? "nh3d-menu-category"
+                            : "nh3d-menu-row"
                         }
                         key={`cat-${index}`}
                       >
@@ -8162,9 +8197,13 @@ export default function App(): JSX.Element {
                       </div>
                     );
                   }
-                  const tileIndex = resolveMenuItemTileIndex(item);
+                  const tileIndex = tilesUiEnabled
+                    ? resolveMenuItemTileIndex(item)
+                    : null;
                   const tilePreview =
-                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                    tileIndex !== null
+                      ? renderTilePreviewImage(tileIndex)
+                      : null;
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   return (
                     <div
@@ -8201,17 +8240,22 @@ export default function App(): JSX.Element {
                         type="checkbox"
                       />
                       <span className="nh3d-question-item-leading">
-                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
-                          {tilePreview ? (
-                            <span className="nh3d-question-item-icon-art">
-                              {tilePreview}
-                            </span>
-                          ) : (
-                            <span className="nh3d-question-item-icon-fallback">
-                              {fallbackGlyph}
-                            </span>
-                          )}
-                        </span>
+                        {tilesUiEnabled ? (
+                          <span
+                            className="nh3d-question-item-icon-shell"
+                            aria-hidden="true"
+                          >
+                            {tilePreview ? (
+                              <span className="nh3d-question-item-icon-art">
+                                {tilePreview}
+                              </span>
+                            ) : (
+                              <span className="nh3d-question-item-icon-fallback">
+                                {fallbackGlyph}
+                              </span>
+                            )}
+                          </span>
+                        ) : null}
                         <span className="nh3d-pickup-key">
                           {item.accelerator})
                         </span>
@@ -8255,7 +8299,8 @@ export default function App(): JSX.Element {
                       {enhanceMenuData.availableCount} available
                     </span>
                     <span className="nh3d-enhance-summary-chip is-gated">
-                      {enhanceMenuData.needsExperienceCount} gated by experience/slots
+                      {enhanceMenuData.needsExperienceCount} gated by
+                      experience/slots
                     </span>
                     <span className="nh3d-enhance-summary-chip is-practice">
                       {enhanceMenuData.needsPracticeCount} need practice
@@ -8267,23 +8312,34 @@ export default function App(): JSX.Element {
                   {enhanceMenuData.legendLines.length > 0 ? (
                     <div className="nh3d-enhance-legend">
                       {enhanceMenuData.legendLines.map((line, index) => (
-                        <div className="nh3d-enhance-legend-line" key={`enhance-legend-${index}`}>
+                        <div
+                          className="nh3d-enhance-legend-line"
+                          key={`enhance-legend-${index}`}
+                        >
                           {line}
                         </div>
                       ))}
                     </div>
                   ) : null}
                   {enhanceMenuData.groups.map((group) => (
-                    <section className="nh3d-enhance-group" key={`enhance-group-${group.id}`}>
+                    <section
+                      className="nh3d-enhance-group"
+                      key={`enhance-group-${group.id}`}
+                    >
                       <div className="nh3d-menu-category nh3d-enhance-group-title">
                         {group.title}
                       </div>
                       <div className="nh3d-enhance-skill-grid">
                         {group.entries.map((entry) => {
-                          const selectionInput = getMenuSelectionInput(entry.menuItem);
-                          const isSelectable = isSelectableQuestionMenuItem(entry.menuItem);
+                          const selectionInput = getMenuSelectionInput(
+                            entry.menuItem,
+                          );
+                          const isSelectable = isSelectableQuestionMenuItem(
+                            entry.menuItem,
+                          );
                           const isActive =
-                            question.activeMenuSelectionInput === selectionInput;
+                            question.activeMenuSelectionInput ===
+                            selectionInput;
                           const acceleratorLabel =
                             typeof entry.menuItem.accelerator === "string" &&
                             entry.menuItem.accelerator.trim().length > 0
@@ -8325,7 +8381,9 @@ export default function App(): JSX.Element {
                                     <span>{entry.nextRank}</span>
                                   </>
                                 ) : (
-                                  <span className="nh3d-enhance-rank-max">Max</span>
+                                  <span className="nh3d-enhance-rank-max">
+                                    Max
+                                  </span>
                                 )}
                               </div>
                               {enhanceMenuData.showSlotCost &&
@@ -8361,7 +8419,9 @@ export default function App(): JSX.Element {
                                     <span>{entry.nextRank}</span>
                                   </>
                                 ) : (
-                                  <span className="nh3d-enhance-rank-max">Max</span>
+                                  <span className="nh3d-enhance-rank-max">
+                                    Max
+                                  </span>
                                 )}
                               </div>
                               {enhanceMenuData.showSlotCost &&
@@ -8399,7 +8459,9 @@ export default function App(): JSX.Element {
                     return (
                       <div
                         className={
-                          item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                          item.isCategory
+                            ? "nh3d-menu-category"
+                            : "nh3d-menu-row"
                         }
                         key={`cat-${index}`}
                       >
@@ -8407,9 +8469,13 @@ export default function App(): JSX.Element {
                       </div>
                     );
                   }
-                  const tileIndex = resolveMenuItemTileIndex(item);
+                  const tileIndex = tilesUiEnabled
+                    ? resolveMenuItemTileIndex(item)
+                    : null;
                   const tilePreview =
-                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                    tileIndex !== null
+                      ? renderTilePreviewImage(tileIndex)
+                      : null;
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   return (
                     <button
@@ -8428,22 +8494,29 @@ export default function App(): JSX.Element {
                       type="button"
                     >
                       <span className="nh3d-question-item-leading">
-                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
-                          {tilePreview ? (
-                            <span className="nh3d-question-item-icon-art">
-                              {tilePreview}
-                            </span>
-                          ) : (
-                            <span className="nh3d-question-item-icon-fallback">
-                              {fallbackGlyph}
-                            </span>
-                          )}
-                        </span>
+                        {tilesUiEnabled ? (
+                          <span
+                            className="nh3d-question-item-icon-shell"
+                            aria-hidden="true"
+                          >
+                            {tilePreview ? (
+                              <span className="nh3d-question-item-icon-art">
+                                {tilePreview}
+                              </span>
+                            ) : (
+                              <span className="nh3d-question-item-icon-fallback">
+                                {fallbackGlyph}
+                              </span>
+                            )}
+                          </span>
+                        ) : null}
                         <span className="nh3d-menu-button-key">
                           {item.accelerator})
                         </span>
                       </span>
-                      <span className="nh3d-menu-button-label">{item.text}</span>
+                      <span className="nh3d-menu-button-label">
+                        {item.text}
+                      </span>
                     </button>
                   );
                 })}
@@ -8482,9 +8555,14 @@ export default function App(): JSX.Element {
                   const inventoryChoiceItem = useInventoryChoiceLabels
                     ? getInventoryItemForQuestionChoice(choice, inventory.items)
                     : null;
-                  const tileIndex = resolveMenuItemTileIndex(inventoryChoiceItem);
+                  const tileIndex =
+                    tilesUiEnabled && inventoryChoiceItem
+                      ? resolveMenuItemTileIndex(inventoryChoiceItem)
+                      : null;
                   const tilePreview =
-                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                    tileIndex !== null
+                      ? renderTilePreviewImage(tileIndex)
+                      : null;
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(
                     inventoryChoiceItem,
                     choice.trim().charAt(0) || "?",
@@ -8496,7 +8574,7 @@ export default function App(): JSX.Element {
                           ? " nh3d-choice-button-default"
                           : ""
                       }${
-                        inventoryChoiceItem
+                        tilesUiEnabled && inventoryChoiceItem
                           ? " nh3d-choice-button-with-tile"
                           : ""
                       }`}
@@ -8504,8 +8582,11 @@ export default function App(): JSX.Element {
                       onClick={() => controller?.chooseQuestionChoice(choice)}
                       type="button"
                     >
-                      {inventoryChoiceItem ? (
-                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
+                      {tilesUiEnabled && inventoryChoiceItem ? (
+                        <span
+                          className="nh3d-question-item-icon-shell"
+                          aria-hidden="true"
+                        >
                           {tilePreview ? (
                             <span className="nh3d-question-item-icon-art">
                               {tilePreview}
@@ -9028,7 +9109,7 @@ export default function App(): JSX.Element {
             inventoryReducedMotionEnabled
               ? " nh3d-dialog-inventory-reduced-motion"
               : ""
-          }${
+          }${inventoryAsciiModeEnabled ? " nh3d-dialog-inventory-ascii" : ""}${
             inventoryTileOnlyMotionEnabled
               ? " nh3d-dialog-inventory-tile-motion-only"
               : ""
@@ -9081,7 +9162,9 @@ export default function App(): JSX.Element {
                   : handleInventoryPointerUpdate
               }
               onPointerUp={
-                inventoryReducedMotionEnabled ? undefined : handleInventoryPointerUp
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerUp
               }
               onTouchStartCapture={
                 inventoryReducedMotionEnabled
@@ -9099,7 +9182,9 @@ export default function App(): JSX.Element {
                   : handleInventoryTouchMove
               }
               onTouchEnd={
-                inventoryReducedMotionEnabled ? undefined : handleInventoryTouchEnd
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryTouchEnd
               }
               onTouchCancel={
                 inventoryReducedMotionEnabled
@@ -9139,9 +9224,13 @@ export default function App(): JSX.Element {
                     );
                   }
 
-                  const tileIndex = resolveMenuItemTileIndex(item);
+                  const tileIndex = tilesUiEnabled
+                    ? resolveMenuItemTileIndex(item)
+                    : null;
                   const tilePreview =
-                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                    tileIndex !== null
+                      ? renderTilePreviewImage(tileIndex)
+                      : null;
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   const itemAccelerator =
                     typeof item.accelerator === "string"
@@ -9150,8 +9239,9 @@ export default function App(): JSX.Element {
                   const isContextMenuItemActive =
                     inventoryContextMenu?.accelerator === itemAccelerator;
                   const showInventoryTileIcon =
-                    !inventoryReducedMotionEnabled ||
-                    inventoryFixedTileSizeMode !== "none";
+                    tilesUiEnabled &&
+                    (!inventoryReducedMotionEnabled ||
+                      inventoryFixedTileSizeMode !== "none");
 
                   return (
                     <div
@@ -9180,7 +9270,10 @@ export default function App(): JSX.Element {
                         if (!inventoryUsesFullRowAnimation) {
                           return;
                         }
-                        if (event.pointerType === "mouse" && event.button !== 0) {
+                        if (
+                          event.pointerType === "mouse" &&
+                          event.button !== 0
+                        ) {
                           return;
                         }
                         beginInventoryRowPressCandidate(
@@ -9270,7 +9363,10 @@ export default function App(): JSX.Element {
                     >
                       <span className="nh3d-inventory-item-leading">
                         {showInventoryTileIcon ? (
-                          <span className="nh3d-inventory-icon-anchor" aria-hidden="true">
+                          <span
+                            className="nh3d-inventory-icon-anchor"
+                            aria-hidden="true"
+                          >
                             <span className="nh3d-inventory-icon-shell">
                               {tilePreview ? (
                                 <span className="nh3d-inventory-icon-art">

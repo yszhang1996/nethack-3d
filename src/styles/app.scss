@@ -3714,6 +3714,16 @@ canvas {
   }
 }
 
+.nh3d-dialog-inventory-ascii {
+  .nh3d-inventory-item,
+  .nh3d-inventory-item-active,
+  .nh3d-inventory-icon-anchor,
+  .nh3d-inventory-icon-shell {
+    transition: none !important;
+    will-change: auto !important;
+  }
+}
+
 .nh3d-dialog-inventory-tile-motion-only {
   .nh3d-inventory-item,
   .nh3d-inventory-item-active {
