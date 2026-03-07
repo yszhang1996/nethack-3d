@@ -5397,6 +5397,169 @@ canvas {
   }
 }
 
+.nh3d-controller-action-wheel-dialog {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1912;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.nh3d-dialog.nh3d-controller-action-wheel-dialog.is-visible {
+  box-shadow: none;
+}
+
+.nh3d-controller-action-wheel-dialog.is-quick {
+  width: min(88vw, 700px);
+  max-width: calc(100vw - 14px);
+  aspect-ratio: 1 / 1;
+}
+
+.nh3d-controller-action-wheel-dialog.is-extended {
+  width: min(94vw, 900px);
+  max-width: calc(100vw - 18px);
+  max-height: min(90vh, 820px);
+  border: 2px solid var(--nh3d-ui-border-strong);
+  border-radius: 12px;
+  background: var(--nh3d-ui-panel-bg-strong);
+  padding: 12px;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nh3d-dialog.nh3d-controller-action-wheel-dialog.is-visible.is-extended {
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.58);
+}
+
+.nh3d-controller-action-wheel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 2px solid var(--nh3d-ui-border-strong);
+  padding-bottom: 8px;
+}
+
+.nh3d-controller-action-wheel-title {
+  color: var(--nh3d-ui-accent);
+  font-size: nh3d-scale-font(14px);
+  font-weight: bold;
+}
+
+.nh3d-controller-action-wheel-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nh3d-controller-action-wheel-ring {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  overflow: visible;
+}
+
+.nh3d-controller-action-wheel-arc {
+  --nh3d-wheel-stagger-delay: 0ms;
+  position: absolute;
+  inset: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+  background-color: rgba(0, 0, 0, 0);
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    transparent 0%,
+    transparent 29.5%,
+    rgba(27, 80, 128, 0.98) 30%,
+    rgba(27, 80, 128, 0.98) 30.7%,
+    rgba(40, 114, 178, 0.92) 31.2%,
+    rgba(40, 114, 178, 0.92) 50.4%,
+    rgba(27, 80, 128, 0.98) 50.8%,
+    rgba(27, 80, 128, 0.98) 52%,
+    transparent 52.4%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  cursor: pointer;
+  opacity: 0.9;
+  transform: scale(1);
+  transition:
+    transform 130ms ease,
+    filter 130ms ease;
+  filter: brightness(0.98) saturate(1.04);
+}
+
+.nh3d-controller-action-wheel-ring.is-on .nh3d-controller-action-wheel-arc {
+  opacity: 0.9;
+  transform: scale(1);
+}
+
+.nh3d-controller-action-wheel-arc-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: min(16vw, 98px);
+  text-align: center;
+  color: rgba(220, 242, 255, 0.95);
+  font-family: "Courier New", monospace;
+  font-size: nh3d-scale-font(12px);
+  line-height: 1.12;
+  font-weight: bold;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+}
+
+.nh3d-controller-action-wheel-arc:hover,
+.nh3d-controller-action-wheel-arc.is-chosen,
+.nh3d-controller-action-wheel-arc:focus-visible {
+  opacity: 1;
+  transform: scale(1.1);
+  filter:
+    brightness(1.1)
+    saturate(1.14)
+    drop-shadow(0 0 12px rgba(135, 206, 255, 0.52));
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    transparent 0%,
+    transparent 29.5%,
+    rgba(61, 136, 201, 0.98) 30%,
+    rgba(61, 136, 201, 0.98) 30.7%,
+    rgba(145, 213, 255, 0.95) 31.2%,
+    rgba(145, 213, 255, 0.95) 50.4%,
+    rgba(61, 136, 201, 0.98) 50.8%,
+    rgba(61, 136, 201, 0.98) 52%,
+    transparent 52.4%,
+    transparent 100%
+  );
+}
+
+.nh3d-controller-action-wheel-arc:hover .nh3d-controller-action-wheel-arc-label,
+.nh3d-controller-action-wheel-arc.is-chosen .nh3d-controller-action-wheel-arc-label,
+.nh3d-controller-action-wheel-arc:focus-visible
+  .nh3d-controller-action-wheel-arc-label {
+  color: rgba(11, 30, 47, 0.96);
+  text-shadow: none;
+}
+
+.nh3d-controller-action-wheel-extended-shell {
+  min-height: 220px;
+  max-height: min(72vh, 620px);
+}
+
+.nh3d-controller-action-wheel-extended {
+  max-height: min(72vh, 620px);
+}
+
 .nh3d-mobile-actions-title-row {
   display: flex;
   align-items: center;

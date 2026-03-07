@@ -16,8 +16,8 @@ export type Nh3dControllerActionId =
   | "confirm"
   | "search"
   | "cancel_or_context"
+  | "action_menu"
   | "zoom_in"
-  | "zoom_out"
   | "toggle_large_minimap"
   | "pause_menu"
   | "open_inventory"
@@ -153,6 +153,12 @@ const controllerActionSpecs: readonly Nh3dControllerActionSpec[] = [
     group: "Actions",
   },
   {
+    id: "action_menu",
+    label: "Action Menu",
+    description: "Open controller radial action menu.",
+    group: "Actions",
+  },
+  {
     id: "run_modifier",
     label: "Run Modifier",
     description: "Hold to send run prefix before movement.",
@@ -160,14 +166,8 @@ const controllerActionSpecs: readonly Nh3dControllerActionSpec[] = [
   },
   {
     id: "zoom_in",
-    label: "Zoom In",
-    description: "Zoom camera in.",
-    group: "Look And Camera",
-  },
-  {
-    id: "zoom_out",
-    label: "Zoom Out",
-    description: "Zoom camera out.",
+    label: "Zoom (Hold)",
+    description: "Hold, then use left or right stick up/down to zoom in/out.",
     group: "Look And Camera",
   },
   {
@@ -248,8 +248,8 @@ export const defaultNh3dControllerBindings: Nh3dControllerBindings = {
   confirm: createBindingSlots(createButtonBinding(0), createButtonBinding(7)),
   search: createBindingSlots(createButtonBinding(2)),
   cancel_or_context: createBindingSlots(createButtonBinding(1)),
+  action_menu: createBindingSlots(createButtonBinding(4)),
   zoom_in: createBindingSlots(createButtonBinding(5)),
-  zoom_out: createBindingSlots(createButtonBinding(4)),
   toggle_large_minimap: createBindingSlots(createButtonBinding(11)),
   pause_menu: createBindingSlots(createButtonBinding(9)),
   open_inventory: createBindingSlots(createButtonBinding(3)),

@@ -22,10 +22,12 @@ import type {
   PlayerStatsSnapshot,
 } from "../game/ui-types";
 import {
+  nh3dCloseControllerActionWheelEventName,
   defaultNh3dClientOptions,
   nh3dOpenCharacterSheetEventName,
   nh3dFpsLookSensitivityMax,
   nh3dFpsLookSensitivityMin,
+  nh3dToggleControllerActionWheelEventName,
   normalizeNh3dClientOptions,
 } from "../game/ui-types";
 import {
@@ -1214,7 +1216,12 @@ function createIsolatedAtlasTilePreviewDataUrl(
   );
 
   if (backgroundRemoval?.enabled) {
-    const imageData = context.getImageData(0, 0, tileSourceSize, tileSourceSize);
+    const imageData = context.getImageData(
+      0,
+      0,
+      tileSourceSize,
+      tileSourceSize,
+    );
     const data = imageData.data;
     if (backgroundRemoval.mode === "solid") {
       const match = String(backgroundRemoval.solidChromaKeyColorHex || "")
@@ -1335,6 +1342,13 @@ type MobileActionEntry = {
   label: string;
   kind: "quick" | "extended";
   value: string;
+};
+type ControllerActionWheelEntry = MobileActionEntry & {
+  index: number;
+  angleDeg: number;
+  clipPath: string;
+  labelXPercent: number;
+  labelYPercent: number;
 };
 type MobileActionSheetMode = "quick" | "extended";
 type InventoryContextAction = {
@@ -1822,7 +1836,8 @@ function getControllerBindingValueFromGamepad(
   if (directionalValue <= axisDeadzone) {
     return 0;
   }
-  const normalizedValue = (directionalValue - axisDeadzone) / (1 - axisDeadzone);
+  const normalizedValue =
+    (directionalValue - axisDeadzone) / (1 - axisDeadzone);
   return Math.max(0, Math.min(1, normalizedValue));
 }
 
@@ -1857,7 +1872,8 @@ function getTopVisibleControllerDialogElement(): HTMLElement | null {
     return null;
   }
   let best = candidates[0];
-  let bestZIndex = Number.parseInt(window.getComputedStyle(best).zIndex, 10) || 0;
+  let bestZIndex =
+    Number.parseInt(window.getComputedStyle(best).zIndex, 10) || 0;
   for (let index = 1; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     const zIndex =
@@ -1936,7 +1952,9 @@ function findNearestControllerScrollableAncestor(
   return null;
 }
 
-function getControllerDialogFixedActionButtons(dialogRoot: HTMLElement): HTMLElement[] {
+function getControllerDialogFixedActionButtons(
+  dialogRoot: HTMLElement,
+): HTMLElement[] {
   const selector = [
     ".nh3d-menu-actions button:not(:disabled)",
     ".nh3d-pickup-actions button:not(:disabled)",
@@ -1970,7 +1988,9 @@ function moveControllerDialogFocus(
     return false;
   }
   const activeElement =
-    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
   const activeInDialog =
     activeElement && topDialog.contains(activeElement) ? activeElement : null;
   const fixedActionButtons = getControllerDialogFixedActionButtons(topDialog);
@@ -2000,10 +2020,7 @@ function moveControllerDialogFocus(
     }
   }
 
-  if (
-    (direction === "up" || direction === "left") &&
-    activeIsFixedAction
-  ) {
+  if ((direction === "up" || direction === "left") && activeIsFixedAction) {
     const topScrollable = findControllerScrollableElement(topDialog);
     if (topScrollable) {
       const scrollableFocusable = getControllerFocusableElements(
@@ -2022,10 +2039,7 @@ function moveControllerDialogFocus(
     }
   }
 
-  const activeIndex =
-    activeInDialog
-      ? focusable.indexOf(activeInDialog)
-      : -1;
+  const activeIndex = activeInDialog ? focusable.indexOf(activeInDialog) : -1;
   const delta = direction === "up" || direction === "left" ? -1 : 1;
   let nextIndex: number;
   if (activeIndex < 0) {
@@ -2045,7 +2059,9 @@ function moveControllerDialogFocus(
 
 function clickFocusedControllerDialogElement(): HTMLElement | null {
   const activeElement =
-    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
   if (activeElement && typeof activeElement.click === "function") {
     activeElement.click();
     return activeElement;
@@ -2094,7 +2110,9 @@ function clickControllerDialogElementAtPoint(
   return clickable;
 }
 
-function isStartupInitAccordionSummaryElement(element: HTMLElement | null): boolean {
+function isStartupInitAccordionSummaryElement(
+  element: HTMLElement | null,
+): boolean {
   return (
     element instanceof HTMLElement &&
     element.tagName === "SUMMARY" &&
@@ -2102,7 +2120,9 @@ function isStartupInitAccordionSummaryElement(element: HTMLElement | null): bool
   );
 }
 
-function findControllerScrollableElement(root: HTMLElement | null): HTMLElement | null {
+function findControllerScrollableElement(
+  root: HTMLElement | null,
+): HTMLElement | null {
   if (!root) {
     return null;
   }
@@ -2622,6 +2642,61 @@ const mobileActions: MobileActionEntry[] = [
   { id: "take-off", label: "Take Off", kind: "extended", value: "takeoff" },
   { id: "extended", label: "Extended", kind: "quick", value: "extended" },
 ];
+
+const controllerActionWheelOuterRadiusPercent = 50;
+const controllerActionWheelLabelRadiusPercent = 29;
+const controllerActionWheelSliceGapDeg = 3;
+
+function getControllerActionWheelPolarPoint(
+  angleDeg: number,
+  radiusPercent: number,
+): { x: number; y: number } {
+  const radians = (angleDeg * Math.PI) / 180;
+  return {
+    x: 50 + Math.cos(radians) * radiusPercent,
+    y: 50 + Math.sin(radians) * radiusPercent,
+  };
+}
+
+function createControllerActionWheelEntries(
+  actions: readonly MobileActionEntry[],
+): ControllerActionWheelEntry[] {
+  if (actions.length === 0) {
+    return [];
+  }
+  const sliceSpanDeg = 360 / actions.length;
+  return actions.map((action, index) => {
+    const angleDeg = -90 + index * sliceSpanDeg;
+    const halfGapDeg = Math.min(
+      sliceSpanDeg * 0.35,
+      controllerActionWheelSliceGapDeg / 2,
+    );
+    const startDeg = angleDeg - sliceSpanDeg / 2 + halfGapDeg;
+    const endDeg = angleDeg + sliceSpanDeg / 2 - halfGapDeg;
+    const startPoint = getControllerActionWheelPolarPoint(
+      startDeg,
+      controllerActionWheelOuterRadiusPercent,
+    );
+    const endPoint = getControllerActionWheelPolarPoint(
+      endDeg,
+      controllerActionWheelOuterRadiusPercent,
+    );
+    const labelPoint = getControllerActionWheelPolarPoint(
+      angleDeg,
+      controllerActionWheelLabelRadiusPercent,
+    );
+    const clipPath = `polygon(50% 50%, ${startPoint.x.toFixed(2)}% ${startPoint.y.toFixed(2)}%, ${endPoint.x.toFixed(2)}% ${endPoint.y.toFixed(2)}%)`;
+    return {
+      ...action,
+      index,
+      angleDeg,
+      clipPath,
+      labelXPercent: labelPoint.x,
+      labelYPercent: labelPoint.y,
+    };
+  });
+}
+
 const fallbackExtendedCommandNames = [
   "adjust",
   "annotate",
@@ -3332,6 +3407,15 @@ export default function App(): JSX.Element {
     useState(false);
   const [mobileActionSheetMode, setMobileActionSheetMode] =
     useState<MobileActionSheetMode>("quick");
+  const [isControllerActionWheelVisible, setIsControllerActionWheelVisible] =
+    useState(false);
+  const [controllerActionWheelMode, setControllerActionWheelMode] =
+    useState<MobileActionSheetMode>("quick");
+  const [
+    controllerActionWheelChosenIndex,
+    setControllerActionWheelChosenIndex,
+  ] = useState(0);
+  const controllerActionWheelDialogRef = useRef<HTMLDivElement | null>(null);
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
   const [characterSheetInterceptionArmed, setCharacterSheetInterceptionArmed] =
     useState(false);
@@ -5357,6 +5441,7 @@ export default function App(): JSX.Element {
     Boolean(positionRequest) ||
     Boolean(inventoryContextMenu) ||
     Boolean(fpsCrosshairContext) ||
+    isControllerActionWheelVisible ||
     newGamePrompt.visible;
 
   useEffect(() => {
@@ -5366,6 +5451,15 @@ export default function App(): JSX.Element {
       setIsMobileLogVisible(false);
     }
   }, [isMobileGameRunning]);
+
+  useEffect(() => {
+    if (isMobileGameRunning || isDesktopGameRunning) {
+      return;
+    }
+    setIsControllerActionWheelVisible(false);
+    setControllerActionWheelMode("quick");
+    setControllerActionWheelChosenIndex(0);
+  }, [isDesktopGameRunning, isMobileGameRunning]);
 
   useEffect(() => {
     setFloatingMessageTiming(
@@ -5545,7 +5639,10 @@ export default function App(): JSX.Element {
       const candidate = visibleOverlays[index];
       const zIndex =
         Number.parseInt(window.getComputedStyle(candidate).zIndex, 10) || 0;
-      if (zIndex > topOverlayZIndex || (zIndex === topOverlayZIndex && index > 0)) {
+      if (
+        zIndex > topOverlayZIndex ||
+        (zIndex === topOverlayZIndex && index > 0)
+      ) {
         topOverlay = candidate;
         topOverlayZIndex = zIndex;
       }
@@ -5570,12 +5667,22 @@ export default function App(): JSX.Element {
     const explicitActiveTarget = topOverlay.querySelector<HTMLElement>(
       ".nh3d-menu-button.nh3d-menu-button-active, .nh3d-menu-action-button.nh3d-action-button-active, .nh3d-pickup-action-button.nh3d-action-button-active",
     );
-    const firstContextActionButton = topOverlay.classList.contains("nh3d-context-menu")
-      ? topOverlay.querySelector<HTMLElement>(".nh3d-context-menu-button:not(:disabled)")
+    const firstContextActionButton = topOverlay.classList.contains(
+      "nh3d-context-menu",
+    )
+      ? topOverlay.querySelector<HTMLElement>(
+          ".nh3d-context-menu-button:not(:disabled)",
+        )
       : null;
-    const firstSelectableButton = topOverlay.querySelector<HTMLElement>(
-      focusableSelector,
-    );
+    const firstActionWheelButton = topOverlay.classList.contains(
+      "nh3d-controller-action-wheel-dialog",
+    )
+      ? topOverlay.querySelector<HTMLElement>(
+          "[data-nh3d-wheel-angle]:not(:disabled)",
+        )
+      : null;
+    const firstSelectableButton =
+      topOverlay.querySelector<HTMLElement>(focusableSelector);
     const activeElement =
       typeof document.activeElement === "object" &&
       document.activeElement instanceof HTMLElement
@@ -5589,6 +5696,7 @@ export default function App(): JSX.Element {
         : null;
     const targetButton =
       activeElementInDialog ??
+      firstActionWheelButton ??
       firstContextActionButton ??
       explicitActiveTarget ??
       firstSelectableButton;
@@ -5620,6 +5728,8 @@ export default function App(): JSX.Element {
     fpsCrosshairContext,
     fpsCrosshairContext?.actions.length,
     tileContextMenuPosition,
+    isControllerActionWheelVisible,
+    controllerActionWheelMode,
   ]);
 
   const mobileExtendedCommandNames = useMemo(() => {
@@ -5650,19 +5760,53 @@ export default function App(): JSX.Element {
       available.has(command),
     );
   }, [mobileExtendedCommandNames]);
+  const controllerActionWheelEntries = useMemo(
+    () => createControllerActionWheelEntries(mobileActions),
+    [],
+  );
   const characterCommandActions = useMemo(
     () => resolveCharacterCommandActions(mobileExtendedCommandNames),
     [mobileExtendedCommandNames],
+  );
+  const closeControllerActionWheel = useCallback((): void => {
+    setIsControllerActionWheelVisible(false);
+    setControllerActionWheelMode("quick");
+    setControllerActionWheelChosenIndex(0);
+  }, []);
+  const runControllerWheelEntry = useCallback(
+    (action: ControllerActionWheelEntry): void => {
+      controller?.dismissFpsCrosshairContextMenu();
+      if (action.id === "extended") {
+        setControllerActionWheelMode("extended");
+        return;
+      }
+      if (action.kind === "quick") {
+        controller?.runQuickAction(action.value);
+      } else {
+        controller?.runExtendedCommand(action.value);
+      }
+      closeControllerActionWheel();
+    },
+    [closeControllerActionWheel, controller],
+  );
+  const runControllerWheelExtendedCommand = useCallback(
+    (command: string): void => {
+      controller?.dismissFpsCrosshairContextMenu();
+      controller?.runExtendedCommand(command);
+      closeControllerActionWheel();
+    },
+    [closeControllerActionWheel, controller],
   );
   const openCharacterDialog = useCallback((): void => {
     setCharacterSheetInterceptionArmed(true);
     characterSheetAwaitingInfoRef.current = true;
     controller?.dismissFpsCrosshairContextMenu();
+    closeControllerActionWheel();
     setIsMobileActionSheetVisible(false);
     setMobileActionSheetMode("quick");
     setIsMobileLogVisible(false);
     controller?.runExtendedCommand("attributes");
-  }, [controller]);
+  }, [closeControllerActionWheel, controller]);
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -5684,6 +5828,129 @@ export default function App(): JSX.Element {
       );
     };
   }, [openCharacterDialog]);
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleControllerActionWheelToggle = (event: Event): void => {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      if (!isMobileGameRunning && !isDesktopGameRunning) {
+        return;
+      }
+      controller?.dismissFpsCrosshairContextMenu();
+      setIsMobileActionSheetVisible(false);
+      setMobileActionSheetMode("quick");
+      setIsControllerActionWheelVisible((wasVisible) => {
+        const nextVisible = !wasVisible;
+        if (nextVisible) {
+          setControllerActionWheelMode("quick");
+          setControllerActionWheelChosenIndex(0);
+        }
+        return nextVisible;
+      });
+    };
+    const handleControllerActionWheelClose = (event: Event): void => {
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      closeControllerActionWheel();
+    };
+    window.addEventListener(
+      nh3dToggleControllerActionWheelEventName,
+      handleControllerActionWheelToggle,
+    );
+    window.addEventListener(
+      nh3dCloseControllerActionWheelEventName,
+      handleControllerActionWheelClose,
+    );
+    return () => {
+      window.removeEventListener(
+        nh3dToggleControllerActionWheelEventName,
+        handleControllerActionWheelToggle,
+      );
+      window.removeEventListener(
+        nh3dCloseControllerActionWheelEventName,
+        handleControllerActionWheelClose,
+      );
+    };
+  }, [
+    closeControllerActionWheel,
+    controller,
+    isDesktopGameRunning,
+    isMobileGameRunning,
+  ]);
+  useEffect(() => {
+    if (!isControllerActionWheelVisible || typeof window === "undefined") {
+      return;
+    }
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeControllerActionWheel();
+    };
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && controllerActionWheelDialogRef.current?.contains(target)) {
+        return;
+      }
+      closeControllerActionWheel();
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleEscape, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [closeControllerActionWheel, isControllerActionWheelVisible]);
+  useEffect(() => {
+    if (
+      !isControllerActionWheelVisible ||
+      controllerActionWheelMode !== "quick"
+    ) {
+      return;
+    }
+    const dialog = controllerActionWheelDialogRef.current;
+    if (!dialog) {
+      return;
+    }
+    const syncChosenIndexFromElement = (element: HTMLElement | null): void => {
+      const wheelArc = element?.closest<HTMLElement>("[data-nh3d-wheel-index]");
+      if (!wheelArc || !dialog.contains(wheelArc)) {
+        return;
+      }
+      const rawIndex = Number.parseInt(
+        wheelArc.dataset.nh3dWheelIndex || "",
+        10,
+      );
+      if (!Number.isFinite(rawIndex) || rawIndex < 0) {
+        return;
+      }
+      setControllerActionWheelChosenIndex((previous) =>
+        previous === rawIndex ? previous : rawIndex,
+      );
+    };
+    const handleFocusIn = (event: FocusEvent): void => {
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      syncChosenIndexFromElement(target);
+    };
+    const activeElement =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    syncChosenIndexFromElement(activeElement);
+    dialog.addEventListener("focusin", handleFocusIn);
+    return () => {
+      dialog.removeEventListener("focusin", handleFocusIn);
+    };
+  }, [
+    controllerActionWheelMode,
+    isControllerActionWheelVisible,
+    controllerActionWheelEntries.length,
+  ]);
   const runCharacterExtendedCommand = useCallback(
     (command: string): void => {
       const normalizedCommand = String(command || "")
@@ -6120,10 +6387,10 @@ export default function App(): JSX.Element {
           ...previous.controllerBindings,
         });
         const currentSlots = nextBindings[actionId] ?? [null, null];
-        const updatedSlots: [Nh3dControllerBinding | null, Nh3dControllerBinding | null] = [
-          currentSlots[0] ?? null,
-          currentSlots[1] ?? null,
-        ];
+        const updatedSlots: [
+          Nh3dControllerBinding | null,
+          Nh3dControllerBinding | null,
+        ] = [currentSlots[0] ?? null, currentSlots[1] ?? null];
         updatedSlots[slotIndex] = nextBinding;
         nextBindings[actionId] = updatedSlots;
         return {
@@ -6172,12 +6439,13 @@ export default function App(): JSX.Element {
 
     let frameHandle = 0;
     const scan = (): void => {
-      const elapsedMs = performance.now() - controllerRemapListening.startedAtMs;
+      const elapsedMs =
+        performance.now() - controllerRemapListening.startedAtMs;
       const candidates = sampleActiveControllerBindingCandidates();
       const blockedSet = new Set(controllerRemapListening.blockedBindings);
       const capturedBinding =
         elapsedMs >= controllerCaptureIgnoreDurationMs
-          ? candidates.find((binding) => !blockedSet.has(binding)) ?? null
+          ? (candidates.find((binding) => !blockedSet.has(binding)) ?? null)
           : null;
       if (capturedBinding) {
         setControllerBindingSlotDraft(
@@ -7263,7 +7531,8 @@ export default function App(): JSX.Element {
   ]);
 
   const clearStartupControllerCursorHighlight = useCallback((): void => {
-    const highlightedElement = startupControllerCursorHighlightElementRef.current;
+    const highlightedElement =
+      startupControllerCursorHighlightElementRef.current;
     if (highlightedElement) {
       highlightedElement.classList.remove("nh3d-controller-hover-target");
       startupControllerCursorHighlightElementRef.current = null;
@@ -7278,7 +7547,8 @@ export default function App(): JSX.Element {
       return;
     }
     const cursor = document.createElement("div");
-    cursor.className = "nh3d-controller-virtual-cursor nh3d-controller-virtual-cursor-app";
+    cursor.className =
+      "nh3d-controller-virtual-cursor nh3d-controller-virtual-cursor-app";
     cursor.setAttribute("aria-hidden", "true");
     cursor.style.display = "none";
     const pulse = document.createElement("div");
@@ -7304,7 +7574,10 @@ export default function App(): JSX.Element {
         clearStartupControllerCursorHighlight();
       }
     },
-    [clearStartupControllerCursorHighlight, ensureStartupControllerCursorOverlay],
+    [
+      clearStartupControllerCursorHighlight,
+      ensureStartupControllerCursorOverlay,
+    ],
   );
 
   const updateStartupControllerCursorHighlightAtPoint = useCallback(
@@ -7312,11 +7585,12 @@ export default function App(): JSX.Element {
       const target = document.elementFromPoint(clientX, clientY);
       const highlightedCandidate =
         target instanceof HTMLElement
-          ? (target.closest(
+          ? ((target.closest(
               "button, summary, [role='button'], a, input, select, textarea, label, [tabindex]",
-            ) as HTMLElement | null) ?? target
+            ) as HTMLElement | null) ?? target)
           : null;
-      const previousHighlight = startupControllerCursorHighlightElementRef.current;
+      const previousHighlight =
+        startupControllerCursorHighlightElementRef.current;
       if (previousHighlight && previousHighlight !== highlightedCandidate) {
         previousHighlight.classList.remove("nh3d-controller-hover-target");
         startupControllerCursorHighlightElementRef.current = null;
@@ -7327,7 +7601,8 @@ export default function App(): JSX.Element {
         highlightedCandidate.isConnected
       ) {
         highlightedCandidate.classList.add("nh3d-controller-hover-target");
-        startupControllerCursorHighlightElementRef.current = highlightedCandidate;
+        startupControllerCursorHighlightElementRef.current =
+          highlightedCandidate;
       }
     },
     [],
@@ -7371,7 +7646,10 @@ export default function App(): JSX.Element {
       );
       return;
     }
-    setStartupControllerCursorPosition(window.innerWidth * 0.5, window.innerHeight * 0.5);
+    setStartupControllerCursorPosition(
+      window.innerWidth * 0.5,
+      window.innerHeight * 0.5,
+    );
   }, [setStartupControllerCursorPosition]);
 
   const pulseStartupControllerCursor = useCallback((): void => {
@@ -7408,7 +7686,9 @@ export default function App(): JSX.Element {
       startupControllerCursorPulseTimerRef.current = null;
     }
     if (startupControllerCursorPulseElementRef.current) {
-      startupControllerCursorPulseElementRef.current.classList.remove("is-active");
+      startupControllerCursorPulseElementRef.current.classList.remove(
+        "is-active",
+      );
       startupControllerCursorPulseElementRef.current.style.display = "none";
     }
     clearStartupControllerCursorHighlight();
@@ -7439,7 +7719,9 @@ export default function App(): JSX.Element {
       );
       lastFrameAtMs = nowMs;
 
-      const sourceOptions = isClientOptionsVisible ? clientOptionsDraft : clientOptions;
+      const sourceOptions = isClientOptionsVisible
+        ? clientOptionsDraft
+        : clientOptions;
       if (sourceOptions.controllerEnabled !== true) {
         startupControllerPreviousActionActiveRef.current = {};
         startupAccordionConfirmReleaseLatchRef.current = false;
@@ -7448,11 +7730,16 @@ export default function App(): JSX.Element {
         return;
       }
 
-      const bindings = normalizeNh3dControllerBindings(sourceOptions.controllerBindings);
+      const bindings = normalizeNh3dControllerBindings(
+        sourceOptions.controllerBindings,
+      );
       const gamepads = getConnectedGamepadsForCapture();
-      const previousActionActive = startupControllerPreviousActionActiveRef.current;
-      const nextActionActive: Partial<Record<Nh3dControllerActionId, boolean>> = {};
-      const actionPressed: Partial<Record<Nh3dControllerActionId, boolean>> = {};
+      const previousActionActive =
+        startupControllerPreviousActionActiveRef.current;
+      const nextActionActive: Partial<Record<Nh3dControllerActionId, boolean>> =
+        {};
+      const actionPressed: Partial<Record<Nh3dControllerActionId, boolean>> =
+        {};
       const actionValues: Partial<Record<Nh3dControllerActionId, number>> = {};
 
       for (const actionId of startupControllerNavActionIds) {
@@ -7493,7 +7780,8 @@ export default function App(): JSX.Element {
       }
 
       const leftAxisX =
-        (actionValues.left_stick_right ?? 0) - (actionValues.left_stick_left ?? 0);
+        (actionValues.left_stick_right ?? 0) -
+        (actionValues.left_stick_left ?? 0);
       const leftAxisY =
         (actionValues.left_stick_down ?? 0) - (actionValues.left_stick_up ?? 0);
       const leftAxisMagnitude = Math.hypot(leftAxisX, leftAxisY);
@@ -7510,7 +7798,8 @@ export default function App(): JSX.Element {
       }
 
       const scrollAxisY =
-        (actionValues.right_stick_down ?? 0) - (actionValues.right_stick_up ?? 0);
+        (actionValues.right_stick_down ?? 0) -
+        (actionValues.right_stick_up ?? 0);
       if (Math.abs(scrollAxisY) > 0.02) {
         const topDialog = getTopVisibleControllerDialogElement();
         const scrollElement = findControllerScrollableElement(topDialog);
@@ -8858,7 +9147,9 @@ export default function App(): JSX.Element {
                       return (
                         <div
                           className={`nh3d-option-row nh3d-option-row-slider${
-                            sliderDisabled ? " nh3d-option-row-mode-inactive" : ""
+                            sliderDisabled
+                              ? " nh3d-option-row-mode-inactive"
+                              : ""
                           }`}
                           key={option.key}
                         >
@@ -8998,9 +9289,9 @@ export default function App(): JSX.Element {
           <div className="nh3d-controller-remap-status">
             {controllerRemapListening ? (
               <>
-                Listening for <strong>{controllerRemapListeningActionLabel}</strong>{" "}
-                (slot {controllerRemapListening.slotIndex + 1}). Press ESC to
-                cancel.
+                Listening for{" "}
+                <strong>{controllerRemapListeningActionLabel}</strong> (slot{" "}
+                {controllerRemapListening.slotIndex + 1}). Press ESC to cancel.
               </>
             ) : connectedControllerCount > 0 ? (
               `${connectedControllerCount} controller${connectedControllerCount === 1 ? "" : "s"} detected.`
@@ -9023,11 +9314,9 @@ export default function App(): JSX.Element {
                     {group}
                   </div>
                   {nh3dControllerActionSpecsByGroup[group].map((spec) => {
-                    const slots =
-                      clientOptionsDraft.controllerBindings[spec.id] ?? [
-                        null,
-                        null,
-                      ];
+                    const slots = clientOptionsDraft.controllerBindings[
+                      spec.id
+                    ] ?? [null, null];
                     return (
                       <div
                         className="nh3d-controller-remap-action-row"
@@ -10981,6 +11270,136 @@ export default function App(): JSX.Element {
               </button>
             ))}
           </div>
+        </div>
+      ) : null}
+
+      {isControllerActionWheelVisible ? (
+        <div
+          className={`nh3d-dialog is-visible nh3d-controller-action-wheel-dialog ${
+            controllerActionWheelMode === "quick" ? "is-quick" : "is-extended"
+          }`}
+          id="nh3d-controller-action-wheel-dialog"
+          ref={controllerActionWheelDialogRef}
+        >
+          {controllerActionWheelMode === "quick" ? (
+            <div
+              className="nh3d-controller-action-wheel-ring is-on"
+              data-chosen={String(controllerActionWheelChosenIndex + 1)}
+              data-count={String(controllerActionWheelEntries.length)}
+            >
+              {controllerActionWheelEntries.map((action) => {
+                const isChosen =
+                  controllerActionWheelChosenIndex === action.index;
+                const arcStyle = {
+                  clipPath: action.clipPath,
+                  ["--nh3d-wheel-stagger-delay" as string]: `${(action.index % 2) * 15}ms`,
+                } as CSSProperties;
+                const labelStyle: CSSProperties = {
+                  left: `${action.labelXPercent.toFixed(2)}%`,
+                  top: `${action.labelYPercent.toFixed(2)}%`,
+                };
+                return (
+                  <button
+                    aria-label={action.label}
+                    className={`nh3d-controller-action-wheel-arc${
+                      isChosen ? " is-chosen" : ""
+                    }`}
+                    data-nh3d-wheel-angle={action.angleDeg.toFixed(2)}
+                    data-nh3d-wheel-index={String(action.index)}
+                    key={`controller-wheel-${action.id}`}
+                    onClick={() => runControllerWheelEntry(action)}
+                    onFocus={() =>
+                      setControllerActionWheelChosenIndex(action.index)
+                    }
+                    onMouseEnter={() =>
+                      setControllerActionWheelChosenIndex(action.index)
+                    }
+                    style={arcStyle}
+                    type="button"
+                  >
+                    <span
+                      className="nh3d-controller-action-wheel-arc-label"
+                      style={labelStyle}
+                    >
+                      {action.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <Fragment>
+              <div className="nh3d-controller-action-wheel-title-row">
+                <div className="nh3d-controller-action-wheel-title">
+                  Extended Commands
+                </div>
+                <div className="nh3d-controller-action-wheel-controls">
+                  <button
+                    className="nh3d-mobile-actions-back"
+                    onClick={() => setControllerActionWheelMode("quick")}
+                    type="button"
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="nh3d-mobile-actions-close"
+                    onClick={closeControllerActionWheel}
+                    type="button"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+              <div className="nh3d-overflow-glow-frame nh3d-controller-action-wheel-extended-shell">
+                <div
+                  className="nh3d-mobile-actions-sections nh3d-controller-action-wheel-extended"
+                  data-nh3d-overflow-glow
+                  data-nh3d-overflow-glow-host="parent"
+                >
+                  {mobileCommonExtendedCommandNames.length > 0 ? (
+                    <div className="nh3d-mobile-actions-section">
+                      <div className="nh3d-mobile-actions-subheader">
+                        Common commands
+                      </div>
+                      <div className="nh3d-mobile-actions-grid is-extended">
+                        {mobileCommonExtendedCommandNames.map((command) => (
+                          <button
+                            className="nh3d-mobile-actions-button"
+                            key={`wheel-common-${command}`}
+                            onClick={() =>
+                              runControllerWheelExtendedCommand(command)
+                            }
+                            type="button"
+                          >
+                            {command}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                  <div className="nh3d-mobile-actions-section">
+                    <div className="nh3d-mobile-actions-subheader">
+                      All commands
+                    </div>
+                    <div className="nh3d-mobile-actions-grid is-extended">
+                      {mobileExtendedCommandNames.map((command) => (
+                        <button
+                          className="nh3d-mobile-actions-button"
+                          key={`wheel-all-${command}`}
+                          onClick={() =>
+                            runControllerWheelExtendedCommand(command)
+                          }
+                          type="button"
+                        >
+                          {command}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Fragment>
+          )}
         </div>
       ) : null}
 

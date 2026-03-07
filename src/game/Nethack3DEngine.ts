@@ -60,9 +60,11 @@ import type {
   QuestionDialogState,
 } from "./ui-types";
 import {
+  nh3dCloseControllerActionWheelEventName,
   nh3dFpsLookSensitivityMax,
   nh3dFpsLookSensitivityMin,
   nh3dOpenCharacterSheetEventName,
+  nh3dToggleControllerActionWheelEventName,
   normalizeNh3dClientOptions,
 } from "./ui-types";
 import {
@@ -769,6 +771,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly controllerLookSpeedPxPerSec: number = 700;
   private readonly controllerCameraPanTilesPerSec: number = 9.2;
   private readonly controllerCameraPanRunSpeedMultiplier: number = 3;
+  private readonly controllerZoomDistancePerSec: number = 14;
   private readonly controllerDialogScrollPxPerSec: number = 1200;
   private readonly controllerDialogCursorPxPerSec: number = 820;
   private minDistance: number = 5;
@@ -18473,6 +18476,104 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }, 0);
   }
 
+  private dispatchControllerActionWheelToggleRequest(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const event = new CustomEvent(nh3dToggleControllerActionWheelEventName, {
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+  }
+
+  private dispatchControllerActionWheelCloseRequest(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const event = new CustomEvent(nh3dCloseControllerActionWheelEventName, {
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+  }
+
+  private getControllerActionWheelOverlayElement(): HTMLElement | null {
+    const overlay = this.getTopControllerOverlayElement();
+    if (
+      !overlay ||
+      !overlay.classList.contains("nh3d-controller-action-wheel-dialog")
+    ) {
+      return null;
+    }
+    return overlay;
+  }
+
+  private highlightControllerActionWheelFromSticks(
+    snapshot: ControllerActionSnapshot,
+    overlay: HTMLElement,
+  ): boolean {
+    const leftX =
+      snapshot.values.left_stick_right - snapshot.values.left_stick_left;
+    const leftY =
+      snapshot.values.left_stick_down - snapshot.values.left_stick_up;
+    const rightX =
+      snapshot.values.right_stick_right - snapshot.values.right_stick_left;
+    const rightY =
+      snapshot.values.right_stick_down - snapshot.values.right_stick_up;
+    const leftMagnitude = Math.hypot(leftX, leftY);
+    const rightMagnitude = Math.hypot(rightX, rightY);
+    const useLeftStick = leftMagnitude >= rightMagnitude;
+    const axisX = useLeftStick ? leftX : rightX;
+    const axisY = useLeftStick ? leftY : rightY;
+    const magnitude = useLeftStick ? leftMagnitude : rightMagnitude;
+    if (magnitude <= this.controllerAxisDeadzone) {
+      return false;
+    }
+
+    const wheelButtons = Array.from(
+      overlay.querySelectorAll<HTMLElement>("[data-nh3d-wheel-angle]"),
+    ).filter((button) => {
+      if (!button.isConnected) {
+        return false;
+      }
+      const style = window.getComputedStyle(button);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+      return button.getClientRects().length > 0;
+    });
+    if (wheelButtons.length === 0) {
+      return false;
+    }
+
+    const inputAngle = Math.atan2(axisY, axisX);
+    let bestButton: HTMLElement | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const button of wheelButtons) {
+      const rawAngle = Number.parseFloat(button.dataset.nh3dWheelAngle || "");
+      if (!Number.isFinite(rawAngle)) {
+        continue;
+      }
+      const buttonAngle = THREE.MathUtils.degToRad(rawAngle);
+      const delta = Math.abs(this.wrapAngle(inputAngle - buttonAngle));
+      if (delta < bestDistance) {
+        bestDistance = delta;
+        bestButton = button;
+      }
+    }
+    if (!bestButton) {
+      return false;
+    }
+
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (activeElement !== bestButton) {
+      bestButton.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
   private openContextActionsFromController(): void {
     if (this.isFpsMode()) {
       if (this.fpsCrosshairContextMenuOpen) {
@@ -18518,6 +18619,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const leftY = values.left_stick_down - values.left_stick_up;
     const rightX = values.right_stick_right - values.right_stick_left;
     const rightY = values.right_stick_down - values.right_stick_up;
+    const zoomModifierActive = !this.isFpsMode() && snapshot.active.zoom_in;
     const leftStickPressed =
       snapshot.pressed.left_stick_up ||
       snapshot.pressed.left_stick_down ||
@@ -18533,18 +18635,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (snapshot.pressed.open_character) {
       this.openCharacterSheet();
     }
+    if (snapshot.pressed.action_menu) {
+      this.dispatchControllerActionWheelToggleRequest();
+    }
     if (snapshot.pressed.toggle_large_minimap) {
       this.toggleControllerLargeMinimap();
     }
-    if (snapshot.pressed.recenter_camera || (!this.isFpsMode() && leftStickPressed)) {
+    if (
+      snapshot.pressed.recenter_camera ||
+      (!this.isFpsMode() && !zoomModifierActive && leftStickPressed)
+    ) {
       this.recenterCameraOnPlayerIfNeeded();
     }
-    if (!this.isFpsMode()) {
-      if (snapshot.pressed.zoom_in) {
-        this.cameraDistance = Math.max(this.minDistance, this.cameraDistance - 1);
-      }
-      if (snapshot.pressed.zoom_out) {
-        this.cameraDistance = Math.min(this.maxDistance, this.cameraDistance + 1);
+    if (!this.isFpsMode() && zoomModifierActive) {
+      const leftZoomAxis =
+        Math.abs(leftY) > this.controllerAxisDeadzone ? leftY : 0;
+      const rightZoomAxis =
+        Math.abs(rightY) > this.controllerAxisDeadzone ? rightY : 0;
+      const zoomAxis =
+        Math.abs(leftZoomAxis) >= Math.abs(rightZoomAxis)
+          ? leftZoomAxis
+          : rightZoomAxis;
+      if (zoomAxis !== 0) {
+        this.cameraDistance = THREE.MathUtils.clamp(
+          this.cameraDistance +
+            zoomAxis * this.controllerZoomDistancePerSec * deltaSeconds,
+          this.minDistance,
+          this.maxDistance,
+        );
       }
     }
     if (snapshot.pressed.cancel_or_context) {
@@ -18606,7 +18724,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.controllerFpsLeftStickNextMoveAtMs = 0;
 
     const rightStickMagnitude = Math.hypot(rightX, rightY);
-    if (rightStickMagnitude > this.controllerAxisDeadzone) {
+    if (!zoomModifierActive && rightStickMagnitude > this.controllerAxisDeadzone) {
       const panSpeed =
         this.controllerCameraPanTilesPerSec *
         (runModifierActive ? this.controllerCameraPanRunSpeedMultiplier : 1);
@@ -18639,8 +18757,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const leftDirectionInput = this.getDirectionInputFromControllerAxes(
-      leftX,
-      leftY,
+      zoomModifierActive ? 0 : leftX,
+      zoomModifierActive ? 0 : leftY,
       this.controllerAxisDeadzone,
     );
     if (leftDirectionInput) {
@@ -18705,9 +18823,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.dispatchControllerKeyDown("Escape", "Escape");
     }
 
+    if (
+      snapshot.pressed.action_menu &&
+      this.getControllerActionWheelOverlayElement()
+    ) {
+      this.dispatchControllerActionWheelCloseRequest();
+      return;
+    }
+
     if (snapshot.pressed.cancel_or_context) {
       if (this.fpsCrosshairContextMenuOpen || this.normalTileContextMenuOpen) {
         this.closeAnyTileContextMenu(true);
+      } else if (this.getControllerActionWheelOverlayElement()) {
+        this.dispatchControllerActionWheelCloseRequest();
+        return;
       } else {
         this.dispatchControllerKeyDown("Escape", "Escape");
       }
@@ -18743,6 +18872,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else {
         this.moveControllerDialogFocus(dpadDirection);
       }
+    }
+
+    const controllerActionWheelOverlay = this.getControllerActionWheelOverlayElement();
+    if (controllerActionWheelOverlay) {
+      const didHighlight = this.highlightControllerActionWheelFromSticks(
+        snapshot,
+        controllerActionWheelOverlay,
+      );
+      if (didHighlight) {
+        this.setControllerVirtualCursorVisible(false);
+      }
+      if (snapshot.pressed.confirm) {
+        const didClick = this.tryClickFocusedControllerOverlayElement();
+        if (!didClick) {
+          this.dispatchControllerKeyDown("Enter", "Enter");
+        }
+      }
+      return;
     }
 
     const scrollAxisY =

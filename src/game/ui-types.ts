@@ -213,6 +213,10 @@ export type Nh3dClientOptions = {
 export const nh3dFpsLookSensitivityMin = 0.4;
 export const nh3dFpsLookSensitivityMax = 2.6;
 export const nh3dOpenCharacterSheetEventName = "nh3d:open-character-sheet";
+export const nh3dToggleControllerActionWheelEventName =
+  "nh3d:toggle-controller-action-wheel";
+export const nh3dCloseControllerActionWheelEventName =
+  "nh3d:close-controller-action-wheel";
 
 const isMobilePortrait = window.matchMedia(
   "(orientation: portrait) and (pointer: coarse)",
