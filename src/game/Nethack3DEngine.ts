@@ -62,8 +62,17 @@ import type {
 import {
   nh3dFpsLookSensitivityMax,
   nh3dFpsLookSensitivityMin,
+  nh3dOpenCharacterSheetEventName,
   normalizeNh3dClientOptions,
 } from "./ui-types";
+import {
+  defaultNh3dControllerBindings,
+  nh3dControllerActionSpecs,
+  normalizeNh3dControllerBindings,
+  parseNh3dControllerBinding,
+  type Nh3dControllerActionId,
+  type Nh3dControllerBindings,
+} from "./controller-bindings";
 import {
   findNh3dTilesetByPath,
   inferNh3dTilesetTileSizeFromAtlasWidth,
@@ -326,6 +335,42 @@ type WallSideTileOverlay = {
 };
 type WallSideTileRotation = "none" | "cw90" | "ccw90";
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
+
+type ControllerActionSnapshot = {
+  values: Record<Nh3dControllerActionId, number>;
+  active: Record<Nh3dControllerActionId, boolean>;
+  pressed: Record<Nh3dControllerActionId, boolean>;
+  released: Record<Nh3dControllerActionId, boolean>;
+};
+
+type ControllerFocusableEntry = {
+  element: HTMLElement;
+  centerX: number;
+  centerY: number;
+  height: number;
+};
+
+const nh3dControllerActionIds = nh3dControllerActionSpecs.map((spec) => spec.id);
+
+function createControllerBooleanActionMap(
+  initialValue: boolean,
+): Record<Nh3dControllerActionId, boolean> {
+  const map = {} as Record<Nh3dControllerActionId, boolean>;
+  for (const actionId of nh3dControllerActionIds) {
+    map[actionId] = initialValue;
+  }
+  return map;
+}
+
+function createControllerNumberActionMap(
+  initialValue: number,
+): Record<Nh3dControllerActionId, number> {
+  const map = {} as Record<Nh3dControllerActionId, number>;
+  for (const actionId of nh3dControllerActionIds) {
+    map[actionId] = initialValue;
+  }
+  return map;
+}
 
 const toneAdjustShader = {
   uniforms: {
@@ -703,6 +748,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsTouchRunButtonOffsetYPx: number = 170;
   private readonly fpsTouchRunButtonLandscapeOffsetYPx: number = 140;
   private readonly fpsTouchRunButtonSizePx: number = 82;
+  private controllerPreviousActionState: Record<
+    Nh3dControllerActionId,
+    boolean
+  > = createControllerBooleanActionMap(false);
+  private controllerMoveHighlightTile: { x: number; y: number } | null = null;
+  private controllerDpadMovePreviewInput: string | null = null;
+  private controllerLeftStickMovePreviewInput: string | null = null;
+  private controllerFpsLeftStickLastMoveInput: string | null = null;
+  private controllerFpsLeftStickNextMoveAtMs: number = 0;
+  private controllerMinimapExpanded: boolean = false;
+  private controllerVirtualCursorElement: HTMLDivElement | null = null;
+  private controllerVirtualCursorPulseElement: HTMLDivElement | null = null;
+  private controllerVirtualCursorPulseHideTimerId: number | null = null;
+  private controllerVirtualCursorVisible: boolean = false;
+  private controllerVirtualCursorX: number = Number.NaN;
+  private controllerVirtualCursorY: number = Number.NaN;
+  private readonly controllerAxisDeadzone: number = 0.35;
+  private readonly controllerDialogCursorDeadzone: number = 0.21;
+  private readonly controllerLookSpeedPxPerSec: number = 700;
+  private readonly controllerCameraPanTilesPerSec: number = 9.2;
+  private readonly controllerCameraPanRunSpeedMultiplier: number = 3;
+  private readonly controllerDialogScrollPxPerSec: number = 1200;
+  private readonly controllerDialogCursorPxPerSec: number = 820;
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
@@ -1531,6 +1599,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const fpsMode = this.isFpsMode();
     this.minimapContainer.classList.toggle("nh3d-minimap-fps", fpsMode);
+    this.minimapContainer.classList.toggle(
+      "nh3d-minimap-controller-expanded",
+      this.controllerMinimapExpanded,
+    );
   }
 
   private buildTileStateSignatureFromPayload(tile: {
@@ -3773,9 +3845,122 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateMetaCommandModalPosition();
   }
 
+  private ensureControllerVirtualCursorOverlay(): void {
+    if (this.controllerVirtualCursorElement && this.controllerVirtualCursorPulseElement) {
+      return;
+    }
+
+    const cursor = document.createElement("div");
+    cursor.className = "nh3d-controller-virtual-cursor";
+    cursor.setAttribute("aria-hidden", "true");
+    cursor.style.display = "none";
+
+    const pulse = document.createElement("div");
+    pulse.className = "nh3d-controller-virtual-cursor-pulse";
+    pulse.setAttribute("aria-hidden", "true");
+    pulse.style.display = "none";
+
+    document.body.appendChild(cursor);
+    document.body.appendChild(pulse);
+
+    this.controllerVirtualCursorElement = cursor;
+    this.controllerVirtualCursorPulseElement = pulse;
+  }
+
+  private setControllerVirtualCursorVisible(visible: boolean): void {
+    this.ensureControllerVirtualCursorOverlay();
+    this.controllerVirtualCursorVisible = visible;
+    const cursor = this.controllerVirtualCursorElement;
+    if (!cursor) {
+      return;
+    }
+    cursor.style.display = visible ? "block" : "none";
+  }
+
+  private setControllerVirtualCursorPosition(clientX: number, clientY: number): void {
+    this.ensureControllerVirtualCursorOverlay();
+    const clampedX = THREE.MathUtils.clamp(clientX, 0, window.innerWidth);
+    const clampedY = THREE.MathUtils.clamp(clientY, 0, window.innerHeight);
+    this.controllerVirtualCursorX = clampedX;
+    this.controllerVirtualCursorY = clampedY;
+    if (!this.controllerVirtualCursorElement) {
+      return;
+    }
+    this.controllerVirtualCursorElement.style.left = `${Math.round(clampedX)}px`;
+    this.controllerVirtualCursorElement.style.top = `${Math.round(clampedY)}px`;
+  }
+
+  private ensureControllerVirtualCursorSeedPosition(): void {
+    if (
+      Number.isFinite(this.controllerVirtualCursorX) &&
+      Number.isFinite(this.controllerVirtualCursorY)
+    ) {
+      return;
+    }
+    const overlay = this.getTopControllerOverlayElement();
+    if (overlay) {
+      const rect = overlay.getBoundingClientRect();
+      this.setControllerVirtualCursorPosition(
+        rect.left + rect.width * 0.5,
+        rect.top + rect.height * 0.5,
+      );
+      return;
+    }
+    this.setControllerVirtualCursorPosition(
+      window.innerWidth * 0.5,
+      window.innerHeight * 0.5,
+    );
+  }
+
+  private pulseControllerVirtualCursor(): void {
+    if (
+      !Number.isFinite(this.controllerVirtualCursorX) ||
+      !Number.isFinite(this.controllerVirtualCursorY)
+    ) {
+      return;
+    }
+    this.ensureControllerVirtualCursorOverlay();
+    const pulse = this.controllerVirtualCursorPulseElement;
+    if (!pulse) {
+      return;
+    }
+    pulse.style.left = `${Math.round(this.controllerVirtualCursorX)}px`;
+    pulse.style.top = `${Math.round(this.controllerVirtualCursorY)}px`;
+    pulse.style.display = "block";
+    pulse.classList.remove("is-active");
+    void pulse.offsetWidth;
+    pulse.classList.add("is-active");
+    if (this.controllerVirtualCursorPulseHideTimerId !== null) {
+      window.clearTimeout(this.controllerVirtualCursorPulseHideTimerId);
+      this.controllerVirtualCursorPulseHideTimerId = null;
+    }
+    this.controllerVirtualCursorPulseHideTimerId = window.setTimeout(() => {
+      pulse.classList.remove("is-active");
+      pulse.style.display = "none";
+      this.controllerVirtualCursorPulseHideTimerId = null;
+    }, 260);
+  }
+
+  private resetControllerVirtualCursor(): void {
+    this.controllerVirtualCursorVisible = false;
+    if (this.controllerVirtualCursorElement) {
+      this.controllerVirtualCursorElement.style.display = "none";
+    }
+    if (this.controllerVirtualCursorPulseHideTimerId !== null) {
+      window.clearTimeout(this.controllerVirtualCursorPulseHideTimerId);
+      this.controllerVirtualCursorPulseHideTimerId = null;
+    }
+    if (this.controllerVirtualCursorPulseElement) {
+      this.controllerVirtualCursorPulseElement.classList.remove("is-active");
+      this.controllerVirtualCursorPulseElement.style.display = "none";
+    }
+  }
+
   private initUI(): void {
     this.ensureMetaCommandModal();
     this.ensureMinimapOverlay();
+    this.ensureControllerVirtualCursorOverlay();
+    this.resetControllerVirtualCursor();
     this.uiAdapter.setStatus("Starting local NetHack runtime...");
     this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
     this.uiAdapter.setLoadingVisible(true);
@@ -13741,6 +13926,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.toggleInventoryDialogState();
   }
 
+  public openCharacterSheet(): void {
+    if (typeof window === "undefined") {
+      this.runExtendedCommand("attributes");
+      return;
+    }
+    const event = new CustomEvent(nh3dOpenCharacterSheetEventName, {
+      bubbles: true,
+      cancelable: true,
+    });
+    const shouldRunFallbackCommand = window.dispatchEvent(event);
+    if (shouldRunFallbackCommand) {
+      this.runExtendedCommand("attributes");
+    }
+  }
+
   public runInventoryItemAction(
     actionId: string,
     itemAccelerator: string,
@@ -14472,6 +14672,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.exitMetaCommandMode();
     this.closeAnyTileContextMenu(false);
     this.stopMinimapDrag();
+    this.controllerPreviousActionState = createControllerBooleanActionMap(false);
+    this.clearControllerMovePreview();
+    this.controllerFpsLeftStickLastMoveInput = null;
+    this.controllerFpsLeftStickNextMoveAtMs = 0;
+    this.resetControllerVirtualCursor();
     if (document.pointerLockElement === this.renderer.domElement) {
       document.exitPointerLock?.();
     }
@@ -17215,9 +17420,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private updateContextSelectionHighlight(timeMs: number): void {
-    if (this.selectedContextHighlightTile) {
+    const highlightTile =
+      this.selectedContextHighlightTile ?? this.controllerMoveHighlightTile;
+    if (highlightTile) {
       this.ensureFpsAimVisuals();
-      const { x, y } = this.selectedContextHighlightTile;
+      const { x, y } = highlightTile;
       const targetTile = this.tileMap.get(`${x},${y}`) ?? null;
       if (targetTile && this.fpsForwardHighlight) {
         const targetZ = targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
@@ -17233,7 +17440,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         return;
       }
-      this.closeAnyTileContextMenu(false);
+      if (this.selectedContextHighlightTile) {
+        this.closeAnyTileContextMenu(false);
+      } else {
+        this.controllerMoveHighlightTile = null;
+      }
       return;
     }
     if (!this.isFpsMode() && this.fpsForwardHighlight) {
@@ -17664,6 +17875,931 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private resolveDirectionFromDelta(dx: number, dy: number): string | null {
     return this.resolveDirectionKeyFromDelta(dx, dy, 0.25);
+  }
+
+  private getControllerBindings(): Nh3dControllerBindings {
+    const bindings = this.clientOptions.controllerBindings;
+    if (bindings) {
+      return bindings;
+    }
+    return normalizeNh3dControllerBindings(defaultNh3dControllerBindings);
+  }
+
+  private getConnectedGamepads(): Gamepad[] {
+    if (typeof navigator === "undefined" || !navigator.getGamepads) {
+      return [];
+    }
+    const pads = navigator.getGamepads();
+    if (!pads || pads.length === 0) {
+      return [];
+    }
+    const connected: Gamepad[] = [];
+    for (const gamepad of pads) {
+      if (gamepad && gamepad.connected) {
+        connected.push(gamepad);
+      }
+    }
+    return connected;
+  }
+
+  private getControllerBindingValue(
+    gamepad: Gamepad,
+    binding: string | null | undefined,
+  ): number {
+    if (!binding) {
+      return 0;
+    }
+    const parsedBinding = parseNh3dControllerBinding(binding);
+    if (!parsedBinding) {
+      return 0;
+    }
+    if (parsedBinding.kind === "button") {
+      const button = gamepad.buttons[parsedBinding.index];
+      if (!button) {
+        return 0;
+      }
+      const buttonValue = button.pressed ? 1 : button.value;
+      return THREE.MathUtils.clamp(buttonValue, 0, 1);
+    }
+    const axisValue = gamepad.axes[parsedBinding.index];
+    if (!Number.isFinite(axisValue)) {
+      return 0;
+    }
+    const directionalValue = axisValue * parsedBinding.direction;
+    if (directionalValue <= this.controllerAxisDeadzone) {
+      return 0;
+    }
+    return THREE.MathUtils.clamp(
+      (directionalValue - this.controllerAxisDeadzone) /
+        (1 - this.controllerAxisDeadzone),
+      0,
+      1,
+    );
+  }
+
+  private getControllerActionValue(
+    actionId: Nh3dControllerActionId,
+    bindings: Nh3dControllerBindings,
+    gamepads: readonly Gamepad[],
+  ): number {
+    const slots = bindings[actionId];
+    if (!slots) {
+      return 0;
+    }
+    let maxValue = 0;
+    for (const gamepad of gamepads) {
+      const firstValue = this.getControllerBindingValue(gamepad, slots[0]);
+      const secondValue = this.getControllerBindingValue(gamepad, slots[1]);
+      maxValue = Math.max(maxValue, firstValue, secondValue);
+      if (maxValue >= 1) {
+        return 1;
+      }
+    }
+    return THREE.MathUtils.clamp(maxValue, 0, 1);
+  }
+
+  private sampleControllerActionSnapshot(
+    bindings: Nh3dControllerBindings,
+    gamepads: readonly Gamepad[],
+  ): ControllerActionSnapshot {
+    const values = createControllerNumberActionMap(0);
+    const active = createControllerBooleanActionMap(false);
+    const pressed = createControllerBooleanActionMap(false);
+    const released = createControllerBooleanActionMap(false);
+    const nextPrevious = createControllerBooleanActionMap(false);
+    const activeThreshold = 0.5;
+
+    for (const actionId of nh3dControllerActionIds) {
+      const value = this.getControllerActionValue(actionId, bindings, gamepads);
+      const isActive = value >= activeThreshold;
+      values[actionId] = value;
+      active[actionId] = isActive;
+      pressed[actionId] = isActive && !this.controllerPreviousActionState[actionId];
+      released[actionId] =
+        !isActive && Boolean(this.controllerPreviousActionState[actionId]);
+      nextPrevious[actionId] = isActive;
+    }
+
+    this.controllerPreviousActionState = nextPrevious;
+    return { values, active, pressed, released };
+  }
+
+  private isControllerUiInputContextActive(): boolean {
+    return (
+      this.isInQuestion ||
+      this.isInDirectionQuestion ||
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen() ||
+      this.fpsCrosshairContextMenuOpen ||
+      this.normalTileContextMenuOpen ||
+      this.isAnyModalVisible()
+    );
+  }
+
+  private isControllerGameplayInputContextActive(): boolean {
+    return Boolean(this.session) && !this.isControllerUiInputContextActive();
+  }
+
+  private clearControllerMovePreview(): void {
+    this.controllerDpadMovePreviewInput = null;
+    this.controllerLeftStickMovePreviewInput = null;
+    this.controllerMoveHighlightTile = null;
+  }
+
+  private setControllerMovePreviewDirection(directionInput: string): void {
+    const movementDelta = this.getMovementDeltaFromInput(directionInput);
+    if (!movementDelta) {
+      return;
+    }
+    this.controllerMoveHighlightTile = {
+      x: this.playerPos.x + movementDelta.dx,
+      y: this.playerPos.y + movementDelta.dy,
+    };
+  }
+
+  private submitControllerDirectionalInput(
+    directionInput: string | null,
+    runModifierActive: boolean,
+  ): void {
+    if (!directionInput) {
+      return;
+    }
+    if (runModifierActive) {
+      this.sendForcedDirectionalInput(directionInput);
+      return;
+    }
+    this.sendInput(directionInput);
+  }
+
+  private getDirectionInputFromControllerAxes(
+    axisX: number,
+    axisY: number,
+    deadzone: number,
+  ): string | null {
+    if (!Number.isFinite(axisX) || !Number.isFinite(axisY)) {
+      return null;
+    }
+    return this.resolveDirectionKeyFromDelta(axisX, axisY, deadzone);
+  }
+
+  private resolveControllerFpsMovementFromAxes(
+    axisX: number,
+    axisY: number,
+  ): string | null {
+    const localRight = THREE.MathUtils.clamp(Math.sign(axisX), -1, 1);
+    const localForward = THREE.MathUtils.clamp(-Math.sign(axisY), -1, 1);
+    if (localRight === 0 && localForward === 0) {
+      return null;
+    }
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return null;
+    }
+    return this.resolveFpsRelativeMovementInput(
+      aim,
+      localRight as -1 | 0 | 1,
+      localForward as -1 | 0 | 1,
+    );
+  }
+
+  private dispatchControllerKeyDown(key: string, code?: string): void {
+    const event = new KeyboardEvent("keydown", {
+      key,
+      code: code ?? key,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+  }
+
+  private getTopControllerOverlayElement(): HTMLElement | null {
+    const candidates = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        ".nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-context-menu, .nh3d-fps-crosshair-context, .nh3d-mobile-actions-sheet",
+      ),
+    );
+    if (candidates.length === 0) {
+      return null;
+    }
+    let bestElement = candidates[0];
+    let bestZIndex =
+      Number.parseInt(window.getComputedStyle(bestElement).zIndex, 10) || 0;
+    let bestOrder = 0;
+    for (let index = 1; index < candidates.length; index += 1) {
+      const element = candidates[index];
+      const zIndex =
+        Number.parseInt(window.getComputedStyle(element).zIndex, 10) || 0;
+      if (zIndex > bestZIndex || (zIndex === bestZIndex && index > bestOrder)) {
+        bestElement = element;
+        bestZIndex = zIndex;
+        bestOrder = index;
+      }
+    }
+    return bestElement;
+  }
+
+  private getControllerFocusableElements(
+    root: HTMLElement,
+  ): HTMLElement[] {
+    const selector = [
+      "button:not(:disabled)",
+      "summary",
+      "a[href]",
+      "input:not(:disabled)",
+      "select:not(:disabled)",
+      "textarea:not(:disabled)",
+      '[role="button"][tabindex]:not([tabindex="-1"])',
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(", ");
+    const nodes = Array.from(root.querySelectorAll<HTMLElement>(selector));
+    return nodes.filter((node) => {
+      if (!node.isConnected) {
+        return false;
+      }
+      const style = window.getComputedStyle(node);
+      if (style.display === "none" || style.visibility === "hidden") {
+        return false;
+      }
+      return node.getClientRects().length > 0;
+    });
+  }
+
+  private getControllerGridNavigationContainer(
+    overlay: HTMLElement,
+    focusable: HTMLElement[],
+    activeElement: HTMLElement | null,
+  ): HTMLElement | null {
+    const selector =
+      ".nh3d-context-menu-actions-inventory, .nh3d-context-menu-actions";
+    if (activeElement && overlay.contains(activeElement)) {
+      const activeContainer = activeElement.closest(selector);
+      if (activeContainer instanceof HTMLElement && overlay.contains(activeContainer)) {
+        return activeContainer;
+      }
+    }
+    for (const element of focusable) {
+      const container = element.closest(selector);
+      if (container instanceof HTMLElement && overlay.contains(container)) {
+        return container;
+      }
+    }
+    return null;
+  }
+
+  private buildControllerFocusableRows(elements: HTMLElement[]): Array<{
+    centerY: number;
+    items: Array<{ element: HTMLElement; centerX: number; centerY: number }>;
+  }> {
+    const measuredElements = elements
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          element,
+          centerX: rect.left + rect.width / 2,
+          centerY: rect.top + rect.height / 2,
+        };
+      })
+      .sort((first, second) =>
+        first.centerY === second.centerY
+          ? first.centerX - second.centerX
+          : first.centerY - second.centerY,
+      );
+    const rows: Array<{
+      centerY: number;
+      items: Array<{ element: HTMLElement; centerX: number; centerY: number }>;
+    }> = [];
+    const rowTolerancePx = 12;
+    for (const measured of measuredElements) {
+      const lastRow = rows[rows.length - 1];
+      if (lastRow && Math.abs(measured.centerY - lastRow.centerY) <= rowTolerancePx) {
+        lastRow.items.push(measured);
+        const rowSize = lastRow.items.length;
+        lastRow.centerY =
+          (lastRow.centerY * (rowSize - 1) + measured.centerY) / rowSize;
+      } else {
+        rows.push({
+          centerY: measured.centerY,
+          items: [measured],
+        });
+      }
+    }
+    for (const row of rows) {
+      row.items.sort((first, second) => first.centerX - second.centerX);
+    }
+    return rows;
+  }
+
+  private resolveControllerGridFocusTarget(
+    overlay: HTMLElement,
+    focusable: HTMLElement[],
+    activeElement: HTMLElement | null,
+    direction: "up" | "down" | "left" | "right",
+  ): HTMLElement | null {
+    const gridContainer = this.getControllerGridNavigationContainer(
+      overlay,
+      focusable,
+      activeElement,
+    );
+    if (!gridContainer) {
+      return null;
+    }
+    const gridFocusable = focusable.filter((element) =>
+      gridContainer.contains(element),
+    );
+    if (gridFocusable.length < 2) {
+      return null;
+    }
+    const rows = this.buildControllerFocusableRows(gridFocusable);
+    const hasMultipleColumns = rows.some((row) => row.items.length > 1);
+    if (!hasMultipleColumns || rows.length === 0) {
+      return null;
+    }
+
+    let activeRowIndex = -1;
+    let activeColumnIndex = -1;
+    let activeCenterX = Number.NaN;
+    if (activeElement && gridContainer.contains(activeElement)) {
+      for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+        const columnIndex = rows[rowIndex].items.findIndex(
+          (item) => item.element === activeElement,
+        );
+        if (columnIndex >= 0) {
+          activeRowIndex = rowIndex;
+          activeColumnIndex = columnIndex;
+          activeCenterX = rows[rowIndex].items[columnIndex].centerX;
+          break;
+        }
+      }
+    }
+
+    if (activeRowIndex < 0 || activeColumnIndex < 0) {
+      if (direction === "up" || direction === "left") {
+        const lastRow = rows[rows.length - 1];
+        return lastRow.items[lastRow.items.length - 1]?.element ?? null;
+      }
+      return rows[0].items[0]?.element ?? null;
+    }
+
+    if (direction === "right") {
+      const currentRow = rows[activeRowIndex];
+      if (activeColumnIndex < currentRow.items.length - 1) {
+        return currentRow.items[activeColumnIndex + 1]?.element ?? null;
+      }
+      if (activeRowIndex < rows.length - 1) {
+        return rows[activeRowIndex + 1].items[0]?.element ?? null;
+      }
+      return rows[0].items[0]?.element ?? null;
+    }
+
+    if (direction === "left") {
+      const currentRow = rows[activeRowIndex];
+      if (activeColumnIndex > 0) {
+        return currentRow.items[activeColumnIndex - 1]?.element ?? null;
+      }
+      if (activeRowIndex > 0) {
+        const previousRow = rows[activeRowIndex - 1];
+        return previousRow.items[previousRow.items.length - 1]?.element ?? null;
+      }
+      const lastRow = rows[rows.length - 1];
+      return lastRow.items[lastRow.items.length - 1]?.element ?? null;
+    }
+
+    const rowDelta = direction === "up" ? -1 : 1;
+    let nextRowIndex = activeRowIndex + rowDelta;
+    if (nextRowIndex < 0) {
+      nextRowIndex = rows.length - 1;
+    } else if (nextRowIndex >= rows.length) {
+      nextRowIndex = 0;
+    }
+    const nextRow = rows[nextRowIndex];
+    if (!nextRow || nextRow.items.length === 0) {
+      return null;
+    }
+    let nearestColumnIndex = 0;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < nextRow.items.length; index += 1) {
+      const distance = Math.abs(nextRow.items[index].centerX - activeCenterX);
+      if (distance < nearestDistance) {
+        nearestColumnIndex = index;
+        nearestDistance = distance;
+      }
+    }
+    return nextRow.items[nearestColumnIndex]?.element ?? null;
+  }
+
+  private moveControllerDialogFocus(
+    direction: "up" | "down" | "left" | "right",
+  ): boolean {
+    const overlay = this.getTopControllerOverlayElement();
+    if (!overlay) {
+      return false;
+    }
+    const focusable = this.getControllerFocusableElements(overlay);
+    if (focusable.length === 0) {
+      return false;
+    }
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const activeInOverlay =
+      activeElement && overlay.contains(activeElement) ? activeElement : null;
+    const gridTarget = this.resolveControllerGridFocusTarget(
+      overlay,
+      focusable,
+      activeInOverlay,
+      direction,
+    );
+    if (gridTarget) {
+      gridTarget.focus();
+      return true;
+    }
+    const activeIndex =
+      activeInOverlay
+        ? focusable.indexOf(activeInOverlay)
+        : -1;
+    const delta = direction === "up" || direction === "left" ? -1 : 1;
+    let nextIndex: number;
+    if (activeIndex < 0) {
+      nextIndex = delta > 0 ? 0 : focusable.length - 1;
+    } else {
+      nextIndex =
+        (((activeIndex + delta) % focusable.length) + focusable.length) %
+        focusable.length;
+    }
+    focusable[nextIndex]?.focus();
+    return true;
+  }
+
+  private findControllerScrollableElement(
+    overlay: HTMLElement | null,
+  ): HTMLElement | null {
+    if (!overlay) {
+      return null;
+    }
+    const isScrollable = (element: HTMLElement): boolean => {
+      if (element.scrollHeight <= element.clientHeight + 2) {
+        return false;
+      }
+      const style = window.getComputedStyle(element);
+      return (
+        style.overflowY === "auto" ||
+        style.overflowY === "scroll" ||
+        style.overflowY === "overlay"
+      );
+    };
+    if (isScrollable(overlay)) {
+      return overlay;
+    }
+    const descendants = Array.from(overlay.querySelectorAll<HTMLElement>("*"));
+    for (const descendant of descendants) {
+      if (isScrollable(descendant)) {
+        return descendant;
+      }
+    }
+    return null;
+  }
+
+  private scrollControllerDialogOverlay(
+    scrollAxisY: number,
+    deltaSeconds: number,
+  ): void {
+    if (
+      !Number.isFinite(scrollAxisY) ||
+      Math.abs(scrollAxisY) <= this.controllerAxisDeadzone
+    ) {
+      return;
+    }
+    const overlay = this.getTopControllerOverlayElement();
+    const scrollElement = this.findControllerScrollableElement(overlay);
+    if (!scrollElement) {
+      return;
+    }
+    scrollElement.scrollTop +=
+      scrollAxisY * this.controllerDialogScrollPxPerSec * deltaSeconds;
+  }
+
+  private moveControllerVirtualCursorByAxes(
+    axisX: number,
+    axisY: number,
+    deltaSeconds: number,
+  ): boolean {
+    if (
+      !Number.isFinite(axisX) ||
+      !Number.isFinite(axisY) ||
+      (Math.abs(axisX) <= this.controllerDialogCursorDeadzone &&
+        Math.abs(axisY) <= this.controllerDialogCursorDeadzone)
+    ) {
+      return false;
+    }
+
+    this.ensureControllerVirtualCursorSeedPosition();
+    this.setControllerVirtualCursorVisible(true);
+    const nextX =
+      this.controllerVirtualCursorX +
+      axisX * this.controllerDialogCursorPxPerSec * deltaSeconds;
+    const nextY =
+      this.controllerVirtualCursorY +
+      axisY * this.controllerDialogCursorPxPerSec * deltaSeconds;
+    this.setControllerVirtualCursorPosition(nextX, nextY);
+    return true;
+  }
+
+  private tryClickFocusedControllerOverlayElement(): boolean {
+    const activeElement =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (activeElement && typeof activeElement.click === "function") {
+      activeElement.click();
+      return true;
+    }
+    const overlay = this.getTopControllerOverlayElement();
+    if (!overlay) {
+      return false;
+    }
+    const focusable = this.getControllerFocusableElements(overlay);
+    const first = focusable[0];
+    if (!first) {
+      return false;
+    }
+    first.focus();
+    first.click();
+    return true;
+  }
+
+  private clickControllerVirtualCursorTarget(): boolean {
+    if (
+      this.controllerVirtualCursorVisible &&
+      Number.isFinite(this.controllerVirtualCursorX) &&
+      Number.isFinite(this.controllerVirtualCursorY)
+    ) {
+      const target = document.elementFromPoint(
+        this.controllerVirtualCursorX,
+        this.controllerVirtualCursorY,
+      );
+      if (target instanceof HTMLElement) {
+        const clickable =
+          target.closest(
+            "button, summary, [role='button'], a, input, select, textarea, label, [tabindex]",
+          ) ?? target;
+        if (clickable instanceof HTMLElement) {
+          clickable.focus();
+          clickable.click();
+          this.pulseControllerVirtualCursor();
+          return true;
+        }
+      }
+    }
+    return this.tryClickFocusedControllerOverlayElement();
+  }
+
+  private focusFirstControllerOverlayActionSoon(): void {
+    window.setTimeout(() => {
+      const overlay = this.getTopControllerOverlayElement();
+      if (!overlay) {
+        return;
+      }
+      const activeElement =
+        document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (activeElement && overlay.contains(activeElement)) {
+        return;
+      }
+      const focusable = this.getControllerFocusableElements(overlay);
+      const first = focusable[0];
+      if (!first) {
+        return;
+      }
+      first.focus({ preventScroll: true });
+    }, 0);
+  }
+
+  private openContextActionsFromController(): void {
+    if (this.isFpsMode()) {
+      if (this.fpsCrosshairContextMenuOpen) {
+        this.closeFpsCrosshairContextMenu(true);
+      } else {
+        this.openFpsCrosshairContextMenu();
+        this.focusFirstControllerOverlayActionSoon();
+      }
+      return;
+    }
+    const targetTile = this.controllerMoveHighlightTile ?? {
+      x: this.playerPos.x,
+      y: this.playerPos.y,
+    };
+    const key = `${targetTile.x},${targetTile.y}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh) {
+      return;
+    }
+    this.openNormalTileContextMenuAtTarget({
+      key,
+      x: targetTile.x,
+      y: targetTile.y,
+      mesh,
+    });
+    this.focusFirstControllerOverlayActionSoon();
+  }
+
+  private toggleControllerLargeMinimap(): void {
+    this.controllerMinimapExpanded = !this.controllerMinimapExpanded;
+    this.updateMinimapPresentation();
+  }
+
+  private handleControllerGameplayInput(
+    snapshot: ControllerActionSnapshot,
+    deltaSeconds: number,
+  ): void {
+    const values = snapshot.values;
+    const runModifierActive = snapshot.active.run_modifier;
+    const dpadX = values.dpad_right - values.dpad_left;
+    const dpadY = values.dpad_down - values.dpad_up;
+    const leftX = values.left_stick_right - values.left_stick_left;
+    const leftY = values.left_stick_down - values.left_stick_up;
+    const rightX = values.right_stick_right - values.right_stick_left;
+    const rightY = values.right_stick_down - values.right_stick_up;
+    const leftStickPressed =
+      snapshot.pressed.left_stick_up ||
+      snapshot.pressed.left_stick_down ||
+      snapshot.pressed.left_stick_left ||
+      snapshot.pressed.left_stick_right;
+
+    if (snapshot.pressed.pause_menu) {
+      this.dispatchControllerKeyDown("Escape", "Escape");
+    }
+    if (snapshot.pressed.open_inventory) {
+      this.toggleInventoryDialogState();
+    }
+    if (snapshot.pressed.open_character) {
+      this.openCharacterSheet();
+    }
+    if (snapshot.pressed.toggle_large_minimap) {
+      this.toggleControllerLargeMinimap();
+    }
+    if (snapshot.pressed.recenter_camera || (!this.isFpsMode() && leftStickPressed)) {
+      this.recenterCameraOnPlayerIfNeeded();
+    }
+    if (!this.isFpsMode()) {
+      if (snapshot.pressed.zoom_in) {
+        this.cameraDistance = Math.max(this.minDistance, this.cameraDistance - 1);
+      }
+      if (snapshot.pressed.zoom_out) {
+        this.cameraDistance = Math.min(this.maxDistance, this.cameraDistance + 1);
+      }
+    }
+    if (snapshot.pressed.cancel_or_context) {
+      this.openContextActionsFromController();
+    }
+
+    if (this.isFpsMode()) {
+      this.clearControllerMovePreview();
+      const lookMagnitude = Math.hypot(rightX, rightY);
+      if (lookMagnitude > this.controllerAxisDeadzone) {
+        const lookDeltaX = rightX * this.controllerLookSpeedPxPerSec * deltaSeconds;
+        const lookDeltaY = rightY * this.controllerLookSpeedPxPerSec * deltaSeconds;
+        this.applyFpsLookDelta(
+          lookDeltaX,
+          lookDeltaY,
+          this.firstPersonMouseSensitivity,
+        );
+      }
+
+      const dpadPressed =
+        snapshot.pressed.dpad_up ||
+        snapshot.pressed.dpad_down ||
+        snapshot.pressed.dpad_left ||
+        snapshot.pressed.dpad_right;
+      if (dpadPressed) {
+        const dpadDirectionInput = this.resolveControllerFpsMovementFromAxes(
+          dpadX,
+          dpadY,
+        );
+        this.submitControllerDirectionalInput(dpadDirectionInput, runModifierActive);
+      }
+
+      const leftDirectionInput = this.resolveControllerFpsMovementFromAxes(
+        leftX,
+        leftY,
+      );
+      if (leftDirectionInput) {
+        const nowMs = Date.now();
+        const repeatIntervalMs = Math.max(
+          80,
+          Math.round(this.clientOptions.controllerFpsMoveRepeatMs),
+        );
+        if (
+          this.controllerFpsLeftStickLastMoveInput !== leftDirectionInput ||
+          nowMs >= this.controllerFpsLeftStickNextMoveAtMs
+        ) {
+          this.submitControllerDirectionalInput(leftDirectionInput, runModifierActive);
+          this.controllerFpsLeftStickNextMoveAtMs = nowMs + repeatIntervalMs;
+        }
+        this.controllerFpsLeftStickLastMoveInput = leftDirectionInput;
+      } else {
+        this.controllerFpsLeftStickLastMoveInput = null;
+        this.controllerFpsLeftStickNextMoveAtMs = 0;
+      }
+      return;
+    }
+
+    this.controllerFpsLeftStickLastMoveInput = null;
+    this.controllerFpsLeftStickNextMoveAtMs = 0;
+
+    const rightStickMagnitude = Math.hypot(rightX, rightY);
+    if (rightStickMagnitude > this.controllerAxisDeadzone) {
+      const panSpeed =
+        this.controllerCameraPanTilesPerSec *
+        (runModifierActive ? this.controllerCameraPanRunSpeedMultiplier : 1);
+      this.isCameraCenteredOnPlayer = false;
+      this.cameraPanX += rightX * panSpeed * deltaSeconds;
+      this.cameraPanY -= rightY * panSpeed * deltaSeconds;
+      this.cameraPanTargetX = this.cameraPanX;
+      this.cameraPanTargetY = this.cameraPanY;
+    }
+
+    const dpadDirectionInput = this.getDirectionInputFromControllerAxes(
+      dpadX,
+      dpadY,
+      this.controllerAxisDeadzone,
+    );
+    if (dpadDirectionInput) {
+      this.controllerDpadMovePreviewInput = dpadDirectionInput;
+      this.setControllerMovePreviewDirection(dpadDirectionInput);
+    } else if (this.controllerDpadMovePreviewInput) {
+      this.submitControllerDirectionalInput(
+        this.controllerDpadMovePreviewInput,
+        runModifierActive,
+      );
+      this.controllerDpadMovePreviewInput = null;
+      if (this.controllerLeftStickMovePreviewInput) {
+        this.setControllerMovePreviewDirection(this.controllerLeftStickMovePreviewInput);
+      } else {
+        this.controllerMoveHighlightTile = null;
+      }
+    }
+
+    const leftDirectionInput = this.getDirectionInputFromControllerAxes(
+      leftX,
+      leftY,
+      this.controllerAxisDeadzone,
+    );
+    if (leftDirectionInput) {
+      this.controllerLeftStickMovePreviewInput = leftDirectionInput;
+      this.setControllerMovePreviewDirection(leftDirectionInput);
+    } else if (this.controllerLeftStickMovePreviewInput) {
+      this.controllerLeftStickMovePreviewInput = null;
+      if (this.controllerDpadMovePreviewInput) {
+        this.setControllerMovePreviewDirection(this.controllerDpadMovePreviewInput);
+      } else {
+        this.controllerMoveHighlightTile = null;
+      }
+    }
+
+    let confirmConsumedMovement = false;
+    if (snapshot.pressed.confirm && this.controllerLeftStickMovePreviewInput) {
+      this.submitControllerDirectionalInput(
+        this.controllerLeftStickMovePreviewInput,
+        runModifierActive,
+      );
+      confirmConsumedMovement = true;
+      this.controllerLeftStickMovePreviewInput = null;
+      if (this.controllerDpadMovePreviewInput) {
+        this.setControllerMovePreviewDirection(this.controllerDpadMovePreviewInput);
+      } else {
+        this.controllerMoveHighlightTile = null;
+      }
+    }
+    if (
+      snapshot.pressed.confirm &&
+      !confirmConsumedMovement &&
+      !leftDirectionInput &&
+      !this.controllerLeftStickMovePreviewInput
+    ) {
+      this.logClickLookTileDebug(
+        "controller-confirm-player",
+        this.playerPos.x,
+        this.playerPos.y,
+      );
+      this.sendMouseInput(this.playerPos.x, this.playerPos.y, 0);
+    }
+
+    if (
+      snapshot.pressed.search &&
+      !confirmConsumedMovement &&
+      !this.controllerLeftStickMovePreviewInput &&
+      !this.controllerDpadMovePreviewInput
+    ) {
+      this.sendInput("s");
+    }
+  }
+
+  private handleControllerDialogInput(
+    snapshot: ControllerActionSnapshot,
+    deltaSeconds: number,
+  ): void {
+    this.clearControllerMovePreview();
+    this.controllerFpsLeftStickLastMoveInput = null;
+    this.controllerFpsLeftStickNextMoveAtMs = 0;
+
+    if (snapshot.pressed.pause_menu) {
+      this.dispatchControllerKeyDown("Escape", "Escape");
+    }
+
+    if (snapshot.pressed.cancel_or_context) {
+      if (this.fpsCrosshairContextMenuOpen || this.normalTileContextMenuOpen) {
+        this.closeAnyTileContextMenu(true);
+      } else {
+        this.dispatchControllerKeyDown("Escape", "Escape");
+      }
+    }
+
+    let dpadDirection: "up" | "down" | "left" | "right" | null = null;
+    if (snapshot.pressed.dpad_up) {
+      dpadDirection = "up";
+    } else if (snapshot.pressed.dpad_down) {
+      dpadDirection = "down";
+    } else if (snapshot.pressed.dpad_left) {
+      dpadDirection = "left";
+    } else if (snapshot.pressed.dpad_right) {
+      dpadDirection = "right";
+    }
+
+    if (dpadDirection) {
+      this.setControllerVirtualCursorVisible(false);
+      const arrowKey =
+        dpadDirection === "up"
+          ? "ArrowUp"
+          : dpadDirection === "down"
+            ? "ArrowDown"
+            : dpadDirection === "left"
+              ? "ArrowLeft"
+              : "ArrowRight";
+      if (
+        this.isInQuestion ||
+        this.isInDirectionQuestion ||
+        this.positionInputModeActive
+      ) {
+        this.dispatchControllerKeyDown(arrowKey, arrowKey);
+      } else {
+        this.moveControllerDialogFocus(dpadDirection);
+      }
+    }
+
+    const scrollAxisY =
+      snapshot.values.right_stick_down - snapshot.values.right_stick_up;
+    this.scrollControllerDialogOverlay(scrollAxisY, deltaSeconds);
+
+    const cursorAxisX =
+      snapshot.values.left_stick_right - snapshot.values.left_stick_left;
+    const cursorAxisY =
+      snapshot.values.left_stick_down - snapshot.values.left_stick_up;
+    const movedCursor = this.moveControllerVirtualCursorByAxes(
+      cursorAxisX,
+      cursorAxisY,
+      deltaSeconds,
+    );
+    if (movedCursor) {
+      this.setControllerVirtualCursorVisible(true);
+    }
+
+    if (snapshot.pressed.confirm) {
+      const didClick = this.clickControllerVirtualCursorTarget();
+      if (!didClick) {
+        this.dispatchControllerKeyDown("Enter", "Enter");
+      }
+    }
+  }
+
+  private updateControllerInput(deltaSeconds: number): void {
+    if (this.clientOptions.controllerEnabled !== true) {
+      this.controllerPreviousActionState = createControllerBooleanActionMap(false);
+      this.clearControllerMovePreview();
+      this.resetControllerVirtualCursor();
+      return;
+    }
+    const gamepads = this.getConnectedGamepads();
+    const bindings = this.getControllerBindings();
+    const snapshot = this.sampleControllerActionSnapshot(bindings, gamepads);
+    const hadButtonPress = nh3dControllerActionIds.some(
+      (actionId) => snapshot.pressed[actionId],
+    );
+    if (hadButtonPress) {
+      this.resumeFmodFromUserGesture();
+    }
+
+    if (this.isControllerGameplayInputContextActive()) {
+      this.resetControllerVirtualCursor();
+      this.handleControllerGameplayInput(snapshot, deltaSeconds);
+      return;
+    }
+
+    if (this.isControllerUiInputContextActive()) {
+      this.handleControllerDialogInput(snapshot, deltaSeconds);
+      return;
+    }
+
+    this.clearControllerMovePreview();
+    this.resetControllerVirtualCursor();
   }
 
   private getTilePositionFromClientCoordinates(
@@ -18997,6 +20133,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
     this.syncFpsPointerLockForUiState(false);
+    this.updateControllerInput(deltaSeconds);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
     this.updateFpsPlayerLightPosition();

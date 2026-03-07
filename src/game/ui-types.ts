@@ -5,6 +5,11 @@ import {
   resolveDefaultNh3dTilesetBackgroundTileId,
   resolveDefaultNh3dTilesetSolidChromaKeyColorHex,
 } from "./tilesets";
+import {
+  defaultNh3dControllerBindings,
+  normalizeNh3dControllerBindings,
+  type Nh3dControllerBindings,
+} from "./controller-bindings";
 
 export type NethackConnectionState =
   | "disconnected"
@@ -150,6 +155,9 @@ export type Nh3dClientOptions = {
   fpsFov: number;
   fpsLookSensitivityX: number;
   fpsLookSensitivityY: number;
+  controllerEnabled: boolean;
+  controllerFpsMoveRepeatMs: number;
+  controllerBindings: Nh3dControllerBindings;
   invertLookYAxis: boolean;
   invertTouchPanningDirection: boolean;
   desktopTouchInterfaceMode: Nh3dDesktopTouchInterfaceMode;
@@ -204,6 +212,7 @@ export type Nh3dClientOptions = {
 
 export const nh3dFpsLookSensitivityMin = 0.4;
 export const nh3dFpsLookSensitivityMax = 2.6;
+export const nh3dOpenCharacterSheetEventName = "nh3d:open-character-sheet";
 
 const isMobilePortrait = window.matchMedia(
   "(orientation: portrait) and (pointer: coarse)",
@@ -215,6 +224,11 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsFov: isMobilePortrait ? 95 : 62,
   fpsLookSensitivityX: isMobile ? 1.5 : 1,
   fpsLookSensitivityY: isMobile ? 1.5 : 1,
+  controllerEnabled: true,
+  controllerFpsMoveRepeatMs: 190,
+  controllerBindings: normalizeNh3dControllerBindings(
+    defaultNh3dControllerBindings,
+  ),
   invertLookYAxis: false,
   invertTouchPanningDirection: true,
   desktopTouchInterfaceMode: "off",
@@ -499,6 +513,17 @@ export function normalizeNh3dClientOptions(
       Math.min(nh3dFpsLookSensitivityMax, rawFpsLookSensitivityY),
     ).toFixed(2),
   );
+  const rawControllerFpsMoveRepeatMs =
+    typeof overrides?.controllerFpsMoveRepeatMs === "number" &&
+    Number.isFinite(overrides.controllerFpsMoveRepeatMs)
+      ? overrides.controllerFpsMoveRepeatMs
+      : defaultNh3dClientOptions.controllerFpsMoveRepeatMs;
+  const controllerFpsMoveRepeatMs = Math.round(
+    Math.max(80, Math.min(900, rawControllerFpsMoveRepeatMs)),
+  );
+  const controllerBindings = normalizeNh3dControllerBindings(
+    overrides?.controllerBindings,
+  );
   const antialiasing =
     overrides?.antialiasing === "taa" || overrides?.antialiasing === "fxaa"
       ? overrides.antialiasing
@@ -731,6 +756,12 @@ export function normalizeNh3dClientOptions(
     fpsFov,
     fpsLookSensitivityX,
     fpsLookSensitivityY,
+    controllerEnabled:
+      typeof overrides?.controllerEnabled === "boolean"
+        ? overrides.controllerEnabled
+        : defaultNh3dClientOptions.controllerEnabled,
+    controllerFpsMoveRepeatMs,
+    controllerBindings,
     invertLookYAxis:
       typeof overrides?.invertLookYAxis === "boolean"
         ? overrides.invertLookYAxis
@@ -884,6 +915,7 @@ export interface Nethack3DEngineController {
   submitTextInput(text: string): void;
   cancelActivePrompt(): void;
   toggleInventoryDialog(): void;
+  openCharacterSheet(): void;
   runInventoryItemAction(actionId: string, itemAccelerator: string): void;
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(
