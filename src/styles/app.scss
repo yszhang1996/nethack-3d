@@ -1500,6 +1500,11 @@ canvas {
     margin-top: 28px;
   }
 
+  &.nh3d-dialog-fixed-actions > .nh3d-menu-actions,
+  &.nh3d-dialog-fixed-actions > .nh3d-pickup-actions {
+    z-index: 12;
+  }
+
   @media (pointer: coarse) {
     --nh3d-startup-fixed-actions-reserve: 124px;
     width: min(92vw, 680px);
@@ -1512,6 +1517,10 @@ canvas {
     padding: 12px;
     box-sizing: border-box;
     overflow-x: hidden;
+
+    &.nh3d-dialog-fixed-actions {
+      padding-bottom: 0;
+    }
 
     .nh3d-question-text {
       margin-bottom: 12px;
