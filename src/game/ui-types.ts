@@ -112,6 +112,11 @@ export type FpsCrosshairContextState = {
 
 export type PlayMode = "normal" | "fps";
 export type Nh3dAntialiasingMode = "taa" | "fxaa";
+export type Nh3dInventoryFixedTileSizeMode =
+  | "none"
+  | "small"
+  | "medium"
+  | "large";
 export type DarkCorridorWallTileOverrideEnabledByTileset = Record<
   string,
   boolean
@@ -148,6 +153,9 @@ export type Nh3dClientOptions = {
   invertTouchPanningDirection: boolean;
   minimap: boolean;
   minimapScale: number;
+  reduceInventoryMotion: boolean;
+  inventoryTileOnlyMotion: boolean;
+  inventoryFixedTileSize: Nh3dInventoryFixedTileSizeMode;
   damageNumbers: boolean;
   displayStatChangesAbovePlayer: boolean;
   displayXpGainsAbovePlayer: boolean;
@@ -208,6 +216,9 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   invertTouchPanningDirection: true,
   minimap: true,
   minimapScale: 1,
+  reduceInventoryMotion: false,
+  inventoryTileOnlyMotion: false,
+  inventoryFixedTileSize: "medium",
   damageNumbers: true,
   displayStatChangesAbovePlayer: true,
   displayXpGainsAbovePlayer: true,
@@ -532,6 +543,13 @@ export function normalizeNh3dClientOptions(
   const minimapScale = Number(
     Math.max(0.6, Math.min(2.2, rawMinimapScale)).toFixed(2),
   );
+  const inventoryFixedTileSize =
+    overrides?.inventoryFixedTileSize === "none" ||
+    overrides?.inventoryFixedTileSize === "small" ||
+    overrides?.inventoryFixedTileSize === "large" ||
+    overrides?.inventoryFixedTileSize === "medium"
+      ? overrides.inventoryFixedTileSize
+      : defaultNh3dClientOptions.inventoryFixedTileSize;
   const rawUiFontScale =
     typeof overrides?.uiFontScale === "number" &&
     Number.isFinite(overrides.uiFontScale)
@@ -721,6 +739,15 @@ export function normalizeNh3dClientOptions(
         ? overrides.minimap
         : defaultNh3dClientOptions.minimap,
     minimapScale,
+    reduceInventoryMotion:
+      typeof overrides?.reduceInventoryMotion === "boolean"
+        ? overrides.reduceInventoryMotion
+        : defaultNh3dClientOptions.reduceInventoryMotion,
+    inventoryTileOnlyMotion:
+      typeof overrides?.inventoryTileOnlyMotion === "boolean"
+        ? overrides.inventoryTileOnlyMotion
+        : defaultNh3dClientOptions.inventoryTileOnlyMotion,
+    inventoryFixedTileSize,
     damageNumbers:
       typeof overrides?.damageNumbers === "boolean"
         ? overrides.damageNumbers

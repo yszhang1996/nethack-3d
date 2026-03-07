@@ -1168,7 +1168,11 @@ type ClientOptionToggle = {
 };
 
 type ClientOptionSelect = {
-  key: "tilesetMode" | "tilesetPath" | "antialiasing";
+  key:
+    | "tilesetMode"
+    | "tilesetPath"
+    | "antialiasing"
+    | "inventoryFixedTileSize";
   label: string;
   description: string;
   type: "select";
@@ -1229,6 +1233,8 @@ type ClientOptionToggleKey =
   | "invertLookYAxis"
   | "invertTouchPanningDirection"
   | "minimap"
+  | "reduceInventoryMotion"
+  | "inventoryTileOnlyMotion"
   | "damageNumbers"
   | "displayStatChangesAbovePlayer"
   | "displayXpGainsAbovePlayer"
@@ -1572,6 +1578,33 @@ const clientOptionsConfig: ClientOption[] = [
     step: 0.01,
   },
   {
+    key: "reduceInventoryMotion",
+    label: "Reduce inventory motion",
+    description:
+      "Disable animated inventory row expansion and use simpler interactions.",
+    type: "boolean",
+  },
+  {
+    key: "inventoryTileOnlyMotion",
+    label: "Animate inventory tiles only",
+    description:
+      "Animate icon tiles while keeping inventory row height and spacing fixed.",
+    type: "boolean",
+  },
+  {
+    key: "inventoryFixedTileSize",
+    label: "Fixed inventory tile size",
+    description:
+      "Applies only when Reduce inventory motion is enabled. Choose a fixed icon size.",
+    type: "select",
+    options: [
+      { value: "none", label: "None" },
+      { value: "small", label: "Small" },
+      { value: "medium", label: "Medium" },
+      { value: "large", label: "Large" },
+    ],
+  },
+  {
     key: "liveMessageLog",
     label: "Live message log",
     description: "Display the scrolling in-game message log.",
@@ -1788,8 +1821,6 @@ const clampInventoryContextMenuPosition = (
 const inventoryContextMenuAnchorGapPx = 8;
 const inventoryContextMenuAnchorBottomGapPx = 6;
 const inventoryContextMenuScrollRegionPaddingPx = 4;
-const inventorySyntheticRowClickSuppressMs = 180;
-const inventoryDismissGestureSuppressMs = 450;
 const inventoryRowPressPreferInitialMs = 200;
 
 const resolveInventoryContextMenuPosition = (
@@ -1812,9 +1843,15 @@ const resolveInventoryContextMenuPosition = (
     width,
     height,
   );
+  const regionLeft = scrollRegionRect?.left;
+  const regionRight = scrollRegionRect?.right;
   const regionTop = scrollRegionRect?.top;
   const regionBottom = scrollRegionRect?.bottom;
   if (
+    typeof regionLeft !== "number" ||
+    !Number.isFinite(regionLeft) ||
+    typeof regionRight !== "number" ||
+    !Number.isFinite(regionRight) ||
     typeof regionTop !== "number" ||
     !Number.isFinite(regionTop) ||
     typeof regionBottom !== "number" ||
@@ -1822,14 +1859,24 @@ const resolveInventoryContextMenuPosition = (
   ) {
     return clampedToViewport;
   }
+  const minX = regionLeft + inventoryContextMenuScrollRegionPaddingPx;
+  const maxX = regionRight - width - inventoryContextMenuScrollRegionPaddingPx;
   const minY = regionTop + inventoryContextMenuScrollRegionPaddingPx;
   const maxY = regionBottom - height - inventoryContextMenuScrollRegionPaddingPx;
-  if (!Number.isFinite(minY) || !Number.isFinite(maxY) || maxY < minY) {
+  const canClampX =
+    Number.isFinite(minX) && Number.isFinite(maxX) && maxX >= minX;
+  const canClampY =
+    Number.isFinite(minY) && Number.isFinite(maxY) && maxY >= minY;
+  if (!canClampX && !canClampY) {
     return clampedToViewport;
   }
   return {
-    x: clampedToViewport.x,
-    y: Math.min(Math.max(clampedToViewport.y, minY), maxY),
+    x: canClampX
+      ? Math.min(Math.max(clampedToViewport.x, minX), maxX)
+      : clampedToViewport.x,
+    y: canClampY
+      ? Math.min(Math.max(clampedToViewport.y, minY), maxY)
+      : clampedToViewport.y,
   };
 };
 
@@ -2894,12 +2941,23 @@ export default function App(): JSX.Element {
   const inventoryPointerActiveRef = useRef(false);
   const inventoryRowProximityAnimationFrameRef = useRef<number | null>(null);
   const inventoryTouchFallbackClearTimerRef = useRef<number | null>(null);
-  const inventoryRowActivationSuppressedAcceleratorRef = useRef("");
-  const inventoryRowActivationSuppressedUntilMsRef = useRef(0);
-  const inventoryRowActivationSuppressedGloballyUntilMsRef = useRef(0);
   const inventoryRowPressCandidateRef = useRef<InventoryRowPressCandidate | null>(
     null,
   );
+  const inventoryReducedMotionEnabled =
+    clientOptions.reduceInventoryMotion === true;
+  const inventoryTileOnlyMotionEnabled =
+    !inventoryReducedMotionEnabled &&
+    clientOptions.inventoryTileOnlyMotion === true;
+  const inventoryUsesFullRowAnimation =
+    !inventoryReducedMotionEnabled && !inventoryTileOnlyMotionEnabled;
+  const inventoryFixedTileSizeMode = clientOptions.inventoryFixedTileSize;
+  const inventoryFixedIconSizePx =
+    inventoryFixedTileSizeMode === "small"
+      ? 20
+      : inventoryFixedTileSizeMode === "large"
+        ? 50
+        : 35;
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
   const inventoryContextTitle = inventoryContextMenu
@@ -2982,6 +3040,13 @@ export default function App(): JSX.Element {
     const hoverValuesByIndex = inventoryRowHoverValueByIndexRef.current;
     if (rows.size === 0) {
       hoverValuesByIndex.clear();
+      return;
+    }
+    if (inventoryReducedMotionEnabled) {
+      for (const [index, rowElement] of rows.entries()) {
+        hoverValuesByIndex.set(index, 0);
+        rowElement.style.setProperty("--nh3d-inv-hover", "0");
+      }
       return;
     }
     const pointerY = inventoryPointerClientYRef.current;
@@ -3132,7 +3197,7 @@ export default function App(): JSX.Element {
         },
       );
     }
-  }, []);
+  }, [inventoryReducedMotionEnabled]);
   const scheduleInventoryRowProximityUpdate = useCallback((): void => {
     if (typeof window === "undefined") {
       return;
@@ -3300,32 +3365,6 @@ export default function App(): JSX.Element {
     }
     scheduleInventoryRowProximityUpdate();
   }, [scheduleInventoryRowProximityUpdate]);
-  const suppressInventoryRowActivationGlobally = useCallback(
-    (durationMs = inventorySyntheticRowClickSuppressMs): void => {
-      const safeDurationMs =
-        Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0;
-      inventoryRowActivationSuppressedGloballyUntilMsRef.current =
-        Date.now() + safeDurationMs;
-    },
-    [],
-  );
-  const consumeSuppressedInventoryRowActivationGlobally = useCallback(
-    (): boolean => {
-      const suppressionExpiryMs =
-        inventoryRowActivationSuppressedGloballyUntilMsRef.current;
-      if (!suppressionExpiryMs) {
-        return false;
-      }
-      const now = Date.now();
-      if (now > suppressionExpiryMs) {
-        inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
-        return false;
-      }
-      inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
-      return true;
-    },
-    [],
-  );
   const beginInventoryRowPressCandidate = useCallback(
     (
       source: InventoryRowPressCandidate["source"],
@@ -3336,6 +3375,9 @@ export default function App(): JSX.Element {
       startClientX: number,
       startClientY: number,
     ): void => {
+      if (!inventoryUsesFullRowAnimation) {
+        return;
+      }
       if (inventoryContextMenu) {
         return;
       }
@@ -3354,46 +3396,7 @@ export default function App(): JSX.Element {
         startedAtMs: Date.now(),
       };
     },
-    [inventoryContextMenu],
-  );
-  const suppressInventoryRowActivationForGesture = useCallback(
-    (accelerator: string): void => {
-      const normalizedAccelerator = String(accelerator || "").trim();
-      if (!normalizedAccelerator) {
-        return;
-      }
-      inventoryRowActivationSuppressedAcceleratorRef.current =
-        normalizedAccelerator;
-      inventoryRowActivationSuppressedUntilMsRef.current = Date.now() + 700;
-    },
-    [],
-  );
-  const consumeSuppressedInventoryRowActivation = useCallback(
-    (accelerator: string): boolean => {
-      const normalizedAccelerator = String(accelerator || "").trim();
-      if (!normalizedAccelerator) {
-        return false;
-      }
-      const activeSuppressedAccelerator =
-        inventoryRowActivationSuppressedAcceleratorRef.current;
-      const suppressionExpiryMs =
-        inventoryRowActivationSuppressedUntilMsRef.current;
-      if (
-        !activeSuppressedAccelerator ||
-        Date.now() > suppressionExpiryMs ||
-        activeSuppressedAccelerator !== normalizedAccelerator
-      ) {
-        if (Date.now() > suppressionExpiryMs) {
-          inventoryRowActivationSuppressedAcceleratorRef.current = "";
-          inventoryRowActivationSuppressedUntilMsRef.current = 0;
-        }
-        return false;
-      }
-      inventoryRowActivationSuppressedAcceleratorRef.current = "";
-      inventoryRowActivationSuppressedUntilMsRef.current = 0;
-      return true;
-    },
-    [],
+    [inventoryContextMenu, inventoryUsesFullRowAnimation],
   );
   const activateInventoryRowPressCandidateFromRelease = useCallback(
     (
@@ -3403,6 +3406,10 @@ export default function App(): JSX.Element {
       releaseClientY: number,
       releaseTarget: EventTarget | null,
     ): void => {
+      if (!inventoryUsesFullRowAnimation) {
+        inventoryRowPressCandidateRef.current = null;
+        return;
+      }
       const candidate = inventoryRowPressCandidateRef.current;
       if (
         !candidate ||
@@ -3431,14 +3438,10 @@ export default function App(): JSX.Element {
       if (releaseAccelerator && releaseAccelerator === candidate.accelerator) {
         return;
       }
-      if (consumeSuppressedInventoryRowActivation(candidate.accelerator)) {
-        return;
-      }
 
       const activeAccelerator = String(inventoryContextMenu?.accelerator || "").trim();
       if (activeAccelerator && activeAccelerator === candidate.accelerator) {
         setInventoryContextMenu(null);
-        suppressInventoryRowActivationGlobally();
         return;
       }
 
@@ -3452,16 +3455,17 @@ export default function App(): JSX.Element {
         candidate.startClientY,
         anchorRect,
       );
-      suppressInventoryRowActivationGlobally();
     },
     [
-      consumeSuppressedInventoryRowActivation,
       inventoryContextMenu?.accelerator,
-      suppressInventoryRowActivationGlobally,
+      inventoryUsesFullRowAnimation,
     ],
   );
   const handleInventoryRowActivationDismissCapture = useCallback(
     (target: EventTarget | null): void => {
+      if (!inventoryUsesFullRowAnimation) {
+        return;
+      }
       if (!inventoryContextMenu) {
         return;
       }
@@ -3479,15 +3483,9 @@ export default function App(): JSX.Element {
         return;
       }
       inventoryRowPressCandidateRef.current = null;
-      suppressInventoryRowActivationGlobally(inventoryDismissGestureSuppressMs);
-      suppressInventoryRowActivationForGesture(normalizedAccelerator);
       setInventoryContextMenu(null);
     },
-    [
-      inventoryContextMenu,
-      suppressInventoryRowActivationForGesture,
-      suppressInventoryRowActivationGlobally,
-    ],
+    [inventoryContextMenu, inventoryUsesFullRowAnimation],
   );
   const handleInventoryRowPointerDownCapture = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -5837,9 +5835,6 @@ export default function App(): JSX.Element {
     inventoryPointerClientYRef.current = null;
     inventoryRowPressCandidateRef.current = null;
     inventoryRowHoverValueByIndexRef.current.clear();
-    inventoryRowActivationSuppressedGloballyUntilMsRef.current = 0;
-    inventoryRowActivationSuppressedAcceleratorRef.current = "";
-    inventoryRowActivationSuppressedUntilMsRef.current = 0;
     for (const rowElement of inventoryRowRefs.current.values()) {
       rowElement.style.setProperty("--nh3d-inv-hover", "0");
     }
@@ -5848,6 +5843,18 @@ export default function App(): JSX.Element {
     inventory.visible,
     scheduleInventoryRowProximityUpdate,
   ]);
+
+  useEffect(() => {
+    if (!inventoryReducedMotionEnabled) {
+      return;
+    }
+    inventoryRowPressCandidateRef.current = null;
+    inventoryPointerActiveRef.current = false;
+    inventoryPointerClientYRef.current = null;
+    for (const rowElement of inventoryRowRefs.current.values()) {
+      rowElement.style.setProperty("--nh3d-inv-hover", "0");
+    }
+  }, [inventoryReducedMotionEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -7055,6 +7062,11 @@ export default function App(): JSX.Element {
                     }
                     if (option.type === "boolean") {
                       const enabled = Boolean(clientOptionsDraft[option.key]);
+                      const isInventoryTileOnlyMotionOption =
+                        option.key === "inventoryTileOnlyMotion";
+                      const toggleDisabled =
+                        isInventoryTileOnlyMotionOption &&
+                        clientOptionsDraft.reduceInventoryMotion;
                       const isDarkWallTileOverrideOption =
                         option.key === "darkCorridorWallTileOverrideEnabled";
                       const isDarkWallSolidColorOverrideOption =
@@ -7069,6 +7081,10 @@ export default function App(): JSX.Element {
                             className={`nh3d-option-row nh3d-option-row-inline-toggle${
                               isDarkWallOverrideOption
                                 ? " nh3d-option-row-has-secondary-controls"
+                                : ""
+                            }${
+                              toggleDisabled
+                                ? " nh3d-option-row-mode-inactive"
                                 : ""
                             }${
                               isDarkWallOverrideOption && !enabled
@@ -7207,7 +7223,11 @@ export default function App(): JSX.Element {
                               className={`nh3d-option-switch nh3d-option-inline-switch${
                                 enabled ? " is-on" : ""
                               }`}
+                              disabled={toggleDisabled}
                               onClick={() => {
+                                if (toggleDisabled) {
+                                  return;
+                                }
                                 if (isDarkWallTileOverrideOption) {
                                   updateDarkWallTileOverrideEnabledDraft(
                                     !enabled,
@@ -7340,14 +7360,23 @@ export default function App(): JSX.Element {
                     }
                     if (option.type === "select") {
                       const isTilesetSelect = option.key === "tilesetPath";
+                      const isInventoryFixedTileSizeSelect =
+                        option.key === "inventoryFixedTileSize";
                       const selectOptions = isTilesetSelect
                         ? tilesetDropdownOptions
                         : option.options;
                       const selectDisabled = isTilesetSelect
                         ? !hasAnyTilesets
+                        : isInventoryFixedTileSizeSelect
+                          ? !clientOptionsDraft.reduceInventoryMotion
                         : Boolean(option.disabled);
                       return (
-                        <div className="nh3d-option-row" key={option.key}>
+                        <div
+                          className={`nh3d-option-row${
+                            selectDisabled ? " nh3d-option-row-mode-inactive" : ""
+                          }`}
+                          key={option.key}
+                        >
                           <div className="nh3d-option-copy">
                             <div className="nh3d-option-label">
                               {option.label}
@@ -7387,6 +7416,16 @@ export default function App(): JSX.Element {
                                 }
                                 if (option.key === "tilesetPath") {
                                   updateTilesetPathDraft(event.target.value);
+                                  return;
+                                }
+                                if (option.key === "inventoryFixedTileSize") {
+                                  const nextValue =
+                                    event.target.value === "none" ||
+                                    event.target.value === "small" ||
+                                    event.target.value === "large"
+                                      ? event.target.value
+                                      : "medium";
+                                  updateClientOptionDraft(option.key, nextValue);
                                   return;
                                 }
                                 updateClientOptionDraft(
@@ -8837,7 +8876,15 @@ export default function App(): JSX.Element {
 
       {inventory.visible ? (
         <div
-          className="nh3d-dialog nh3d-dialog-inventory nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
+          className={`nh3d-dialog nh3d-dialog-inventory nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible${
+            inventoryReducedMotionEnabled
+              ? " nh3d-dialog-inventory-reduced-motion"
+              : ""
+          }${
+            inventoryTileOnlyMotionEnabled
+              ? " nh3d-dialog-inventory-tile-motion-only"
+              : ""
+          }`}
           id="inventory-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -8847,23 +8894,83 @@ export default function App(): JSX.Element {
           <div className="nh3d-inventory-title">INVENTORY</div>
           <div className="nh3d-overflow-glow-frame nh3d-overflow-glow-shell-fill">
             <div
-              className="nh3d-inventory-items"
+              className={`nh3d-inventory-items${
+                inventoryReducedMotionEnabled
+                  ? " nh3d-inventory-items-fixed-size"
+                  : ""
+              }`}
               data-nh3d-overflow-glow
               data-nh3d-overflow-glow-host="parent"
-              onPointerDownCapture={handleInventoryRowPointerDownCapture}
-              onPointerDown={handleInventoryPointerUpdate}
-              onPointerEnter={handleInventoryPointerUpdate}
-              onPointerCancel={handleInventoryPointerCancel}
-              onPointerLeave={handleInventoryPointerLeave}
-              onPointerMove={handleInventoryPointerUpdate}
-              onPointerUp={handleInventoryPointerUp}
-              onTouchStartCapture={handleInventoryRowTouchStartCapture}
-              onTouchStart={handleInventoryTouchUpdate}
-              onTouchMove={handleInventoryTouchMove}
-              onTouchEnd={handleInventoryTouchEnd}
-              onTouchCancel={handleInventoryTouchCancel}
-              onScroll={handleInventoryItemsScroll}
+              data-nh3d-inv-fixed-size={inventoryFixedTileSizeMode}
+              onPointerDownCapture={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryRowPointerDownCapture
+              }
+              onPointerDown={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerUpdate
+              }
+              onPointerEnter={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerUpdate
+              }
+              onPointerCancel={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerCancel
+              }
+              onPointerLeave={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerLeave
+              }
+              onPointerMove={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryPointerUpdate
+              }
+              onPointerUp={
+                inventoryReducedMotionEnabled ? undefined : handleInventoryPointerUp
+              }
+              onTouchStartCapture={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryRowTouchStartCapture
+              }
+              onTouchStart={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryTouchUpdate
+              }
+              onTouchMove={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryTouchMove
+              }
+              onTouchEnd={
+                inventoryReducedMotionEnabled ? undefined : handleInventoryTouchEnd
+              }
+              onTouchCancel={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryTouchCancel
+              }
+              onScroll={
+                inventoryReducedMotionEnabled
+                  ? undefined
+                  : handleInventoryItemsScroll
+              }
               ref={inventoryItemsContainerRef}
+              style={
+                inventoryReducedMotionEnabled
+                  ? ({
+                      "--nh3d-inv-fixed-icon-size-px": `${inventoryFixedIconSizePx}px`,
+                    } as CSSProperties)
+                  : undefined
+              }
             >
               {inventory.items.length === 0 ? (
                 <div className="nh3d-inventory-empty">
@@ -8909,6 +9016,9 @@ export default function App(): JSX.Element {
                       : "";
                   const isContextMenuItemActive =
                     inventoryContextMenu?.accelerator === itemAccelerator;
+                  const showInventoryTileIcon =
+                    !inventoryReducedMotionEnabled ||
+                    inventoryFixedTileSizeMode !== "none";
 
                   return (
                     <div
@@ -8926,7 +9036,17 @@ export default function App(): JSX.Element {
                       ref={(element) => {
                         setInventoryRowRef(index, element);
                       }}
+                      style={
+                        inventoryTileOnlyMotionEnabled
+                          ? ({
+                              "--nh3d-inv-row-order": String(index + 1),
+                            } as CSSProperties)
+                          : undefined
+                      }
                       onPointerDown={(event) => {
+                        if (!inventoryUsesFullRowAnimation) {
+                          return;
+                        }
                         if (event.pointerType === "mouse" && event.button !== 0) {
                           return;
                         }
@@ -8941,6 +9061,9 @@ export default function App(): JSX.Element {
                         );
                       }}
                       onTouchStart={(event) => {
+                        if (!inventoryUsesFullRowAnimation) {
+                          return;
+                        }
                         const primaryTouch =
                           event.changedTouches[0] ?? event.touches[0];
                         if (!primaryTouch) {
@@ -8958,12 +9081,6 @@ export default function App(): JSX.Element {
                       }}
                       onClick={(event) => {
                         if (!inventoryContextActionsEnabled) {
-                          return;
-                        }
-                        if (consumeSuppressedInventoryRowActivationGlobally()) {
-                          return;
-                        }
-                        if (consumeSuppressedInventoryRowActivation(itemAccelerator)) {
                           return;
                         }
                         if (isContextMenuItemActive) {
@@ -8984,12 +9101,6 @@ export default function App(): JSX.Element {
                           return;
                         }
                         event.preventDefault();
-                        if (consumeSuppressedInventoryRowActivationGlobally()) {
-                          return;
-                        }
-                        if (consumeSuppressedInventoryRowActivation(itemAccelerator)) {
-                          return;
-                        }
                         const targetRect =
                           event.currentTarget.getBoundingClientRect();
                         openInventoryContextMenu(
@@ -9025,19 +9136,21 @@ export default function App(): JSX.Element {
                       tabIndex={inventoryContextActionsEnabled ? 0 : -1}
                     >
                       <span className="nh3d-inventory-item-leading">
-                        <span className="nh3d-inventory-icon-anchor" aria-hidden="true">
-                          <span className="nh3d-inventory-icon-shell">
-                            {tilePreview ? (
-                              <span className="nh3d-inventory-icon-art">
-                                {tilePreview}
-                              </span>
-                            ) : (
-                              <span className="nh3d-inventory-icon-fallback">
-                                {fallbackGlyph}
-                              </span>
-                            )}
+                        {showInventoryTileIcon ? (
+                          <span className="nh3d-inventory-icon-anchor" aria-hidden="true">
+                            <span className="nh3d-inventory-icon-shell">
+                              {tilePreview ? (
+                                <span className="nh3d-inventory-icon-art">
+                                  {tilePreview}
+                                </span>
+                              ) : (
+                                <span className="nh3d-inventory-icon-fallback">
+                                  {fallbackGlyph}
+                                </span>
+                              )}
+                            </span>
                           </span>
-                        </span>
+                        ) : null}
                         <span className="nh3d-inventory-key">
                           {item.accelerator || "?"})
                         </span>

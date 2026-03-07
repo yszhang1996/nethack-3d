@@ -3704,6 +3704,82 @@ canvas {
   );
 }
 
+.nh3d-dialog-inventory-reduced-motion {
+  .nh3d-inventory-item {
+    transition:
+      box-shadow 140ms ease,
+      border-color 140ms ease,
+      background 140ms ease;
+    will-change: auto;
+  }
+}
+
+.nh3d-dialog-inventory-tile-motion-only {
+  .nh3d-inventory-item,
+  .nh3d-inventory-item-active {
+    --nh3d-inv-row-padding-y: 6px;
+    min-height: 34px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+    transition:
+      box-shadow 180ms ease,
+      border-color 180ms ease,
+      background 180ms ease;
+    will-change: auto;
+  }
+
+  .nh3d-inventory-item {
+    z-index: calc(
+      var(--nh3d-inv-row-order, 1) + var(--nh3d-inv-hover, 0) * 2000
+    );
+    overflow: visible;
+  }
+
+  .nh3d-inventory-item-leading {
+    position: relative;
+    overflow: visible;
+  }
+
+  .nh3d-inventory-icon-anchor {
+    position: relative;
+    width: 30px;
+    flex: 0 0 30px;
+    height: 20px;
+    overflow: visible;
+  }
+
+  .nh3d-inventory-icon-shell {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    flex: none;
+    min-width: 0;
+    min-height: 0;
+    pointer-events: none;
+  }
+}
+
+.nh3d-inventory-items-fixed-size {
+  .nh3d-inventory-item,
+  .nh3d-inventory-item-active {
+    --nh3d-inv-hover: 0 !important;
+    --nh3d-inv-row-padding-y: 6px;
+    --nh3d-inv-icon-size: var(--nh3d-inv-fixed-icon-size-px, 20px);
+    --nh3d-inv-icon-shift-x: 0px;
+    min-height: calc(var(--nh3d-inv-icon-size) + 10px);
+  }
+
+  .nh3d-inventory-icon-anchor {
+    width: calc(var(--nh3d-inv-fixed-icon-size-px, 20px) + 10px);
+    flex: 0 0 calc(var(--nh3d-inv-fixed-icon-size-px, 20px) + 10px);
+  }
+
+  .nh3d-inventory-icon-shell {
+    transform: translateX(0);
+  }
+}
+
 .nh3d-inventory-key {
   color: #d0edff;
   font-weight: bold;
