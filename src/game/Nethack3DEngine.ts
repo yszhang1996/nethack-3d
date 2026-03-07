@@ -762,6 +762,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     | "left_stick"
     | "dpad"
     | null = null;
+  private controllerConfirmRearmPending: boolean = false;
   private controllerFpsLeftStickLastMoveInput: string | null = null;
   private controllerFpsLeftStickNextMoveAtMs: number = 0;
   private controllerDialogDpadRepeatDirection:
@@ -18034,6 +18035,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.controllerMoveHighlightTile = null;
   }
 
+  private consumeControllerConfirmUntilRelease(): void {
+    this.controllerConfirmRearmPending = true;
+  }
+
+  private applyControllerConfirmRearmLatch(
+    snapshot: ControllerActionSnapshot,
+  ): ControllerActionSnapshot {
+    if (!this.controllerConfirmRearmPending) {
+      return snapshot;
+    }
+
+    const pressed = {
+      ...snapshot.pressed,
+    };
+    const released = {
+      ...snapshot.released,
+    };
+
+    pressed.confirm = false;
+    if (released.confirm) {
+      released.confirm = false;
+      this.controllerConfirmRearmPending = false;
+    }
+
+    return {
+      ...snapshot,
+      pressed,
+      released,
+    };
+  }
+
   private handleControllerDirectionQuestionInput(
     snapshot: ControllerActionSnapshot,
   ): void {
@@ -18453,6 +18485,116 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return nextRow.items[nearestColumnIndex]?.element ?? null;
   }
 
+  private focusControllerDialogElement(element: HTMLElement): void {
+    element.focus();
+    element.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  private findDirectionalControllerFocusTarget(
+    source: HTMLElement,
+    candidates: readonly HTMLElement[],
+    direction: "left" | "right",
+  ): HTMLElement | null {
+    const sourceRect = source.getBoundingClientRect();
+    const sourceCenterX = sourceRect.left + sourceRect.width * 0.5;
+    const sourceCenterY = sourceRect.top + sourceRect.height * 0.5;
+    const minHorizontalDelta = 8;
+    let bestTarget: HTMLElement | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const candidate of candidates) {
+      if (candidate === source) {
+        continue;
+      }
+      const rect = candidate.getBoundingClientRect();
+      const centerX = rect.left + rect.width * 0.5;
+      const centerY = rect.top + rect.height * 0.5;
+      const dx = centerX - sourceCenterX;
+      if (direction === "right" && dx <= minHorizontalDelta) {
+        continue;
+      }
+      if (direction === "left" && dx >= -minHorizontalDelta) {
+        continue;
+      }
+      const horizontalDistance = Math.abs(dx);
+      const verticalDistance = Math.abs(centerY - sourceCenterY);
+      const score = horizontalDistance + verticalDistance * 2;
+      if (score < bestScore) {
+        bestScore = score;
+        bestTarget = candidate;
+      }
+    }
+
+    return bestTarget;
+  }
+
+  private moveClientOptionsDialogFocus(
+    overlay: HTMLElement,
+    activeElement: HTMLElement,
+    direction: "up" | "down" | "left" | "right",
+  ): boolean {
+    if (direction !== "left" && direction !== "right") {
+      return false;
+    }
+    if (overlay.id !== "nh3d-client-options-dialog") {
+      return false;
+    }
+
+    const nav = overlay.querySelector<HTMLElement>(".nh3d-options-nav");
+    const panel = overlay.querySelector<HTMLElement>(".nh3d-options-panel");
+    if (!nav || !panel) {
+      return false;
+    }
+
+    const navTabs = this.getControllerFocusableElements(nav).filter((element) =>
+      element.classList.contains("nh3d-options-tab"),
+    );
+    const panelFocusable = this.getControllerFocusableElements(panel).filter(
+      (element) =>
+        !element.classList.contains("nh3d-mobile-dialog-close") &&
+        !element.closest(".nh3d-options-panel-heading"),
+    );
+    if (navTabs.length === 0 || panelFocusable.length === 0) {
+      return false;
+    }
+
+    if (direction === "right" && nav.contains(activeElement)) {
+      const target =
+        this.findDirectionalControllerFocusTarget(
+          activeElement,
+          panelFocusable,
+          "right",
+        ) ?? panelFocusable[0];
+      if (!target) {
+        return false;
+      }
+      this.focusControllerDialogElement(target);
+      return true;
+    }
+
+    if (direction === "left" && panel.contains(activeElement)) {
+      const leftTarget = this.findDirectionalControllerFocusTarget(
+        activeElement,
+        panelFocusable,
+        "left",
+      );
+      if (leftTarget) {
+        this.focusControllerDialogElement(leftTarget);
+        return true;
+      }
+      const selectedTab =
+        nav.querySelector<HTMLElement>(".nh3d-options-tab.is-selected") ??
+        navTabs[0];
+      if (!selectedTab) {
+        return false;
+      }
+      this.focusControllerDialogElement(selectedTab);
+      return true;
+    }
+
+    return false;
+  }
+
   private moveControllerDialogFocus(
     direction: "up" | "down" | "left" | "right",
   ): boolean {
@@ -18468,6 +18610,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const activeInOverlay =
       activeElement && overlay.contains(activeElement) ? activeElement : null;
+    if (
+      activeInOverlay &&
+      this.moveClientOptionsDialogFocus(overlay, activeInOverlay, direction)
+    ) {
+      return true;
+    }
     const gridTarget = this.resolveControllerGridFocusTarget(
       overlay,
       focusable,
@@ -18475,8 +18623,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       direction,
     );
     if (gridTarget) {
-      gridTarget.focus();
-      gridTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+      this.focusControllerDialogElement(gridTarget);
       return true;
     }
     const activeIndex =
@@ -18494,8 +18641,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const nextElement = focusable[nextIndex];
     if (nextElement) {
-      nextElement.focus();
-      nextElement.scrollIntoView({ block: "nearest", inline: "nearest" });
+      this.focusControllerDialogElement(nextElement);
     }
     return true;
   }
@@ -19105,6 +19251,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.setControllerVirtualCursorVisible(false);
         }
         if (snapshot.pressed.confirm) {
+          this.consumeControllerConfirmUntilRelease();
           const didClick = this.tryClickFocusedControllerOverlayElement();
           if (!didClick) {
             this.dispatchControllerKeyDown("Enter", "Enter");
@@ -19131,6 +19278,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       if (snapshot.pressed.confirm) {
+        this.consumeControllerConfirmUntilRelease();
         const didClick = this.clickControllerVirtualCursorTarget();
         if (!didClick) {
           this.dispatchControllerKeyDown("Enter", "Enter");
@@ -19170,14 +19318,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearControllerDialogDpadRepeat();
       this.clearControllerDirectionPromptPreview();
       this.clearControllerMovePreview();
+      this.controllerConfirmRearmPending = false;
       this.resetControllerVirtualCursor();
       return;
     }
     const gamepads = this.getConnectedGamepads();
     const bindings = this.getControllerBindings();
-    const snapshot = this.sampleControllerActionSnapshot(bindings, gamepads);
+    const rawSnapshot = this.sampleControllerActionSnapshot(bindings, gamepads);
+    const snapshot = this.applyControllerConfirmRearmLatch(rawSnapshot);
     const hadButtonPress = nh3dControllerActionIds.some(
-      (actionId) => snapshot.pressed[actionId],
+      (actionId) => rawSnapshot.pressed[actionId],
     );
     if (hadButtonPress) {
       this.resumeFmodFromUserGesture();

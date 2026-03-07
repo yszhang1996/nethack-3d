@@ -4931,7 +4931,10 @@ canvas {
 
   &.nh3d-pickup-item-active {
     border-color: var(--nh3d-ui-border-strong);
-    box-shadow: 0 0 0 1px rgba(102, 204, 255, 0.45);
+    box-shadow:
+      0 0 0 1px rgba(102, 204, 255, 0.55),
+      0 0 0 3px rgba(102, 204, 255, 0.22);
+    filter: brightness(1.1);
   }
 }
 
@@ -4939,6 +4942,13 @@ canvas {
   margin-right: 0;
   flex: 0 0 auto;
   transform: scale(1.2);
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(102, 204, 255, 0.38);
+    border-radius: 2px;
+  }
 }
 
 .nh3d-pickup-key {
@@ -5105,14 +5115,22 @@ canvas {
 .nh3d-direction-button,
 .nh3d-question-page-button {
   &:focus,
-  &:focus-visible,
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 1px var(--nh3d-ui-button-warm-ring),
+      0 0 0 3px rgba(102, 204, 255, 0.36),
+      0 0 14px rgba(102, 204, 255, 0.26);
+    filter: brightness(1.16);
+  }
+
   &.nh3d-action-button-active,
   &.nh3d-menu-button-active {
     outline: none;
     box-shadow:
       0 0 0 1px var(--nh3d-ui-button-warm-ring),
       0 0 0 2px rgba(102, 204, 255, 0.22);
-    filter: brightness(1.12);
+    filter: brightness(1.08);
   }
 }
 

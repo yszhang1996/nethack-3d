@@ -1976,6 +1976,113 @@ function getControllerDialogFixedActionButtons(
   });
 }
 
+function focusControllerDialogElement(target: HTMLElement): void {
+  target.focus();
+  target.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
+function findDirectionalControllerFocusTarget(
+  source: HTMLElement,
+  candidates: readonly HTMLElement[],
+  direction: "left" | "right",
+): HTMLElement | null {
+  const sourceRect = source.getBoundingClientRect();
+  const sourceCenterX = sourceRect.left + sourceRect.width * 0.5;
+  const sourceCenterY = sourceRect.top + sourceRect.height * 0.5;
+  const minHorizontalDelta = 8;
+  let bestTarget: HTMLElement | null = null;
+  let bestScore = Number.POSITIVE_INFINITY;
+
+  for (const candidate of candidates) {
+    if (candidate === source) {
+      continue;
+    }
+    const rect = candidate.getBoundingClientRect();
+    const centerX = rect.left + rect.width * 0.5;
+    const centerY = rect.top + rect.height * 0.5;
+    const dx = centerX - sourceCenterX;
+    if (direction === "right" && dx <= minHorizontalDelta) {
+      continue;
+    }
+    if (direction === "left" && dx >= -minHorizontalDelta) {
+      continue;
+    }
+    const horizontalDistance = Math.abs(dx);
+    const verticalDistance = Math.abs(centerY - sourceCenterY);
+    const score = horizontalDistance + verticalDistance * 2;
+    if (score < bestScore) {
+      bestScore = score;
+      bestTarget = candidate;
+    }
+  }
+
+  return bestTarget;
+}
+
+function moveClientOptionsDialogFocus(
+  dialogRoot: HTMLElement,
+  activeElement: HTMLElement,
+  direction: "up" | "down" | "left" | "right",
+): boolean {
+  if (direction !== "left" && direction !== "right") {
+    return false;
+  }
+  if (dialogRoot.id !== "nh3d-client-options-dialog") {
+    return false;
+  }
+
+  const nav = dialogRoot.querySelector<HTMLElement>(".nh3d-options-nav");
+  const panel = dialogRoot.querySelector<HTMLElement>(".nh3d-options-panel");
+  if (!nav || !panel) {
+    return false;
+  }
+
+  const navTabs = getControllerFocusableElements(nav).filter((element) =>
+    element.classList.contains("nh3d-options-tab"),
+  );
+  const panelFocusable = getControllerFocusableElements(panel).filter(
+    (element) =>
+      !element.classList.contains("nh3d-mobile-dialog-close") &&
+      !element.closest(".nh3d-options-panel-heading"),
+  );
+  if (navTabs.length === 0 || panelFocusable.length === 0) {
+    return false;
+  }
+
+  if (direction === "right" && nav.contains(activeElement)) {
+    const target =
+      findDirectionalControllerFocusTarget(activeElement, panelFocusable, "right") ??
+      panelFocusable[0];
+    if (!target) {
+      return false;
+    }
+    focusControllerDialogElement(target);
+    return true;
+  }
+
+  if (direction === "left" && panel.contains(activeElement)) {
+    const leftTarget = findDirectionalControllerFocusTarget(
+      activeElement,
+      panelFocusable,
+      "left",
+    );
+    if (leftTarget) {
+      focusControllerDialogElement(leftTarget);
+      return true;
+    }
+    const selectedTab =
+      nav.querySelector<HTMLElement>(".nh3d-options-tab.is-selected") ??
+      navTabs[0];
+    if (!selectedTab) {
+      return false;
+    }
+    focusControllerDialogElement(selectedTab);
+    return true;
+  }
+
+  return false;
+}
+
 function moveControllerDialogFocus(
   direction: "up" | "down" | "left" | "right",
 ): boolean {
@@ -1993,6 +2100,12 @@ function moveControllerDialogFocus(
       : null;
   const activeInDialog =
     activeElement && topDialog.contains(activeElement) ? activeElement : null;
+  if (
+    activeInDialog &&
+    moveClientOptionsDialogFocus(topDialog, activeInDialog, direction)
+  ) {
+    return true;
+  }
   const fixedActionButtons = getControllerDialogFixedActionButtons(topDialog);
   const activeIsFixedAction =
     !!activeInDialog &&
@@ -2014,8 +2127,7 @@ function moveControllerDialogFocus(
         nearestScrollable.scrollHeight - 2;
     if (atScrollableEnd) {
       const targetButton = fixedActionButtons[0];
-      targetButton.focus();
-      targetButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+      focusControllerDialogElement(targetButton);
       return true;
     }
   }
@@ -2032,8 +2144,7 @@ function moveControllerDialogFocus(
         scrollableFocusable[scrollableFocusable.length - 1] ??
         focusable[focusable.length - 1];
       if (fallbackTarget) {
-        fallbackTarget.focus();
-        fallbackTarget.scrollIntoView({ block: "nearest", inline: "nearest" });
+        focusControllerDialogElement(fallbackTarget);
         return true;
       }
     }
@@ -2051,8 +2162,7 @@ function moveControllerDialogFocus(
   }
   const nextElement = focusable[nextIndex];
   if (nextElement) {
-    nextElement.focus();
-    nextElement.scrollIntoView({ block: "nearest", inline: "nearest" });
+    focusControllerDialogElement(nextElement);
   }
   return true;
 }
@@ -5665,7 +5775,7 @@ export default function App(): JSX.Element {
     ].join(", ");
 
     const explicitActiveTarget = topOverlay.querySelector<HTMLElement>(
-      ".nh3d-menu-button.nh3d-menu-button-active, .nh3d-menu-action-button.nh3d-action-button-active, .nh3d-pickup-action-button.nh3d-action-button-active",
+      ".nh3d-menu-button.nh3d-menu-button-active, button.nh3d-enhance-skill-card.nh3d-menu-button-active, .nh3d-menu-action-button.nh3d-action-button-active, .nh3d-pickup-action-button.nh3d-action-button-active, .nh3d-pickup-item.nh3d-pickup-item-active .nh3d-pickup-checkbox:not(:disabled)",
     );
     const firstContextActionButton = topOverlay.classList.contains(
       "nh3d-context-menu",
@@ -5694,6 +5804,19 @@ export default function App(): JSX.Element {
       activeElement.matches(focusableSelector)
         ? activeElement
         : null;
+    const shouldTrackExplicitActiveTarget =
+      topOverlay.id === "question-dialog" ||
+      topOverlay.classList.contains("nh3d-dialog-question");
+    if (shouldTrackExplicitActiveTarget && explicitActiveTarget) {
+      if (activeElementInDialog !== explicitActiveTarget) {
+        explicitActiveTarget.focus({ preventScroll: true });
+        explicitActiveTarget.scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
+      return;
+    }
     const targetButton =
       activeElementInDialog ??
       firstActionWheelButton ??
@@ -7292,6 +7415,9 @@ export default function App(): JSX.Element {
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
         setInventoryContextMenu(null);
       }
     };
@@ -11575,7 +11701,7 @@ export default function App(): JSX.Element {
         </button>
       ) : null}
 
-      {isDesktopGameRunning ? (
+      {isDesktopGameRunning && !clientOptions.controllerEnabled ? (
         <div className="nh3d-desktop-bottom-actions">
           <button
             className={`nh3d-desktop-bottom-button${
