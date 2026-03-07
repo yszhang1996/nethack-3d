@@ -153,6 +153,7 @@ export type Nh3dClientOptions = {
   invertLookYAxis: boolean;
   invertTouchPanningDirection: boolean;
   desktopTouchInterfaceMode: Nh3dDesktopTouchInterfaceMode;
+  uiTileBackgroundRemoval: boolean;
   minimap: boolean;
   minimapScale: number;
   reduceInventoryMotion: boolean;
@@ -217,6 +218,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   invertLookYAxis: false,
   invertTouchPanningDirection: true,
   desktopTouchInterfaceMode: "off",
+  uiTileBackgroundRemoval: true,
   minimap: true,
   minimapScale: 1,
   reduceInventoryMotion: true,
@@ -743,6 +745,10 @@ export function normalizeNh3dClientOptions(
       overrides?.desktopTouchInterfaceMode === "off"
         ? overrides.desktopTouchInterfaceMode
         : defaultNh3dClientOptions.desktopTouchInterfaceMode,
+    uiTileBackgroundRemoval:
+      typeof overrides?.uiTileBackgroundRemoval === "boolean"
+        ? overrides.uiTileBackgroundRemoval
+        : defaultNh3dClientOptions.uiTileBackgroundRemoval,
     minimap:
       typeof overrides?.minimap === "boolean"
         ? overrides.minimap

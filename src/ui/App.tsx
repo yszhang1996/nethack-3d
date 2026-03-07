@@ -1154,6 +1154,12 @@ function createIsolatedAtlasTilePreviewDataUrl(
   tileSourceSize: number,
   tileColumns: number,
   tileRows: number,
+  backgroundRemoval?: {
+    enabled: boolean;
+    mode: "tile" | "solid";
+    solidChromaKeyColorHex: string;
+    backgroundTilePixels: Uint8ClampedArray | null;
+  },
 ): string | null {
   if (
     typeof document === "undefined" ||
@@ -1193,7 +1199,107 @@ function createIsolatedAtlasTilePreviewDataUrl(
     tileSourceSize,
     tileSourceSize,
   );
+
+  if (backgroundRemoval?.enabled) {
+    const imageData = context.getImageData(0, 0, tileSourceSize, tileSourceSize);
+    const data = imageData.data;
+    if (backgroundRemoval.mode === "solid") {
+      const match = String(backgroundRemoval.solidChromaKeyColorHex || "")
+        .trim()
+        .match(/^#?([0-9a-fA-F]{6})$/);
+      if (match) {
+        const hex = match[1];
+        const targetR = Number.parseInt(hex.slice(0, 2), 16);
+        const targetG = Number.parseInt(hex.slice(2, 4), 16);
+        const targetB = Number.parseInt(hex.slice(4, 6), 16);
+        for (let i = 0; i < data.length; i += 4) {
+          if (
+            data[i] === targetR &&
+            data[i + 1] === targetG &&
+            data[i + 2] === targetB
+          ) {
+            data[i + 3] = 0;
+          }
+        }
+      }
+    } else if (backgroundRemoval.backgroundTilePixels) {
+      const alphaSoftMin = 12;
+      const alphaSoftMax = 40;
+      const backgroundPixels = backgroundRemoval.backgroundTilePixels;
+      for (let i = 0; i < data.length; i += 4) {
+        const sourceAlpha = data[i + 3];
+        if (sourceAlpha === 0) {
+          continue;
+        }
+        const deltaR = Math.abs(data[i] - backgroundPixels[i]);
+        const deltaG = Math.abs(data[i + 1] - backgroundPixels[i + 1]);
+        const deltaB = Math.abs(data[i + 2] - backgroundPixels[i + 2]);
+        const delta = Math.max(deltaR, deltaG, deltaB);
+        const visibility = Math.max(
+          0,
+          Math.min(1, (delta - alphaSoftMin) / (alphaSoftMax - alphaSoftMin)),
+        );
+        const nextAlpha = Math.round(sourceAlpha * visibility);
+        data[i + 3] = nextAlpha;
+        if (nextAlpha === 0) {
+          data[i] = 0;
+          data[i + 1] = 0;
+          data[i + 2] = 0;
+        }
+      }
+    }
+    context.putImageData(imageData, 0, 0);
+  }
+
   return canvas.toDataURL("image/png");
+}
+
+function getAtlasTilePixels(
+  atlasImage: HTMLImageElement,
+  tileSourceSize: number,
+  tileId: number,
+  tileColumns: number,
+  tileRows: number,
+): Uint8ClampedArray | null {
+  if (
+    typeof document === "undefined" ||
+    !atlasImage ||
+    tileSourceSize <= 0 ||
+    !Number.isFinite(tileId)
+  ) {
+    return null;
+  }
+  const tilesPerRow = Math.max(0, Math.trunc(tileColumns));
+  const rows = Math.max(0, Math.trunc(tileRows));
+  const tileCount = tilesPerRow > 0 && rows > 0 ? tilesPerRow * rows : 0;
+  const safeTileId = Math.trunc(tileId);
+  if (tileCount <= 0 || safeTileId < 0 || safeTileId >= tileCount) {
+    return null;
+  }
+
+  const canvas = document.createElement("canvas");
+  canvas.width = tileSourceSize;
+  canvas.height = tileSourceSize;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return null;
+  }
+
+  const sx = (safeTileId % tilesPerRow) * tileSourceSize;
+  const sy = Math.floor(safeTileId / tilesPerRow) * tileSourceSize;
+  context.clearRect(0, 0, tileSourceSize, tileSourceSize);
+  context.drawImage(
+    atlasImage,
+    sx,
+    sy,
+    tileSourceSize,
+    tileSourceSize,
+    0,
+    0,
+    tileSourceSize,
+    tileSourceSize,
+  );
+  return context.getImageData(0, 0, tileSourceSize, tileSourceSize).data;
 }
 
 type StartupFlowStep = "choose" | "create" | "random" | "resume";
@@ -1317,6 +1423,7 @@ type ClientOptionToggleKey =
   | "fpsMode"
   | "invertLookYAxis"
   | "invertTouchPanningDirection"
+  | "uiTileBackgroundRemoval"
   | "minimap"
   | "reduceInventoryMotion"
   | "inventoryTileOnlyMotion"
@@ -1621,6 +1728,13 @@ const clientOptionsConfig: ClientOption[] = [
       { value: "portrait", label: "Use portrait touch UI" },
       { value: "landscape", label: "Use landscape touch UI" },
     ],
+  },
+  {
+    key: "uiTileBackgroundRemoval",
+    label: "Remove tile backgrounds in UI",
+    description:
+      "Apply tile/chroma background removal to tile icons shown in UI panels.",
+    type: "boolean",
   },
   {
     key: "antialiasing",
@@ -3847,7 +3961,7 @@ export default function App(): JSX.Element {
     : tileAtlasState.failed
       ? "Unable to load tile atlas."
       : "Loading tile atlas...";
-  const tilePreviewDataUrlById = useMemo(() => {
+  const tilePreviewDataUrlByIdRaw = useMemo(() => {
     const previewByTileId = new Map<number, string>();
     if (
       !tileAtlasState.loaded ||
@@ -3872,10 +3986,93 @@ export default function App(): JSX.Element {
     return previewByTileId;
   }, [
     tileAtlasImage,
+    tileAtlasState.columns,
     tileAtlasState.loaded,
+    tileAtlasState.rows,
     tileAtlasState.tileCount,
     tileAtlasState.tileSourceSize,
   ]);
+  const tilePreviewDataUrlById = useMemo(() => {
+    if (!clientOptions.uiTileBackgroundRemoval) {
+      return tilePreviewDataUrlByIdRaw;
+    }
+    const previewByTileId = new Map<number, string>();
+    if (
+      !tileAtlasState.loaded ||
+      !tileAtlasImage ||
+      tileAtlasState.tileCount <= 0
+    ) {
+      return previewByTileId;
+    }
+    const tilePreviewBackgroundRemoval = {
+      enabled: true,
+      mode: clientOptions.tilesetBackgroundRemovalMode,
+      solidChromaKeyColorHex: clientOptions.tilesetSolidChromaKeyColorHex,
+      backgroundTilePixels:
+        clientOptions.tilesetBackgroundRemovalMode === "tile"
+          ? getAtlasTilePixels(
+              tileAtlasImage,
+              tileAtlasState.tileSourceSize,
+              clientOptions.tilesetBackgroundTileId,
+              tileAtlasState.columns,
+              tileAtlasState.rows,
+            )
+          : null,
+    };
+    for (let tileId = 0; tileId < tileAtlasState.tileCount; tileId += 1) {
+      const dataUrl = createIsolatedAtlasTilePreviewDataUrl(
+        tileAtlasImage,
+        tileId,
+        tileAtlasState.tileSourceSize,
+        tileAtlasState.columns,
+        tileAtlasState.rows,
+        tilePreviewBackgroundRemoval,
+      );
+      if (!dataUrl) {
+        continue;
+      }
+      previewByTileId.set(tileId, dataUrl);
+    }
+    return previewByTileId;
+  }, [
+    clientOptions.tilesetBackgroundRemovalMode,
+    clientOptions.tilesetBackgroundTileId,
+    clientOptions.tilesetSolidChromaKeyColorHex,
+    clientOptions.uiTileBackgroundRemoval,
+    tileAtlasImage,
+    tileAtlasState.columns,
+    tileAtlasState.loaded,
+    tileAtlasState.rows,
+    tileAtlasState.tileCount,
+    tileAtlasState.tileSourceSize,
+    tilePreviewDataUrlByIdRaw,
+  ]);
+  const getTilePreviewDataUrlForOptions = (tileId: number): string | null => {
+    if (tileAtlasState.tileCount <= 0) {
+      return null;
+    }
+    const clampedTileId = Math.max(
+      0,
+      Math.min(tileAtlasState.tileCount - 1, Math.trunc(tileId)),
+    );
+    return tilePreviewDataUrlByIdRaw.get(clampedTileId) ?? null;
+  };
+  const renderTilePreviewImageForOptions = (
+    tileId: number,
+  ): JSX.Element | null => {
+    const tilePreviewDataUrl = getTilePreviewDataUrlForOptions(tileId);
+    if (!tilePreviewDataUrl) {
+      return null;
+    }
+    return (
+      <img
+        alt=""
+        aria-hidden="true"
+        draggable={false}
+        src={tilePreviewDataUrl}
+      />
+    );
+  };
   const getTilePreviewDataUrl = (tileId: number): string | null => {
     if (tileAtlasState.tileCount <= 0) {
       return null;
@@ -3961,7 +4158,9 @@ export default function App(): JSX.Element {
     return previewByTileId;
   }, [
     tilesetManagerAtlasImage,
+    tilesetManagerAtlasState.columns,
     tilesetManagerAtlasState.loaded,
+    tilesetManagerAtlasState.rows,
     tilesetManagerAtlasState.tileCount,
     tilesetManagerAtlasState.tileSourceSize,
   ]);
@@ -6558,7 +6757,12 @@ export default function App(): JSX.Element {
       {characterCreationConfig === null ? (
         <>
           <div
-            className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible startup"
+            className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible startup${
+              startupInitOptionsExpanded &&
+              (startupFlowStep === "random" || startupFlowStep === "create")
+                ? " nh3d-startup-init-expanded"
+                : ""
+            }`}
             id="character-setup-dialog"
           >
             {startupFlowStep === "choose" ? (
@@ -7265,7 +7469,7 @@ export default function App(): JSX.Element {
                                   type="button"
                                 >
                                   <span className="nh3d-option-tile-picker-preview">
-                                    {renderTilePreviewImage(
+                                    {renderTilePreviewImageForOptions(
                                       selectedDarkWallTileId,
                                     )}
                                   </span>
@@ -8092,7 +8296,7 @@ export default function App(): JSX.Element {
         }
         onSelectTile={updateDarkWallTileOverrideTileIdDraft}
         renderMobileCloseButton={renderMobileDialogCloseButton}
-        renderTilePreviewImage={renderTilePreviewImage}
+        renderTilePreviewImage={renderTilePreviewImageForOptions}
         selectedGlyphLabel={selectedDarkWallGlyphLabel}
         selectedGlyphNumber={selectedDarkWallGlyphNumber}
         selectedTileId={selectedDarkWallTileId}

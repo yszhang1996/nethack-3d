@@ -62,9 +62,24 @@
   );
   --nh3d-startup-logo-top: calc(1vh + var(--nh3d-stats-bar-height, 0px));
   --nh3d-startup-logo-bottom: calc(var(--nh3d-startup-logo-top) + 240px);
-  --nh3d-startup-modal-frame-top: calc(var(--nh3d-startup-logo-bottom) + 15px);
+  --nh3d-startup-modal-frame-logo-gap: 15px;
+  --nh3d-startup-modal-frame-preferred-min-height: 420px;
   --nh3d-startup-modal-frame-bottom-inset: calc(
     var(--nh3d-safe-area-bottom) + 8px
+  );
+  --nh3d-startup-modal-frame-top: max(
+    var(--nh3d-modal-safe-top-inset),
+    min(
+      calc(
+        var(--nh3d-startup-logo-bottom) +
+          var(--nh3d-startup-modal-frame-logo-gap)
+      ),
+      calc(
+        var(--nh3d-mobile-visible-height, 100vh) -
+          var(--nh3d-startup-modal-frame-bottom-inset) -
+          var(--nh3d-startup-modal-frame-preferred-min-height)
+      )
+    )
   );
   --nh3d-startup-modal-frame-max-height: calc(
     var(--nh3d-mobile-visible-height, 100vh) - var(
@@ -1365,11 +1380,13 @@ canvas {
 #character-setup-dialog {
   --nh3d-character-setup-control-width: min(320px, 100%);
   --nh3d-character-setup-control-height: 40px;
+  --nh3d-startup-fixed-actions-reserve: 104px;
   width: min(92vw, 680px);
   max-height: var(--nh3d-startup-modal-frame-max-height);
   box-sizing: border-box;
   overflow-x: hidden;
   overflow-y: auto;
+  scroll-padding-bottom: var(--nh3d-startup-fixed-actions-reserve);
 
   .nh3d-question-text {
     font-size: nh3d-scale-font(clamp(15px, 2.4vw, 19px));
@@ -1381,6 +1398,32 @@ canvas {
     max-width: 100%;
     overflow-x: hidden;
     padding-right: 0;
+  }
+
+  .nh3d-startup-init-options[open] {
+    margin-bottom: 10px;
+  }
+
+  .nh3d-startup-init-options .nh3d-option-select-controls {
+    position: relative;
+    z-index: 5;
+  }
+
+  .nh3d-startup-init-options .nh3d-option-select-controls:focus-within {
+    z-index: 8;
+  }
+
+  .nh3d-startup-init-options-list {
+    max-height: min(
+      40vh,
+      max(
+        140px,
+        calc(
+          var(--nh3d-startup-modal-frame-max-height) -
+            var(--nh3d-startup-fixed-actions-reserve)
+        )
+      )
+    );
   }
 
   .nh3d-startup-config-grid.centered {
@@ -1427,6 +1470,7 @@ canvas {
   }
 
   @media (pointer: coarse) {
+    --nh3d-startup-fixed-actions-reserve: 124px;
     width: min(92vw, 680px);
     max-width: calc(
       100vw - var(--nh3d-modal-safe-left-inset) - var(
@@ -1464,10 +1508,35 @@ canvas {
       width: 100%;
       text-align: center;
     }
+
+    &.nh3d-startup-init-expanded {
+      top: auto;
+      bottom: var(--nh3d-startup-modal-frame-bottom-inset);
+      transform: translate(-50%, 0);
+      max-height: calc(
+        var(--nh3d-mobile-visible-height, 100vh) -
+          var(--nh3d-modal-safe-top-inset) -
+          var(--nh3d-startup-modal-frame-bottom-inset)
+      );
+    }
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
+    --nh3d-startup-fixed-actions-reserve: 136px;
     max-height: var(--nh3d-modal-safe-max-height);
+
+    .nh3d-startup-init-options-list {
+      max-height: min(
+        56vh,
+        max(
+          120px,
+          calc(
+            var(--nh3d-modal-safe-max-height) -
+              var(--nh3d-startup-fixed-actions-reserve)
+          )
+        )
+      );
+    }
   }
 }
 
@@ -3338,6 +3407,10 @@ canvas {
   background: rgba(9, 24, 40, 0.74);
   overflow: hidden;
   text-align: left;
+}
+
+.nh3d-startup-init-options[open] {
+  overflow: visible;
 }
 
 .nh3d-startup-init-options-summary {
