@@ -1478,9 +1478,20 @@ canvas {
 
   .nh3d-startup-init-options {
     display: grid;
-    grid-template-rows: auto minmax(0, 1fr);
-    min-height: 0;
+    grid-template-rows:
+      minmax(var(--nh3d-character-setup-control-height), auto)
+      minmax(0, 1fr);
+    min-height: auto;
     max-height: max(180px, var(--nh3d-startup-accordion-max-height));
+  }
+
+  .nh3d-startup-init-options:not([open]) {
+    flex: 0 0 auto;
+  }
+
+  .nh3d-startup-init-options-summary {
+    min-height: var(--nh3d-character-setup-control-height);
+    box-sizing: border-box;
   }
 
   .nh3d-startup-init-options-body {
@@ -1570,6 +1581,7 @@ canvas {
 
   @media (pointer: coarse) {
     --nh3d-startup-fixed-actions-reserve: 124px;
+    --nh3d-startup-accordion-min-height: 400px;
     width: min(92vw, 680px);
     max-width: calc(
       100vw - var(--nh3d-modal-safe-left-inset) - var(
@@ -1605,6 +1617,7 @@ canvas {
 
     .nh3d-startup-init-options[open] {
       margin-bottom: 10px;
+      min-height: var(--nh3d-startup-accordion-min-height);
     }
 
     .nh3d-startup-config-grid + .nh3d-menu-actions {
@@ -1635,7 +1648,6 @@ canvas {
           --nh3d-startup-fixed-actions-reserve
         )
     );
-    --nh3d-startup-accordion-min-height-landscape: 400px;
     max-height: var(--nh3d-modal-safe-max-height);
 
     .nh3d-startup-config-grid:not(.centered) {
@@ -1644,7 +1656,6 @@ canvas {
 
     .nh3d-startup-init-options[open] {
       margin-bottom: 10px;
-      min-height: var(--nh3d-startup-accordion-min-height-landscape);
     }
 
     .nh3d-startup-init-options-list {
