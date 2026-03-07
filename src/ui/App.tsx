@@ -316,6 +316,88 @@ function isYesNoChoicePrompt(parsedChoices: string[]): boolean {
   return hasYes && hasNo && onlySimpleChoices;
 }
 
+function normalizeTileIndexCandidate(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.trunc(value);
+}
+
+function resolveTileIndexForGlyph(glyph: unknown): number | null {
+  if (typeof glyph !== "number" || !Number.isFinite(glyph) || glyph < 0) {
+    return null;
+  }
+  const normalizedGlyph = Math.trunc(glyph);
+  const helpers =
+    (globalThis as {
+      nethackGlobal?: {
+        helpers?: {
+          tileIndexForGlyph?: (glyphValue: number) => unknown;
+        };
+      };
+    }).nethackGlobal?.helpers ?? null;
+  const tileIndexForGlyphHelper =
+    typeof helpers?.tileIndexForGlyph === "function"
+      ? helpers.tileIndexForGlyph
+      : null;
+  if (!tileIndexForGlyphHelper) {
+    return null;
+  }
+  try {
+    return normalizeTileIndexCandidate(tileIndexForGlyphHelper(normalizedGlyph));
+  } catch {
+    return null;
+  }
+}
+
+function resolveMenuItemTileIndex(item: NethackMenuItem | null | undefined): number | null {
+  if (!item) {
+    return null;
+  }
+  const helperTileIndex = resolveTileIndexForGlyph(item.glyph);
+  if (helperTileIndex !== null) {
+    return helperTileIndex;
+  }
+  return normalizeTileIndexCandidate(item.tileIndex);
+}
+
+function resolveMenuItemFallbackGlyph(
+  item: NethackMenuItem | null | undefined,
+  fallback = "?",
+): string {
+  const glyphCandidate = typeof item?.glyphChar === "string" ? item.glyphChar : "";
+  const glyphCodePoint = glyphCandidate.codePointAt(0);
+  if (
+    typeof glyphCodePoint === "number" &&
+    glyphCodePoint >= 32 &&
+    glyphCodePoint !== 127
+  ) {
+    return glyphCandidate.charAt(0);
+  }
+  return fallback;
+}
+
+function getInventoryItemForQuestionChoice(
+  choice: string,
+  inventoryItems: NethackMenuItem[],
+): NethackMenuItem | null {
+  const normalizedChoice = choice.trim();
+  if (!normalizedChoice) {
+    return null;
+  }
+  return (
+    inventoryItems.find((item) => {
+      if (!item || item.isCategory || typeof item.accelerator !== "string") {
+        return false;
+      }
+      return (
+        item.accelerator === normalizedChoice ||
+        item.accelerator.toLowerCase() === normalizedChoice.toLowerCase()
+      );
+    }) ?? null
+  );
+}
+
 function getQuestionChoiceLabel(
   questionText: string,
   choice: string,
@@ -338,15 +420,10 @@ function getQuestionChoiceLabel(
   if (!useInventoryLabels) {
     return normalizedChoice;
   }
-  const inventoryItem = inventoryItems.find((item) => {
-    if (!item || item.isCategory || typeof item.accelerator !== "string") {
-      return false;
-    }
-    return (
-      item.accelerator === normalizedChoice ||
-      item.accelerator.toLowerCase() === normalizedChoice.toLowerCase()
-    );
-  });
+  const inventoryItem = getInventoryItemForQuestionChoice(
+    normalizedChoice,
+    inventoryItems,
+  );
   if (!inventoryItem || typeof inventoryItem.text !== "string") {
     return normalizedChoice;
   }
@@ -8072,17 +8149,24 @@ export default function App(): JSX.Element {
           {question.menuItems.length > 0 ? (
             question.isPickupDialog ? (
               <>
-                {question.menuItems.map((item, index) =>
-                  !isSelectableQuestionMenuItem(item) ? (
-                    <div
-                      className={
-                        item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
-                      }
-                      key={`cat-${index}`}
-                    >
-                      {item.text}
-                    </div>
-                  ) : (
+                {question.menuItems.map((item, index) => {
+                  if (!isSelectableQuestionMenuItem(item)) {
+                    return (
+                      <div
+                        className={
+                          item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                        }
+                        key={`cat-${index}`}
+                      >
+                        {item.text}
+                      </div>
+                    );
+                  }
+                  const tileIndex = resolveMenuItemTileIndex(item);
+                  const tilePreview =
+                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                  const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
+                  return (
                     <div
                       className={`nh3d-pickup-item${
                         question.selectedAccelerators.includes(
@@ -8116,13 +8200,26 @@ export default function App(): JSX.Element {
                         }
                         type="checkbox"
                       />
-                      <span className="nh3d-pickup-key">
-                        {item.accelerator})
+                      <span className="nh3d-question-item-leading">
+                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
+                          {tilePreview ? (
+                            <span className="nh3d-question-item-icon-art">
+                              {tilePreview}
+                            </span>
+                          ) : (
+                            <span className="nh3d-question-item-icon-fallback">
+                              {fallbackGlyph}
+                            </span>
+                          )}
+                        </span>
+                        <span className="nh3d-pickup-key">
+                          {item.accelerator})
+                        </span>
                       </span>
                       <span className="nh3d-pickup-text">{item.text}</span>
                     </div>
-                  ),
-                )}
+                  );
+                })}
                 {showPickupActionButtons ? (
                   <div className="nh3d-pickup-actions">
                     <button
@@ -8297,17 +8394,24 @@ export default function App(): JSX.Element {
               </>
             ) : (
               <>
-                {question.menuItems.map((item, index) =>
-                  !isSelectableQuestionMenuItem(item) ? (
-                    <div
-                      className={
-                        item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
-                      }
-                      key={`cat-${index}`}
-                    >
-                      {item.text}
-                    </div>
-                  ) : (
+                {question.menuItems.map((item, index) => {
+                  if (!isSelectableQuestionMenuItem(item)) {
+                    return (
+                      <div
+                        className={
+                          item.isCategory ? "nh3d-menu-category" : "nh3d-menu-row"
+                        }
+                        key={`cat-${index}`}
+                      >
+                        {item.text}
+                      </div>
+                    );
+                  }
+                  const tileIndex = resolveMenuItemTileIndex(item);
+                  const tilePreview =
+                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                  const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
+                  return (
                     <button
                       className={`nh3d-menu-button${
                         question.activeMenuSelectionInput ===
@@ -8323,13 +8427,26 @@ export default function App(): JSX.Element {
                       }
                       type="button"
                     >
-                      <span className="nh3d-menu-button-key">
-                        {item.accelerator}){" "}
+                      <span className="nh3d-question-item-leading">
+                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
+                          {tilePreview ? (
+                            <span className="nh3d-question-item-icon-art">
+                              {tilePreview}
+                            </span>
+                          ) : (
+                            <span className="nh3d-question-item-icon-fallback">
+                              {fallbackGlyph}
+                            </span>
+                          )}
+                        </span>
+                        <span className="nh3d-menu-button-key">
+                          {item.accelerator})
+                        </span>
                       </span>
-                      <span>{item.text}</span>
+                      <span className="nh3d-menu-button-label">{item.text}</span>
                     </button>
-                  ),
-                )}
+                  );
+                })}
                 {questionSelectableMenuItemCount > 1 ? (
                   <div className="nh3d-menu-actions">
                     <button
@@ -8361,25 +8478,56 @@ export default function App(): JSX.Element {
                 data-nh3d-overflow-glow
                 data-nh3d-overflow-glow-host="parent"
               >
-                {parsedQuestionChoices.map((choice) => (
-                  <button
-                    className={`nh3d-choice-button${
-                      choice === question.defaultChoice
-                        ? " nh3d-choice-button-default"
-                        : ""
-                    }`}
-                    key={choice}
-                    onClick={() => controller?.chooseQuestionChoice(choice)}
-                    type="button"
-                  >
-                    {getQuestionChoiceLabel(
-                      question.text,
-                      choice,
-                      inventory.items,
-                      useInventoryChoiceLabels,
-                    )}
-                  </button>
-                ))}
+                {parsedQuestionChoices.map((choice) => {
+                  const inventoryChoiceItem = useInventoryChoiceLabels
+                    ? getInventoryItemForQuestionChoice(choice, inventory.items)
+                    : null;
+                  const tileIndex = resolveMenuItemTileIndex(inventoryChoiceItem);
+                  const tilePreview =
+                    tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
+                  const fallbackGlyph = resolveMenuItemFallbackGlyph(
+                    inventoryChoiceItem,
+                    choice.trim().charAt(0) || "?",
+                  );
+                  return (
+                    <button
+                      className={`nh3d-choice-button${
+                        choice === question.defaultChoice
+                          ? " nh3d-choice-button-default"
+                          : ""
+                      }${
+                        inventoryChoiceItem
+                          ? " nh3d-choice-button-with-tile"
+                          : ""
+                      }`}
+                      key={choice}
+                      onClick={() => controller?.chooseQuestionChoice(choice)}
+                      type="button"
+                    >
+                      {inventoryChoiceItem ? (
+                        <span className="nh3d-question-item-icon-shell" aria-hidden="true">
+                          {tilePreview ? (
+                            <span className="nh3d-question-item-icon-art">
+                              {tilePreview}
+                            </span>
+                          ) : (
+                            <span className="nh3d-question-item-icon-fallback">
+                              {fallbackGlyph}
+                            </span>
+                          )}
+                        </span>
+                      ) : null}
+                      <span className="nh3d-choice-button-item-label">
+                        {getQuestionChoiceLabel(
+                          question.text,
+                          choice,
+                          inventory.items,
+                          useInventoryChoiceLabels,
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -8991,25 +9139,10 @@ export default function App(): JSX.Element {
                     );
                   }
 
-                  const rawTileIndex =
-                    typeof item.tileIndex === "number"
-                      ? item.tileIndex
-                      : Number.NaN;
-                  const tileIndex =
-                    Number.isFinite(rawTileIndex) && rawTileIndex >= 0
-                      ? Math.trunc(rawTileIndex)
-                      : null;
+                  const tileIndex = resolveMenuItemTileIndex(item);
                   const tilePreview =
                     tileIndex !== null ? renderTilePreviewImage(tileIndex) : null;
-                  const fallbackGlyphRaw =
-                    typeof item.glyphChar === "string" ? item.glyphChar : "";
-                  const fallbackGlyphCodePoint = fallbackGlyphRaw.codePointAt(0);
-                  const fallbackGlyph =
-                    typeof fallbackGlyphCodePoint === "number" &&
-                    fallbackGlyphCodePoint >= 32 &&
-                    fallbackGlyphCodePoint !== 127
-                      ? fallbackGlyphRaw.charAt(0)
-                      : "?";
+                  const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   const itemAccelerator =
                     typeof item.accelerator === "string"
                       ? item.accelerator.trim()
