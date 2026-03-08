@@ -1637,9 +1637,25 @@ canvas {
     }
 
     &.nh3d-startup-init-expanded {
-      top: auto;
-      bottom: var(--nh3d-startup-modal-frame-bottom-inset);
-      transform: translate(-50%, 0);
+      --nh3d-startup-expanded-overflow-shift-y: min(
+        0px,
+        calc(
+          var(--nh3d-mobile-visible-height, 100vh) -
+            var(--nh3d-startup-modal-frame-bottom-inset) -
+            var(--nh3d-startup-modal-frame-top) -
+            100%
+        )
+      );
+      --nh3d-startup-expanded-safe-top-shift-y: calc(
+        var(--nh3d-modal-safe-top-inset) - var(--nh3d-startup-modal-frame-top)
+      );
+      --nh3d-startup-expanded-shift-y: max(
+        var(--nh3d-startup-expanded-safe-top-shift-y),
+        var(--nh3d-startup-expanded-overflow-shift-y)
+      );
+      top: var(--nh3d-startup-modal-frame-top);
+      bottom: auto;
+      transform: translate(-50%, var(--nh3d-startup-expanded-shift-y));
       max-height: calc(
         var(--nh3d-mobile-visible-height, 100vh) - var(
             --nh3d-modal-safe-top-inset
@@ -1675,9 +1691,25 @@ canvas {
 
 @media not (pointer: coarse) {
   #character-setup-dialog.nh3d-startup-init-expanded {
-    top: auto;
-    bottom: var(--nh3d-startup-modal-frame-bottom-inset);
-    transform: translate(-50%, 0);
+    --nh3d-startup-expanded-overflow-shift-y: min(
+      0px,
+      calc(
+        var(--nh3d-mobile-visible-height, 100vh) -
+          var(--nh3d-startup-modal-frame-bottom-inset) -
+          var(--nh3d-startup-modal-frame-top) -
+          100%
+      )
+    );
+    --nh3d-startup-expanded-safe-top-shift-y: calc(
+      var(--nh3d-modal-safe-top-inset) - var(--nh3d-startup-modal-frame-top)
+    );
+    --nh3d-startup-expanded-shift-y: max(
+      var(--nh3d-startup-expanded-safe-top-shift-y),
+      var(--nh3d-startup-expanded-overflow-shift-y)
+    );
+    top: var(--nh3d-startup-modal-frame-top);
+    bottom: auto;
+    transform: translate(-50%, var(--nh3d-startup-expanded-shift-y));
     max-height: calc(
       var(--nh3d-mobile-visible-height, 100vh) - var(
           --nh3d-modal-safe-top-inset
