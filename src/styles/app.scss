@@ -1673,6 +1673,19 @@ canvas {
   }
 }
 
+@media not (pointer: coarse) {
+  #character-setup-dialog.nh3d-startup-init-expanded {
+    top: auto;
+    bottom: var(--nh3d-startup-modal-frame-bottom-inset);
+    transform: translate(-50%, 0);
+    max-height: calc(
+      var(--nh3d-mobile-visible-height, 100vh) - var(
+          --nh3d-modal-safe-top-inset
+        ) - var(--nh3d-startup-modal-frame-bottom-inset)
+    );
+  }
+}
+
 .nh3d-dialog-direction {
   border: 2px solid var(--nh3d-ui-border-strong);
   color: var(--nh3d-ui-accent-soft);
