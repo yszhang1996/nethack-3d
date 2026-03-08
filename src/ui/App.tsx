@@ -3452,6 +3452,21 @@ async function deleteSavedGame(filename: string): Promise<void> {
   }
 }
 
+type Nh3dElectronBridge = {
+  quitGame?: () => Promise<unknown>;
+};
+
+async function requestGameQuit(): Promise<void> {
+  const electronBridge = (
+    window as Window & { nh3dElectron?: Nh3dElectronBridge }
+  ).nh3dElectron;
+  if (typeof electronBridge?.quitGame === "function") {
+    await electronBridge.quitGame();
+    return;
+  }
+  window.close();
+}
+
 export default function App(): JSX.Element {
   const startupDefaultCharacterPreferences = useMemo(
     () => createDefaultStartupCharacterPreferences(),
@@ -8738,7 +8753,7 @@ export default function App(): JSX.Element {
             <button
               className="nh3d-choice-button"
               onClick={() => {
-                window.close();
+                void requestGameQuit();
               }}
               type="button"
             >
@@ -8896,7 +8911,9 @@ export default function App(): JSX.Element {
                     </button>
                     <button
                       className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={() => window.close()}
+                      onClick={() => {
+                        void requestGameQuit();
+                      }}
                       type="button"
                     >
                       Quit Game

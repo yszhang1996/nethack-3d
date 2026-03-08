@@ -33,7 +33,7 @@ export default function ConfirmationModal({
           {dialog.confirmLabel}
         </button>
         <button
-          className="nh3d-menu-action-button nh3d-menu-action-cancel"
+          className="nh3d-menu-action-button"
           onClick={onCancel}
           type="button"
         >

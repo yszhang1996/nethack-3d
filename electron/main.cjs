@@ -1,9 +1,18 @@
-const { app, BrowserWindow, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("node:path");
 
 app.setVersion("0.9.1");
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
+const quitIpcChannel = "nh3d:quit-app";
+
+ipcMain.handle(quitIpcChannel, () => {
+  // Bypass renderer beforeunload prompts for explicit in-game quit requests.
+  for (const window of BrowserWindow.getAllWindows()) {
+    window.destroy();
+  }
+  app.quit();
+});
 
 function createMainWindow() {
   const mainWindow = new BrowserWindow({
@@ -19,6 +28,7 @@ function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, "preload.cjs"),
       sandbox: true,
     },
   });
@@ -33,6 +43,12 @@ function createMainWindow() {
       // Ignore external browser launch errors.
     });
     return { action: "deny" };
+  });
+
+  mainWindow.webContents.on("will-prevent-unload", (event) => {
+    // Allow Alt+F4 / native close to quit immediately even if the renderer
+    // registered a beforeunload prompt while gameplay is active.
+    event.preventDefault();
   });
 
   if (!app.isPackaged && devServerUrl) {
