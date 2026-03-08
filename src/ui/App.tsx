@@ -86,6 +86,7 @@ import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-
 import SoundPackSettings, {
   type SoundPackDialogActions,
 } from "./SoundPackSettings";
+import ConfirmationModal from "./ConfirmationModal";
 import StartupInitOptionsAccordion from "./StartupInitOptionsAccordion";
 import {
   normalizeStartupCreateCharacterSelection,
@@ -99,6 +100,7 @@ import {
   type CharacterSheetStatKey,
 } from "./character-sheet";
 import { parseEnhanceMenu } from "./enhance-menu";
+import { useConfirmationDialog } from "./useConfirmationDialog";
 
 type DirectionChoice = {
   key?: string;
@@ -3513,10 +3515,18 @@ export default function App(): JSX.Element {
     save: SaveGameRecord,
   ) => {
     e.stopPropagation();
-    if (window.confirm(`Are you sure you want to delete ${save.name}?`)) {
-      await deleteSavedGame(save.filename);
-      setSavedGames((prev) => prev.filter((s) => s.filename !== save.filename));
+    const confirmed = await requestConfirmation({
+      title: "Delete Saved Game?",
+      message: `Are you sure you want to delete ${save.name}?`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      confirmClassName: "nh3d-menu-action-cancel",
+    });
+    if (!confirmed) {
+      return;
     }
+    await deleteSavedGame(save.filename);
+    setSavedGames((prev) => prev.filter((s) => s.filename !== save.filename));
   };
 
   const handleResumeClick = async () => {
@@ -3539,9 +3549,13 @@ export default function App(): JSX.Element {
         const configName = config.name || "Web_user";
         const existingSave = saves.find((s) => s.name === configName);
         if (existingSave) {
-          const confirmed = window.confirm(
-            `A saved game named "${configName}" already exists.\n\nDo you want to overwrite it with a new character?`,
-          );
+          const confirmed = await requestConfirmation({
+            title: "Overwrite Saved Game?",
+            message: `A saved game named "${configName}" already exists. Do you want to overwrite it with a new character?`,
+            confirmLabel: "Overwrite",
+            cancelLabel: "Cancel",
+            confirmClassName: "nh3d-menu-action-cancel",
+          });
           if (!confirmed) {
             return;
           }
@@ -3719,6 +3733,11 @@ export default function App(): JSX.Element {
   const previousCoreStatSnapshotRef = useRef<CoreStatSnapshot | null>(null);
   const [textInputValue, setTextInputValue] = useState("");
   const soundPackDialogActionsRef = useRef<SoundPackDialogActions | null>(null);
+  const {
+    dialog: globalConfirmationDialog,
+    requestConfirmation,
+    resolveConfirmation,
+  } = useConfirmationDialog();
   const startupControllerPreviousActionActiveRef = useRef<
     Partial<Record<Nh3dControllerActionId, boolean>>
   >({});
@@ -6099,6 +6118,7 @@ export default function App(): JSX.Element {
     isWizardCommandsVisible,
     isControllerActionWheelVisible,
     controllerActionWheelMode,
+    globalConfirmationDialog,
   ]);
 
   const mobileExtendedCommandNames = useMemo(() => {
@@ -6637,10 +6657,14 @@ export default function App(): JSX.Element {
     record: StoredUserTilesetRecord,
   ): Promise<void> => {
     const label = String(record.label || "this tileset");
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete '${label}' from uploaded tilesets?`)
-    ) {
+    const confirmed = await requestConfirmation({
+      title: "Delete Uploaded Tileset?",
+      message: `Delete '${label}' from uploaded tilesets?`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      confirmClassName: "nh3d-menu-action-cancel",
+    });
+    if (!confirmed) {
       return;
     }
     setTilesetManagerBusy(true);
@@ -6812,7 +6836,8 @@ export default function App(): JSX.Element {
 
   const closeClientOptionsDialog = async (): Promise<void> => {
     const canDiscardSoundPackChanges =
-      soundPackDialogActionsRef.current?.confirmDiscardIfNeeded() ?? true;
+      (await soundPackDialogActionsRef.current?.confirmDiscardIfNeeded()) ??
+      true;
     if (!canDiscardSoundPackChanges) {
       return;
     }
@@ -9951,6 +9976,7 @@ export default function App(): JSX.Element {
                     onDialogActionsChange={(actions) => {
                       soundPackDialogActionsRef.current = actions;
                     }}
+                    requestConfirmation={requestConfirmation}
                     visible={selectedClientOptionsTab.id === "sound"}
                   />
                 </div>
@@ -12541,6 +12567,13 @@ export default function App(): JSX.Element {
           </div>
         </div>
       ) : null}
+
+      <ConfirmationModal
+        dialog={globalConfirmationDialog}
+        dialogId="nh3d-global-confirmation-dialog"
+        onCancel={() => resolveConfirmation(false)}
+        onConfirm={() => resolveConfirmation(true)}
+      />
     </>
   );
 }

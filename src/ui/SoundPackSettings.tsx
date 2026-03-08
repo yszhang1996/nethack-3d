@@ -29,17 +29,27 @@ import {
   type Nh3dSoundPackRecord,
   type Nh3dSoundFileUploadOverrides,
 } from "../audio/sound-pack-storage";
+import ConfirmationModal from "./ConfirmationModal";
+import {
+  useConfirmationDialog,
+  type ConfirmationDialogRequest,
+} from "./useConfirmationDialog";
 
 type SoundPackSettingsProps = {
   visible: boolean;
+  requestConfirmation?: (
+    request: SoundPackConfirmationRequest,
+  ) => Promise<boolean>;
   onDialogActionsChange?: (actions: SoundPackDialogActions | null) => void;
 };
 
 export type SoundPackDialogActions = {
   saveIfNeeded: () => Promise<boolean>;
-  confirmDiscardIfNeeded: () => boolean;
+  confirmDiscardIfNeeded: () => Promise<boolean>;
   reloadFromStorage: () => Promise<void>;
 };
+
+export type SoundPackConfirmationRequest = ConfirmationDialogRequest;
 
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
@@ -108,6 +118,7 @@ function getSoundVariationViews(
 
 export default function SoundPackSettings({
   visible,
+  requestConfirmation,
   onDialogActionsChange,
 }: SoundPackSettingsProps): JSX.Element | null {
   const [packs, setPacks] = useState<Nh3dSoundPackRecord[]>([]);
@@ -132,6 +143,11 @@ export default function SoundPackSettings({
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   const previewObjectUrlRef = useRef<string | null>(null);
   const hasLoadedRef = useRef(false);
+  const {
+    dialog: localConfirmationDialog,
+    requestConfirmation: requestLocalConfirmation,
+    resolveConfirmation: resolveLocalConfirmation,
+  } = useConfirmationDialog();
 
   const defaultPack = useMemo(
     () => packs.find((pack) => pack.id === nh3dDefaultSoundPackId) ?? null,
@@ -159,6 +175,16 @@ export default function SoundPackSettings({
       stopPreview();
     };
   }, [stopPreview]);
+
+  const requestInGameConfirmation = useCallback(
+    (request: SoundPackConfirmationRequest): Promise<boolean> => {
+      if (requestConfirmation) {
+        return requestConfirmation(request);
+      }
+      return requestLocalConfirmation(request);
+    },
+    [requestConfirmation, requestLocalConfirmation],
+  );
 
   const applyLoadedState = useCallback(
     (loadedPacks: Nh3dSoundPackRecord[], preferredPackId?: string): void => {
@@ -331,21 +357,24 @@ export default function SoundPackSettings({
     }));
   };
 
-  const discardPendingChangesIfNeeded = useCallback((): boolean => {
+  const discardPendingChangesIfNeeded = useCallback(async (): Promise<boolean> => {
     if (!isDraftDirty) {
       return true;
     }
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return window.confirm("Discard unsaved sound pack changes and continue?");
-  }, [isDraftDirty]);
+    return requestInGameConfirmation({
+      title: "Discard Sound Pack Changes?",
+      message: "Discard unsaved sound pack changes and continue?",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep Editing",
+      confirmClassName: "nh3d-menu-action-cancel",
+    });
+  }, [isDraftDirty, requestInGameConfirmation]);
 
   const handleSelectPack = async (nextPackId: string): Promise<void> => {
     if (!nextPackId || nextPackId === activePackId) {
       return;
     }
-    if (!discardPendingChangesIfNeeded()) {
+    if (!(await discardPendingChangesIfNeeded())) {
       return;
     }
     setErrorText("");
@@ -372,7 +401,7 @@ export default function SoundPackSettings({
       setErrorText("Provide a sound pack name.");
       return;
     }
-    if (!discardPendingChangesIfNeeded()) {
+    if (!(await discardPendingChangesIfNeeded())) {
       return;
     }
     setIsBusy(true);
@@ -464,7 +493,7 @@ export default function SoundPackSettings({
     if (!file) {
       return;
     }
-    if (!discardPendingChangesIfNeeded()) {
+    if (!(await discardPendingChangesIfNeeded())) {
       return;
     }
     setIsBusy(true);
@@ -485,12 +514,13 @@ export default function SoundPackSettings({
     if (!draftPack || isDefaultDraft) {
       return;
     }
-    if (typeof window === "undefined") {
-      return;
-    }
-    const confirmed = window.confirm(
-      `Delete sound pack '${draftPack.name}'? This cannot be undone.`,
-    );
+    const confirmed = await requestInGameConfirmation({
+      title: "Delete Sound Pack?",
+      message: `Delete sound pack '${draftPack.name}'? This cannot be undone.`,
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+      confirmClassName: "nh3d-menu-action-cancel",
+    });
     if (!confirmed) {
       return;
     }
@@ -1105,6 +1135,13 @@ export default function SoundPackSettings({
           })}
         </div>
       ) : null}
+
+      <ConfirmationModal
+        dialog={localConfirmationDialog}
+        dialogId="nh3d-soundpack-confirmation-dialog"
+        onCancel={() => resolveLocalConfirmation(false)}
+        onConfirm={() => resolveLocalConfirmation(true)}
+      />
     </div>
   );
 }

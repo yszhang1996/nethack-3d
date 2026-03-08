@@ -31,6 +31,9 @@ Start here before making changes.
 - `public/app.js` and `public/runtime-worker.js` are build outputs.
 - Prefer adding new gameplay/runtime features in focused files under `src/game/*` or `src/runtime/*` by function (input, audio, rendering, parsing, UI state, etc.) rather than adding large new blocks to `src/game/Nethack3DEngine.ts`.
 - Keep `src/game/Nethack3DEngine.ts` as an orchestration layer when possible: wire modules together there, but move new domain logic into separate modules to support gradual migration away from the monolithic file.
+- Use React components whenever possible to avoid duplicated code and keep the code and CSS clean and concise. The goal is DRY code.
+  - If refactoring to make code DRY is needed, suggest it to the user, or do it if it's within the scope of the task you're handling.
+  - Store components in logical subfolders and not a dumping ground in the UI folder.
 - If adding/changing runtime event payloads, update both:
   - event emitter sites in `src/runtime/LocalNetHackRuntime.ts`
   - event handling in `src/game/Nethack3DEngine.ts`
