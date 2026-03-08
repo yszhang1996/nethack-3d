@@ -5526,14 +5526,7 @@ canvas {
   font-size: nh3d-scale-font(11px);
   font-weight: bold;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
-
-  &.is-mobile {
-    bottom: calc(58px + env(safe-area-inset-bottom));
-  }
-
-  &.is-desktop {
-    bottom: calc(10px + env(safe-area-inset-bottom));
-  }
+  bottom: calc(58px + env(safe-area-inset-bottom));
 
   &.is-active,
   &:active {
@@ -5550,13 +5543,11 @@ canvas {
   }
 
   @media (orientation: landscape) and (pointer: coarse) {
-    &.is-mobile {
-      bottom: calc(8px + env(safe-area-inset-bottom));
-      min-width: 82px;
-    }
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    min-width: 82px;
   }
 
-  :root.nh3d-force-touch-layout-landscape &.is-mobile {
+  :root.nh3d-force-touch-layout-landscape & {
     bottom: calc(8px + env(safe-area-inset-bottom));
     min-width: 82px;
   }

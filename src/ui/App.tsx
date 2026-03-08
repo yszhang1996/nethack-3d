@@ -12335,11 +12335,11 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {wizardCommandsSupported ? (
+      {wizardCommandsSupported && isMobileGameRunning ? (
         <button
-          className={`nh3d-wizard-commands-button ${
-            isMobileGameRunning ? "is-mobile" : "is-desktop"
-          }${isWizardCommandsVisible ? " is-active" : ""}`}
+          className={`nh3d-wizard-commands-button${
+            isWizardCommandsVisible ? " is-active" : ""
+          }`}
           onClick={toggleWizardCommands}
           ref={wizardCommandsButtonRef}
           type="button"
@@ -12363,6 +12363,18 @@ export default function App(): JSX.Element {
 
       {isDesktopGameRunning && !clientOptions.controllerEnabled ? (
         <div className="nh3d-desktop-bottom-actions">
+          {wizardCommandsSupported ? (
+            <button
+              className={`nh3d-desktop-bottom-button${
+                isWizardCommandsVisible ? " is-active" : ""
+              }`}
+              onClick={toggleWizardCommands}
+              ref={wizardCommandsButtonRef}
+              type="button"
+            >
+              Wizard
+            </button>
+          ) : null}
           <button
             className={`nh3d-desktop-bottom-button${
               isCharacterSheetVisible ? " is-active" : ""

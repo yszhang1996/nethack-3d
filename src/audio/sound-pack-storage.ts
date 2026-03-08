@@ -82,7 +82,7 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "pickup-gold",
     label: "Pick up gold",
-    messageLogKeywords: ["gold pieces"],
+    messageLogKeywords: ["gold pieces", " - a gold piece"],
   },
   {
     key: "pickup-item",
@@ -103,6 +103,16 @@ export const nh3dSoundEffectDefinitions = [
     key: "unlock",
     label: "Unlock",
     messageLogKeywords: ["unlock"],
+  },
+  {
+    key: "boulder-push",
+    label: "Boulder push",
+    messageLogKeywords: ["With great effort you move the"],
+  },
+  {
+    key: "boulder-blocked",
+    label: "Boulder blocked",
+    messageLogKeywords: [", but in vain."],
   },
   // {
   //   key: "potion-shattering",
