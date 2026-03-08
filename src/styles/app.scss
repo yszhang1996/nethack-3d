@@ -5135,11 +5135,24 @@ canvas {
     border-color 120ms ease,
     box-shadow 120ms ease;
 
-  &:hover {
+  &:hover:not(:disabled) {
     background: var(--nh3d-ui-button-warm-bg-hover);
     border-color: var(--nh3d-ui-button-warm-border);
     box-shadow: 0 0 0 1px var(--nh3d-ui-button-warm-ring);
   }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: default;
+    background: rgba(24, 34, 46, 0.74);
+    border-color: var(--nh3d-ui-border);
+    color: var(--nh3d-ui-text-muted);
+    box-shadow: none;
+  }
+}
+
+.nh3d-menu-button-readonly {
+  font-weight: normal;
 }
 
 .nh3d-dialog button:not(.nh3d-controller-action-wheel-arc),
@@ -5210,6 +5223,10 @@ canvas {
   font-weight: bold;
   min-width: 24px;
   text-align: center;
+}
+
+.nh3d-menu-button:disabled .nh3d-menu-button-key {
+  color: var(--nh3d-ui-text-muted);
 }
 
 .nh3d-menu-button-label {

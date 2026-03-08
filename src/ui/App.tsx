@@ -531,6 +531,27 @@ function isSelectableQuestionMenuItem(item: NethackMenuItem): boolean {
   return getMenuSelectionInput(item).trim().length > 0;
 }
 
+function isReadOnlyQuestionOptionMenuItem(
+  item: NethackMenuItem | null | undefined,
+  questionText: string,
+): boolean {
+  if (!item || item.isCategory || isSelectableQuestionMenuItem(item)) {
+    return false;
+  }
+  const normalizedQuestion = String(questionText || "")
+    .trim()
+    .toLowerCase();
+  if (normalizedQuestion !== "set what options?") {
+    return false;
+  }
+  const menuText = String(item.text || "");
+  if (menuText.trim().length === 0) {
+    return false;
+  }
+  // NetHack emits non-modifiable options with indentation and [value] suffix.
+  return /^\s{2,}\S.*\[[^\]]+\]\s*$/.test(menuText);
+}
+
 type TileAtlasState = {
   loaded: boolean;
   failed: boolean;
@@ -10654,6 +10675,23 @@ export default function App(): JSX.Element {
               <>
                 {question.menuItems.map((item, index) => {
                   if (!isSelectableQuestionMenuItem(item)) {
+                    if (
+                      isReadOnlyQuestionOptionMenuItem(item, question.text)
+                    ) {
+                      return (
+                        <button
+                          className="nh3d-menu-button nh3d-menu-button-readonly"
+                          disabled
+                          key={`readonly-${index}`}
+                          type="button"
+                        >
+                          <span className="nh3d-menu-button-key">{"-"}</span>
+                          <span className="nh3d-menu-button-label">
+                            {String(item.text || "").trimStart()}
+                          </span>
+                        </button>
+                      );
+                    }
                     return (
                       <div
                         className={
