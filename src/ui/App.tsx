@@ -370,17 +370,75 @@ function resolveTileIndexForGlyph(glyph: unknown): number | null {
   }
 }
 
+function resolveNoGlyphValueFromRuntime(): number | null {
+  const glyphConstants =
+    (
+      globalThis as {
+        nethackGlobal?: {
+          constants?: {
+            GLYPH?: {
+              NO_GLYPH?: unknown;
+              MAX_GLYPH?: unknown;
+            };
+          };
+        };
+      }
+    ).nethackGlobal?.constants?.GLYPH ?? null;
+  if (!glyphConstants) {
+    return null;
+  }
+  const explicitNoGlyph = normalizeTileIndexCandidate(glyphConstants.NO_GLYPH);
+  if (explicitNoGlyph !== null) {
+    return explicitNoGlyph;
+  }
+  return normalizeTileIndexCandidate(glyphConstants.MAX_GLYPH);
+}
+
+function isMenuItemTileApplicable(
+  item: NethackMenuItem | null | undefined,
+): boolean {
+  if (!item || item.isCategory) {
+    return false;
+  }
+  if (typeof item.isTileApplicable === "boolean") {
+    return item.isTileApplicable;
+  }
+  const glyphCandidate =
+    typeof item.glyphChar === "string" ? item.glyphChar : "";
+  if (glyphCandidate.length > 0 && glyphCandidate.trim().length === 0) {
+    return false;
+  }
+  if (typeof item.glyph === "number" && Number.isFinite(item.glyph)) {
+    const noGlyphValue = resolveNoGlyphValueFromRuntime();
+    if (noGlyphValue !== null && Math.trunc(item.glyph) === noGlyphValue) {
+      return false;
+    }
+  }
+  if (normalizeTileIndexCandidate(item.tileIndex) !== null) {
+    return true;
+  }
+  return (
+    typeof item.glyph === "number" &&
+    Number.isFinite(item.glyph) &&
+    item.glyph >= 0
+  );
+}
+
 function resolveMenuItemTileIndex(
   item: NethackMenuItem | null | undefined,
 ): number | null {
-  if (!item) {
+  if (!isMenuItemTileApplicable(item) || !item) {
     return null;
   }
-  const helperTileIndex = resolveTileIndexForGlyph(item.glyph);
-  if (helperTileIndex !== null) {
-    return helperTileIndex;
+  const explicitTileIndex = normalizeTileIndexCandidate(item.tileIndex);
+  if (explicitTileIndex !== null) {
+    return explicitTileIndex;
   }
-  return normalizeTileIndexCandidate(item.tileIndex);
+  if (typeof item.isTileApplicable === "boolean") {
+    // Runtime already made a deterministic tile/non-tile decision.
+    return null;
+  }
+  return resolveTileIndexForGlyph(item.glyph);
 }
 
 function resolveMenuItemFallbackGlyph(
@@ -10335,7 +10393,9 @@ export default function App(): JSX.Element {
                       </div>
                     );
                   }
-                  const tileIndex = tilesUiEnabled
+                  const tileApplicable =
+                    tilesUiEnabled && isMenuItemTileApplicable(item);
+                  const tileIndex = tileApplicable
                     ? resolveMenuItemTileIndex(item)
                     : null;
                   const tilePreview =
@@ -10378,7 +10438,7 @@ export default function App(): JSX.Element {
                         type="checkbox"
                       />
                       <span className="nh3d-question-item-leading">
-                        {tilesUiEnabled ? (
+                        {tileApplicable ? (
                           <span
                             className="nh3d-question-item-icon-shell"
                             aria-hidden="true"
@@ -10607,7 +10667,9 @@ export default function App(): JSX.Element {
                       </div>
                     );
                   }
-                  const tileIndex = tilesUiEnabled
+                  const tileApplicable =
+                    tilesUiEnabled && isMenuItemTileApplicable(item);
+                  const tileIndex = tileApplicable
                     ? resolveMenuItemTileIndex(item)
                     : null;
                   const tilePreview =
@@ -10632,7 +10694,7 @@ export default function App(): JSX.Element {
                       type="button"
                     >
                       <span className="nh3d-question-item-leading">
-                        {tilesUiEnabled ? (
+                        {tileApplicable ? (
                           <span
                             className="nh3d-question-item-icon-shell"
                             aria-hidden="true"
@@ -10693,8 +10755,12 @@ export default function App(): JSX.Element {
                   const inventoryChoiceItem = useInventoryChoiceLabels
                     ? getInventoryItemForQuestionChoice(choice, inventory.items)
                     : null;
+                  const tileApplicable =
+                    tilesUiEnabled &&
+                    Boolean(inventoryChoiceItem) &&
+                    isMenuItemTileApplicable(inventoryChoiceItem);
                   const tileIndex =
-                    tilesUiEnabled && inventoryChoiceItem
+                    tileApplicable && inventoryChoiceItem
                       ? resolveMenuItemTileIndex(inventoryChoiceItem)
                       : null;
                   const tilePreview =
@@ -10712,7 +10778,7 @@ export default function App(): JSX.Element {
                           ? " nh3d-choice-button-default"
                           : ""
                       }${
-                        tilesUiEnabled && inventoryChoiceItem
+                        tileApplicable
                           ? " nh3d-choice-button-with-tile"
                           : ""
                       }`}
@@ -10720,7 +10786,7 @@ export default function App(): JSX.Element {
                       onClick={() => controller?.chooseQuestionChoice(choice)}
                       type="button"
                     >
-                      {tilesUiEnabled && inventoryChoiceItem ? (
+                      {tileApplicable ? (
                         <span
                           className="nh3d-question-item-icon-shell"
                           aria-hidden="true"
@@ -11363,7 +11429,8 @@ export default function App(): JSX.Element {
                     );
                   }
 
-                  const tileIndex = tilesUiEnabled
+                  const tileApplicable = isMenuItemTileApplicable(item);
+                  const tileIndex = tilesUiEnabled && tileApplicable
                     ? resolveMenuItemTileIndex(item)
                     : null;
                   const tilePreview =
@@ -11379,6 +11446,7 @@ export default function App(): JSX.Element {
                     inventoryContextMenu?.accelerator === itemAccelerator;
                   const showInventoryTileIcon =
                     tilesUiEnabled &&
+                    tileApplicable &&
                     (!inventoryReducedMotionEnabled ||
                       inventoryFixedTileSizeMode !== "none");
 

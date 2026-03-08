@@ -1625,6 +1625,41 @@ class LocalNetHackRuntime {
     return typeof code === "number" && code > 32 && code < 127;
   }
 
+  normalizeNonNegativeInteger(value) {
+    const numeric =
+      typeof value === "string" && value.trim().length > 0
+        ? Number(value)
+        : value;
+    if (
+      typeof numeric !== "number" ||
+      !Number.isFinite(numeric) ||
+      numeric < 0
+    ) {
+      return null;
+    }
+    return Math.trunc(numeric);
+  }
+
+  getNoGlyphValue() {
+    const glyphConstants =
+      globalThis.nethackGlobal &&
+      globalThis.nethackGlobal.constants &&
+      globalThis.nethackGlobal.constants.GLYPH &&
+      typeof globalThis.nethackGlobal.constants.GLYPH === "object"
+        ? globalThis.nethackGlobal.constants.GLYPH
+        : null;
+    if (!glyphConstants) {
+      return null;
+    }
+    const explicitNoGlyph = this.normalizeNonNegativeInteger(
+      glyphConstants.NO_GLYPH,
+    );
+    if (explicitNoGlyph !== null) {
+      return explicitNoGlyph;
+    }
+    return this.normalizeNonNegativeInteger(glyphConstants.MAX_GLYPH);
+  }
+
   shouldCaptureWindowTextForDialog(winId) {
     return winId === 4 || winId === 5 || winId === 6;
   }
@@ -1937,8 +1972,9 @@ class LocalNetHackRuntime {
     ) {
       return menuItem.accelerator;
     }
+
     const original = menuItem?.originalAccelerator;
-    if (typeof original === "number" && original > 32 && original < 127) {
+    if (this.isPrintableAccelerator(original)) {
       return String.fromCharCode(original);
     }
     return "Enter";
@@ -3540,6 +3576,8 @@ class LocalNetHackRuntime {
         let glyphChar = "";
         let menuItemTileIndex = null;
         let resolvedMenuGlyph = menuGlyph;
+        let isTileApplicable = false;
+        const noGlyphValue = this.getNoGlyphValue();
 
         // Convert glyph to visual character and tile index using runtime helpers.
         if (menuGlyph) {
@@ -3581,7 +3619,15 @@ class LocalNetHackRuntime {
             Number.isFinite(finalGlyph) &&
             finalGlyph >= 0
           ) {
-            if (tileIndexForGlyphHelper) {
+            isTileApplicable = true;
+            if (
+              noGlyphValue !== null &&
+              Math.trunc(finalGlyph) === noGlyphValue
+            ) {
+              isTileApplicable = false;
+            }
+
+            if (isTileApplicable && tileIndexForGlyphHelper) {
               try {
                 const helperTileIndex = tileIndexForGlyphHelper(finalGlyph);
                 if (
@@ -3638,30 +3684,42 @@ class LocalNetHackRuntime {
           }
         }
 
+        if (
+          typeof glyphChar === "string" &&
+          glyphChar.length > 0 &&
+          glyphChar.trim().length === 0
+        ) {
+          // NO_GLYPH rows map to a blank symbol in NetHack menus.
+          isTileApplicable = false;
+        }
+
+        if (menuItemTileIndex === null) {
+          // Only treat a row as tile-applicable when NetHack/helpers resolve
+          // a concrete tile index. This avoids false-positive tile shells for
+          // NO_GLYPH/text-only rows in options/help menus.
+          isTileApplicable = false;
+        }
+
+        if (!isTileApplicable) {
+          menuItemTileIndex = null;
+        }
+
+        const tileApplicableForRow = !isCategory && isTileApplicable;
+
         if (!isCategory) {
           // For non-category items, determine the accelerator key
-          const isAsciiAccelerator =
-            typeof accelerator === "number" &&
-            accelerator > 32 &&
-            accelerator < 127;
-          const isQuestionMark =
-            typeof accelerator === "number" && accelerator === 63;
-          if (isSelectable && isAsciiAccelerator && !isQuestionMark) {
+          const isAsciiAccelerator = this.isPrintableAccelerator(accelerator);
+          if (isSelectable && isAsciiAccelerator) {
             // If accelerator is a valid ASCII character code, use it
             menuChar = String.fromCharCode(accelerator);
           } else if (isSelectable) {
-            // If accelerator is invalid (like the large numbers we're seeing),
-            // assign letters automatically based on the current selectable items
+            // Curses-style fallback for selectable rows with no accelerator.
             const existingItems = this.currentMenuItems.filter(
               (item) => !item.isCategory && item.isSelectable,
             );
             const alphabet =
               "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            if (existingItems.length < alphabet.length) {
-              menuChar = alphabet[existingItems.length];
-            } else {
-              menuChar = "?"; // Fallback for too many items
-            }
+            menuChar = alphabet[existingItems.length % alphabet.length];
           }
 
           console.log(
@@ -3686,7 +3744,10 @@ class LocalNetHackRuntime {
             glyph: resolvedMenuGlyph,
             glyphChar: glyphChar, // Add the visual character representation
             tileIndex:
-              menuItemTileIndex !== null ? menuItemTileIndex : undefined,
+              tileApplicableForRow && menuItemTileIndex !== null
+                ? menuItemTileIndex
+                : undefined,
+            isTileApplicable: tileApplicableForRow,
             isCategory: isCategory,
             isSelectable,
             menuIndex: this.currentMenuItems.length, // Store the menu item index
@@ -3703,7 +3764,10 @@ class LocalNetHackRuntime {
             glyph: resolvedMenuGlyph,
             glyphChar: glyphChar, // Include glyph character in client message
             tileIndex:
-              menuItemTileIndex !== null ? menuItemTileIndex : undefined,
+              tileApplicableForRow && menuItemTileIndex !== null
+                ? menuItemTileIndex
+                : undefined,
+            isTileApplicable: tileApplicableForRow,
             isCategory: isCategory,
             isSelectable,
             menuItems: this.currentMenuItems,

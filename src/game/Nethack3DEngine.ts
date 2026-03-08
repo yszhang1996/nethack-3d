@@ -18364,6 +18364,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const targetX = this.playerPos.x + movementDelta.dx;
     const targetY = this.playerPos.y + movementDelta.dy;
+    this.updateDirectionalAttackContextFromTarget(targetX, targetY);
+    this.setPendingPointerAttackTargetFromTile(targetX, targetY);
     this.logClickLookTileDebug("controller-confirm-move", targetX, targetY);
     this.sendMouseInput(targetX, targetY, 0);
     return true;
