@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ChangeEvent } from "react";
+import { useId, type ChangeEvent } from "react";
 import {
   startupInitOptionDefinitions,
   type StartupInitOptionDefinition,
@@ -207,135 +207,15 @@ export default function StartupInitOptionsAccordion({
   onOptionValueChange,
   onResetDefaults,
 }: StartupInitOptionsAccordionProps): JSX.Element {
-  const detailsRef = useRef<HTMLDetailsElement | null>(null);
-  const optionsListRef = useRef<HTMLDivElement | null>(null);
   const accordionIdPrefix = useId().replace(/:/g, "");
   const summaryId = `${accordionIdPrefix}-summary`;
   const panelId = `${accordionIdPrefix}-panel`;
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    let rafId: number | null = null;
-    let resizeObserver: ResizeObserver | null = null;
-    const detailsElement = detailsRef.current;
-    const listElement = optionsListRef.current;
-
-    if (!detailsElement || !listElement) {
-      return;
-    }
-
-    const getDialogActionsElement = (
-      dialogElement: HTMLElement,
-    ): HTMLElement | null => {
-      for (const child of Array.from(dialogElement.children)) {
-        if (
-          child instanceof HTMLElement &&
-          child.classList.contains("nh3d-menu-actions")
-        ) {
-          return child;
-        }
-      }
-      return null;
-    };
-
-    const isMobileLandscape = (): boolean => {
-      return window.matchMedia("(pointer: coarse) and (orientation: landscape)")
-        .matches;
-    };
-
-    const updateOptionsListMaxHeight = (): void => {
-      const currentDetailsElement = detailsRef.current;
-      const currentListElement = optionsListRef.current;
-      if (!currentDetailsElement || !currentListElement) {
-        return;
-      }
-      if (!currentDetailsElement.open) {
-        currentListElement.style.removeProperty("max-height");
-        return;
-      }
-
-      if (isMobileLandscape()) {
-        currentListElement.style.maxHeight =
-          "calc(var(--nh3d-startup-accordion-min-height-landscape) - 100px)";
-        return;
-      }
-
-      const dialogElement = currentDetailsElement.closest(
-        "#character-setup-dialog",
-      );
-      if (!(dialogElement instanceof HTMLElement)) {
-        currentListElement.style.removeProperty("max-height");
-        return;
-      }
-
-      const dialogRect = dialogElement.getBoundingClientRect();
-      const listRect = currentListElement.getBoundingClientRect();
-      const actionsElement = getDialogActionsElement(dialogElement);
-      const actionsRect = actionsElement?.getBoundingClientRect() ?? null;
-      const bottomBoundaryPx = Math.min(
-        dialogRect.bottom,
-        actionsRect?.top ?? Number.POSITIVE_INFINITY,
-      );
-      // Sticky footer shadow/border can visually overlap content even when
-      // geometry says it's still visible; keep extra headroom.
-      const footerBufferPx = 32;
-      const availableHeightPx = Math.floor(
-        bottomBoundaryPx - listRect.top - footerBufferPx,
-      );
-      const nextMaxHeightPx = Math.max(0, availableHeightPx);
-      currentListElement.style.maxHeight = `${nextMaxHeightPx}px`;
-    };
-
-    const scheduleMaxHeightUpdate = (): void => {
-      if (rafId !== null) {
-        return;
-      }
-      rafId = window.requestAnimationFrame(() => {
-        rafId = null;
-        updateOptionsListMaxHeight();
-      });
-    };
-
-    scheduleMaxHeightUpdate();
-
-    window.addEventListener("resize", scheduleMaxHeightUpdate);
-    window.addEventListener("orientationchange", scheduleMaxHeightUpdate);
-
-    if (typeof ResizeObserver !== "undefined") {
-      resizeObserver = new ResizeObserver(() => {
-        scheduleMaxHeightUpdate();
-      });
-      resizeObserver.observe(detailsElement);
-      resizeObserver.observe(listElement);
-      const dialogElement = detailsElement.closest("#character-setup-dialog");
-      if (dialogElement instanceof HTMLElement) {
-        resizeObserver.observe(dialogElement);
-        const actionsElement = getDialogActionsElement(dialogElement);
-        if (actionsElement) {
-          resizeObserver.observe(actionsElement);
-        }
-      }
-    }
-
-    return () => {
-      if (rafId !== null) {
-        window.cancelAnimationFrame(rafId);
-      }
-      window.removeEventListener("resize", scheduleMaxHeightUpdate);
-      window.removeEventListener("orientationchange", scheduleMaxHeightUpdate);
-      resizeObserver?.disconnect();
-    };
-  }, [expanded]);
 
   return (
     <details
       className="nh3d-startup-init-options"
       onToggle={(event) => onExpandedChange(event.currentTarget.open)}
       open={expanded}
-      ref={detailsRef}
     >
       <summary
         aria-controls={panelId}
@@ -359,7 +239,6 @@ export default function StartupInitOptionsAccordion({
             className="nh3d-startup-init-options-list"
             data-nh3d-overflow-glow
             data-nh3d-overflow-glow-host="parent"
-            ref={optionsListRef}
           >
             {startupInitOptionDefinitions.map((option) => {
               if (option.control === "boolean") {
