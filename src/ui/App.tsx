@@ -23,6 +23,7 @@ import type {
 } from "../game/ui-types";
 import {
   nh3dCloseControllerActionWheelEventName,
+  nh3dCloseInventoryContextMenuEventName,
   defaultNh3dClientOptions,
   nh3dOpenCharacterSheetEventName,
   nh3dFpsLookSensitivityMax,
@@ -1711,6 +1712,7 @@ const startupControllerActionThreshold = 0.5;
 const startupControllerScrollSpeedPxPerSec = 1150;
 const startupControllerCursorDeadzone = 0.2;
 const startupControllerCursorSpeedPxPerSec = 820;
+const startupControllerSliderFastStepsPerSec = 13;
 const controllerActionGroupOrder: Array<
   keyof typeof nh3dControllerActionSpecsByGroup
 > = ["Movement", "Look And Camera", "Actions", "Dialogs", "System"];
@@ -2220,14 +2222,61 @@ function clickControllerDialogElementAtPoint(
   return clickable;
 }
 
-function isStartupInitAccordionSummaryElement(
-  element: HTMLElement | null,
+function getFocusedControllerRangeInput(
+  dialogRoot: HTMLElement | null,
+): HTMLInputElement | null {
+  if (!dialogRoot) {
+    return null;
+  }
+  const activeElement =
+    document.activeElement instanceof HTMLInputElement
+      ? document.activeElement
+      : null;
+  if (!activeElement || !dialogRoot.contains(activeElement)) {
+    return null;
+  }
+  if (activeElement.type !== "range" || activeElement.disabled) {
+    return null;
+  }
+  return activeElement;
+}
+
+function stepControllerRangeInput(
+  slider: HTMLInputElement,
+  stepCount: number,
 ): boolean {
-  return (
-    element instanceof HTMLElement &&
-    element.tagName === "SUMMARY" &&
-    element.classList.contains("nh3d-startup-init-options-summary")
+  if (!Number.isFinite(stepCount) || stepCount === 0 || slider.disabled) {
+    return false;
+  }
+  const minValue = Number.parseFloat(slider.min);
+  const maxValue = Number.parseFloat(slider.max);
+  const min = Number.isFinite(minValue) ? minValue : 0;
+  const max = Number.isFinite(maxValue) ? maxValue : 100;
+  const low = Math.min(min, max);
+  const high = Math.max(min, max);
+  const stepValue = Number.parseFloat(slider.step);
+  const step =
+    Number.isFinite(stepValue) && stepValue > 0 ? stepValue : 1;
+  const currentValue = Number.parseFloat(slider.value);
+  const current = Number.isFinite(currentValue) ? currentValue : low;
+  const normalizedStepCount = stepCount > 0
+    ? Math.floor(stepCount)
+    : Math.ceil(stepCount);
+  if (normalizedStepCount === 0) {
+    return false;
+  }
+  const currentIndex = Math.round((current - low) / step);
+  const nextValue = Math.max(
+    low,
+    Math.min(high, low + (currentIndex + normalizedStepCount) * step),
   );
+  if (Math.abs(nextValue - current) < step * 0.001) {
+    return false;
+  }
+  slider.value = String(nextValue);
+  slider.dispatchEvent(new Event("input", { bubbles: true }));
+  slider.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
 }
 
 function findControllerScrollableElement(
@@ -3541,6 +3590,10 @@ export default function App(): JSX.Element {
     Partial<Record<Nh3dControllerActionId, boolean>>
   >({});
   const startupAccordionConfirmReleaseLatchRef = useRef(false);
+  const startupControllerSliderInteractionActiveRef = useRef(false);
+  const startupControllerSliderStepCarryRef = useRef(0);
+  const startupControllerActiveSliderElementRef =
+    useRef<HTMLInputElement | null>(null);
   const startupControllerCursorElementRef = useRef<HTMLDivElement | null>(null);
   const startupControllerCursorPulseElementRef = useRef<HTMLDivElement | null>(
     null,
@@ -3847,6 +3900,9 @@ export default function App(): JSX.Element {
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
   const inventoryItemsContainerRef = useRef<HTMLDivElement | null>(null);
   const inventoryRowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const inventoryContextMenuStateRef = useRef<InventoryContextMenuState | null>(
+    null,
+  );
   const inventoryRowHoverValueByIndexRef = useRef<Map<number, number>>(
     new Map(),
   );
@@ -3874,6 +3930,9 @@ export default function App(): JSX.Element {
         : 35;
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
+  useEffect(() => {
+    inventoryContextMenuStateRef.current = inventoryContextMenu;
+  }, [inventoryContextMenu]);
   const inventoryContextTitle = inventoryContextMenu
     ? `${inventoryContextMenu.itemText} (${inventoryContextMenu.accelerator})`
     : "";
@@ -7161,6 +7220,50 @@ export default function App(): JSX.Element {
       </button>
     ) : null;
 
+  const focusInventoryItemByAccelerator = useCallback(
+    (accelerator: string): void => {
+      const normalizedAccelerator = String(accelerator || "").trim();
+      if (!normalizedAccelerator) {
+        return;
+      }
+      const focusTargetRow = (): void => {
+        let targetRow: HTMLDivElement | null = null;
+        for (const rowElement of inventoryRowRefs.current.values()) {
+          const rowAccelerator = String(
+            rowElement.dataset.nh3dAccelerator || "",
+          ).trim();
+          if (rowAccelerator === normalizedAccelerator) {
+            targetRow = rowElement;
+            break;
+          }
+        }
+        if (!targetRow || !targetRow.isConnected) {
+          return;
+        }
+        targetRow.focus({ preventScroll: true });
+        targetRow.scrollIntoView({ block: "nearest", inline: "nearest" });
+      };
+      if (typeof window === "undefined") {
+        focusTargetRow();
+        return;
+      }
+      window.requestAnimationFrame(focusTargetRow);
+    },
+    [],
+  );
+
+  const closeInventoryContextMenu = useCallback(
+    (options?: { restoreItemFocus?: boolean }): void => {
+      const shouldRestoreItemFocus = options?.restoreItemFocus === true;
+      const activeContextMenu = inventoryContextMenuStateRef.current;
+      setInventoryContextMenu(null);
+      if (shouldRestoreItemFocus && activeContextMenu?.accelerator) {
+        focusInventoryItemByAccelerator(activeContextMenu.accelerator);
+      }
+    },
+    [focusInventoryItemByAccelerator],
+  );
+
   const openInventoryContextMenu = (
     item: NethackMenuItem,
     clientX: number,
@@ -7269,6 +7372,25 @@ export default function App(): JSX.Element {
       setInventoryContextMenu(null);
     }
   }, [inventory.visible]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const handleCloseInventoryContextMenu = (): void => {
+      closeInventoryContextMenu({ restoreItemFocus: true });
+    };
+    window.addEventListener(
+      nh3dCloseInventoryContextMenuEventName,
+      handleCloseInventoryContextMenu,
+    );
+    return () => {
+      window.removeEventListener(
+        nh3dCloseInventoryContextMenuEventName,
+        handleCloseInventoryContextMenu,
+      );
+    };
+  }, [closeInventoryContextMenu]);
 
   useEffect(() => {
     if (!inventory.visible) {
@@ -7418,7 +7540,7 @@ export default function App(): JSX.Element {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
-        setInventoryContextMenu(null);
+        closeInventoryContextMenu({ restoreItemFocus: true });
       }
     };
 
@@ -7458,7 +7580,7 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("resize", handleViewportResize);
     };
-  }, [inventoryContextMenu]);
+  }, [closeInventoryContextMenu, inventoryContextMenu]);
 
   useLayoutEffect(() => {
     if (!inventoryContextMenu) {
@@ -7856,6 +7978,28 @@ export default function App(): JSX.Element {
     clearStartupControllerCursorHighlight();
   }, [clearStartupControllerCursorHighlight]);
 
+  const clearStartupControllerActiveSliderVisual = useCallback((): void => {
+    const previousSlider = startupControllerActiveSliderElementRef.current;
+    if (previousSlider && previousSlider.isConnected) {
+      previousSlider.classList.remove("nh3d-controller-slider-active");
+    }
+    startupControllerActiveSliderElementRef.current = null;
+  }, []);
+
+  const setStartupControllerActiveSliderVisual = useCallback(
+    (slider: HTMLInputElement | null): void => {
+      const previousSlider = startupControllerActiveSliderElementRef.current;
+      if (previousSlider && previousSlider !== slider && previousSlider.isConnected) {
+        previousSlider.classList.remove("nh3d-controller-slider-active");
+      }
+      startupControllerActiveSliderElementRef.current = slider;
+      if (slider && slider.isConnected) {
+        slider.classList.add("nh3d-controller-slider-active");
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -7866,6 +8010,9 @@ export default function App(): JSX.Element {
     if (!startupControllerContextActive) {
       startupControllerPreviousActionActiveRef.current = {};
       startupAccordionConfirmReleaseLatchRef.current = false;
+      startupControllerSliderInteractionActiveRef.current = false;
+      startupControllerSliderStepCarryRef.current = 0;
+      clearStartupControllerActiveSliderVisual();
       resetStartupControllerCursor();
       return;
     }
@@ -7887,6 +8034,9 @@ export default function App(): JSX.Element {
       if (sourceOptions.controllerEnabled !== true) {
         startupControllerPreviousActionActiveRef.current = {};
         startupAccordionConfirmReleaseLatchRef.current = false;
+        startupControllerSliderInteractionActiveRef.current = false;
+        startupControllerSliderStepCarryRef.current = 0;
+        clearStartupControllerActiveSliderVisual();
         resetStartupControllerCursor();
         frameHandle = window.requestAnimationFrame(tick);
         return;
@@ -7919,11 +8069,89 @@ export default function App(): JSX.Element {
       startupControllerPreviousActionActiveRef.current = nextActionActive;
 
       if (controllerRemapListening) {
+        startupControllerSliderInteractionActiveRef.current = false;
+        startupControllerSliderStepCarryRef.current = 0;
+        clearStartupControllerActiveSliderVisual();
         if (actionPressed.cancel_or_context) {
           clearControllerBindingCapture();
         }
         frameHandle = window.requestAnimationFrame(tick);
         return;
+      }
+
+      const topDialog = getTopVisibleControllerDialogElement();
+      const focusedSlider = getFocusedControllerRangeInput(topDialog);
+      if (!focusedSlider) {
+        startupControllerSliderInteractionActiveRef.current = false;
+        startupControllerSliderStepCarryRef.current = 0;
+        clearStartupControllerActiveSliderVisual();
+      }
+
+      if (
+        focusedSlider &&
+        actionPressed.confirm &&
+        !startupControllerSliderInteractionActiveRef.current &&
+        !startupAccordionConfirmReleaseLatchRef.current
+      ) {
+        startupControllerSliderInteractionActiveRef.current = true;
+        startupControllerSliderStepCarryRef.current = 0;
+        startupAccordionConfirmReleaseLatchRef.current = true;
+        setStartupControllerActiveSliderVisual(focusedSlider);
+        setStartupControllerCursorVisible(false);
+        frameHandle = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      if (startupControllerSliderInteractionActiveRef.current) {
+        if (!focusedSlider) {
+          startupControllerSliderInteractionActiveRef.current = false;
+          startupControllerSliderStepCarryRef.current = 0;
+          clearStartupControllerActiveSliderVisual();
+        } else {
+          setStartupControllerActiveSliderVisual(focusedSlider);
+          if (actionPressed.cancel_or_context) {
+            startupControllerSliderInteractionActiveRef.current = false;
+            startupControllerSliderStepCarryRef.current = 0;
+            clearStartupControllerActiveSliderVisual();
+            frameHandle = window.requestAnimationFrame(tick);
+            return;
+          }
+
+          const dpadStepDirection =
+            actionPressed.dpad_right
+              ? 1
+              : actionPressed.dpad_left
+                ? -1
+                : 0;
+          if (dpadStepDirection !== 0) {
+            stepControllerRangeInput(focusedSlider, dpadStepDirection);
+          }
+
+          const sliderAxisX =
+            (actionValues.left_stick_right ?? 0) -
+            (actionValues.left_stick_left ?? 0);
+          if (Math.abs(sliderAxisX) > startupControllerCursorDeadzone) {
+            const nextStepCarry =
+              startupControllerSliderStepCarryRef.current +
+              sliderAxisX *
+                startupControllerSliderFastStepsPerSec *
+                deltaSeconds;
+            const fastStepCount =
+              nextStepCarry > 0
+                ? Math.floor(nextStepCarry)
+                : Math.ceil(nextStepCarry);
+            startupControllerSliderStepCarryRef.current =
+              nextStepCarry - fastStepCount;
+            if (fastStepCount !== 0) {
+              stepControllerRangeInput(focusedSlider, fastStepCount);
+            }
+          } else {
+            startupControllerSliderStepCarryRef.current = 0;
+          }
+
+          frameHandle = window.requestAnimationFrame(tick);
+          return;
+        }
       }
 
       let focusDirection: "up" | "down" | "left" | "right" | null = null;
@@ -7963,7 +8191,6 @@ export default function App(): JSX.Element {
         (actionValues.right_stick_down ?? 0) -
         (actionValues.right_stick_up ?? 0);
       if (Math.abs(scrollAxisY) > 0.02) {
-        const topDialog = getTopVisibleControllerDialogElement();
         const scrollElement = findControllerScrollableElement(topDialog);
         if (scrollElement) {
           scrollElement.scrollTop +=
@@ -7981,6 +8208,7 @@ export default function App(): JSX.Element {
         !controllerRemapListening &&
         !startupAccordionConfirmReleaseLatchRef.current
       ) {
+        let confirmConsumed = false;
         const clickedElement =
           startupControllerCursorVisibleRef.current &&
           Number.isFinite(startupControllerCursorXRef.current) &&
@@ -7992,13 +8220,14 @@ export default function App(): JSX.Element {
             : null;
         if (clickedElement) {
           pulseStartupControllerCursor();
+          confirmConsumed = true;
         } else {
           const focusedClickElement = clickFocusedControllerDialogElement();
-          if (isStartupInitAccordionSummaryElement(focusedClickElement)) {
-            startupAccordionConfirmReleaseLatchRef.current = true;
+          if (focusedClickElement) {
+            confirmConsumed = true;
           }
         }
-        if (isStartupInitAccordionSummaryElement(clickedElement)) {
+        if (confirmConsumed) {
           startupAccordionConfirmReleaseLatchRef.current = true;
         }
       }
@@ -8023,10 +8252,14 @@ export default function App(): JSX.Element {
       window.cancelAnimationFrame(frameHandle);
       startupControllerPreviousActionActiveRef.current = {};
       startupAccordionConfirmReleaseLatchRef.current = false;
+      startupControllerSliderInteractionActiveRef.current = false;
+      startupControllerSliderStepCarryRef.current = 0;
+      clearStartupControllerActiveSliderVisual();
       resetStartupControllerCursor();
     };
   }, [
     characterCreationConfig,
+    clearStartupControllerActiveSliderVisual,
     clearControllerBindingCapture,
     clientOptions,
     clientOptionsDraft,
@@ -8039,6 +8272,7 @@ export default function App(): JSX.Element {
     pulseStartupControllerCursor,
     resetStartupControllerCursor,
     requestCloseClientOptionsDialog,
+    setStartupControllerActiveSliderVisual,
     setStartupControllerCursorPosition,
     setStartupControllerCursorVisible,
     startup,

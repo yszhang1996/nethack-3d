@@ -61,6 +61,7 @@ import type {
 } from "./ui-types";
 import {
   nh3dCloseControllerActionWheelEventName,
+  nh3dCloseInventoryContextMenuEventName,
   nh3dFpsLookSensitivityMax,
   nh3dFpsLookSensitivityMin,
   nh3dOpenCharacterSheetEventName,
@@ -763,6 +764,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     | "dpad"
     | null = null;
   private controllerConfirmRearmPending: boolean = false;
+  private controllerCancelRearmPending: boolean = false;
   private controllerFpsLeftStickLastMoveInput: string | null = null;
   private controllerFpsLeftStickNextMoveAtMs: number = 0;
   private controllerDialogDpadRepeatDirection:
@@ -774,6 +776,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private controllerDialogDpadRepeatNextAtMs: number = 0;
   private readonly controllerDialogDpadRepeatStartDelayMs: number = 260;
   private readonly controllerDialogDpadRepeatIntervalMs: number = 95;
+  private controllerDialogSliderInteractionActive: boolean = false;
+  private controllerDialogSliderStepCarry: number = 0;
+  private controllerDialogActiveSliderElement: HTMLInputElement | null = null;
   private controllerMinimapExpanded: boolean = false;
   private controllerVirtualCursorElement: HTMLDivElement | null = null;
   private controllerVirtualCursorPulseElement: HTMLDivElement | null = null;
@@ -789,6 +794,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly controllerZoomDistancePerSec: number = 14;
   private readonly controllerDialogScrollPxPerSec: number = 1200;
   private readonly controllerDialogCursorPxPerSec: number = 820;
+  private readonly controllerDialogSliderFastStepsPerSec: number = 13;
   private minDistance: number = 5;
   private maxDistance: number = 50;
   private readonly maxRendererPixelRatio: number = 2;
@@ -18039,6 +18045,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.controllerConfirmRearmPending = true;
   }
 
+  private consumeControllerCancelUntilRelease(): void {
+    this.controllerCancelRearmPending = true;
+  }
+
+  private applyControllerCancelRearmLatch(
+    snapshot: ControllerActionSnapshot,
+  ): ControllerActionSnapshot {
+    if (!this.controllerCancelRearmPending) {
+      return snapshot;
+    }
+
+    const pressed = {
+      ...snapshot.pressed,
+    };
+    const released = {
+      ...snapshot.released,
+    };
+
+    pressed.cancel_or_context = false;
+    if (released.cancel_or_context) {
+      released.cancel_or_context = false;
+      this.controllerCancelRearmPending = false;
+    }
+
+    return {
+      ...snapshot,
+      pressed,
+      released,
+    };
+  }
+
   private applyControllerConfirmRearmLatch(
     snapshot: ControllerActionSnapshot,
   ): ControllerActionSnapshot {
@@ -18064,6 +18101,164 @@ class Nethack3DEngine implements Nethack3DEngineController {
       pressed,
       released,
     };
+  }
+
+  private isInventoryContextMenuOpen(): boolean {
+    if (typeof document === "undefined") {
+      return false;
+    }
+    return document.querySelector(".nh3d-inventory-context-menu") !== null;
+  }
+
+  private requestCloseInventoryContextMenu(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const event = new CustomEvent(nh3dCloseInventoryContextMenuEventName, {
+      bubbles: true,
+      cancelable: false,
+    });
+    window.dispatchEvent(event);
+  }
+
+  private clearControllerDialogSliderInteraction(): void {
+    this.controllerDialogSliderInteractionActive = false;
+    this.controllerDialogSliderStepCarry = 0;
+    this.clearControllerDialogSliderVisual();
+  }
+
+  private clearControllerDialogSliderVisual(): void {
+    const previousSlider = this.controllerDialogActiveSliderElement;
+    if (previousSlider && previousSlider.isConnected) {
+      previousSlider.classList.remove("nh3d-controller-slider-active");
+    }
+    this.controllerDialogActiveSliderElement = null;
+  }
+
+  private setControllerDialogSliderVisual(slider: HTMLInputElement | null): void {
+    const previousSlider = this.controllerDialogActiveSliderElement;
+    if (previousSlider && previousSlider !== slider && previousSlider.isConnected) {
+      previousSlider.classList.remove("nh3d-controller-slider-active");
+    }
+    this.controllerDialogActiveSliderElement = slider;
+    if (slider && slider.isConnected) {
+      slider.classList.add("nh3d-controller-slider-active");
+    }
+  }
+
+  private getFocusedControllerDialogSlider(
+    overlay: HTMLElement | null,
+  ): HTMLInputElement | null {
+    if (!overlay) {
+      return null;
+    }
+    const activeElement =
+      document.activeElement instanceof HTMLInputElement
+        ? document.activeElement
+        : null;
+    if (!activeElement || !overlay.contains(activeElement)) {
+      return null;
+    }
+    if (activeElement.type !== "range" || activeElement.disabled) {
+      return null;
+    }
+    return activeElement;
+  }
+
+  private stepControllerDialogSliderInput(
+    slider: HTMLInputElement,
+    stepCount: number,
+  ): boolean {
+    if (!Number.isFinite(stepCount) || stepCount === 0 || slider.disabled) {
+      return false;
+    }
+    const minValue = Number.parseFloat(slider.min);
+    const maxValue = Number.parseFloat(slider.max);
+    const min = Number.isFinite(minValue) ? minValue : 0;
+    const max = Number.isFinite(maxValue) ? maxValue : 100;
+    const low = Math.min(min, max);
+    const high = Math.max(min, max);
+    const stepValue = Number.parseFloat(slider.step);
+    const step =
+      Number.isFinite(stepValue) && stepValue > 0 ? stepValue : 1;
+    const currentValue = Number.parseFloat(slider.value);
+    const current = Number.isFinite(currentValue) ? currentValue : low;
+    const normalizedStepCount =
+      stepCount > 0 ? Math.floor(stepCount) : Math.ceil(stepCount);
+    if (normalizedStepCount === 0) {
+      return false;
+    }
+    const currentIndex = Math.round((current - low) / step);
+    const nextValue = THREE.MathUtils.clamp(
+      low + (currentIndex + normalizedStepCount) * step,
+      low,
+      high,
+    );
+    if (Math.abs(nextValue - current) < step * 0.001) {
+      return false;
+    }
+    slider.value = String(nextValue);
+    slider.dispatchEvent(new Event("input", { bubbles: true }));
+    slider.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  }
+
+  private handleControllerDialogSliderInput(
+    snapshot: ControllerActionSnapshot,
+    deltaSeconds: number,
+  ): boolean {
+    const overlay = this.getTopControllerOverlayElement();
+    const focusedSlider = this.getFocusedControllerDialogSlider(overlay);
+    if (!focusedSlider) {
+      this.clearControllerDialogSliderInteraction();
+      return false;
+    }
+
+    if (!this.controllerDialogSliderInteractionActive) {
+      if (snapshot.pressed.confirm) {
+        this.controllerDialogSliderInteractionActive = true;
+        this.controllerDialogSliderStepCarry = 0;
+        this.setControllerDialogSliderVisual(focusedSlider);
+        this.setControllerVirtualCursorVisible(false);
+        return true;
+      }
+      return false;
+    }
+
+    this.setControllerDialogSliderVisual(focusedSlider);
+
+    if (snapshot.pressed.cancel_or_context) {
+      this.clearControllerDialogSliderInteraction();
+      return true;
+    }
+
+    const dpadStepDirection =
+      snapshot.pressed.dpad_right
+        ? 1
+        : snapshot.pressed.dpad_left
+          ? -1
+          : 0;
+    if (dpadStepDirection !== 0) {
+      this.stepControllerDialogSliderInput(focusedSlider, dpadStepDirection);
+    }
+
+    const sliderAxisX =
+      snapshot.values.left_stick_right - snapshot.values.left_stick_left;
+    if (Math.abs(sliderAxisX) > this.controllerAxisDeadzone) {
+      const nextCarry =
+        this.controllerDialogSliderStepCarry +
+        sliderAxisX * this.controllerDialogSliderFastStepsPerSec * deltaSeconds;
+      const fastStepCount =
+        nextCarry > 0 ? Math.floor(nextCarry) : Math.ceil(nextCarry);
+      this.controllerDialogSliderStepCarry = nextCarry - fastStepCount;
+      if (fastStepCount !== 0) {
+        this.stepControllerDialogSliderInput(focusedSlider, fastStepCount);
+      }
+    } else {
+      this.controllerDialogSliderStepCarry = 0;
+    }
+
+    return true;
   }
 
   private handleControllerDirectionQuestionInput(
@@ -18144,6 +18339,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private submitControllerDirectionalInput(
     directionInput: string | null,
     runModifierActive: boolean,
+    options: { preferMouseMove?: boolean } = {},
   ): void {
     if (!directionInput) {
       return;
@@ -18152,7 +18348,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.sendForcedDirectionalInput(directionInput);
       return;
     }
+    if (
+      options.preferMouseMove === true &&
+      this.submitControllerDirectionalMouseMove(directionInput)
+    ) {
+      return;
+    }
     this.sendInput(directionInput);
+  }
+
+  private submitControllerDirectionalMouseMove(directionInput: string): boolean {
+    const movementDelta = this.getMovementDeltaFromInput(directionInput);
+    if (!movementDelta) {
+      return false;
+    }
+    const targetX = this.playerPos.x + movementDelta.dx;
+    const targetY = this.playerPos.y + movementDelta.dy;
+    this.logClickLookTileDebug("controller-confirm-move", targetX, targetY);
+    this.sendMouseInput(targetX, targetY, 0);
+    return true;
   }
 
   private getDirectionInputFromControllerAxes(
@@ -19101,6 +19315,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.submitControllerDirectionalInput(
         this.controllerDpadMovePreviewInput,
         runModifierActive,
+        { preferMouseMove: true },
       );
       this.controllerDpadMovePreviewInput = null;
       if (this.controllerLeftStickMovePreviewInput) {
@@ -19132,6 +19347,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.submitControllerDirectionalInput(
         this.controllerLeftStickMovePreviewInput,
         runModifierActive,
+        { preferMouseMove: true },
       );
       confirmConsumedMovement = true;
       this.controllerLeftStickMovePreviewInput = null;
@@ -19176,6 +19392,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.dispatchControllerKeyDown("Escape", "Escape");
     }
 
+    if (this.handleControllerDialogSliderInput(snapshot, deltaSeconds)) {
+      return;
+    }
+
     if (
       snapshot.pressed.action_menu &&
       this.getControllerActionWheelOverlayElement()
@@ -19185,6 +19405,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (snapshot.pressed.cancel_or_context) {
+      if (this.isInventoryDialogOpen() && this.isInventoryContextMenuOpen()) {
+        this.requestCloseInventoryContextMenu();
+        this.consumeControllerCancelUntilRelease();
+        return;
+      }
       if (this.fpsCrosshairContextMenuOpen || this.normalTileContextMenuOpen) {
         this.closeAnyTileContextMenu(true);
       } else if (this.getControllerActionWheelOverlayElement()) {
@@ -19318,14 +19543,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearControllerDialogDpadRepeat();
       this.clearControllerDirectionPromptPreview();
       this.clearControllerMovePreview();
+      this.clearControllerDialogSliderInteraction();
       this.controllerConfirmRearmPending = false;
+      this.controllerCancelRearmPending = false;
       this.resetControllerVirtualCursor();
       return;
     }
     const gamepads = this.getConnectedGamepads();
     const bindings = this.getControllerBindings();
     const rawSnapshot = this.sampleControllerActionSnapshot(bindings, gamepads);
-    const snapshot = this.applyControllerConfirmRearmLatch(rawSnapshot);
+    const cancelLatchedSnapshot = this.applyControllerCancelRearmLatch(
+      rawSnapshot,
+    );
+    const snapshot = this.applyControllerConfirmRearmLatch(cancelLatchedSnapshot);
     const hadButtonPress = nh3dControllerActionIds.some(
       (actionId) => rawSnapshot.pressed[actionId],
     );
@@ -19335,6 +19565,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (this.isControllerGameplayInputContextActive()) {
       this.clearControllerDialogDpadRepeat();
+      this.clearControllerDialogSliderInteraction();
       this.resetControllerVirtualCursor();
       this.handleControllerGameplayInput(snapshot, deltaSeconds);
       return;
@@ -19346,6 +19577,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.clearControllerDialogDpadRepeat();
+    this.clearControllerDialogSliderInteraction();
     this.clearControllerMovePreview();
     this.resetControllerVirtualCursor();
   }

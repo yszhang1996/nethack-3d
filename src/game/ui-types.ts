@@ -217,6 +217,8 @@ export const nh3dToggleControllerActionWheelEventName =
   "nh3d:toggle-controller-action-wheel";
 export const nh3dCloseControllerActionWheelEventName =
   "nh3d:close-controller-action-wheel";
+export const nh3dCloseInventoryContextMenuEventName =
+  "nh3d:close-inventory-context-menu";
 
 const isMobilePortrait = window.matchMedia(
   "(orientation: portrait) and (pointer: coarse)",

@@ -1467,7 +1467,12 @@ canvas {
     box-sizing: border-box;
     max-width: 100%;
     overflow-x: hidden;
-    padding-right: 0;
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .nh3d-overflow-glow-frame {
+    overflow: visible;
   }
 
   .nh3d-startup-init-options[open] {
@@ -2138,13 +2143,16 @@ canvas {
   min-width: 0;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .nh3d-options-nav-shell {
   min-width: 0;
   min-height: 0;
   align-self: stretch;
+  overflow: visible;
+  padding: 10px 12px;
+  box-sizing: border-box;
 }
 
 .nh3d-options-panel-shell {
@@ -2152,6 +2160,9 @@ canvas {
   min-height: 0;
   height: 100%;
   display: flex;
+  overflow: visible;
+  padding: 10px 12px;
+  box-sizing: border-box;
 }
 
 .nh3d-options-nav {
@@ -2875,6 +2886,20 @@ canvas {
   @media (pointer: coarse) {
     width: 100%;
   }
+}
+
+.nh3d-option-slider.nh3d-controller-slider-active {
+  accent-color: var(--nh3d-ui-accent-soft);
+}
+
+.nh3d-option-slider.nh3d-controller-slider-active::-webkit-slider-thumb {
+  background: var(--nh3d-ui-accent-soft);
+  box-shadow: 0 0 0 2px rgba(5, 16, 30, 0.9);
+}
+
+.nh3d-option-slider.nh3d-controller-slider-active::-moz-range-thumb {
+  background: var(--nh3d-ui-accent-soft);
+  box-shadow: 0 0 0 2px rgba(5, 16, 30, 0.9);
 }
 
 .nh3d-option-slider-value {
