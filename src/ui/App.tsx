@@ -3167,10 +3167,12 @@ function resolveInitialClientOptionsFromPersisted(
   if (!persisted) {
     return deviceDefaults;
   }
-  return normalizeNh3dClientOptions({
+  const hydrated = normalizeNh3dClientOptions({
     ...deviceDefaults,
     ...persisted,
   });
+  hydrated.controllerEnabled = false;
+  return hydrated;
 }
 
 function isRunningOnLocalhost(): boolean {
