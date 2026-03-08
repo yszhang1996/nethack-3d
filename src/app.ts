@@ -74,9 +74,7 @@ export function registerDebugHelpers(game: Nethack3DEngine): void {
   console.log("  setGlyphKindOverride(kind, override) - Manual kind-level render override");
   console.log("  clearGlyphOverride(glyph), clearGlyphKindOverride(kind), clearGlyphOverrides()");
   console.log("  dumpGlyphOverrides() - Inspect active glyph overrides");
-  console.log("  Ctrl+T - Refresh player tile");
-  console.log("  Ctrl+R - Refresh player area (radius 5)");
-  console.log("  Ctrl+Shift+R - Refresh large player area (radius 10)");
+  console.log("  Ctrl+<key> - Send control commands to NetHack");
   console.log("Movement controls:");
   console.log("  Arrow keys - Cardinal directions (N/S/E/W)");
   console.log("  Numpad 1-9 - All directions including diagonals");

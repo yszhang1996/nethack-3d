@@ -52,6 +52,7 @@ class LocalNetHackRuntime {
     this.awaitingQuestionInput = false;
     this.numberPadModeEnabled = true;
     this.metaInputPrefix = "__META__:";
+    this.ctrlInputPrefix = "__CTRL__:";
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.textInputPrefix = "__TEXT_INPUT__:";
     this.inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
@@ -422,6 +423,20 @@ class LocalNetHackRuntime {
       }
 
       this.enqueueInputKeys(["Escape", metaKey], "meta", ["event"]);
+      return;
+    }
+
+    if (this.isCtrlInput(input)) {
+      const ctrlKey = input.slice(this.ctrlInputPrefix.length).charAt(0);
+      if (!ctrlKey) {
+        return;
+      }
+      // NetHack expects control-byte keycodes: C(c) = (0x1f & c).
+      const controlCode = ctrlKey.charCodeAt(0) & 0x1f;
+      if (controlCode <= 0) {
+        return;
+      }
+      this.enqueueInputKeys([String.fromCharCode(controlCode)], "ctrl");
       return;
     }
 
@@ -1012,6 +1027,9 @@ class LocalNetHackRuntime {
     if (this.isMetaInput(input)) {
       return false;
     }
+    if (this.isCtrlInput(input)) {
+      return false;
+    }
 
     const nonTextInputs = new Set([
       "Enter",
@@ -1478,6 +1496,14 @@ class LocalNetHackRuntime {
       typeof key === "string" &&
       key.startsWith(this.metaInputPrefix) &&
       key.length > this.metaInputPrefix.length
+    );
+  }
+
+  isCtrlInput(key) {
+    return (
+      typeof key === "string" &&
+      key.startsWith(this.ctrlInputPrefix) &&
+      key.length > this.ctrlInputPrefix.length
     );
   }
 

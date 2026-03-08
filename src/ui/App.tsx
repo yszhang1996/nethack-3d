@@ -49,6 +49,7 @@ import { useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
 import {
   createDefaultStartupInitOptionValues,
+  sanitizeStartupInitOptionTokens,
   serializeStartupInitOptionTokens,
   type StartupInitOptionValue,
   type StartupInitOptionValues,
@@ -3032,6 +3033,48 @@ const commonExtendedCommandWhitelist = [
   "travel",
 ];
 
+const wizardExtendedCommandNameSet = new Set([
+  "levelchange",
+  "lightsources",
+  "migratemons",
+  "panic",
+  "polyself",
+  "seenv",
+  "stats",
+  "timeout",
+  "vanquished",
+  "vision",
+  "wizbury",
+  "wizdetect",
+  "wizgenesis",
+  "wizidentify",
+  "wizintrinsic",
+  "wizlevelport",
+  "wizmakemap",
+  "wizmap",
+  "wizrumorcheck",
+  "wizsmell",
+  "wizwhere",
+  "wizwish",
+  "wmode",
+]);
+
+const fallbackWizardExtendedCommandNames = Array.from(
+  wizardExtendedCommandNameSet,
+).sort((left, right) => left.localeCompare(right));
+
+function isWizardExtendedCommandName(commandName: string): boolean {
+  const normalized = String(commandName || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized.startsWith("wiz") || wizardExtendedCommandNameSet.has(normalized)
+  );
+}
+
 const overflowGlowClassName = "nh3d-overflow-glow";
 const overflowGlowStartXClassName = "nh3d-overflow-glow-x-start";
 const overflowGlowEndXClassName = "nh3d-overflow-glow-x-end";
@@ -3663,6 +3706,9 @@ export default function App(): JSX.Element {
   ] = useState(0);
   const controllerActionWheelDialogRef = useRef<HTMLDivElement | null>(null);
   const [isMobileLogVisible, setIsMobileLogVisible] = useState(false);
+  const [isWizardCommandsVisible, setIsWizardCommandsVisible] = useState(false);
+  const wizardCommandsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const wizardCommandsSheetRef = useRef<HTMLDivElement | null>(null);
   const [characterSheetInterceptionArmed, setCharacterSheetInterceptionArmed] =
     useState(false);
   const characterSheetAwaitingInfoRef = useRef(false);
@@ -5709,6 +5755,7 @@ export default function App(): JSX.Element {
     Boolean(positionRequest) ||
     Boolean(inventoryContextMenu) ||
     Boolean(fpsCrosshairContext) ||
+    isWizardCommandsVisible ||
     isControllerActionWheelVisible ||
     isControllerSupportPromptVisible ||
     newGamePrompt.visible;
@@ -5924,7 +5971,7 @@ export default function App(): JSX.Element {
 
     const visibleOverlays = Array.from(
       document.querySelectorAll<HTMLElement>(
-        ".nh3d-context-menu, .nh3d-dialog.is-visible, #position-dialog.is-visible",
+        ".nh3d-context-menu, .nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-wizard-commands-sheet.is-visible",
       ),
     ).filter((element) => {
       if (!element.isConnected) {
@@ -6049,6 +6096,7 @@ export default function App(): JSX.Element {
     fpsCrosshairContext,
     fpsCrosshairContext?.actions.length,
     tileContextMenuPosition,
+    isWizardCommandsVisible,
     isControllerActionWheelVisible,
     controllerActionWheelMode,
   ]);
@@ -6081,6 +6129,37 @@ export default function App(): JSX.Element {
       available.has(command),
     );
   }, [mobileExtendedCommandNames]);
+  const isWizardModeSession = useMemo(() => {
+    if (!characterCreationConfig) {
+      return false;
+    }
+    const initOptionTokens = sanitizeStartupInitOptionTokens(
+      characterCreationConfig.initOptions,
+    );
+    for (const token of initOptionTokens) {
+      const normalizedToken = String(token || "")
+        .trim()
+        .toLowerCase();
+      if (!normalizedToken.startsWith("playmode:")) {
+        continue;
+      }
+      const playmodeValue = normalizedToken.slice("playmode:".length).trim();
+      return playmodeValue === "debug";
+    }
+    return false;
+  }, [characterCreationConfig]);
+  const wizardExtendedCommandNames = useMemo(() => {
+    const availableWizardCommands = mobileExtendedCommandNames.filter(
+      isWizardExtendedCommandName,
+    );
+    return availableWizardCommands.length > 0
+      ? availableWizardCommands
+      : fallbackWizardExtendedCommandNames;
+  }, [mobileExtendedCommandNames]);
+  const wizardCommandsSupported =
+    (isMobileGameRunning || isDesktopGameRunning) &&
+    isWizardModeSession &&
+    wizardExtendedCommandNames.length > 0;
   const controllerActionWheelEntries = useMemo(
     () => createControllerActionWheelEntries(mobileActions),
     [],
@@ -6094,6 +6173,37 @@ export default function App(): JSX.Element {
     setControllerActionWheelMode("quick");
     setControllerActionWheelChosenIndex(0);
   }, []);
+  const closeWizardCommands = useCallback((): void => {
+    setIsWizardCommandsVisible(false);
+  }, []);
+  const toggleWizardCommands = useCallback((): void => {
+    if (!wizardCommandsSupported) {
+      return;
+    }
+    controller?.dismissFpsCrosshairContextMenu();
+    setIsWizardCommandsVisible((visible) => {
+      const nextVisible = !visible;
+      if (nextVisible) {
+        closeControllerActionWheel();
+        setIsMobileActionSheetVisible(false);
+        setMobileActionSheetMode("quick");
+        setIsMobileLogVisible(false);
+      }
+      return nextVisible;
+    });
+  }, [
+    closeControllerActionWheel,
+    controller,
+    wizardCommandsSupported,
+  ]);
+  const runWizardExtendedCommand = useCallback(
+    (command: string): void => {
+      controller?.dismissFpsCrosshairContextMenu();
+      controller?.runExtendedCommand(command);
+      closeWizardCommands();
+    },
+    [closeWizardCommands, controller],
+  );
   const runControllerWheelEntry = useCallback(
     (action: ControllerActionWheelEntry): void => {
       controller?.dismissFpsCrosshairContextMenu();
@@ -6126,8 +6236,9 @@ export default function App(): JSX.Element {
     setIsMobileActionSheetVisible(false);
     setMobileActionSheetMode("quick");
     setIsMobileLogVisible(false);
+    closeWizardCommands();
     controller?.runExtendedCommand("attributes");
-  }, [closeControllerActionWheel, controller]);
+  }, [closeControllerActionWheel, closeWizardCommands, controller]);
   useEffect(() => {
     if (typeof window === "undefined") {
       return;
@@ -6161,6 +6272,7 @@ export default function App(): JSX.Element {
         return;
       }
       controller?.dismissFpsCrosshairContextMenu();
+      closeWizardCommands();
       setIsMobileActionSheetVisible(false);
       setMobileActionSheetMode("quick");
       setIsControllerActionWheelVisible((wasVisible) => {
@@ -6198,6 +6310,7 @@ export default function App(): JSX.Element {
     };
   }, [
     closeControllerActionWheel,
+    closeWizardCommands,
     controller,
     isDesktopGameRunning,
     isMobileGameRunning,
@@ -6308,6 +6421,61 @@ export default function App(): JSX.Element {
     mobileCommonExtendedCommandNames.length,
     mobileExtendedCommandNames.length,
   ]);
+  useEffect(() => {
+    if (wizardCommandsSupported) {
+      return;
+    }
+    setIsWizardCommandsVisible(false);
+  }, [wizardCommandsSupported]);
+  useEffect(() => {
+    if (
+      !isWizardCommandsVisible ||
+      typeof window === "undefined" ||
+      typeof document === "undefined"
+    ) {
+      return;
+    }
+    const handleEscape = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      closeWizardCommands();
+    };
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null;
+      if (target && wizardCommandsButtonRef.current?.contains(target)) {
+        return;
+      }
+      if (target && wizardCommandsSheetRef.current?.contains(target)) {
+        return;
+      }
+      closeWizardCommands();
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", handleEscape, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [closeWizardCommands, isWizardCommandsVisible]);
+  useEffect(() => {
+    if (!isWizardCommandsVisible || typeof window === "undefined") {
+      return;
+    }
+    const focusTimerId = window.setTimeout(() => {
+      const firstWizardCommandButton =
+        wizardCommandsSheetRef.current?.querySelector<HTMLElement>(
+          ".nh3d-mobile-actions-button:not(:disabled)",
+        );
+      firstWizardCommandButton?.focus({ preventScroll: true });
+    }, 0);
+    return () => {
+      window.clearTimeout(focusTimerId);
+    };
+  }, [isWizardCommandsVisible, wizardExtendedCommandNames.length]);
   const runCharacterExtendedCommand = useCallback(
     (command: string): void => {
       const normalizedCommand = String(command || "")
@@ -12123,6 +12291,63 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
+      {wizardCommandsSupported && isWizardCommandsVisible ? (
+        <div
+          className={`nh3d-wizard-commands-sheet is-visible ${
+            isMobileGameRunning ? "is-mobile" : "is-desktop"
+          }`}
+          ref={wizardCommandsSheetRef}
+        >
+          <div className="nh3d-mobile-actions-title-row">
+            <div className="nh3d-mobile-actions-title">Wizard Commands</div>
+            <div className="nh3d-mobile-actions-controls">
+              <button
+                className="nh3d-mobile-actions-close"
+                onClick={closeWizardCommands}
+                type="button"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="nh3d-overflow-glow-frame">
+            <div
+              className="nh3d-mobile-actions-sections nh3d-wizard-commands-sections"
+              data-nh3d-overflow-glow
+              data-nh3d-overflow-glow-host="parent"
+            >
+              <div className="nh3d-mobile-actions-section">
+                <div className="nh3d-mobile-actions-grid is-extended">
+                  {wizardExtendedCommandNames.map((command) => (
+                    <button
+                      className="nh3d-mobile-actions-button"
+                      key={`wizard-${command}`}
+                      onClick={() => runWizardExtendedCommand(command)}
+                      type="button"
+                    >
+                      {command}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {wizardCommandsSupported ? (
+        <button
+          className={`nh3d-wizard-commands-button ${
+            isMobileGameRunning ? "is-mobile" : "is-desktop"
+          }${isWizardCommandsVisible ? " is-active" : ""}`}
+          onClick={toggleWizardCommands}
+          ref={wizardCommandsButtonRef}
+          type="button"
+        >
+          Wizard
+        </button>
+      ) : null}
+
       {isMobileGameRunning && repeatActionVisible ? (
         <button
           className="nh3d-mobile-repeat-button"
@@ -12153,6 +12378,7 @@ export default function App(): JSX.Element {
             }`}
             onClick={() => {
               controller?.dismissFpsCrosshairContextMenu();
+              closeWizardCommands();
               controller?.toggleInventoryDialog();
             }}
             type="button"
@@ -12179,6 +12405,7 @@ export default function App(): JSX.Element {
             }`}
             onClick={() => {
               controller?.dismissFpsCrosshairContextMenu();
+              closeWizardCommands();
               controller?.toggleInventoryDialog();
             }}
             type="button"
@@ -12198,6 +12425,7 @@ export default function App(): JSX.Element {
                 if (next) {
                   setIsMobileActionSheetVisible(false);
                   setMobileActionSheetMode("quick");
+                  closeWizardCommands();
                 }
                 return next;
               });
@@ -12237,6 +12465,7 @@ export default function App(): JSX.Element {
                 if (next) {
                   setMobileActionSheetMode("quick");
                   setIsMobileLogVisible(false);
+                  closeWizardCommands();
                 }
                 return next;
               });
