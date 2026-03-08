@@ -231,7 +231,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsFov: isMobilePortrait ? 95 : 62,
   fpsLookSensitivityX: isMobile ? 1.5 : 1,
   fpsLookSensitivityY: isMobile ? 1.5 : 1,
-  controllerEnabled: true,
+  controllerEnabled: false,
   controllerFpsMoveRepeatMs: 190,
   controllerBindings: normalizeNh3dControllerBindings(
     defaultNh3dControllerBindings,

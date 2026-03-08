@@ -3604,6 +3604,12 @@ export default function App(): JSX.Element {
     useState(false);
   const [controllerRemapListening, setControllerRemapListening] =
     useState<ControllerRemapListeningState | null>(null);
+  const [
+    hasAskedControllerSupportThisSession,
+    setHasAskedControllerSupportThisSession,
+  ] = useState(false);
+  const [isControllerSupportPromptVisible, setIsControllerSupportPromptVisible] =
+    useState(false);
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
@@ -5055,6 +5061,18 @@ export default function App(): JSX.Element {
   }, [controller, clientOptions]);
 
   useEffect(() => {
+    if (!controller || !isControllerSupportPromptVisible) {
+      return;
+    }
+    controller.setClientOptions(
+      normalizeNh3dClientOptions({
+        ...clientOptions,
+        controllerEnabled: true,
+      }),
+    );
+  }, [clientOptions, controller, isControllerSupportPromptVisible]);
+
+  useEffect(() => {
     if (!hasHydratedUserTilesets) {
       return;
     }
@@ -5690,7 +5708,47 @@ export default function App(): JSX.Element {
     Boolean(inventoryContextMenu) ||
     Boolean(fpsCrosshairContext) ||
     isControllerActionWheelVisible ||
+    isControllerSupportPromptVisible ||
     newGamePrompt.visible;
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!hasHydratedUserTilesets || hasAskedControllerSupportThisSession) {
+      return;
+    }
+
+    const handleControllerDetection = (): void => {
+      if (
+        !hasHydratedUserTilesets ||
+        hasAskedControllerSupportThisSession ||
+        isControllerSupportPromptVisible
+      ) {
+        return;
+      }
+      if (getConnectedGamepadsForCapture().length <= 0) {
+        return;
+      }
+      setIsControllerSupportPromptVisible(true);
+    };
+
+    handleControllerDetection();
+    const pollId = window.setInterval(handleControllerDetection, 1200);
+    window.addEventListener("gamepadconnected", handleControllerDetection);
+
+    return () => {
+      window.clearInterval(pollId);
+      window.removeEventListener(
+        "gamepadconnected",
+        handleControllerDetection,
+      );
+    };
+  }, [
+    hasAskedControllerSupportThisSession,
+    hasHydratedUserTilesets,
+    isControllerSupportPromptVisible,
+  ]);
 
   useEffect(() => {
     if (!isMobileGameRunning) {
@@ -6547,6 +6605,26 @@ export default function App(): JSX.Element {
       console.warn("Failed to load uploaded tilesets:", error);
     });
   }, [refreshUserTilesetCatalog]);
+
+  const confirmControllerSupportPromptChoice = useCallback(
+    (enabled: boolean): void => {
+      const next = normalizeNh3dClientOptions({
+        ...clientOptions,
+        controllerEnabled: enabled,
+      });
+      setClientOptions(next);
+      setClientOptionsDraft((previous) =>
+        normalizeNh3dClientOptions({
+          ...previous,
+          controllerEnabled: enabled,
+        }),
+      );
+      controller?.setClientOptions(next);
+      setIsControllerSupportPromptVisible(false);
+      setHasAskedControllerSupportThisSession(true);
+    },
+    [clientOptions, controller],
+  );
 
   const openClientOptionsDialog = (): void => {
     setClientOptionsDraft({ ...clientOptions });
@@ -7815,6 +7893,12 @@ export default function App(): JSX.Element {
       ) {
         return;
       }
+      if (isControllerSupportPromptVisible) {
+        event.preventDefault();
+        event.stopPropagation();
+        confirmControllerSupportPromptChoice(false);
+        return;
+      }
 
       if (isPauseMenuVisible) {
         if (isExitConfirmationVisible) {
@@ -7877,10 +7961,12 @@ export default function App(): JSX.Element {
     clientOptions,
     clearControllerBindingCapture,
     closeControllerRemapDialog,
+    confirmControllerSupportPromptChoice,
     controller,
     controllerRemapListening,
     hasGameplayOverlayOpen,
     isClientOptionsVisible,
+    isControllerSupportPromptVisible,
     isControllerRemapVisible,
     isDarkWallTilePickerVisible,
     isTilesetBackgroundTilePickerVisible,
@@ -8110,7 +8196,10 @@ export default function App(): JSX.Element {
       const sourceOptions = isClientOptionsVisible
         ? clientOptionsDraft
         : clientOptions;
-      if (sourceOptions.controllerEnabled !== true) {
+      const controllerSupportEnabled =
+        sourceOptions.controllerEnabled === true ||
+        isControllerSupportPromptVisible;
+      if (!controllerSupportEnabled) {
         startupControllerPreviousActionActiveRef.current = {};
         startupAccordionConfirmReleaseLatchRef.current = false;
         startupControllerSliderInteractionActiveRef.current = false;
@@ -8312,7 +8401,9 @@ export default function App(): JSX.Element {
       }
 
       if (actionPressed.cancel_or_context) {
-        if (controllerRemapListening) {
+        if (isControllerSupportPromptVisible) {
+          confirmControllerSupportPromptChoice(false);
+        } else if (controllerRemapListening) {
           clearControllerBindingCapture();
         } else if (isControllerRemapVisible) {
           closeControllerRemapDialog();
@@ -8343,10 +8434,12 @@ export default function App(): JSX.Element {
     clientOptions,
     clientOptionsDraft,
     closeControllerRemapDialog,
+    confirmControllerSupportPromptChoice,
     controllerRemapListening,
     ensureStartupControllerCursorOverlay,
     ensureStartupControllerCursorSeedPosition,
     isClientOptionsVisible,
+    isControllerSupportPromptVisible,
     isControllerRemapVisible,
     pulseStartupControllerCursor,
     resetStartupControllerCursor,
@@ -12178,6 +12271,33 @@ export default function App(): JSX.Element {
           {positionRequest}
         </div>
       </div>
+
+      {isControllerSupportPromptVisible ? (
+        <div
+          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
+          id="nh3d-controller-support-dialog"
+        >
+          <div className="nh3d-question-text">
+            Controller detected. Enable controller support?
+          </div>
+          <div className="nh3d-menu-actions">
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-confirm"
+              onClick={() => confirmControllerSupportPromptChoice(true)}
+              type="button"
+            >
+              Yes
+            </button>
+            <button
+              className="nh3d-menu-action-button nh3d-menu-action-cancel"
+              onClick={() => confirmControllerSupportPromptChoice(false)}
+              type="button"
+            >
+              No
+            </button>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
