@@ -2199,6 +2199,30 @@ function moveControllerDialogFocus(
     fixedActionButtons.some((button) => button === activeInDialog);
 
   if (
+    activeIsFixedAction &&
+    (direction === "left" || direction === "right") &&
+    fixedActionButtons.length > 0
+  ) {
+    const activeFixedIndex = activeInDialog
+      ? fixedActionButtons.findIndex((button) => button === activeInDialog)
+      : -1;
+    const fixedDelta = direction === "left" ? -1 : 1;
+    const targetFixedIndex =
+      activeFixedIndex < 0
+        ? fixedDelta > 0
+          ? 0
+          : fixedActionButtons.length - 1
+        : (((activeFixedIndex + fixedDelta) % fixedActionButtons.length) +
+            fixedActionButtons.length) %
+          fixedActionButtons.length;
+    const targetFixedButton = fixedActionButtons[targetFixedIndex];
+    if (targetFixedButton) {
+      focusControllerDialogElement(targetFixedButton);
+      return true;
+    }
+  }
+
+  if (
     (direction === "down" || direction === "right") &&
     activeInDialog &&
     !activeIsFixedAction &&
@@ -2212,14 +2236,29 @@ function moveControllerDialogFocus(
       !!nearestScrollable &&
       nearestScrollable.scrollTop + nearestScrollable.clientHeight >=
         nearestScrollable.scrollHeight - 2;
-    if (atScrollableEnd) {
+    const atLastScrollableFocusable =
+      !!nearestScrollable &&
+      (() => {
+        const scrollableFocusable = getControllerFocusableElements(
+          nearestScrollable,
+        ).filter(
+          (element) => !fixedActionButtons.some((button) => button === element),
+        );
+        if (scrollableFocusable.length === 0) {
+          return false;
+        }
+        return (
+          scrollableFocusable[scrollableFocusable.length - 1] === activeInDialog
+        );
+      })();
+    if (atScrollableEnd && atLastScrollableFocusable) {
       const targetButton = fixedActionButtons[0];
       focusControllerDialogElement(targetButton);
       return true;
     }
   }
 
-  if ((direction === "up" || direction === "left") && activeIsFixedAction) {
+  if (direction === "up" && activeIsFixedAction) {
     const topScrollable = findControllerScrollableElement(topDialog);
     if (topScrollable) {
       const scrollableFocusable = getControllerFocusableElements(
@@ -2359,6 +2398,99 @@ function stepControllerRangeInput(
   slider.value = String(nextValue);
   slider.dispatchEvent(new Event("input", { bubbles: true }));
   slider.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+}
+
+function maintainControllerDialogFocusAfterKeyboardScroll(
+  scrollElement: HTMLElement,
+  direction: "up" | "down",
+): void {
+  const activeElement =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  if (!activeElement || !scrollElement.contains(activeElement)) {
+    return;
+  }
+
+  const activeRect = activeElement.getBoundingClientRect();
+  const scrollRect = scrollElement.getBoundingClientRect();
+  const isVisibleInScrollFrame =
+    activeRect.bottom > scrollRect.top + 2 &&
+    activeRect.top < scrollRect.bottom - 2;
+  if (isVisibleInScrollFrame) {
+    return;
+  }
+
+  const focusableInScrollElement = getControllerFocusableElements(scrollElement);
+  if (focusableInScrollElement.length === 0) {
+    return;
+  }
+
+  const visibleFocusable = focusableInScrollElement.filter((element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.bottom > scrollRect.top + 2 && rect.top < scrollRect.bottom - 2;
+  });
+  if (visibleFocusable.length === 0) {
+    return;
+  }
+
+  const targetElement =
+    direction === "down"
+      ? visibleFocusable[0]
+      : visibleFocusable[visibleFocusable.length - 1];
+  if (targetElement && targetElement !== activeElement) {
+    focusControllerDialogElement(targetElement);
+  }
+}
+
+function handleControllerDialogKeyboardScrollKey(
+  dialogRoot: HTMLElement,
+  key: string,
+): boolean {
+  if (
+    key !== "Home" &&
+    key !== "End" &&
+    key !== "PageUp" &&
+    key !== "PageDown"
+  ) {
+    return false;
+  }
+
+  const activeElement =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  let scrollElement: HTMLElement | null = null;
+  if (activeElement && dialogRoot.contains(activeElement)) {
+    scrollElement = findNearestControllerScrollableAncestor(
+      activeElement,
+      dialogRoot,
+    );
+  }
+  if (!scrollElement) {
+    scrollElement = findControllerScrollableElement(dialogRoot);
+  }
+  if (!scrollElement) {
+    return false;
+  }
+
+  const direction: "up" | "down" =
+    key === "Home" || key === "PageUp" ? "up" : "down";
+  if (key === "Home") {
+    scrollElement.scrollTop = 0;
+  } else if (key === "End") {
+    scrollElement.scrollTop = scrollElement.scrollHeight;
+  } else {
+    const pageDeltaPx = Math.max(
+      96,
+      Math.round(scrollElement.clientHeight * 0.9),
+    );
+    const scrollDelta = direction === "down" ? pageDeltaPx : -pageDeltaPx;
+    scrollElement.scrollTop += scrollDelta;
+  }
+
+  maintainControllerDialogFocusAfterKeyboardScroll(scrollElement, direction);
   return true;
 }
 
@@ -3990,6 +4122,18 @@ export default function App(): JSX.Element {
     useState<string | null>(null);
   const newGamePromptYesButtonRef = useRef<HTMLButtonElement | null>(null);
   const newGamePromptNoButtonRef = useRef<HTMLButtonElement | null>(null);
+  const startupLikelyOpenSelectElementsRef = useRef<Set<HTMLSelectElement>>(
+    new Set(),
+  );
+  const startupLikelyOpenSelectInitialValueByElementRef = useRef<
+    Map<HTMLSelectElement, string>
+  >(new Map());
+  const clientOptionsLikelyOpenSelectElementsRef = useRef<
+    Set<HTMLSelectElement>
+  >(new Set());
+  const clientOptionsLikelyOpenSelectInitialValueByElementRef = useRef<
+    Map<HTMLSelectElement, string>
+  >(new Map());
   const tilesetCatalog = useMemo(() => getNh3dTilesetCatalog(), [userTilesets]);
   const showBuiltInTilesetsInTilesetManagerList = useMemo(
     () => isRunningOnLocalhost(),
@@ -6620,6 +6764,613 @@ export default function App(): JSX.Element {
     [dismissNewGamePromptUntilInteraction, startNewGameFromPrompt],
   );
 
+  const resolveStartupMenuNavigationDirection = useCallback(
+    (key: string, code?: string): "up" | "down" | "left" | "right" | null => {
+      switch (key) {
+        case "ArrowUp":
+        case "k":
+        case "K":
+        case "y":
+        case "Y":
+        case "u":
+        case "U":
+          return "up";
+        case "ArrowDown":
+        case "j":
+        case "J":
+        case "b":
+        case "B":
+        case "n":
+        case "N":
+          return "down";
+        case "ArrowLeft":
+        case "h":
+        case "H":
+          return "left";
+        case "ArrowRight":
+        case "l":
+        case "L":
+          return "right";
+        default:
+          break;
+      }
+      switch (code) {
+        case "Numpad8":
+        case "Numpad7":
+        case "Numpad9":
+          return "up";
+        case "Numpad2":
+        case "Numpad1":
+        case "Numpad3":
+          return "down";
+        case "Numpad4":
+          return "left";
+        case "Numpad6":
+          return "right";
+        default:
+          return null;
+      }
+    },
+    [],
+  );
+
+  const resolveEditableFieldVerticalNavigationDirection = useCallback(
+    (key: string, code?: string): "up" | "down" | null => {
+      if (key === "ArrowUp") {
+        return "up";
+      }
+      if (key === "ArrowDown") {
+        return "down";
+      }
+      switch (code) {
+        case "Numpad8":
+        case "Numpad7":
+        case "Numpad9":
+          return "up";
+        case "Numpad2":
+        case "Numpad1":
+        case "Numpad3":
+          return "down";
+        default:
+          return null;
+      }
+    },
+    [],
+  );
+
+  const applyDialogDirectionalNavigation = useCallback(
+    (
+      direction: "up" | "down" | "left" | "right",
+      dialogRoot: HTMLElement | null,
+      options?: {
+        focusedSlider?: HTMLInputElement | null;
+        stepFocusedSliderOnHorizontal?: boolean;
+      },
+    ): boolean => {
+      if (!dialogRoot) {
+        return false;
+      }
+      const focusedSlider =
+        options?.focusedSlider ?? getFocusedControllerRangeInput(dialogRoot);
+      const stepFocusedSliderOnHorizontal =
+        options?.stepFocusedSliderOnHorizontal ?? true;
+      if (
+        stepFocusedSliderOnHorizontal &&
+        focusedSlider &&
+        (direction === "left" || direction === "right")
+      ) {
+        return stepControllerRangeInput(
+          focusedSlider,
+          direction === "left" ? -1 : 1,
+        );
+      }
+      if (moveControllerDialogFocus(direction)) {
+        return true;
+      }
+      const focusable = getControllerFocusableElements(dialogRoot);
+      if (focusable.length === 0) {
+        return false;
+      }
+      const targetElement =
+        direction === "up" || direction === "left"
+          ? focusable[focusable.length - 1]
+          : focusable[0];
+      focusControllerDialogElement(targetElement);
+      return true;
+    },
+    [],
+  );
+
+  const handleInfoMenuDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (
+        event.key === "Home" ||
+        event.key === "End" ||
+        event.key === "PageUp" ||
+        event.key === "PageDown"
+      ) {
+        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+
+      if (event.key === "Home" || event.key === "End") {
+        const focusable = getControllerFocusableElements(event.currentTarget);
+        if (focusable.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const targetElement =
+          event.key === "End"
+            ? focusable[focusable.length - 1]
+            : focusable[0];
+        focusControllerDialogElement(targetElement);
+        return;
+      }
+
+      const direction = resolveStartupMenuNavigationDirection(
+        event.key,
+        event.code,
+      );
+      if (!direction) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      applyDialogDirectionalNavigation(direction, event.currentTarget, {
+        stepFocusedSliderOnHorizontal: false,
+      });
+    },
+    [applyDialogDirectionalNavigation, resolveStartupMenuNavigationDirection],
+  );
+
+  const handleStartupMainMenuKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      const target = event.target as HTMLElement | null;
+      const targetSelect =
+        target instanceof HTMLSelectElement ? target : null;
+      const selectLikelyOpen = !!targetSelect
+        ? startupLikelyOpenSelectElementsRef.current.has(targetSelect)
+        : false;
+      if (targetSelect) {
+        const closeLikelyOpenSelect = (): void => {
+          const previousValue =
+            startupLikelyOpenSelectInitialValueByElementRef.current.get(
+              targetSelect,
+            ) ?? targetSelect.value;
+          startupLikelyOpenSelectElementsRef.current.delete(targetSelect);
+          startupLikelyOpenSelectInitialValueByElementRef.current.delete(
+            targetSelect,
+          );
+          if (typeof window !== "undefined") {
+            window.requestAnimationFrame(() => {
+              if (!targetSelect.isConnected) {
+                return;
+              }
+              if (targetSelect.value !== previousValue) {
+                targetSelect.dispatchEvent(new Event("input", { bubbles: true }));
+                targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+              targetSelect.blur();
+            });
+          }
+        };
+        if (selectLikelyOpen) {
+          if (
+            event.key === "Enter" ||
+            event.key === "NumpadEnter" ||
+            event.key === " " ||
+            event.key === "Space" ||
+            event.key === "Spacebar"
+          ) {
+            if (
+              event.key === " " ||
+              event.key === "Space" ||
+              event.key === "Spacebar"
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            closeLikelyOpenSelect();
+            return;
+          }
+          if (event.key === "Escape") {
+            startupLikelyOpenSelectElementsRef.current.delete(targetSelect);
+            startupLikelyOpenSelectInitialValueByElementRef.current.delete(
+              targetSelect,
+            );
+            return;
+          }
+          return;
+        }
+        const opensSelect =
+          event.key === "F4" ||
+          event.key === "Enter" ||
+          event.key === "NumpadEnter" ||
+          event.key === " " ||
+          event.key === "Space" ||
+          event.key === "Spacebar" ||
+          ((event.key === "ArrowDown" || event.key === "ArrowUp") &&
+            event.altKey);
+        if (opensSelect) {
+          startupLikelyOpenSelectElementsRef.current.add(targetSelect);
+          startupLikelyOpenSelectInitialValueByElementRef.current.set(
+            targetSelect,
+            targetSelect.value,
+          );
+          return;
+        }
+      }
+      const targetInput =
+        target instanceof HTMLInputElement ? target : null;
+      const targetInputType = String(targetInput?.type || "").toLowerCase();
+      const targetRangeInput =
+        targetInput &&
+        targetInputType === "range" &&
+        !targetInput.disabled
+          ? targetInput
+          : null;
+      if (targetRangeInput) {
+        const inputDirection = resolveStartupMenuNavigationDirection(
+          event.key,
+          event.code,
+        );
+        if (inputDirection) {
+          event.preventDefault();
+          event.stopPropagation();
+          applyDialogDirectionalNavigation(inputDirection, event.currentTarget, {
+            focusedSlider: targetRangeInput,
+          });
+          return;
+        }
+      }
+      const isTextLikeInput =
+        !!targetInput &&
+        targetInputType !== "checkbox" &&
+        targetInputType !== "radio" &&
+        targetInputType !== "range" &&
+        targetInputType !== "color" &&
+        targetInputType !== "button" &&
+        targetInputType !== "submit" &&
+        targetInputType !== "reset";
+      if (
+        target &&
+        (isTextLikeInput || target.tagName === "TEXTAREA" || target.isContentEditable)
+      ) {
+        const editableVerticalDirection =
+          resolveEditableFieldVerticalNavigationDirection(
+            event.key,
+            event.code,
+          );
+        if (!editableVerticalDirection) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        applyDialogDirectionalNavigation(
+          editableVerticalDirection,
+          event.currentTarget,
+          {
+            stepFocusedSliderOnHorizontal: false,
+          },
+        );
+        return;
+      }
+
+      if (
+        event.key === "Home" ||
+        event.key === "End" ||
+        event.key === "PageUp" ||
+        event.key === "PageDown"
+      ) {
+        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+
+      if (event.key === "Home" || event.key === "End") {
+        const focusable = getControllerFocusableElements(event.currentTarget);
+        if (focusable.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const targetElement =
+          event.key === "End"
+            ? focusable[focusable.length - 1]
+            : focusable[0];
+        focusControllerDialogElement(targetElement);
+        return;
+      }
+
+      const direction = resolveStartupMenuNavigationDirection(
+        event.key,
+        event.code,
+      );
+      if (!direction) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      applyDialogDirectionalNavigation(direction, event.currentTarget, {
+        stepFocusedSliderOnHorizontal: false,
+      });
+    },
+    [
+      applyDialogDirectionalNavigation,
+      resolveEditableFieldVerticalNavigationDirection,
+      resolveStartupMenuNavigationDirection,
+    ],
+  );
+
+  const handleStartupMainMenuPointerDownCapture = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        startupLikelyOpenSelectElementsRef.current.add(target);
+        startupLikelyOpenSelectInitialValueByElementRef.current.set(
+          target,
+          target.value,
+        );
+      } else {
+        startupLikelyOpenSelectElementsRef.current.clear();
+        startupLikelyOpenSelectInitialValueByElementRef.current.clear();
+      }
+    },
+    [],
+  );
+
+  const handleStartupMainMenuBlurCapture = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        startupLikelyOpenSelectElementsRef.current.delete(target);
+        startupLikelyOpenSelectInitialValueByElementRef.current.delete(target);
+      }
+    },
+    [],
+  );
+
+  const handleStartupMainMenuChangeCapture = useCallback(
+    (event: React.FormEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        startupLikelyOpenSelectElementsRef.current.delete(target);
+        startupLikelyOpenSelectInitialValueByElementRef.current.delete(target);
+      }
+    },
+    [],
+  );
+
+  const handleClientOptionsDialogKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      const target = event.target as HTMLElement | null;
+      const targetSelect =
+        target instanceof HTMLSelectElement ? target : null;
+      const selectLikelyOpen = !!targetSelect
+        ? clientOptionsLikelyOpenSelectElementsRef.current.has(targetSelect)
+        : false;
+      if (targetSelect) {
+        const closeLikelyOpenSelect = (): void => {
+          const previousValue =
+            clientOptionsLikelyOpenSelectInitialValueByElementRef.current.get(
+              targetSelect,
+            ) ?? targetSelect.value;
+          clientOptionsLikelyOpenSelectElementsRef.current.delete(targetSelect);
+          clientOptionsLikelyOpenSelectInitialValueByElementRef.current.delete(
+            targetSelect,
+          );
+          if (typeof window !== "undefined") {
+            window.requestAnimationFrame(() => {
+              if (!targetSelect.isConnected) {
+                return;
+              }
+              if (targetSelect.value !== previousValue) {
+                targetSelect.dispatchEvent(new Event("input", { bubbles: true }));
+                targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+              }
+              targetSelect.blur();
+            });
+          }
+        };
+        if (selectLikelyOpen) {
+          if (
+            event.key === "Enter" ||
+            event.key === "NumpadEnter" ||
+            event.key === " " ||
+            event.key === "Space" ||
+            event.key === "Spacebar"
+          ) {
+            if (
+              event.key === " " ||
+              event.key === "Space" ||
+              event.key === "Spacebar"
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
+            closeLikelyOpenSelect();
+            return;
+          }
+          if (event.key === "Escape") {
+            clientOptionsLikelyOpenSelectElementsRef.current.delete(targetSelect);
+            clientOptionsLikelyOpenSelectInitialValueByElementRef.current.delete(
+              targetSelect,
+            );
+            return;
+          }
+          return;
+        }
+        const opensSelect =
+          event.key === "F4" ||
+          event.key === "Enter" ||
+          event.key === "NumpadEnter" ||
+          event.key === " " ||
+          event.key === "Space" ||
+          event.key === "Spacebar" ||
+          ((event.key === "ArrowDown" || event.key === "ArrowUp") &&
+            event.altKey);
+        if (opensSelect) {
+          clientOptionsLikelyOpenSelectElementsRef.current.add(targetSelect);
+          clientOptionsLikelyOpenSelectInitialValueByElementRef.current.set(
+            targetSelect,
+            targetSelect.value,
+          );
+          return;
+        }
+      }
+
+      const targetInput =
+        target instanceof HTMLInputElement ? target : null;
+      const targetInputType = String(targetInput?.type || "").toLowerCase();
+      if (targetInputType === "range" && targetInput && !targetInput.disabled) {
+        const inputDirection = resolveStartupMenuNavigationDirection(
+          event.key,
+          event.code,
+        );
+        if (inputDirection) {
+          event.preventDefault();
+          event.stopPropagation();
+          applyDialogDirectionalNavigation(inputDirection, event.currentTarget, {
+            focusedSlider: targetInput,
+          });
+          return;
+        }
+      }
+      const isTextLikeInput =
+        !!targetInput &&
+        targetInputType !== "checkbox" &&
+        targetInputType !== "radio" &&
+        targetInputType !== "range" &&
+        targetInputType !== "color" &&
+        targetInputType !== "button" &&
+        targetInputType !== "submit" &&
+        targetInputType !== "reset";
+      if (
+        target &&
+        (isTextLikeInput ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        const editableVerticalDirection =
+          resolveEditableFieldVerticalNavigationDirection(
+            event.key,
+            event.code,
+          );
+        if (!editableVerticalDirection) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        applyDialogDirectionalNavigation(
+          editableVerticalDirection,
+          event.currentTarget,
+          {
+            stepFocusedSliderOnHorizontal: false,
+          },
+        );
+        return;
+      }
+
+      if (
+        event.key === "Home" ||
+        event.key === "End" ||
+        event.key === "PageUp" ||
+        event.key === "PageDown"
+      ) {
+        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+      }
+
+      if (event.key === "Home" || event.key === "End") {
+        const focusable = getControllerFocusableElements(event.currentTarget);
+        if (focusable.length === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const targetElement =
+          event.key === "End"
+            ? focusable[focusable.length - 1]
+            : focusable[0];
+        focusControllerDialogElement(targetElement);
+        return;
+      }
+
+      const direction = resolveStartupMenuNavigationDirection(
+        event.key,
+        event.code,
+      );
+      if (!direction) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      applyDialogDirectionalNavigation(direction, event.currentTarget, {
+        stepFocusedSliderOnHorizontal: false,
+      });
+    },
+    [
+      applyDialogDirectionalNavigation,
+      resolveEditableFieldVerticalNavigationDirection,
+      resolveStartupMenuNavigationDirection,
+    ],
+  );
+
+  const handleClientOptionsDialogPointerDownCapture = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        clientOptionsLikelyOpenSelectElementsRef.current.add(target);
+        clientOptionsLikelyOpenSelectInitialValueByElementRef.current.set(
+          target,
+          target.value,
+        );
+      } else {
+        clientOptionsLikelyOpenSelectElementsRef.current.clear();
+        clientOptionsLikelyOpenSelectInitialValueByElementRef.current.clear();
+      }
+    },
+    [],
+  );
+
+  const handleClientOptionsDialogBlurCapture = useCallback(
+    (event: React.FocusEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        clientOptionsLikelyOpenSelectElementsRef.current.delete(target);
+        clientOptionsLikelyOpenSelectInitialValueByElementRef.current.delete(
+          target,
+        );
+      }
+    },
+    [],
+  );
+
+  const handleClientOptionsDialogChangeCapture = useCallback(
+    (event: React.FormEvent<HTMLDivElement>): void => {
+      const target = event.target as EventTarget | null;
+      if (target instanceof HTMLSelectElement) {
+        clientOptionsLikelyOpenSelectElementsRef.current.delete(target);
+        clientOptionsLikelyOpenSelectInitialValueByElementRef.current.delete(
+          target,
+        );
+      }
+    },
+    [],
+  );
+
   const refreshUserTilesetCatalog = useCallback(
     async (rehydrateFromStorage: boolean): Promise<void> => {
       try {
@@ -8910,7 +9661,9 @@ export default function App(): JSX.Element {
       }
       if (focusDirection) {
         setStartupControllerCursorVisible(false);
-        moveControllerDialogFocus(focusDirection);
+        applyDialogDirectionalNavigation(focusDirection, topDialog, {
+          focusedSlider,
+        });
       }
 
       const leftAxisX =
@@ -9004,6 +9757,7 @@ export default function App(): JSX.Element {
       resetStartupControllerCursor();
     };
   }, [
+    applyDialogDirectionalNavigation,
     characterCreationConfig,
     clearStartupControllerActiveSliderVisual,
     clearControllerBindingCapture,
@@ -9216,6 +9970,10 @@ export default function App(): JSX.Element {
                 : ""
             }`}
             id="character-setup-dialog"
+            onBlurCapture={handleStartupMainMenuBlurCapture}
+            onChangeCapture={handleStartupMainMenuChangeCapture}
+            onKeyDown={handleStartupMainMenuKeyDown}
+            onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
           >
             {startupFlowStep === "choose" ? (
               <>
@@ -9793,6 +10551,10 @@ export default function App(): JSX.Element {
         <div
           className={`nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible`}
           id="nh3d-client-options-dialog"
+          onBlurCapture={handleClientOptionsDialogBlurCapture}
+          onChangeCapture={handleClientOptionsDialogChangeCapture}
+          onKeyDown={handleClientOptionsDialogKeyDown}
+          onPointerDownCapture={handleClientOptionsDialogPointerDownCapture}
         >
           {renderMobileDialogCloseButton(
             requestCloseClientOptionsDialog,
@@ -10314,10 +11076,16 @@ export default function App(): JSX.Element {
                               disabled={sliderDisabled}
                               max={option.max}
                               min={option.min}
+                              onInput={(event) =>
+                                updateClientSliderDraft(
+                                  option.key,
+                                  Number(event.currentTarget.value),
+                                )
+                              }
                               onChange={(event) =>
                                 updateClientSliderDraft(
                                   option.key,
-                                  Number(event.target.value),
+                                  Number(event.currentTarget.value),
                                 )
                               }
                               step={option.step}
@@ -11681,6 +12449,7 @@ export default function App(): JSX.Element {
               : "nh3d-dialog-info"
           } nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-overflow-glow-frame`}
           id={isCharacterSheetVisible ? "character-dialog" : "info-menu-dialog"}
+          onKeyDown={handleInfoMenuDialogKeyDown}
         >
           {renderMobileDialogCloseButton(
             closeInfoMenuDialog,
@@ -11972,7 +12741,7 @@ export default function App(): JSX.Element {
                 </div>
 
                 <div className="nh3d-info-hint">
-                  Press SPACE, ENTER, or ESC to close.
+                  Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
                 </div>
               </div>
               <div className="nh3d-menu-actions">
@@ -12258,22 +13027,14 @@ export default function App(): JSX.Element {
                         if (!inventoryContextActionsEnabled) {
                           return;
                         }
-                        if (
-                          event.key === "ArrowUp" ||
-                          event.key === "ArrowLeft" ||
-                          event.key === "ArrowDown" ||
-                          event.key === "ArrowRight"
-                        ) {
+                        const moveDirection =
+                          resolveInventoryContextNavigationDirection(
+                            event.key,
+                            event.code,
+                          );
+                        if (moveDirection) {
                           event.preventDefault();
                           event.stopPropagation();
-                          const moveDirection =
-                            event.key === "ArrowUp"
-                              ? "up"
-                              : event.key === "ArrowLeft"
-                                ? "left"
-                                : event.key === "ArrowDown"
-                                  ? "down"
-                                  : "right";
                           if (inventoryContextMenu) {
                             moveInventoryContextMenuActionFocus(moveDirection);
                             return;

@@ -4782,13 +4782,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "info_menu":
-        this.lastInfoMenu = {
+        console.log("Received info_menu event from runtime", {
+          title: data.title,
+          lineCount: Array.isArray(data.lines) ? data.lines.length : 0,
+          source: data.source,
+        });
+        const normalizedInfoMenu = {
           title: String(data.title || "NetHack Information"),
           lines: this.normalizeInfoMenuLines(data.lines),
         };
+        const infoMenuSource =
+          typeof data.source === "string" ? data.source : "";
+        const shouldRefreshCtrlMCache = infoMenuSource !== "doprev_message";
+        if (shouldRefreshCtrlMCache) {
+          this.lastInfoMenu = normalizedInfoMenu;
+        }
         this.showInfoMenuDialog(
-          this.lastInfoMenu.title,
-          this.lastInfoMenu.lines,
+          normalizedInfoMenu.title,
+          normalizedInfoMenu.lines,
         );
         break;
 
@@ -15049,6 +15060,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
+  private handleCtrlShortcutKeyDown(event: KeyboardEvent): boolean {
+    if (!event.ctrlKey || event.altKey || event.metaKey) {
+      return false;
+    }
+
+    const keyFromCode =
+      event.code.startsWith("Key") && event.code.length === 4
+        ? event.code.slice(3).toLowerCase()
+        : "";
+    const keyFromEvent =
+      typeof event.key === "string" && event.key.length === 1
+        ? event.key.toLowerCase()
+        : "";
+    const normalizedKey = keyFromCode || keyFromEvent;
+
+    if (normalizedKey === "p") {
+      event.preventDefault();
+      this.sendInput(`${this.ctrlInputPrefix}p`);
+      return true;
+    }
+
+    if (normalizedKey !== "m") {
+      return false;
+    }
+    event.preventDefault();
+    this.toggleInfoMenuDialog();
+    return true;
+  }
+
   private handleKeyUp(event: KeyboardEvent): void {
     if (event.key === "Alt" || event.key === "Meta") {
       this.altOrMetaHeld = false;
@@ -16373,6 +16413,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       event.preventDefault();
       this.cancelPositionInputMode();
+      return;
+    }
+
+    if (this.handleCtrlShortcutKeyDown(event)) {
       return;
     }
 

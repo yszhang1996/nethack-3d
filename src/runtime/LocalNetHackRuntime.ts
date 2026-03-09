@@ -39,6 +39,8 @@ class LocalNetHackRuntime {
     this.lastEndedMenuHadQuestion = false;
     this.lastEndedInventoryMenuKind = null;
     this.windowTextBuffers = new Map();
+    this.messageHistorySnapshot = [];
+    this.messageHistorySnapshotIndex = 0;
     this.pendingGameOverPossessionsInventoryFlow = false;
 
     this.inputBroker = new RuntimeInputBroker();
@@ -373,6 +375,23 @@ class LocalNetHackRuntime {
       `Received client mouse input: button=${clickButton} tile=(${tileX}, ${tileY}) mod=${clickMod}`,
     );
 
+    // If NetHack is stuck waiting for an unrelated async selector flow, cancel
+    // it and allow mouse movement/clicklook input to reach nh_poskey.
+    if (this.pendingExtendedCommandRequest) {
+      console.log(
+        "Cancelling pending extended-command request due mouse input",
+      );
+      this.resolvePendingExtendedCommandRequest(-1);
+    }
+    if (this.pendingMenuSelection && this.isInMultiPickup) {
+      console.log("Cancelling pending multi-pickup selection due mouse input");
+      this.resolveMenuSelection(0);
+    }
+    if (this.pendingTextRequest) {
+      console.log("Cancelling pending text request due mouse input");
+      this.handleTextInputResponse("", "system");
+    }
+
     this.enqueueMouseInput(tileX, tileY, clickMod, source);
   }
 
@@ -389,8 +408,30 @@ class LocalNetHackRuntime {
       source,
       awaitingQuestionInput: this.awaitingQuestionInput,
       pendingTextResponses: this.pendingTextResponses.length,
-      activeInputRequestType: this.activeInputRequest?.type || null,
+      activeInputRequestType: this.activeInputRequest?.kind || null,
+      pendingExtendedCommandRequest: Boolean(this.pendingExtendedCommandRequest),
+      pendingMenuSelection: Boolean(this.pendingMenuSelection),
+      isInMultiPickup: this.isInMultiPickup,
+      hasPendingTextRequest: Boolean(this.pendingTextRequest),
     });
+
+    if (
+      this.pendingMenuSelection &&
+      this.isInMultiPickup &&
+      this.isDirectionalMovementInput(input) &&
+      !this.awaitingQuestionInput
+    ) {
+      console.log(
+        `Cancelling pending multi-pickup selection due directional input "${input}"`,
+      );
+      this.resolveMenuSelection(0);
+    }
+    if (this.pendingTextRequest && this.isDirectionalMovementInput(input)) {
+      console.log(
+        `Cancelling pending text request due directional input "${input}"`,
+      );
+      this.handleTextInputResponse("", "system");
+    }
 
     if (this.tryConsumePendingExtendedCommandInput(input)) {
       return;
@@ -1016,8 +1057,10 @@ class LocalNetHackRuntime {
       return true;
     }
 
-    // Ignore unrelated keys while waiting for extended command selection.
-    return true;
+    // Unrelated keys should cancel stale ext-command waits so gameplay input
+    // can flow back through normal nh_poskey handling.
+    this.resolvePendingExtendedCommandRequest(-1);
+    return false;
   }
 
   isLiteralTextInput(input) {
@@ -1260,21 +1303,6 @@ class LocalNetHackRuntime {
         ? this.normalizeFarLookPositionInput(rawKey)
         : rawKey;
     if (!key) {
-      return 0;
-    }
-
-    if (
-      requestKind === "event" &&
-      token &&
-      this.shouldRouteEventInputToPosition(key)
-    ) {
-      console.log(
-        `Routing directional input "${key}" from event callback to position callback`,
-      );
-      this.inputBroker.prependToken({
-        ...token,
-        targetKinds: ["position"],
-      });
       return 0;
     }
 
@@ -1611,19 +1639,6 @@ class LocalNetHackRuntime {
     );
   }
 
-  shouldRouteEventInputToPosition(input) {
-    if (this.awaitingQuestionInput) {
-      return false;
-    }
-    if (this.isInMultiPickup) {
-      return false;
-    }
-    if (this.pendingMenuSelection) {
-      return false;
-    }
-    return this.isDirectionalMovementInput(input);
-  }
-
   isFarLookExitInput(input) {
     return (
       input === "Escape" ||
@@ -1827,6 +1842,32 @@ class LocalNetHackRuntime {
       return "NetHack Information";
     }
     return "NetHack Information";
+  }
+
+  getRecallableMessageHistoryLines(maxLines = 200) {
+    const normalizedMax = Number.isFinite(maxLines)
+      ? Math.max(1, Math.trunc(maxLines))
+      : 200;
+    const lines = [];
+    for (const entry of this.gameMessages) {
+      if (!entry || typeof entry.text !== "string") {
+        continue;
+      }
+      const text = entry.text.replace(/\u0000/g, "");
+      if (!text) {
+        continue;
+      }
+      const win = Number(entry.window);
+      // Recall should mirror the top-line message stream (WIN_MESSAGE).
+      if (win !== 1) {
+        continue;
+      }
+      lines.push(text);
+    }
+    if (lines.length <= normalizedMax) {
+      return lines;
+    }
+    return lines.slice(lines.length - normalizedMax);
   }
 
   classifyInventoryWindowMenu(menuItems) {
@@ -2793,6 +2834,7 @@ class LocalNetHackRuntime {
 
               switch (type) {
                 case "s":
+                  if (!ptr) return "";
                   return this.nethackModule.UTF8ToString(ptr);
                 case "p":
                   if (!ptr) return 0;
@@ -2801,6 +2843,8 @@ class LocalNetHackRuntime {
                   return String.fromCharCode(
                     this.nethackModule.getValue(ptr, "i8"),
                   );
+                case "b":
+                  return this.nethackModule.getValue(ptr, "i8") !== 0;
                 case "0":
                   return this.nethackModule.getValue(ptr, "i8");
                 case "1":
@@ -3049,28 +3093,13 @@ class LocalNetHackRuntime {
   }
 
   handleShimGetNhEvent() {
-    if (this.farLookMode === "active" || this.positionInputActive) {
-      // Keep get_nh_event non-blocking while position input drives command flow.
-      return 0;
-    }
+    // NetHack's get_nh_event is a non-blocking event pump hook.
+    // It should not consume command input; nh_poskey/nhgetch own key waits.
+    return 0;
+  }
 
-    const queuedEventToken = this.inputBroker.dequeueToken("event");
-    if (!queuedEventToken) {
-      // NetHack calls get_nh_event frequently as an event pump hook.
-      // Do not block Asyncify here; keyboard waits belong in nh_poskey/yn flows.
-      return 0;
-    }
-
-    return this.consumeInputResult(
-      {
-        requestKind: "event",
-        token: queuedEventToken,
-        cancelled: false,
-        cancelCode: null,
-        consumedFromQueue: true,
-      },
-      "event",
-    );
+  handleShimNhGetch() {
+    return this.requestInputCode("event");
   }
 
   handleShimYnFunction(args) {
@@ -3189,6 +3218,7 @@ class LocalNetHackRuntime {
 
     const inputCallbackHandlers = {
       shim_get_nh_event: () => this.handleShimGetNhEvent(),
+      shim_nhgetch: () => this.handleShimNhGetch(),
       shim_yn_function: () => this.handleShimYnFunction(args),
       shim_nh_poskey: () => this.handleShimNhPoskey(args),
       shim_getlin: () => this.handleShimGetlin(args),
@@ -4191,7 +4221,7 @@ class LocalNetHackRuntime {
           pendingTextResponses: this.pendingTextResponses.length,
           configuredName,
           awaitingQuestionInput: this.awaitingQuestionInput,
-          activeInputRequestType: this.activeInputRequest?.type || null,
+          activeInputRequestType: this.activeInputRequest?.kind || null,
         });
         if (this.eventHandler) {
           this.emit({
@@ -4286,7 +4316,12 @@ class LocalNetHackRuntime {
       case "shim_getmsghistory":
         const [init] = args;
         console.log(`Getting message history, init: ${init}`);
-        // Return empty string for message history
+        if (init) {
+          this.messageHistorySnapshot = [];
+          this.messageHistorySnapshotIndex = 0;
+        }
+        // Keep this callback non-invasive. The runtime helper's "s" return
+        // marshalling expects a writable destination, so we must return empty.
         return "";
 
       case "shim_putmsghistory":
@@ -4294,6 +4329,42 @@ class LocalNetHackRuntime {
         console.log(
           `Putting message history: "${msg}", restoring: ${is_restoring}`,
         );
+        if (typeof msg === "string" && msg.trim()) {
+          const text = msg.replace(/\u0000/g, "").trim();
+          if (text) {
+            this.gameMessages.push({
+              text,
+              window: 1,
+              timestamp: Date.now(),
+              attr: 0,
+            });
+            if (this.gameMessages.length > 100) {
+              this.gameMessages.shift();
+            }
+          }
+        } else if (is_restoring) {
+          // End-of-restore marker from NetHack; reset any active snapshot iteration.
+          this.messageHistorySnapshot = [];
+          this.messageHistorySnapshotIndex = 0;
+        }
+        return 0;
+
+      case "shim_doprev_message":
+        console.log("Handling previous-message request");
+        if (this.eventHandler) {
+          const historyLines = this.getRecallableMessageHistoryLines();
+          if (historyLines.length > 0) {
+            console.log(
+              `Emitting info_menu for previous-message request (${historyLines.length} lines)`,
+            );
+            this.emit({
+              type: "info_menu",
+              title: "Message History",
+              lines: historyLines,
+              source: "doprev_message",
+            });
+          }
+        }
         return 0;
 
       case "shim_exit_nhwindows":

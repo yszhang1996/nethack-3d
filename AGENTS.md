@@ -47,7 +47,9 @@ Start here before making changes.
 
 ## Reference NetHack for information about shims and NetHack game behavior
 
-- If not found at `third_party/nethack-3.6.7`, the git is here: https://github.com/NetHack/NetHack
+- The NetHack source code in `third_party/nethack-3.6.7` is the pinned commit that the WASM is compiled from, so it can be considered the source of truth.
+- If it's not found, the offical NetHack git is here: https://github.com/NetHack/NetHack.
+- Never modify the NetHack source code. In all cases, we need to work with what NetHack gives us. If changes are not avoidable, let the user know.
 
 ## Do not run the build
 

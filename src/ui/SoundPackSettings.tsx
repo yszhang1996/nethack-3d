@@ -750,11 +750,12 @@ export default function SoundPackSettings({
             <input
               className="nh3d-text-input"
               onChange={(event) => {
+                const nextName = event.target.value;
                 setDraftPack((previous) =>
                   previous
                     ? {
                         ...previous,
-                        name: event.target.value,
+                        name: nextName,
                       }
                     : previous,
                 );
@@ -877,6 +878,22 @@ export default function SoundPackSettings({
                             ? `${variation.fileName} (custom)`
                             : variation.fileName;
                     const volumePercent = Math.round(variation.volume * 100);
+                    const updateVolumeFromPercentValue = (
+                      nextPercentRaw: string,
+                    ): void => {
+                      const nextVolume = Math.max(
+                        0,
+                        Math.min(1, Number(nextPercentRaw) / 100),
+                      );
+                      updateDraftSoundVariation(
+                        soundKey,
+                        variationId,
+                        (current) => ({
+                          ...current,
+                          volume: nextVolume,
+                        }),
+                      );
+                    };
                     const canResetCustom =
                       !isDefaultDraft &&
                       (pendingUpload instanceof Blob ||
@@ -930,20 +947,14 @@ export default function SoundPackSettings({
                                 disabled={isBusy}
                                 max={100}
                                 min={0}
+                                onInput={(event) =>
+                                  updateVolumeFromPercentValue(
+                                    event.currentTarget.value,
+                                  )
+                                }
                                 onChange={(event) =>
-                                  updateDraftSoundVariation(
-                                    soundKey,
-                                    variationId,
-                                    (current) => ({
-                                      ...current,
-                                      volume: Math.max(
-                                        0,
-                                        Math.min(
-                                          1,
-                                          Number(event.target.value) / 100,
-                                        ),
-                                      ),
-                                    }),
+                                  updateVolumeFromPercentValue(
+                                    event.currentTarget.value,
                                   )
                                 }
                                 step={1}
@@ -1093,16 +1104,17 @@ export default function SoundPackSettings({
                               aria-label={`Attribution for ${soundDisplayLabel}`}
                               className="nh3d-text-input nh3d-soundpack-attribution-input"
                               disabled={isBusy}
-                              onChange={(event) =>
+                              onChange={(event) => {
+                                const nextAttribution = event.target.value;
                                 updateDraftSoundVariation(
                                   soundKey,
                                   variationId,
                                   (current) => ({
                                     ...current,
-                                    attribution: event.target.value,
+                                    attribution: nextAttribution,
                                   }),
-                                )
-                              }
+                                );
+                              }}
                               onPaste={handleAttributionPaste(
                                 soundKey,
                                 variationId,

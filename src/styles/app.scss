@@ -3848,6 +3848,19 @@ canvas {
   }
 }
 
+.nh3d-startup-config-select:focus,
+.nh3d-startup-config-select:focus-visible,
+.nh3d-startup-config-input:focus,
+.nh3d-startup-config-input:focus-visible {
+  outline: none;
+  border-color: var(--nh3d-ui-button-warm-border);
+  box-shadow:
+    0 0 0 1px var(--nh3d-ui-button-warm-ring),
+    0 0 0 3px rgba(102, 204, 255, 0.36),
+    0 0 14px rgba(102, 204, 255, 0.26);
+  filter: brightness(1.16);
+}
+
 .nh3d-startup-init-options {
   width: min(560px, 100%);
   margin: 10px auto 0;
