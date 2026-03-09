@@ -2422,7 +2422,8 @@ function maintainControllerDialogFocusAfterKeyboardScroll(
     return;
   }
 
-  const focusableInScrollElement = getControllerFocusableElements(scrollElement);
+  const focusableInScrollElement =
+    getControllerFocusableElements(scrollElement);
   if (focusableInScrollElement.length === 0) {
     return;
   }
@@ -6889,7 +6890,12 @@ export default function App(): JSX.Element {
         event.key === "PageUp" ||
         event.key === "PageDown"
       ) {
-        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+        if (
+          handleControllerDialogKeyboardScrollKey(
+            event.currentTarget,
+            event.key,
+          )
+        ) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -6904,9 +6910,7 @@ export default function App(): JSX.Element {
         event.preventDefault();
         event.stopPropagation();
         const targetElement =
-          event.key === "End"
-            ? focusable[focusable.length - 1]
-            : focusable[0];
+          event.key === "End" ? focusable[focusable.length - 1] : focusable[0];
         focusControllerDialogElement(targetElement);
         return;
       }
@@ -6931,8 +6935,7 @@ export default function App(): JSX.Element {
   const handleStartupMainMenuKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
       const target = event.target as HTMLElement | null;
-      const targetSelect =
-        target instanceof HTMLSelectElement ? target : null;
+      const targetSelect = target instanceof HTMLSelectElement ? target : null;
       const selectLikelyOpen = !!targetSelect
         ? startupLikelyOpenSelectElementsRef.current.has(targetSelect)
         : false;
@@ -6952,8 +6955,12 @@ export default function App(): JSX.Element {
                 return;
               }
               if (targetSelect.value !== previousValue) {
-                targetSelect.dispatchEvent(new Event("input", { bubbles: true }));
-                targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                targetSelect.dispatchEvent(
+                  new Event("input", { bubbles: true }),
+                );
+                targetSelect.dispatchEvent(
+                  new Event("change", { bubbles: true }),
+                );
               }
               targetSelect.blur();
             });
@@ -7005,13 +7012,10 @@ export default function App(): JSX.Element {
           return;
         }
       }
-      const targetInput =
-        target instanceof HTMLInputElement ? target : null;
+      const targetInput = target instanceof HTMLInputElement ? target : null;
       const targetInputType = String(targetInput?.type || "").toLowerCase();
       const targetRangeInput =
-        targetInput &&
-        targetInputType === "range" &&
-        !targetInput.disabled
+        targetInput && targetInputType === "range" && !targetInput.disabled
           ? targetInput
           : null;
       if (targetRangeInput) {
@@ -7022,9 +7026,13 @@ export default function App(): JSX.Element {
         if (inputDirection) {
           event.preventDefault();
           event.stopPropagation();
-          applyDialogDirectionalNavigation(inputDirection, event.currentTarget, {
-            focusedSlider: targetRangeInput,
-          });
+          applyDialogDirectionalNavigation(
+            inputDirection,
+            event.currentTarget,
+            {
+              focusedSlider: targetRangeInput,
+            },
+          );
           return;
         }
       }
@@ -7039,7 +7047,9 @@ export default function App(): JSX.Element {
         targetInputType !== "reset";
       if (
         target &&
-        (isTextLikeInput || target.tagName === "TEXTAREA" || target.isContentEditable)
+        (isTextLikeInput ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
       ) {
         const editableVerticalDirection =
           resolveEditableFieldVerticalNavigationDirection(
@@ -7067,7 +7077,12 @@ export default function App(): JSX.Element {
         event.key === "PageUp" ||
         event.key === "PageDown"
       ) {
-        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+        if (
+          handleControllerDialogKeyboardScrollKey(
+            event.currentTarget,
+            event.key,
+          )
+        ) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -7082,9 +7097,7 @@ export default function App(): JSX.Element {
         event.preventDefault();
         event.stopPropagation();
         const targetElement =
-          event.key === "End"
-            ? focusable[focusable.length - 1]
-            : focusable[0];
+          event.key === "End" ? focusable[focusable.length - 1] : focusable[0];
         focusControllerDialogElement(targetElement);
         return;
       }
@@ -7152,8 +7165,7 @@ export default function App(): JSX.Element {
   const handleClientOptionsDialogKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
       const target = event.target as HTMLElement | null;
-      const targetSelect =
-        target instanceof HTMLSelectElement ? target : null;
+      const targetSelect = target instanceof HTMLSelectElement ? target : null;
       const selectLikelyOpen = !!targetSelect
         ? clientOptionsLikelyOpenSelectElementsRef.current.has(targetSelect)
         : false;
@@ -7173,8 +7185,12 @@ export default function App(): JSX.Element {
                 return;
               }
               if (targetSelect.value !== previousValue) {
-                targetSelect.dispatchEvent(new Event("input", { bubbles: true }));
-                targetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+                targetSelect.dispatchEvent(
+                  new Event("input", { bubbles: true }),
+                );
+                targetSelect.dispatchEvent(
+                  new Event("change", { bubbles: true }),
+                );
               }
               targetSelect.blur();
             });
@@ -7200,7 +7216,9 @@ export default function App(): JSX.Element {
             return;
           }
           if (event.key === "Escape") {
-            clientOptionsLikelyOpenSelectElementsRef.current.delete(targetSelect);
+            clientOptionsLikelyOpenSelectElementsRef.current.delete(
+              targetSelect,
+            );
             clientOptionsLikelyOpenSelectInitialValueByElementRef.current.delete(
               targetSelect,
             );
@@ -7227,8 +7245,7 @@ export default function App(): JSX.Element {
         }
       }
 
-      const targetInput =
-        target instanceof HTMLInputElement ? target : null;
+      const targetInput = target instanceof HTMLInputElement ? target : null;
       const targetInputType = String(targetInput?.type || "").toLowerCase();
       if (targetInputType === "range" && targetInput && !targetInput.disabled) {
         const inputDirection = resolveStartupMenuNavigationDirection(
@@ -7238,9 +7255,13 @@ export default function App(): JSX.Element {
         if (inputDirection) {
           event.preventDefault();
           event.stopPropagation();
-          applyDialogDirectionalNavigation(inputDirection, event.currentTarget, {
-            focusedSlider: targetInput,
-          });
+          applyDialogDirectionalNavigation(
+            inputDirection,
+            event.currentTarget,
+            {
+              focusedSlider: targetInput,
+            },
+          );
           return;
         }
       }
@@ -7285,7 +7306,12 @@ export default function App(): JSX.Element {
         event.key === "PageUp" ||
         event.key === "PageDown"
       ) {
-        if (handleControllerDialogKeyboardScrollKey(event.currentTarget, event.key)) {
+        if (
+          handleControllerDialogKeyboardScrollKey(
+            event.currentTarget,
+            event.key,
+          )
+        ) {
           event.preventDefault();
           event.stopPropagation();
           return;
@@ -7300,9 +7326,7 @@ export default function App(): JSX.Element {
         event.preventDefault();
         event.stopPropagation();
         const targetElement =
-          event.key === "End"
-            ? focusable[focusable.length - 1]
-            : focusable[0];
+          event.key === "End" ? focusable[focusable.length - 1] : focusable[0];
         focusControllerDialogElement(targetElement);
         return;
       }
@@ -8491,10 +8515,7 @@ export default function App(): JSX.Element {
   );
 
   const resolveInventoryContextNavigationDirection = useCallback(
-    (
-      key: string,
-      code?: string,
-    ): "up" | "down" | "left" | "right" | null => {
+    (key: string, code?: string): "up" | "down" | "left" | "right" | null => {
       switch (key) {
         case "ArrowUp":
         case "PageUp":
@@ -8648,14 +8669,16 @@ export default function App(): JSX.Element {
         if (activeRowIndex < 0 || activeColumnIndex < 0) {
           if (direction === "up" || direction === "left") {
             const lastRow = rows[rows.length - 1];
-            targetButton = lastRow.items[lastRow.items.length - 1]?.button ?? null;
+            targetButton =
+              lastRow.items[lastRow.items.length - 1]?.button ?? null;
           } else {
             targetButton = rows[0].items[0]?.button ?? null;
           }
         } else if (direction === "right") {
           const currentRow = rows[activeRowIndex];
           if (activeColumnIndex < currentRow.items.length - 1) {
-            targetButton = currentRow.items[activeColumnIndex + 1]?.button ?? null;
+            targetButton =
+              currentRow.items[activeColumnIndex + 1]?.button ?? null;
           } else if (activeRowIndex < rows.length - 1) {
             targetButton = rows[activeRowIndex + 1].items[0]?.button ?? null;
           } else {
@@ -8664,14 +8687,16 @@ export default function App(): JSX.Element {
         } else if (direction === "left") {
           const currentRow = rows[activeRowIndex];
           if (activeColumnIndex > 0) {
-            targetButton = currentRow.items[activeColumnIndex - 1]?.button ?? null;
+            targetButton =
+              currentRow.items[activeColumnIndex - 1]?.button ?? null;
           } else if (activeRowIndex > 0) {
             const previousRow = rows[activeRowIndex - 1];
             targetButton =
               previousRow.items[previousRow.items.length - 1]?.button ?? null;
           } else {
             const lastRow = rows[rows.length - 1];
-            targetButton = lastRow.items[lastRow.items.length - 1]?.button ?? null;
+            targetButton =
+              lastRow.items[lastRow.items.length - 1]?.button ?? null;
           }
         } else {
           const rowDelta = direction === "up" ? -1 : 1;
@@ -8796,7 +8821,7 @@ export default function App(): JSX.Element {
   ): void => {
     // Workaround for a race condition in context-menu command submission.
     // TODO: remove once the underlying ordering issue is fixed.
-    const contextualSubmitDelayMs = 50;
+    const contextualSubmitDelayMs = 0;
     const autoDirectionFromFpsAim =
       fpsCrosshairContext?.autoDirectionFromFpsAim === true;
     if (action.kind === "quick") {
@@ -13070,7 +13095,8 @@ export default function App(): JSX.Element {
                         event.preventDefault();
                         event.stopPropagation();
 
-                        const target = event.currentTarget.getBoundingClientRect();
+                        const target =
+                          event.currentTarget.getBoundingClientRect();
                         openInventoryContextMenu(
                           item,
                           target.right,
