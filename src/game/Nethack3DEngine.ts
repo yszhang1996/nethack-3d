@@ -15010,6 +15010,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.isInfoDialogVisible;
   }
 
+  private isClientOptionsDialogOpen(): boolean {
+    return Boolean(
+      document.querySelector<HTMLElement>("#nh3d-client-options-dialog.is-visible"),
+    );
+  }
+
   private isSpaceDismissKey(event: KeyboardEvent): boolean {
     return (
       event.key === " " ||
@@ -16259,6 +16265,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleKeyDown(event: KeyboardEvent): void {
     this.resumeFmodFromUserGesture();
+
+    if (this.isClientOptionsDialogOpen()) {
+      return;
+    }
 
     if (this.isTextInputActive) {
       const target = event.target as HTMLElement | null;
