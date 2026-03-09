@@ -50,6 +50,7 @@ export type PlayerStatsSnapshot = {
   armor: number;
   dungeon: string;
   dlevel: number;
+  locationLabel?: string;
   gold: number;
   alignment: string;
   hunger: string;

@@ -333,6 +333,14 @@ type PendingLevelCacheTransition = {
   preTransitionFallbackLevelName: string | null;
 };
 
+type RuntimeLevelIdentity = {
+  dnum: number;
+  dlevel: number;
+  ledgerNo: number | null;
+  depth: number | null;
+  dungeonName: string | null;
+};
+
 type WallSideTileOverlay = {
   textureKey: string;
   material: THREE.MeshBasicMaterial;
@@ -457,6 +465,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     null;
   private currentLevelCacheName: string | null = null;
   private latestLevelDescriptorName: string | null = null;
+  private latestRuntimeLevelIdentity: RuntimeLevelIdentity | null = null;
   private pendingLevelCacheTransition: PendingLevelCacheTransition | null =
     null;
   private readonly levelCacheDisambiguationWallSampleMin: number = 6;
@@ -579,6 +588,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     armor: 10,
     dungeon: "Dungeons of Doom",
     dlevel: 1,
+    locationLabel: "",
     gold: 0,
     alignment: "Neutral",
     hunger: "Not Hungry",
@@ -1663,7 +1673,175 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private parseRuntimeLevelIdentity(
+    rawIdentity: unknown,
+  ): RuntimeLevelIdentity | null {
+    if (!rawIdentity || typeof rawIdentity !== "object") {
+      return null;
+    }
+
+    const parseInteger = (value: unknown): number | null => {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return Math.trunc(value);
+      }
+      const normalized = String(value ?? "").trim();
+      if (!normalized || !/^-?\d+$/.test(normalized)) {
+        return null;
+      }
+      const parsed = Number.parseInt(normalized, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const identity = rawIdentity as Record<string, unknown>;
+    const dnum = parseInteger(identity.dnum);
+    const dlevel = parseInteger(identity.dlevel);
+    if (dnum === null || dlevel === null) {
+      return null;
+    }
+
+    return {
+      dnum,
+      dlevel,
+      ledgerNo: parseInteger(identity.ledgerNo),
+      depth: parseInteger(identity.depth),
+      dungeonName: this.normalizeLevelCacheName(identity.dungeonName),
+    };
+  }
+
+  private buildLevelCacheIdentifierFromRuntimeLevelIdentity(
+    identity: RuntimeLevelIdentity | null = this.latestRuntimeLevelIdentity,
+  ): string | null {
+    if (!identity) {
+      return null;
+    }
+    if (
+      typeof identity.ledgerNo === "number" &&
+      Number.isFinite(identity.ledgerNo)
+    ) {
+      return `ledger:${Math.trunc(identity.ledgerNo)}`;
+    }
+    if (
+      Number.isFinite(identity.dnum) &&
+      Number.isFinite(identity.dlevel)
+    ) {
+      return `dnum:${Math.trunc(identity.dnum)};dlevel:${Math.trunc(identity.dlevel)}`;
+    }
+    return null;
+  }
+
+  private applyRuntimeLevelIdentity(rawIdentity: unknown): void {
+    const identity = this.parseRuntimeLevelIdentity(rawIdentity);
+    if (!identity) {
+      return;
+    }
+
+    this.latestRuntimeLevelIdentity = identity;
+
+    if (Number.isFinite(identity.dlevel)) {
+      this.playerStats.dlevel = Math.trunc(identity.dlevel);
+    }
+    if (identity.dungeonName) {
+      this.playerStats.dungeon = identity.dungeonName;
+    }
+  }
+
+  private extractDlevelFromLevelDescriptor(levelDescriptor: string): number | null {
+    const clean = String(levelDescriptor || "").trim();
+    if (!clean) {
+      return null;
+    }
+
+    const patterns = [
+      /^dlvl:\s*(-?\d+)\s*$/i,
+      /^home\s+(-?\d+)\s*$/i,
+      /^[^:]+:\s*(-?\d+)\s*$/i,
+    ];
+    for (const pattern of patterns) {
+      const match = clean.match(pattern);
+      if (!match || !match[1]) {
+        continue;
+      }
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return null;
+  }
+
+  private formatOverviewStyleLocationFromDescriptor(
+    descriptor: string | null,
+    identity: RuntimeLevelIdentity | null = this.latestRuntimeLevelIdentity,
+  ): string | null {
+    const normalizedDescriptor = this.normalizeLevelCacheName(descriptor);
+    if (!normalizedDescriptor) {
+      return null;
+    }
+
+    const normalizedLower = normalizedDescriptor.toLowerCase();
+    const endgameElementByDescriptor: Record<string, string> = {
+      earth: "Plane of Earth",
+      air: "Plane of Air",
+      fire: "Plane of Fire",
+      water: "Plane of Water",
+      astral: "Astral Plane",
+    };
+    if (endgameElementByDescriptor[normalizedLower]) {
+      return endgameElementByDescriptor[normalizedLower];
+    }
+
+    const dungeonNameFromIdentity = this.normalizeLevelCacheName(
+      identity?.dungeonName,
+    );
+    const dungeonLabel =
+      dungeonNameFromIdentity ??
+      this.normalizeLevelCacheName(this.playerStats.dungeon);
+    const parsedLevel = this.extractDlevelFromLevelDescriptor(
+      normalizedDescriptor,
+    );
+    if (parsedLevel !== null) {
+      if (dungeonLabel) {
+        return `${dungeonLabel} ${parsedLevel}`;
+      }
+      return String(parsedLevel);
+    }
+
+    return normalizedDescriptor;
+  }
+
+  private refreshOverviewStyleLocationLabel(): void {
+    const labelFromDescriptor = this.formatOverviewStyleLocationFromDescriptor(
+      this.latestLevelDescriptorName,
+    );
+    if (labelFromDescriptor) {
+      this.playerStats.locationLabel = labelFromDescriptor;
+      return;
+    }
+
+    const identity = this.latestRuntimeLevelIdentity;
+    if (
+      identity &&
+      typeof identity.depth === "number" &&
+      Number.isFinite(identity.depth)
+    ) {
+      const dungeonLabel = this.normalizeLevelCacheName(identity.dungeonName);
+      const levelLabel = String(Math.trunc(identity.depth));
+      this.playerStats.locationLabel = dungeonLabel
+        ? `${dungeonLabel} ${levelLabel}`
+        : levelLabel;
+      return;
+    }
+
+    this.playerStats.locationLabel = "";
+  }
+
   private buildFallbackLevelCacheName(): string | null {
+    const runtimeLevelIdentifier =
+      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
+    if (runtimeLevelIdentifier) {
+      return runtimeLevelIdentifier;
+    }
+
     const dungeonName = this.normalizeLevelCacheName(this.playerStats.dungeon);
     const numericDlevel = Number.isFinite(this.playerStats.dlevel)
       ? Math.trunc(this.playerStats.dlevel)
@@ -1683,6 +1861,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private resolvePreferredLevelCacheName(options?: {
     allowFallback?: boolean;
   }): string | null {
+    const runtimeLevelIdentifier =
+      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
+    if (runtimeLevelIdentifier) {
+      return runtimeLevelIdentifier;
+    }
     if (this.latestLevelDescriptorName) {
       return this.latestLevelDescriptorName;
     }
@@ -1866,6 +2049,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeLevelCacheRef = null;
     this.currentLevelCacheName = null;
     this.latestLevelDescriptorName = null;
+    this.latestRuntimeLevelIdentity = null;
     this.pendingLevelCacheTransition = null;
   }
 
@@ -1874,6 +2058,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeLevelCacheRef = null;
     this.currentLevelCacheName = null;
     this.latestLevelDescriptorName = null;
+    this.latestRuntimeLevelIdentity = null;
     this.pendingLevelCacheTransition = {
       startedAtMs: Date.now(),
       observedTiles: new Map(),
@@ -2195,6 +2380,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const pending = this.pendingLevelCacheTransition;
     if (!pending) {
       return null;
+    }
+    const runtimeLevelIdentifier =
+      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
+    if (runtimeLevelIdentifier) {
+      return runtimeLevelIdentifier;
     }
     if (this.latestLevelDescriptorName) {
       return this.latestLevelDescriptorName;
@@ -12856,7 +13046,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.noteLevelIdentityStatusUpdate(rawFieldName);
     const pending = this.pendingLevelCacheTransition;
-    if (pending && (mappedField === "dungeon" || mappedField === "dlevel")) {
+    if (
+      pending &&
+      (mappedField === "dungeon" ||
+        mappedField === "dlevel" ||
+        mappedField === "levelDescriptor")
+    ) {
       pending.sawLevelIdentityStatusUpdate = true;
     }
     const allowFallback = !pending || pending.sawLevelIdentityStatusUpdate;
@@ -12875,7 +13070,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     value: string | number | null,
     data: any,
   ): void {
-    const legacyByIndex: { [key: number]: string } = {
+    const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+    const legacyByIndex37: { [key: number]: string } = {
       0: "name",
       1: "strength",
       2: "dexterity",
@@ -12899,6 +13095,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
       20: "dlevel",
       21: "gold",
     };
+    const legacyByIndex367: { [key: number]: string } = {
+      0: "name",
+      1: "strength",
+      2: "dexterity",
+      3: "constitution",
+      4: "intelligence",
+      5: "wisdom",
+      6: "charisma",
+      7: "alignment",
+      8: "score",
+      9: "encumbrance",
+      10: "gold",
+      11: "power",
+      12: "maxpower",
+      13: "level",
+      14: "armor",
+      16: "time",
+      17: "hunger",
+      18: "hp",
+      19: "maxhp",
+      20: "levelDescriptor",
+      21: "experience",
+    };
+    const legacyByIndex =
+      runtimeVersion === "3.7" ? legacyByIndex37 : legacyByIndex367;
 
     const byName: { [key: string]: string } = {
       BL_TITLE: "name",
@@ -12920,6 +13141,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       BL_TIME: "time",
       BL_HUNGER: "hunger",
       BL_CAP: "encumbrance",
+      BL_LEVELDESC: "levelDescriptor",
       BL_DNUM: "dungeon",
       BL_DLEVEL: "dlevel",
       BL_GOLD: "gold",
@@ -13024,6 +13246,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     console.log(`Updating status ${mappedField}: ${parsedValue}`);
     const previousDlevel = this.playerStats.dlevel;
     const previousDungeon = this.playerStats.dungeon;
+    this.applyRuntimeLevelIdentity(data?.levelIdentity);
     let playerDamageTaken: number | null = null;
     let playerHealingGained: number | null = null;
     let playerExperienceDelta: number | null = null;
@@ -13085,21 +13308,55 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.playerStats.maxHp = parsedValue;
     } else if (mappedField === "maxpower") {
       this.playerStats.maxPower = parsedValue;
+    } else if (mappedField === "levelDescriptor") {
+      const normalizedDescriptor = this.normalizeLevelCacheName(parsedValue);
+      if (normalizedDescriptor) {
+        this.latestLevelDescriptorName = normalizedDescriptor;
+
+        const parsedDescriptorLevel =
+          this.extractDlevelFromLevelDescriptor(normalizedDescriptor);
+        if (parsedDescriptorLevel !== null) {
+          this.playerStats.dlevel = parsedDescriptorLevel;
+        }
+
+        if (/^dlvl:/i.test(normalizedDescriptor)) {
+          const identityDungeonName = this.normalizeLevelCacheName(
+            this.latestRuntimeLevelIdentity?.dungeonName,
+          );
+          this.playerStats.dungeon =
+            identityDungeonName ?? "Dungeons of Doom";
+        } else if (/^home\s+/i.test(normalizedDescriptor)) {
+          const identityDungeonName = this.normalizeLevelCacheName(
+            this.latestRuntimeLevelIdentity?.dungeonName,
+          );
+          this.playerStats.dungeon = identityDungeonName ?? "Quest";
+        } else {
+          const descriptorDungeonMatch = normalizedDescriptor.match(
+            /^([^:]+):\s*-?\d+\s*$/i,
+          );
+          if (descriptorDungeonMatch && descriptorDungeonMatch[1]) {
+            const normalizedDungeonLabel = this.normalizeLevelCacheName(
+              descriptorDungeonMatch[1],
+            );
+            if (normalizedDungeonLabel) {
+              this.playerStats.dungeon = normalizedDungeonLabel;
+            }
+          }
+        }
+      }
     } else if (mappedField === "dlevel") {
       this.playerStats.dlevel = parsedValue;
-      if (previousDlevel !== parsedValue) {
-        this.pendingPlayerTileRefreshOnNextPosition = true;
-        this.requestPlayerTileRefresh("dlevel-change");
-      }
     } else {
       (this.playerStats as any)[mappedField] = parsedValue;
-      if (
-        mappedField === "dungeon" &&
-        String(previousDungeon) !== String(this.playerStats.dungeon)
-      ) {
-        this.pendingPlayerTileRefreshOnNextPosition = true;
-        this.requestPlayerTileRefresh("dungeon-change");
-      }
+    }
+
+    if (previousDlevel !== this.playerStats.dlevel) {
+      this.pendingPlayerTileRefreshOnNextPosition = true;
+      this.requestPlayerTileRefresh("dlevel-change");
+    }
+    if (String(previousDungeon) !== String(this.playerStats.dungeon)) {
+      this.pendingPlayerTileRefreshOnNextPosition = true;
+      this.requestPlayerTileRefresh("dungeon-change");
     }
 
     if (
@@ -13183,6 +13440,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
     }
 
+    this.refreshOverviewStyleLocationLabel();
     this.updateStatsDisplay();
     this.refreshLevelCacheNameFromStatusFields(
       rawFieldName,

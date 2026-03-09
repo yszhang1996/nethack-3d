@@ -34,6 +34,7 @@ export const defaultPlayerStats: PlayerStatsSnapshot = {
   armor: 10,
   dungeon: "Dungeons of Doom",
   dlevel: 1,
+  locationLabel: "",
   gold: 0,
   alignment: "Neutral",
   hunger: "Not Hungry",

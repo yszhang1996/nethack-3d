@@ -3,6 +3,7 @@ import RuntimeInputBroker from "./input/RuntimeInputBroker";
 import { getBundledDisplayFile } from "./displayFileCatalog";
 import type { NethackRuntimeVersion } from "./types";
 import { sanitizeStartupInitOptionTokens } from "./startup-init-options";
+import { STATUS_FIELD_MAP_367, STATUS_FIELD_MAP_37 } from "./status-map";
 
 const process =
   typeof globalThis !== "undefined" && globalThis.process
@@ -84,6 +85,61 @@ class LocalNetHackRuntime {
 
   normalizeRuntimeVersion(value) {
     return value === "3.7" ? "3.7" : "3.6.7";
+  }
+
+  getRuntimeStatusFieldMap() {
+    return this.runtimeVersion === "3.7"
+      ? STATUS_FIELD_MAP_37
+      : STATUS_FIELD_MAP_367;
+  }
+
+  seedRuntimeStatusFieldConstants() {
+    const constants =
+      globalThis.nethackGlobal &&
+      globalThis.nethackGlobal.constants &&
+      typeof globalThis.nethackGlobal.constants === "object"
+        ? globalThis.nethackGlobal.constants
+        : null;
+    if (!constants) {
+      return;
+    }
+
+    const existing =
+      constants.STATUS_FIELD && typeof constants.STATUS_FIELD === "object"
+        ? constants.STATUS_FIELD
+        : {};
+    const merged = { ...existing };
+    const runtimeMap = this.getRuntimeStatusFieldMap();
+
+    for (const [rawIndex, rawName] of Object.entries(runtimeMap || {})) {
+      const index = Number(rawIndex);
+      if (!Number.isFinite(index)) {
+        continue;
+      }
+      const fieldName = String(rawName ?? "").trim();
+      if (!fieldName) {
+        continue;
+      }
+      merged[index] = fieldName;
+      if (merged[fieldName] === undefined) {
+        merged[fieldName] = index;
+      }
+    }
+
+    merged[-1] = "BL_FLUSH";
+    merged[-2] = "BL_RESET";
+    merged[-3] = "BL_CHARACTERISTICS";
+    if (merged.BL_FLUSH === undefined) {
+      merged.BL_FLUSH = -1;
+    }
+    if (merged.BL_RESET === undefined) {
+      merged.BL_RESET = -2;
+    }
+    if (merged.BL_CHARACTERISTICS === undefined) {
+      merged.BL_CHARACTERISTICS = -3;
+    }
+
+    constants.STATUS_FIELD = merged;
   }
 
   private unpackGlyphArgs(args: number[]) {
@@ -2806,36 +2862,25 @@ class LocalNetHackRuntime {
   }
 
   getStatusFieldName(field) {
-    const fallback = {
-      0: "BL_TITLE",
-      1: "BL_STR",
-      2: "BL_DX",
-      3: "BL_CO",
-      4: "BL_IN",
-      5: "BL_WI",
-      6: "BL_CH",
-      7: "BL_ALIGN",
-      8: "BL_SCORE",
-      9: "BL_HP",
-      10: "BL_HPMAX",
-      11: "BL_ENE",
-      12: "BL_ENEMAX",
-      13: "BL_AC",
-      14: "BL_XP",
-      15: "BL_EXP",
-      16: "BL_TIME",
-      17: "BL_HUNGER",
-      18: "BL_CAP",
-      19: "BL_DNUM",
-      20: "BL_DLEVEL",
-      21: "BL_GOLD",
-      22: "BL_CONDITION",
-      23: "BL_FLUSH",
-      24: "BL_RESET",
-      25: "BL_CHARACTERISTICS",
-    };
-
     if (typeof field !== "number") return String(field);
+    if (field === -1) {
+      return "BL_FLUSH";
+    }
+    if (field === -2) {
+      return "BL_RESET";
+    }
+    if (field === -3) {
+      return "BL_CHARACTERISTICS";
+    }
+    if (field === 23) {
+      return "BL_FLUSH";
+    }
+    if (field === 24) {
+      return "BL_RESET";
+    }
+    if (field === 25) {
+      return "BL_CHARACTERISTICS";
+    }
 
     const constants =
       globalThis.nethackGlobal && globalThis.nethackGlobal.constants
@@ -2849,7 +2894,12 @@ class LocalNetHackRuntime {
       return String(constants.STATUS_FIELD[field]);
     }
 
-    return fallback[field] || `FIELD_${field}`;
+    const fallback = this.getRuntimeStatusFieldMap();
+    if (fallback && fallback[field] !== undefined) {
+      return String(fallback[field]);
+    }
+
+    return `FIELD_${field}`;
   }
 
   decodeShimArgValue(name, ptrToArg, type) {
@@ -2900,6 +2950,135 @@ class LocalNetHackRuntime {
       };
     } catch (e) {
       return { value: "", valueType: "s" };
+    }
+  }
+
+  normalizeRuntimeInteger(value) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return Math.trunc(value);
+    }
+    const clean = String(value ?? "").trim();
+    if (!clean) {
+      return null;
+    }
+    if (/^-?\d+$/.test(clean)) {
+      const parsed = Number.parseInt(clean, 10);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  }
+
+  resolveDungeonByIndex(dungeons, dnum) {
+    if (Array.isArray(dungeons)) {
+      return dungeons[dnum] ?? null;
+    }
+    if (dungeons && typeof dungeons === "object") {
+      if (Object.prototype.hasOwnProperty.call(dungeons, dnum)) {
+        return dungeons[dnum];
+      }
+      const key = String(dnum);
+      if (Object.prototype.hasOwnProperty.call(dungeons, key)) {
+        return dungeons[key];
+      }
+    }
+    return null;
+  }
+
+  resolveRuntimeBranchTag(dnum, topology) {
+    if (!topology || typeof topology !== "object") {
+      return null;
+    }
+    const minesDnum = this.normalizeRuntimeInteger(topology.d_mines_dnum);
+    const questDnum = this.normalizeRuntimeInteger(topology.d_quest_dnum);
+    const sokobanDnum = this.normalizeRuntimeInteger(topology.d_sokoban_dnum);
+    const towerDnum = this.normalizeRuntimeInteger(topology.d_tower_dnum);
+    const astralDnum = this.normalizeRuntimeInteger(topology.d_astral_level?.dnum);
+
+    if (dnum === 0) {
+      return "dungeons_of_doom";
+    }
+    if (dnum === minesDnum) {
+      return "mines";
+    }
+    if (dnum === questDnum) {
+      return "quest";
+    }
+    if (dnum === sokobanDnum) {
+      return "sokoban";
+    }
+    if (dnum === towerDnum) {
+      return "vlads_tower";
+    }
+    if (dnum === astralDnum) {
+      return "endgame";
+    }
+    return null;
+  }
+
+  resolveRuntimeLevelIdentity() {
+    const globals =
+      globalThis.nethackGlobal &&
+      globalThis.nethackGlobal.globals &&
+      typeof globalThis.nethackGlobal.globals === "object"
+        ? globalThis.nethackGlobal.globals
+        : null;
+    if (!globals) {
+      return null;
+    }
+
+    try {
+      const u = globals.u;
+      const uz = u && typeof u === "object" ? u.uz : null;
+      const dnum =
+        uz && typeof uz === "object"
+          ? this.normalizeRuntimeInteger(uz.dnum)
+          : null;
+      const dlevel =
+        uz && typeof uz === "object"
+          ? this.normalizeRuntimeInteger(uz.dlevel)
+          : null;
+      if (dnum === null || dlevel === null) {
+        return null;
+      }
+
+      const dungeons = globals.dungeons;
+      const dungeonEntry = this.resolveDungeonByIndex(dungeons, dnum);
+      const dungeonName =
+        dungeonEntry &&
+        typeof dungeonEntry === "object" &&
+        typeof dungeonEntry.dname === "string"
+          ? dungeonEntry.dname.trim() || null
+          : null;
+      const ledgerStart =
+        dungeonEntry && typeof dungeonEntry === "object"
+          ? this.normalizeRuntimeInteger(dungeonEntry.ledger_start)
+          : null;
+      const depthStart =
+        dungeonEntry && typeof dungeonEntry === "object"
+          ? this.normalizeRuntimeInteger(dungeonEntry.depth_start)
+          : null;
+
+      const ledgerNo =
+        ledgerStart !== null ? Math.trunc(dlevel + ledgerStart) : null;
+      const depth =
+        depthStart !== null ? Math.trunc(depthStart + dlevel - 1) : null;
+
+      const topology =
+        globals.dungeon_topology && typeof globals.dungeon_topology === "object"
+          ? globals.dungeon_topology
+          : null;
+      const branchTag = this.resolveRuntimeBranchTag(dnum, topology);
+      return {
+        dnum,
+        dlevel,
+        ledgerNo,
+        depth,
+        dungeonName,
+        branchTag,
+      };
+    } catch (error) {
+      console.log("Failed to resolve runtime level identity:", error);
+      return null;
     }
   }
 
@@ -3196,6 +3375,7 @@ class LocalNetHackRuntime {
           globals: { WIN_MAP: 2, WIN_INVEN: 4, WIN_STATUS: 3, WIN_MESSAGE: 1 },
         };
       }
+      this.seedRuntimeStatusFieldConstants();
 
       const runtimeOptions = [
         // Input/menu behavior expected by the browser port.
@@ -4836,6 +5016,7 @@ class LocalNetHackRuntime {
           percent: percent,
           color: color,
           colormask: colormask,
+          levelIdentity: this.resolveRuntimeLevelIdentity(),
         };
         this.statusPending.set(field, statusPayload);
         this.latestStatusUpdates.set(field, statusPayload);

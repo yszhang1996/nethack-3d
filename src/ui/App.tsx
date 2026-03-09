@@ -6334,6 +6334,11 @@ export default function App(): JSX.Element {
   const locationStatusText = [playerStats.hunger, playerStats.encumbrance]
     .filter((value) => Boolean(value))
     .join(" ");
+  const locationLabel = String(playerStats.locationLabel || "").trim();
+  const fallbackLocationLabel = Number.isFinite(playerStats.dlevel)
+    ? `${playerStats.dungeon} ${Math.trunc(playerStats.dlevel)}`.trim()
+    : String(playerStats.dungeon || "").trim();
+  const visibleLocationLabel = locationLabel || fallbackLocationLabel;
   const parsedQuestionChoices = question
     ? parseQuestionChoices(question.text, question.choices)
     : [];
@@ -10762,7 +10767,7 @@ export default function App(): JSX.Element {
           </div>
           <div className="nh3d-stats-location">
             <div className="nh3d-stats-dungeon">
-              {playerStats.dungeon} {playerStats.dlevel}
+              {visibleLocationLabel}
               {locationStatusText ? (
                 <span className="nh3d-stats-mobile-location-status">
                   {locationStatusText}
