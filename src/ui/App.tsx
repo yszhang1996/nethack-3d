@@ -2135,8 +2135,11 @@ function moveClientOptionsDialogFocus(
 
   if (direction === "right" && nav.contains(activeElement)) {
     const target =
-      findDirectionalControllerFocusTarget(activeElement, panelFocusable, "right") ??
-      panelFocusable[0];
+      findDirectionalControllerFocusTarget(
+        activeElement,
+        panelFocusable,
+        "right",
+      ) ?? panelFocusable[0];
     if (!target) {
       return false;
     }
@@ -2337,13 +2340,11 @@ function stepControllerRangeInput(
   const low = Math.min(min, max);
   const high = Math.max(min, max);
   const stepValue = Number.parseFloat(slider.step);
-  const step =
-    Number.isFinite(stepValue) && stepValue > 0 ? stepValue : 1;
+  const step = Number.isFinite(stepValue) && stepValue > 0 ? stepValue : 1;
   const currentValue = Number.parseFloat(slider.value);
   const current = Number.isFinite(currentValue) ? currentValue : low;
-  const normalizedStepCount = stepCount > 0
-    ? Math.floor(stepCount)
-    : Math.ceil(stepCount);
+  const normalizedStepCount =
+    stepCount > 0 ? Math.floor(stepCount) : Math.ceil(stepCount);
   if (normalizedStepCount === 0) {
     return false;
   }
@@ -3682,8 +3683,10 @@ export default function App(): JSX.Element {
     hasAskedControllerSupportThisSession,
     setHasAskedControllerSupportThisSession,
   ] = useState(false);
-  const [isControllerSupportPromptVisible, setIsControllerSupportPromptVisible] =
-    useState(false);
+  const [
+    isControllerSupportPromptVisible,
+    setIsControllerSupportPromptVisible,
+  ] = useState(false);
   const [userTilesets, setUserTilesets] = useState<StoredUserTilesetRecord[]>(
     [],
   );
@@ -3985,6 +3988,8 @@ export default function App(): JSX.Element {
   ] = useState(false);
   const [deferredNewGamePromptReason, setDeferredNewGamePromptReason] =
     useState<string | null>(null);
+  const newGamePromptYesButtonRef = useRef<HTMLButtonElement | null>(null);
+  const newGamePromptNoButtonRef = useRef<HTMLButtonElement | null>(null);
   const tilesetCatalog = useMemo(() => getNh3dTilesetCatalog(), [userTilesets]);
   const showBuiltInTilesetsInTilesetManagerList = useMemo(
     () => isRunningOnLocalhost(),
@@ -4073,6 +4078,7 @@ export default function App(): JSX.Element {
   const inventoryRowHoverValueByIndexRef = useRef<Map<number, number>>(
     new Map(),
   );
+  const inventoryKeyboardActivationKeysDownRef = useRef<Set<string>>(new Set());
   const inventoryPointerClientYRef = useRef<number | null>(null);
   const inventoryPointerActiveRef = useRef(false);
   const inventoryRowProximityAnimationFrameRef = useRef<number | null>(null);
@@ -4375,6 +4381,18 @@ export default function App(): JSX.Element {
     clearInventoryTouchFallbackClearTimer,
     scheduleInventoryRowProximityUpdate,
   ]);
+  const normalizeInventoryActivationKey = useCallback(
+    (key: string): "Enter" | "Space" | null => {
+      if (key === "Enter" || key === "NumpadEnter") {
+        return "Enter";
+      }
+      if (key === " " || key === "Space" || key === "Spacebar") {
+        return "Space";
+      }
+      return null;
+    },
+    [],
+  );
   const setInventoryRowRef = useCallback(
     (index: number, element: HTMLDivElement | null): void => {
       if (element) {
@@ -5822,10 +5840,7 @@ export default function App(): JSX.Element {
 
     return () => {
       window.clearInterval(pollId);
-      window.removeEventListener(
-        "gamepadconnected",
-        handleControllerDetection,
-      );
+      window.removeEventListener("gamepadconnected", handleControllerDetection);
     };
   }, [
     hasAskedControllerSupportThisSession,
@@ -6226,11 +6241,7 @@ export default function App(): JSX.Element {
       }
       return nextVisible;
     });
-  }, [
-    closeControllerActionWheel,
-    controller,
-    wizardCommandsSupported,
-  ]);
+  }, [closeControllerActionWheel, controller, wizardCommandsSupported]);
   const runWizardExtendedCommand = useCallback(
     (command: string): void => {
       controller?.dismissFpsCrosshairContextMenu();
@@ -6551,6 +6562,63 @@ export default function App(): JSX.Element {
     setReopenNewGamePromptOnInteraction(true);
     setNewGamePrompt({ visible: false, reason: null });
   };
+
+  const handleNewGamePromptKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>): void => {
+      const actionButtons = [
+        newGamePromptYesButtonRef.current,
+        newGamePromptNoButtonRef.current,
+      ].filter((button): button is HTMLButtonElement => Boolean(button));
+      if (actionButtons.length === 0) {
+        return;
+      }
+      const activeElement =
+        typeof document !== "undefined" &&
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      const activeIndex = activeElement
+        ? actionButtons.findIndex((button) => button === activeElement)
+        : -1;
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        event.stopPropagation();
+        const delta = event.key === "ArrowLeft" ? -1 : 1;
+        const targetIndex =
+          activeIndex < 0
+            ? delta > 0
+              ? 0
+              : actionButtons.length - 1
+            : (((activeIndex + delta) % actionButtons.length) +
+                actionButtons.length) %
+              actionButtons.length;
+        actionButtons[targetIndex]?.focus({ preventScroll: true });
+        return;
+      }
+      if (
+        event.key === "Enter" ||
+        event.key === "NumpadEnter" ||
+        event.key === " " ||
+        event.key === "Space" ||
+        event.key === "Spacebar"
+      ) {
+        if (
+          activeIndex < 0 &&
+          activeElement?.classList.contains("nh3d-mobile-dialog-close")
+        ) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (activeIndex === 1) {
+          dismissNewGamePromptUntilInteraction();
+        } else {
+          startNewGameFromPrompt();
+        }
+      }
+    },
+    [dismissNewGamePromptUntilInteraction, startNewGameFromPrompt],
+  );
 
   const refreshUserTilesetCatalog = useCallback(
     async (rehydrateFromStorage: boolean): Promise<void> => {
@@ -7619,6 +7687,46 @@ export default function App(): JSX.Element {
     [],
   );
 
+  const moveInventoryItemFocusByArrowKey = useCallback(
+    (
+      currentRow: HTMLDivElement,
+      direction: "previous" | "next",
+    ): HTMLDivElement | null => {
+      const focusableRows = Array.from(inventoryRowRefs.current.entries())
+        .sort((left, right) => left[0] - right[0])
+        .map(([, rowElement]) => rowElement)
+        .filter(
+          (rowElement) =>
+            rowElement.isConnected &&
+            !rowElement.classList.contains("nh3d-inventory-item-disabled"),
+        );
+      if (focusableRows.length === 0) {
+        return null;
+      }
+
+      const currentIndex = focusableRows.findIndex(
+        (rowElement) => rowElement === currentRow,
+      );
+      const delta = direction === "previous" ? -1 : 1;
+      const targetIndex =
+        currentIndex < 0
+          ? delta > 0
+            ? 0
+            : focusableRows.length - 1
+          : (((currentIndex + delta) % focusableRows.length) +
+              focusableRows.length) %
+            focusableRows.length;
+      const targetRow = focusableRows[targetIndex] ?? null;
+      if (!targetRow) {
+        return null;
+      }
+      targetRow.focus({ preventScroll: true });
+      targetRow.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return targetRow;
+    },
+    [],
+  );
+
   const closeInventoryContextMenu = useCallback(
     (options?: { restoreItemFocus?: boolean }): void => {
       const shouldRestoreItemFocus = options?.restoreItemFocus === true;
@@ -7629,6 +7737,225 @@ export default function App(): JSX.Element {
       }
     },
     [focusInventoryItemByAccelerator],
+  );
+
+  const resolveInventoryContextNavigationDirection = useCallback(
+    (
+      key: string,
+      code?: string,
+    ): "up" | "down" | "left" | "right" | null => {
+      switch (key) {
+        case "ArrowUp":
+        case "PageUp":
+        case "k":
+        case "K":
+        case "y":
+        case "Y":
+        case "u":
+        case "U":
+          return "up";
+        case "ArrowDown":
+        case "PageDown":
+        case "j":
+        case "J":
+        case "b":
+        case "B":
+        case "n":
+        case "N":
+          return "down";
+        case "ArrowLeft":
+        case "h":
+        case "H":
+          return "left";
+        case "ArrowRight":
+        case "l":
+        case "L":
+          return "right";
+        default:
+          break;
+      }
+      switch (code) {
+        case "Numpad8":
+        case "Numpad7":
+        case "Numpad9":
+          return "up";
+        case "Numpad2":
+        case "Numpad1":
+        case "Numpad3":
+          return "down";
+        case "Numpad4":
+          return "left";
+        case "Numpad6":
+          return "right";
+        default:
+          return null;
+      }
+    },
+    [],
+  );
+
+  const moveInventoryContextMenuActionFocus = useCallback(
+    (direction: "up" | "down" | "left" | "right"): boolean => {
+      const actionButtons =
+        inventoryContextMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+          ".nh3d-context-menu-button:not(:disabled)",
+        ) ?? null;
+      if (!actionButtons || actionButtons.length === 0) {
+        return false;
+      }
+      const focusableButtons = Array.from(actionButtons).filter(
+        (button) => button.isConnected,
+      );
+      if (focusableButtons.length === 0) {
+        return false;
+      }
+
+      const measuredButtons = focusableButtons
+        .map((button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            button,
+            centerX: rect.left + rect.width * 0.5,
+            centerY: rect.top + rect.height * 0.5,
+          };
+        })
+        .sort((left, right) =>
+          left.centerY === right.centerY
+            ? left.centerX - right.centerX
+            : left.centerY - right.centerY,
+        );
+      const rows: Array<{
+        centerY: number;
+        items: Array<{
+          button: HTMLButtonElement;
+          centerX: number;
+          centerY: number;
+        }>;
+      }> = [];
+      const rowTolerancePx = 12;
+      for (const measured of measuredButtons) {
+        const lastRow = rows[rows.length - 1];
+        if (
+          lastRow &&
+          Math.abs(measured.centerY - lastRow.centerY) <= rowTolerancePx
+        ) {
+          lastRow.items.push(measured);
+          const rowSize = lastRow.items.length;
+          lastRow.centerY =
+            (lastRow.centerY * (rowSize - 1) + measured.centerY) / rowSize;
+        } else {
+          rows.push({
+            centerY: measured.centerY,
+            items: [measured],
+          });
+        }
+      }
+      for (const row of rows) {
+        row.items.sort((left, right) => left.centerX - right.centerX);
+      }
+
+      const activeElement =
+        typeof document !== "undefined" &&
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+      const focusLinear = (delta: -1 | 1): HTMLButtonElement | null => {
+        const activeIndex = activeElement
+          ? focusableButtons.findIndex((button) => button === activeElement)
+          : -1;
+        const targetIndex =
+          activeIndex < 0
+            ? delta > 0
+              ? 0
+              : focusableButtons.length - 1
+            : (((activeIndex + delta) % focusableButtons.length) +
+                focusableButtons.length) %
+              focusableButtons.length;
+        return focusableButtons[targetIndex] ?? null;
+      };
+
+      const hasMultipleColumns = rows.some((row) => row.items.length > 1);
+      let targetButton: HTMLButtonElement | null = null;
+      if (rows.length > 0 && hasMultipleColumns) {
+        let activeRowIndex = -1;
+        let activeColumnIndex = -1;
+        let activeCenterX = Number.NaN;
+        if (activeElement) {
+          for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+            const columnIndex = rows[rowIndex].items.findIndex(
+              (item) => item.button === activeElement,
+            );
+            if (columnIndex >= 0) {
+              activeRowIndex = rowIndex;
+              activeColumnIndex = columnIndex;
+              activeCenterX = rows[rowIndex].items[columnIndex].centerX;
+              break;
+            }
+          }
+        }
+
+        if (activeRowIndex < 0 || activeColumnIndex < 0) {
+          if (direction === "up" || direction === "left") {
+            const lastRow = rows[rows.length - 1];
+            targetButton = lastRow.items[lastRow.items.length - 1]?.button ?? null;
+          } else {
+            targetButton = rows[0].items[0]?.button ?? null;
+          }
+        } else if (direction === "right") {
+          const currentRow = rows[activeRowIndex];
+          if (activeColumnIndex < currentRow.items.length - 1) {
+            targetButton = currentRow.items[activeColumnIndex + 1]?.button ?? null;
+          } else if (activeRowIndex < rows.length - 1) {
+            targetButton = rows[activeRowIndex + 1].items[0]?.button ?? null;
+          } else {
+            targetButton = rows[0].items[0]?.button ?? null;
+          }
+        } else if (direction === "left") {
+          const currentRow = rows[activeRowIndex];
+          if (activeColumnIndex > 0) {
+            targetButton = currentRow.items[activeColumnIndex - 1]?.button ?? null;
+          } else if (activeRowIndex > 0) {
+            const previousRow = rows[activeRowIndex - 1];
+            targetButton =
+              previousRow.items[previousRow.items.length - 1]?.button ?? null;
+          } else {
+            const lastRow = rows[rows.length - 1];
+            targetButton = lastRow.items[lastRow.items.length - 1]?.button ?? null;
+          }
+        } else {
+          const rowDelta = direction === "up" ? -1 : 1;
+          let nextRowIndex = activeRowIndex + rowDelta;
+          if (nextRowIndex < 0) {
+            nextRowIndex = rows.length - 1;
+          } else if (nextRowIndex >= rows.length) {
+            nextRowIndex = 0;
+          }
+          const nextRow = rows[nextRowIndex];
+          targetButton =
+            nextRow.items.reduce<{
+              button: HTMLButtonElement;
+              distance: number;
+            } | null>((best, item) => {
+              const distance = Math.abs(item.centerX - activeCenterX);
+              if (!best || distance < best.distance) {
+                return { button: item.button, distance };
+              }
+              return best;
+            }, null)?.button ?? null;
+        }
+      }
+      if (!targetButton) {
+        const linearDelta = direction === "up" || direction === "left" ? -1 : 1;
+        targetButton = focusLinear(linearDelta);
+      }
+      if (!targetButton) {
+        return false;
+      }
+      targetButton.focus({ preventScroll: true });
+      targetButton.scrollIntoView({ block: "nearest", inline: "nearest" });
+      return true;
+    },
+    [],
   );
 
   const openInventoryContextMenu = (
@@ -7838,6 +8165,33 @@ export default function App(): JSX.Element {
   }, [inventoryContextActionsEnabled]);
 
   useEffect(() => {
+    if (!inventory.visible || typeof window === "undefined") {
+      inventoryKeyboardActivationKeysDownRef.current.clear();
+      return;
+    }
+
+    const handleKeyUp = (event: KeyboardEvent): void => {
+      const normalizedKey = normalizeInventoryActivationKey(event.key);
+      if (!normalizedKey) {
+        return;
+      }
+      inventoryKeyboardActivationKeysDownRef.current.delete(normalizedKey);
+    };
+
+    const handleWindowBlur = (): void => {
+      inventoryKeyboardActivationKeysDownRef.current.clear();
+    };
+
+    window.addEventListener("keyup", handleKeyUp, true);
+    window.addEventListener("blur", handleWindowBlur);
+    return () => {
+      window.removeEventListener("keyup", handleKeyUp, true);
+      window.removeEventListener("blur", handleWindowBlur);
+      inventoryKeyboardActivationKeysDownRef.current.clear();
+    };
+  }, [inventory.visible, normalizeInventoryActivationKey]);
+
+  useEffect(() => {
     if (!newGamePrompt.visible) {
       return;
     }
@@ -7870,17 +8224,26 @@ export default function App(): JSX.Element {
         reason: deferredNewGamePromptReason,
       });
     };
-    const handleEnterKey = (event: KeyboardEvent): void => {
-      if (event.key !== "Enter" && event.key !== "NumpadEnter") {
+    const handleInteractionKey = (event: KeyboardEvent): void => {
+      if (
+        event.key !== "Enter" &&
+        event.key !== "NumpadEnter" &&
+        event.key !== " " &&
+        event.key !== "Space" &&
+        event.key !== "Spacebar"
+      ) {
         return;
       }
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
       handleFirstInteraction();
     };
     window.addEventListener("pointerdown", handleFirstInteraction, true);
-    window.addEventListener("keydown", handleEnterKey, true);
+    window.addEventListener("keydown", handleInteractionKey, true);
     return () => {
       window.removeEventListener("pointerdown", handleFirstInteraction, true);
-      window.removeEventListener("keydown", handleEnterKey, true);
+      window.removeEventListener("keydown", handleInteractionKey, true);
     };
   }, [
     deferredNewGamePromptReason,
@@ -8364,7 +8727,11 @@ export default function App(): JSX.Element {
   const setStartupControllerActiveSliderVisual = useCallback(
     (slider: HTMLInputElement | null): void => {
       const previousSlider = startupControllerActiveSliderElementRef.current;
-      if (previousSlider && previousSlider !== slider && previousSlider.isConnected) {
+      if (
+        previousSlider &&
+        previousSlider !== slider &&
+        previousSlider.isConnected
+      ) {
         previousSlider.classList.remove("nh3d-controller-slider-active");
       }
       startupControllerActiveSliderElementRef.current = slider;
@@ -8495,12 +8862,11 @@ export default function App(): JSX.Element {
             return;
           }
 
-          const dpadStepDirection =
-            actionPressed.dpad_right
-              ? 1
-              : actionPressed.dpad_left
-                ? -1
-                : 0;
+          const dpadStepDirection = actionPressed.dpad_right
+            ? 1
+            : actionPressed.dpad_left
+              ? -1
+              : 0;
           if (dpadStepDirection !== 0) {
             stepControllerRangeInput(focusedSlider, dpadStepDirection);
           }
@@ -10981,9 +11347,7 @@ export default function App(): JSX.Element {
               <>
                 {question.menuItems.map((item, index) => {
                   if (!isSelectableQuestionMenuItem(item)) {
-                    if (
-                      isReadOnlyQuestionOptionMenuItem(item, question.text)
-                    ) {
+                    if (isReadOnlyQuestionOptionMenuItem(item, question.text)) {
                       return (
                         <button
                           className="nh3d-menu-button nh3d-menu-button-readonly"
@@ -11122,10 +11486,9 @@ export default function App(): JSX.Element {
                           ? " nh3d-choice-button-default"
                           : ""
                       }${
-                        tileApplicable
-                          ? " nh3d-choice-button-with-tile"
-                          : ""
+                        tileApplicable ? " nh3d-choice-button-with-tile" : ""
                       }`}
+                      data-nh3d-choice-value={choice}
                       key={choice}
                       onClick={() => controller?.chooseQuestionChoice(choice)}
                       type="button"
@@ -11195,16 +11558,18 @@ export default function App(): JSX.Element {
         <div
           className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game is-visible"
           id="new-game-dialog"
+          onKeyDown={handleNewGamePromptKeyDown}
         >
           {renderMobileDialogCloseButton(
             () => setNewGamePrompt({ visible: false, reason: null }),
             "Close new game prompt",
           )}
-          <div className="nh3d-question-text">Start a new game?</div>
+          <div className="nh3d-question-text">Return to main menu?</div>
           <div className="nh3d-menu-actions">
             <button
               className="nh3d-menu-action-button nh3d-menu-action-confirm"
               onClick={startNewGameFromPrompt}
+              ref={newGamePromptYesButtonRef}
               type="button"
             >
               Yes
@@ -11212,6 +11577,7 @@ export default function App(): JSX.Element {
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
               onClick={dismissNewGamePromptUntilInteraction}
+              ref={newGamePromptNoButtonRef}
               type="button"
             >
               No
@@ -11774,9 +12140,10 @@ export default function App(): JSX.Element {
                   }
 
                   const tileApplicable = isMenuItemTileApplicable(item);
-                  const tileIndex = tilesUiEnabled && tileApplicable
-                    ? resolveMenuItemTileIndex(item)
-                    : null;
+                  const tileIndex =
+                    tilesUiEnabled && tileApplicable
+                      ? resolveMenuItemTileIndex(item)
+                      : null;
                   const tilePreview =
                     tileIndex !== null
                       ? renderTilePreviewImage(tileIndex)
@@ -11891,20 +12258,68 @@ export default function App(): JSX.Element {
                         if (!inventoryContextActionsEnabled) {
                           return;
                         }
-                        if (event.key === "Enter" || event.key === " ") {
+                        if (
+                          event.key === "ArrowUp" ||
+                          event.key === "ArrowLeft" ||
+                          event.key === "ArrowDown" ||
+                          event.key === "ArrowRight"
+                        ) {
                           event.preventDefault();
-                          if (isContextMenuItemActive) {
-                            setInventoryContextMenu(null);
+                          event.stopPropagation();
+                          const moveDirection =
+                            event.key === "ArrowUp"
+                              ? "up"
+                              : event.key === "ArrowLeft"
+                                ? "left"
+                                : event.key === "ArrowDown"
+                                  ? "down"
+                                  : "right";
+                          if (inventoryContextMenu) {
+                            moveInventoryContextMenuActionFocus(moveDirection);
                             return;
                           }
-                          const target =
-                            event.currentTarget.getBoundingClientRect();
-                          openInventoryContextMenu(
-                            item,
-                            target.right,
-                            target.top + target.height / 2,
-                            target,
+                          moveInventoryItemFocusByArrowKey(
+                            event.currentTarget,
+                            moveDirection === "up" || moveDirection === "left"
+                              ? "previous"
+                              : "next",
                           );
+                          return;
+                        }
+
+                        const activationKey = normalizeInventoryActivationKey(
+                          event.key,
+                        );
+                        if (!activationKey) {
+                          return;
+                        }
+
+                        if (
+                          inventoryKeyboardActivationKeysDownRef.current.has(
+                            activationKey,
+                          )
+                        ) {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          return;
+                        }
+                        inventoryKeyboardActivationKeysDownRef.current.add(
+                          activationKey,
+                        );
+                        event.preventDefault();
+                        event.stopPropagation();
+
+                        const target = event.currentTarget.getBoundingClientRect();
+                        openInventoryContextMenu(
+                          item,
+                          target.right,
+                          target.top + target.height / 2,
+                          target,
+                        );
+                        if (typeof window !== "undefined") {
+                          window.requestAnimationFrame(() => {
+                            moveInventoryContextMenuActionFocus("right");
+                          });
                         }
                       }}
                       role={
@@ -11963,6 +12378,23 @@ export default function App(): JSX.Element {
         <div
           className="nh3d-context-menu nh3d-inventory-context-menu nh3d-overflow-glow-frame"
           onContextMenu={(event) => event.preventDefault()}
+          onKeyDown={(event) => {
+            const moveDirection = resolveInventoryContextNavigationDirection(
+              event.key,
+              event.code,
+            );
+            if (moveDirection) {
+              event.preventDefault();
+              event.stopPropagation();
+              moveInventoryContextMenuActionFocus(moveDirection);
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              event.stopPropagation();
+              closeInventoryContextMenu({ restoreItemFocus: true });
+            }
+          }}
           ref={inventoryContextMenuRef}
           style={{
             left: `${inventoryContextMenu.x}px`,
