@@ -50,6 +50,17 @@ Start here before making changes.
 - The NetHack source code in `third_party/nethack-3.6.7` is the pinned commit that the WASM is compiled from, so it can be considered the source of truth.
 - If it's not found, the offical NetHack git is here: https://github.com/NetHack/NetHack.
 - Never modify the NetHack source code. In all cases, we need to work with what NetHack gives us. If changes are not avoidable, let the user know.
+- Do not make changes or patches for the WASM's shims, only our runtime's interactions with them. If changes are needed to the WASM shims, inform the user so they can be updated by the WASM package's author.
+
+## Current WASM Shim Caveats (3.6.7)
+
+- `shim_getmsghistory` and `shim_get_color_string` are declared as string-return callbacks in the shim layer. The current WASM bridge marshalling writes string return data directly into `ret_ptr`, which is not a reliable `char*` return pathway for these callbacks.
+  - Runtime workaround: always return an empty string (`""`) for both callbacks.
+  - Do not return non-empty dynamic strings from these callbacks until upstream shim marshalling is fixed.
+- `set_shim_font_name` uses return type `"2"` in shim format metadata (16-bit integer), but the current WASM helper return marshalling does not implement `"2"` as an explicit return type.
+  - Runtime workaround: treat as unsupported/no-op and return `0`.
+- `shim_askname` in 3.6.7 is a `void` callback in shim declarations. Returning a JS string is not authoritative.
+  - Runtime workaround: write the chosen name into runtime globals (`nethackGlobal.globals.plname`) and treat return value as non-authoritative.
 
 ## Do not run the build
 

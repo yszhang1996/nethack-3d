@@ -38,6 +38,7 @@ class LocalNetHackRuntime {
     this.lastEndedMenuWindow = null;
     this.lastEndedMenuHadQuestion = false;
     this.lastEndedInventoryMenuKind = null;
+    this.lastMenuInteractionCancelled = false;
     this.windowTextBuffers = new Map();
     this.messageHistorySnapshot = [];
     this.messageHistorySnapshotIndex = 0;
@@ -135,6 +136,42 @@ class LocalNetHackRuntime {
       return "";
     }
     return normalized.slice(0, 30);
+  }
+
+  setRuntimePlayerName(name) {
+    const normalized = this.normalizeCharacterNameValue(name);
+    if (!normalized) {
+      return false;
+    }
+
+    const globals =
+      globalThis.nethackGlobal &&
+      globalThis.nethackGlobal.globals &&
+      typeof globalThis.nethackGlobal.globals === "object"
+        ? globalThis.nethackGlobal.globals
+        : null;
+    if (!globals) {
+      return false;
+    }
+
+    try {
+      if (Object.prototype.hasOwnProperty.call(globals, "plname")) {
+        globals.plname = normalized;
+        return true;
+      }
+      if (
+        globals.g &&
+        typeof globals.g === "object" &&
+        Object.prototype.hasOwnProperty.call(globals.g, "plname")
+      ) {
+        globals.g.plname = normalized;
+        return true;
+      }
+    } catch (error) {
+      console.log("Failed to write runtime player name:", error);
+    }
+
+    return false;
   }
 
   buildCharacterCreationRuntimeOptions() {
@@ -298,6 +335,7 @@ class LocalNetHackRuntime {
     this.pendingInventoryContextSelection = null;
     this.awaitingQuestionInput = false;
     this.windowTextBuffers.clear();
+    this.lastMenuInteractionCancelled = false;
 
     if (this.pendingMenuSelection && this.pendingMenuSelection.resolver) {
       const resolver = this.pendingMenuSelection.resolver;
@@ -385,11 +423,11 @@ class LocalNetHackRuntime {
     }
     if (this.pendingMenuSelection && this.isInMultiPickup) {
       console.log("Cancelling pending multi-pickup selection due mouse input");
-      this.resolveMenuSelection(0);
+      this.resolveMenuSelection(-1);
     }
     if (this.pendingTextRequest) {
       console.log("Cancelling pending text request due mouse input");
-      this.handleTextInputResponse("", "system");
+      this.handleTextInputResponse("\x1b", "system");
     }
 
     this.enqueueMouseInput(tileX, tileY, clickMod, source);
@@ -424,13 +462,13 @@ class LocalNetHackRuntime {
       console.log(
         `Cancelling pending multi-pickup selection due directional input "${input}"`,
       );
-      this.resolveMenuSelection(0);
+      this.resolveMenuSelection(-1);
     }
     if (this.pendingTextRequest && this.isDirectionalMovementInput(input)) {
       console.log(
         `Cancelling pending text request due directional input "${input}"`,
       );
-      this.handleTextInputResponse("", "system");
+      this.handleTextInputResponse("\x1b", "system");
     }
 
     if (this.tryConsumePendingExtendedCommandInput(input)) {
@@ -513,6 +551,7 @@ class LocalNetHackRuntime {
 
       this.menuSelections.clear();
       this.menuSelections.set(selectionKey, selectionEntry);
+      this.lastMenuInteractionCancelled = false;
       console.log(
         `Recorded single menu selection by index: ${selectionEntry.menuIndex} (${selectionEntry.menuChar} ${selectionEntry.text})`,
       );
@@ -530,6 +569,15 @@ class LocalNetHackRuntime {
     }
 
     const normalizedInput = this.normalizeInputKey(input);
+    if (
+      !this.isInMultiPickup &&
+      normalizedInput === "Escape" &&
+      this.awaitingQuestionInput &&
+      Array.isArray(this.currentMenuItems) &&
+      this.currentMenuItems.some((item) => item && !item.isCategory)
+    ) {
+      this.lastMenuInteractionCancelled = true;
+    }
     if (
       this.pendingGameOverPossessionsInventoryFlow &&
       this.isGameOverPossessionsIdentifyQuestion(this.lastQuestionText)
@@ -561,6 +609,7 @@ class LocalNetHackRuntime {
         }
         const selectionKey = this.getMenuSelectionKey(selectionEntry);
         this.menuSelections.set(selectionKey, selectionEntry);
+        this.lastMenuInteractionCancelled = false;
         console.log(
           `Recorded single menu selection: ${normalizedInput} (${menuItem.text})`,
         );
@@ -622,6 +671,7 @@ class LocalNetHackRuntime {
         (item) => `${item.menuChar}:${item.text}`,
       );
       console.log("Confirming multi-pickup with selections:", selectedItems);
+      this.lastMenuInteractionCancelled = false;
       this.resolveMenuSelection(this.menuSelections.size);
       if (this.inputBroker.hasPendingRequests("event")) {
         this.enqueueInputKeys(["Enter"], source, ["event"]);
@@ -631,7 +681,7 @@ class LocalNetHackRuntime {
 
     if (this.isInMultiPickup && normalizedInput === "Escape") {
       this.menuSelections.clear();
-      this.resolveMenuSelection(0);
+      this.resolveMenuSelection(-1);
       if (this.inputBroker.hasPendingRequests("event")) {
         this.enqueueInputKeys(["Escape"], source, ["event"]);
       }
@@ -3193,7 +3243,7 @@ class LocalNetHackRuntime {
     }
 
     if (this.pendingTextRequest) {
-      this.handleTextInputResponse("", "system");
+      this.handleTextInputResponse("\x1b", "system");
     }
 
     this.emit({
@@ -3306,6 +3356,7 @@ class LocalNetHackRuntime {
         this.lastEndedMenuWindow = null;
         this.lastEndedMenuHadQuestion = false;
         this.lastEndedInventoryMenuKind = null;
+        this.lastMenuInteractionCancelled = false;
         this.resetWindowTextBuffer(menuWinId);
 
         // Reset selection tracking for new menus
@@ -3423,6 +3474,7 @@ class LocalNetHackRuntime {
               const selectionKey = this.getMenuSelectionKey(selectionEntry);
               this.menuSelections.set(selectionKey, selectionEntry);
               this.isInMultiPickup = false;
+              this.lastMenuInteractionCancelled = false;
               console.log(
                 `Auto-selected inventory item via context action: ${selectionEntry.menuChar} (${selectionEntry.text})`,
               );
@@ -4015,6 +4067,33 @@ class LocalNetHackRuntime {
           });
         }
         return 0;
+      case "shim_raw_print_bold":
+        const [rawBoldText] = args;
+        console.log(`RAW PRINT BOLD: "${rawBoldText}"`);
+        if (this.eventHandler && rawBoldText && rawBoldText.trim()) {
+          this.emit({
+            type: "raw_print",
+            text: rawBoldText.trim(),
+            bold: true,
+          });
+        }
+        return 0;
+      case "shim_message_menu":
+        const [menuLet, menuHow, menuMessage] = args;
+        console.log(
+          `NetHack message_menu: let=${menuLet}, how=${menuHow}, message="${menuMessage}"`,
+        );
+        if (this.eventHandler && menuMessage && String(menuMessage).trim()) {
+          this.emit({
+            type: "text",
+            text: String(menuMessage),
+            window: 1,
+            attr: 0,
+            source: "message_menu",
+          });
+        }
+        // force_invmenu keeps this path rare; default to "no choice".
+        return 0;
       case "shim_update_inventory":
         console.log("NetHack update inventory callback received");
         // This callback is usually triggered after inventory changes.
@@ -4028,8 +4107,16 @@ class LocalNetHackRuntime {
       case "shim_wait_synch":
         console.log("NetHack waiting for synchronization");
         return 0;
+      case "shim_nhbell":
+        console.log("NetHack requested bell");
+        return 0;
       case "shim_select_menu":
         const [menuSelectWinid, menuSelectHow, menuPtrArg] = args;
+        const consumeMenuInteractionCancelled = () => {
+          const cancelled = this.lastMenuInteractionCancelled;
+          this.lastMenuInteractionCancelled = false;
+          return cancelled;
+        };
         let ptrArgSlot = 0;
         let ptrArgValue = 0;
         let ptrResolvedValue = 0;
@@ -4062,6 +4149,7 @@ class LocalNetHackRuntime {
             this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
             this.menuSelections.clear();
             this.isInMultiPickup = false;
+            this.lastMenuInteractionCancelled = false;
             return selectionCount;
           }
 
@@ -4069,6 +4157,7 @@ class LocalNetHackRuntime {
             const selectionCount = this.menuSelections.size;
             this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
             this.menuSelections.clear();
+            this.lastMenuInteractionCancelled = false;
             return selectionCount;
           }
 
@@ -4106,6 +4195,7 @@ class LocalNetHackRuntime {
           this.writeMenuSelectionResult(menuListPtrPtr, 1);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
+          this.lastMenuInteractionCancelled = false;
           return 1;
         }
 
@@ -4164,7 +4254,18 @@ class LocalNetHackRuntime {
               this.writeMenuSelectionResult(menuListPtrPtr, 1);
               this.menuSelections.clear();
               this.isInMultiPickup = false;
+              this.lastMenuInteractionCancelled = false;
               return 1;
+            }
+
+            if (consumeMenuInteractionCancelled()) {
+              console.log(
+                "Questionless WIN_INVEN PICK_ONE cancelled; returning -1",
+              );
+              this.writeMenuSelectionResult(menuListPtrPtr, -1);
+              this.menuSelections.clear();
+              this.isInMultiPickup = false;
+              return -1;
             }
 
             console.log(
@@ -4183,6 +4284,13 @@ class LocalNetHackRuntime {
         }
 
         if (menuSelectHow === 1) {
+          if (consumeMenuInteractionCancelled()) {
+            console.log("PICK_ONE cancelled; returning -1");
+            this.writeMenuSelectionResult(menuListPtrPtr, -1);
+            this.menuSelections.clear();
+            this.isInMultiPickup = false;
+            return -1;
+          }
           console.log("PICK_ONE requested with no selection; returning 0");
           this.writeMenuSelectionResult(menuListPtrPtr, 0);
           this.menuSelections.clear();
@@ -4201,7 +4309,16 @@ class LocalNetHackRuntime {
           this.writeMenuSelectionResult(menuListPtrPtr, selectionCount);
           this.menuSelections.clear();
           this.isInMultiPickup = false;
+          this.lastMenuInteractionCancelled = false;
           return selectionCount;
+        }
+
+        if (menuSelectHow === 2 && consumeMenuInteractionCancelled()) {
+          console.log("PICK_ANY cancelled; returning -1");
+          this.writeMenuSelectionResult(menuListPtrPtr, -1);
+          this.menuSelections.clear();
+          this.isInMultiPickup = false;
+          return -1;
         }
 
         console.log("Returning 0 (no selection)");
@@ -4234,37 +4351,52 @@ class LocalNetHackRuntime {
           });
         }
 
+        let resolvedName = "";
         if (this.pendingTextResponses.length > 0) {
           const queueBefore = this.pendingTextResponses.length;
-          const name = this.normalizeCharacterNameValue(
+          const queuedName = this.normalizeCharacterNameValue(
             String(this.pendingTextResponses.shift() || ""),
           );
           console.log("[NAME_DEBUG] shim_askname consumed queued input", {
             callId: askNameCallId,
-            name,
+            name: queuedName,
             queueBefore,
             queueAfter: this.pendingTextResponses.length,
           });
-          if (name.length > 0) {
-            return name;
+          if (queuedName.length > 0) {
+            resolvedName = queuedName;
           }
         }
 
-        if (configuredName.length > 0) {
+        if (!resolvedName && configuredName.length > 0) {
           console.log("[NAME_DEBUG] shim_askname using configured name", {
             callId: askNameCallId,
             configuredName,
           });
-          return configuredName;
+          resolvedName = configuredName;
         }
 
-        console.log(
-          "[NAME_DEBUG] shim_askname falling back to default Web_user",
-          {
-            callId: askNameCallId,
-          },
-        );
-        return "Web_user";
+        if (!resolvedName) {
+          console.log(
+            "[NAME_DEBUG] shim_askname falling back to default Web_user",
+            {
+              callId: askNameCallId,
+            },
+          );
+          resolvedName = "Web_user";
+        }
+
+        const wrotePlayerName = this.setRuntimePlayerName(resolvedName);
+        if (!wrotePlayerName) {
+          console.log(
+            "[NAME_DEBUG] shim_askname could not write player name to runtime globals",
+            {
+              callId: askNameCallId,
+              resolvedName,
+            },
+          );
+        }
+        return resolvedName;
       case "shim_mark_synch":
         console.log("NetHack marking synchronization");
         return 0;
@@ -4313,6 +4445,9 @@ class LocalNetHackRuntime {
         }
         return 0;
 
+      case "shim_update_positionbar":
+        // Positionbar is tty-era UI; map/cliparound events already drive view state.
+        return 0;
       case "shim_getmsghistory":
         const [init] = args;
         console.log(`Getting message history, init: ${init}`);
@@ -4370,6 +4505,12 @@ class LocalNetHackRuntime {
       case "shim_exit_nhwindows":
         console.log("Exiting NetHack windows");
         return 0;
+      case "shim_suspend_nhwindows":
+        console.log("Suspending NetHack windows");
+        return 0;
+      case "shim_resume_nhwindows":
+        console.log("Resuming NetHack windows");
+        return 0;
       case "shim_destroy_nhwindow":
         const [destroyWinId] = args;
         console.log(`🗑️ Destroying window ${destroyWinId}`);
@@ -4418,6 +4559,17 @@ class LocalNetHackRuntime {
         );
         return 0;
 
+      case "shim_status_enablefield":
+        const [enabledFieldIndex, enabledFieldName, enabledFieldFormat, enabled] =
+          args;
+        console.log(
+          "Status field enable callback:",
+          enabledFieldIndex,
+          enabledFieldName,
+          enabledFieldFormat,
+          enabled,
+        );
+        return 0;
       case "shim_number_pad":
         const [numberPadMode] = args;
         this.numberPadModeEnabled = Number(numberPadMode) !== 0;
@@ -4445,6 +4597,17 @@ class LocalNetHackRuntime {
           setTimeout(resolve, this.travelSpeedDelayMs),
         );
 
+      case "shim_change_color":
+        // Dynamic color remapping is not used by this client renderer.
+        return 0;
+      case "shim_change_background":
+        return 0;
+      case "set_shim_font_name":
+        return 0;
+      case "shim_get_color_string":
+        // 3.6.7 shim marshalling for string returns writes into ret_ptr directly.
+        // Keep this empty to avoid corrupting the stack frame.
+        return "";
       case "shim_start_screen":
         console.log("NetHack start_screen (no-op)");
         return 0;
@@ -4461,6 +4624,9 @@ class LocalNetHackRuntime {
         }
         return 0;
 
+      case "shim_preference_update":
+        // Preferences are already controlled via options/init in this client.
+        return 0;
       case "shim_player_selection_cb":
         return true;
 
