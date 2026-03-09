@@ -1019,29 +1019,99 @@ canvas {
 
 .nh3d-meta-command {
   position: fixed;
-  transform: translate(-50%, -100%);
-  padding: 12px 18px;
+  transform: translate(-50%, -30vh);
+  padding: 12px 14px;
   background: var(--nh3d-ui-panel-bg-strong);
   color: var(--nh3d-ui-accent-soft);
   border: 2px solid var(--nh3d-ui-border-strong);
   border-radius: 10px;
   box-shadow: var(--nh3d-ui-shadow);
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(clamp(22px, 2.4vw, 30px));
+  font-size: nh3d-scale-font(clamp(20px, 2.3vw, 28px));
   font-weight: bold;
-  line-height: 1.1;
+  line-height: 1.15;
   letter-spacing: 0.02em;
-  text-align: center;
+  text-align: left;
   min-width: 180px;
-  max-width: min(85vw, 420px);
-  white-space: nowrap;
+  max-width: min(85vw, 480px);
   pointer-events: none;
   z-index: 1850;
   display: none;
+  flex-direction: column;
 
   &.is-visible {
-    display: block;
+    display: flex;
   }
+}
+
+.nh3d-meta-command-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(72vw, 340px);
+}
+
+.nh3d-meta-command-prefix {
+  color: var(--nh3d-ui-accent-soft);
+  font-size: inherit;
+  line-height: 1;
+}
+
+.nh3d-meta-command-input-shell {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 1.25em;
+  border-radius: 5px;
+  padding: 6px 0;
+  overflow: hidden;
+}
+
+.nh3d-meta-command-input-text {
+  position: relative;
+  z-index: 1;
+  color: var(--nh3d-ui-text);
+  white-space: nowrap;
+  display: block;
+}
+
+.nh3d-meta-command-input-ghost {
+  position: absolute;
+  top: 6px;
+  color: var(--nh3d-ui-text-muted);
+  opacity: 0.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nh3d-meta-command-input-ghost-typed {
+  opacity: 0;
+}
+
+.nh3d-meta-command-suggestions {
+  @extend %custom-scrollbar;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(30vh, 210px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.nh3d-meta-command-suggestion {
+  // border: 1px solid rgba(111, 150, 199, 0.35);
+  border-radius: 4px;
+  // background: rgba(17, 38, 58, 0.55);
+  color: var(--nh3d-ui-text-muted);
+  padding: 4px 8px;
+  font-size: nh3d-scale-font(clamp(12px, 1.25vw, 15px));
+  line-height: 1.2;
+}
+
+.nh3d-meta-command-suggestion.is-active {
+  border-color: rgba(155, 210, 255, 0.9);
+  background: rgba(31, 72, 108, 0.72);
+  color: #eef8ff;
 }
 
 // -----------------------------------------------------------------------------
@@ -1640,9 +1710,9 @@ canvas {
       --nh3d-startup-expanded-overflow-shift-y: min(
         0px,
         calc(
-          var(--nh3d-mobile-visible-height, 100vh) -
-            var(--nh3d-startup-modal-frame-bottom-inset) -
-            var(--nh3d-startup-modal-frame-top) -
+          var(--nh3d-mobile-visible-height, 100vh) - var(
+              --nh3d-startup-modal-frame-bottom-inset
+            ) - var(--nh3d-startup-modal-frame-top) -
             100%
         )
       );
@@ -1694,9 +1764,9 @@ canvas {
     --nh3d-startup-expanded-overflow-shift-y: min(
       0px,
       calc(
-        var(--nh3d-mobile-visible-height, 100vh) -
-          var(--nh3d-startup-modal-frame-bottom-inset) -
-          var(--nh3d-startup-modal-frame-top) -
+        var(--nh3d-mobile-visible-height, 100vh) - var(
+            --nh3d-startup-modal-frame-bottom-inset
+          ) - var(--nh3d-startup-modal-frame-top) -
           100%
       )
     );

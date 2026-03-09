@@ -33,7 +33,8 @@ Start here before making changes.
 - Keep `src/game/Nethack3DEngine.ts` as an orchestration layer when possible: wire modules together there, but move new domain logic into separate modules to support gradual migration away from the monolithic file.
 - Use React components whenever possible to avoid duplicated code and keep the code and CSS clean and concise. The goal is DRY code.
   - If refactoring to make code DRY is needed, suggest it to the user, or do it if it's within the scope of the task you're handling.
-  - Store components in logical subfolders and not a dumping ground in the UI folder.
+  - Store components in logical subfolders and not a dumping ground in the UI folder. Prefer grouped sections for folders than many individual folders.
+  - If you see a common theme that nearly fits a folder, but not quite, renaming a component folder to keep things organized and clean is fine.
 - If adding/changing runtime event payloads, update both:
   - event emitter sites in `src/runtime/LocalNetHackRuntime.ts`
   - event handling in `src/game/Nethack3DEngine.ts`

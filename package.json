@@ -1,6 +1,6 @@
 {
   "name": "nethack3d",
-  "version": "0.9.6",
+  "version": "0.9.5",
   "main": "electron/main.cjs",
   "scripts": {
     "build": "vite build",
