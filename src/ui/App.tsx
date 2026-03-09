@@ -1641,6 +1641,7 @@ const inventoryContextActions: InventoryContextAction[] = [
   { id: "adjust", label: "Adjust", kind: "extended", value: "adjust" },
   { id: "engrave", label: "Engrave", kind: "extended", value: "engrave" },
   { id: "dip", label: "Dip", kind: "extended", value: "dip" },
+  { id: "info", label: "Info" },
 ];
 
 const emptyInventoryActionIdSet: ReadonlySet<string> = new Set<string>();

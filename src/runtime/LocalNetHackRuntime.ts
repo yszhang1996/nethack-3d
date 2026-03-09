@@ -2142,6 +2142,54 @@ class LocalNetHackRuntime {
     );
   }
 
+  resolveLookInventoryRouteMenuItem(menuItems) {
+    if (!Array.isArray(menuItems) || menuItems.length === 0) {
+      return null;
+    }
+
+    const byText = menuItems.find(
+      (item) =>
+        item &&
+        !item.isCategory &&
+        typeof item.text === "string" &&
+        item.text.toLowerCase().includes("something you're carrying"),
+    );
+    if (byText) {
+      return byText;
+    }
+
+    const normalizedEntries = menuItems
+      .filter((item) => item && !item.isCategory)
+      .map((item) =>
+        typeof item.text === "string" ? item.text.trim().toLowerCase() : "",
+      )
+      .filter((text) => text.length > 0);
+    if (normalizedEntries.length === 0) {
+      return null;
+    }
+
+    const rootMarkers = [
+      "something on the map",
+      "something else (by symbol or name)",
+    ];
+    const matchedRootMarkers = rootMarkers.filter((marker) =>
+      normalizedEntries.some((text) => text.includes(marker)),
+    );
+    if (matchedRootMarkers.length < 2) {
+      return null;
+    }
+
+    return (
+      menuItems.find(
+        (item) =>
+          item &&
+          !item.isCategory &&
+          typeof item.accelerator === "string" &&
+          item.accelerator.toLowerCase() === "i",
+      ) || null
+    );
+  }
+
   tryAutoHandlePendingInventoryContextSelection(
     menuQuestion,
     menuItems,
@@ -2171,6 +2219,20 @@ class LocalNetHackRuntime {
           "#name routing option unavailable",
         );
         return false;
+      }
+    }
+
+    if (this.isLookAtMenuQuestion(menuQuestion)) {
+      const lookInventoryRouteItem =
+        this.resolveLookInventoryRouteMenuItem(menuItems);
+      if (
+        lookInventoryRouteItem &&
+        this.tryAutoSelectMenuItem(
+          lookInventoryRouteItem,
+          `${reason} (look inventory route)`,
+        )
+      ) {
+        return true;
       }
     }
 

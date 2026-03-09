@@ -14315,6 +14315,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
 
     const commandKey = commandMap[normalizedActionId];
+    if (normalizedActionId === "info") {
+      this.sendInputSequence([
+        `${this.inventoryContextSelectionPrefix}${accelerator}`,
+        "/",
+      ]);
+      return;
+    }
     if (!commandKey) {
       return;
     }
