@@ -1592,6 +1592,7 @@ const inventoryContextActions: InventoryContextAction[] = [
   { id: "eat", label: "Eat" },
   { id: "quaff", label: "Quaff" },
   { id: "read", label: "Read" },
+  { id: "rub", label: "Rub", kind: "extended", value: "rub" },
   { id: "throw", label: "Throw" },
   { id: "wield", label: "Wield" },
   { id: "quiver", label: "Quiver" },
@@ -1783,6 +1784,39 @@ function getBlockedInventoryActionIdsForCategory(
   return (
     inventoryCategoryActionBlocklist[categoryId] ?? emptyInventoryActionIdSet
   );
+}
+
+// NetHack 3.6.7 #rub accepts:
+// - TOOL_CLASS: oil lamp, magic lamp, brass lantern
+// - GEM_CLASS: graystones (luckstone/loadstone/touchstone/flint, including "gray stone")
+function inventoryItemSupportsRub(
+  categoryId: InventoryCategoryId | null,
+  itemText: string,
+): boolean {
+  const normalizedText = String(itemText || "").trim().toLowerCase();
+  if (!normalizedText) {
+    return false;
+  }
+
+  const isLampOrLantern =
+    /\b(?:oil lamp|magic lamp|brass lantern|lamp|lantern)s?\b/i.test(
+      normalizedText,
+    );
+  const isGraystone =
+    /\b(?:gray stone(?:s)?|luckstone(?:s)?|loadstone(?:s)?|touchstone(?:s)?|flint(?: stones?)?)\b/i.test(
+      normalizedText,
+    );
+
+  if (categoryId === "tools") {
+    return isLampOrLantern;
+  }
+  if (categoryId === "gems_stones") {
+    return isGraystone;
+  }
+  if (categoryId === "bagged_boxed_items" || !categoryId) {
+    return isLampOrLantern || isGraystone;
+  }
+  return false;
 }
 
 const mobileDefaultFpsLookSensitivity = 1.35;
@@ -4303,11 +4337,18 @@ export default function App(): JSX.Element {
     const filteredByCategory = blocked.size
       ? inventoryItemActions.filter((action) => !blocked.has(action.id))
       : inventoryItemActions;
+    const selectedItemText = String(inventoryContextMenu?.itemText || "");
+    const supportsRub = inventoryItemSupportsRub(
+      inventoryContextCategoryId,
+      selectedItemText,
+    );
+    const filteredByItemSupport = supportsRub
+      ? filteredByCategory
+      : filteredByCategory.filter((action) => action.id !== "rub");
     const visibleActions =
       inventoryContextCategoryId === "weapons"
-        ? filteredByCategory
-        : filteredByCategory.filter((action) => action.id !== "quiver");
-    const selectedItemText = String(inventoryContextMenu?.itemText || "");
+        ? filteredByItemSupport
+        : filteredByItemSupport.filter((action) => action.id !== "quiver");
     const selectedItemIsWeaponInHand = /\bweapon in hand\b/i.test(
       selectedItemText,
     );
