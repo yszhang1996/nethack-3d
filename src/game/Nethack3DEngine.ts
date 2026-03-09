@@ -14291,6 +14291,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.hideInfoMenuDialog();
+    this.clearRepeatableAction();
+    this.clearRepeatDirectionCandidate();
+    this.hideInventoryDialog();
+
     const commandMap: Record<string, string> = {
       apply: "a",
       drop: "d",
@@ -14314,10 +14319,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    this.hideInfoMenuDialog();
-    this.clearRepeatableAction();
-    this.clearRepeatDirectionCandidate();
-    this.hideInventoryDialog();
     if (normalizedActionId === "unwield") {
       this.sendInputSequence([`${this.inventoryContextSelectionPrefix}-`, "w"]);
       this.queueRepeatDirectionCandidate({

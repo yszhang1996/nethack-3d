@@ -1439,6 +1439,7 @@ type InventoryContextAction = {
   label: string;
   kind?: "quick" | "extended";
   value?: string;
+  armInventorySelection?: boolean;
 };
 type InventoryContextMenuState = {
   accelerator: string;
@@ -1588,6 +1589,15 @@ type InventoryCategoryId =
 
 const inventoryContextActions: InventoryContextAction[] = [
   { id: "apply", label: "Apply" },
+  { id: "invoke", label: "Invoke", kind: "extended", value: "invoke" },
+  { id: "tip", label: "Tip", kind: "extended", value: "tip" },
+  {
+    id: "loot",
+    label: "Loot",
+    kind: "extended",
+    value: "loot",
+    armInventorySelection: false,
+  },
   { id: "drop", label: "Drop" },
   { id: "eat", label: "Eat" },
   { id: "quaff", label: "Quaff" },
@@ -1601,6 +1611,34 @@ const inventoryContextActions: InventoryContextAction[] = [
   { id: "put-on", label: "Put On" },
   { id: "remove", label: "Remove" },
   { id: "zap", label: "Zap" },
+  {
+    id: "untrap",
+    label: "Untrap",
+    kind: "extended",
+    value: "untrap",
+    armInventorySelection: false,
+  },
+  {
+    id: "offer",
+    label: "Offer",
+    kind: "extended",
+    value: "offer",
+    armInventorySelection: false,
+  },
+  {
+    id: "name",
+    label: "Name",
+    kind: "extended",
+    value: "name",
+  },
+  {
+    id: "call",
+    label: "Call",
+    kind: "extended",
+    value: "call",
+    armInventorySelection: false,
+  },
+  { id: "adjust", label: "Adjust", kind: "extended", value: "adjust" },
   { id: "engrave", label: "Engrave", kind: "extended", value: "engrave" },
   { id: "dip", label: "Dip", kind: "extended", value: "dip" },
 ];
@@ -1817,6 +1855,127 @@ function inventoryItemSupportsRub(
     return isLampOrLantern || isGraystone;
   }
   return false;
+}
+
+function inventoryItemLooksLikeContainer(itemText: string): boolean {
+  return /\b(?:sack|bag|box|chest|ice box|large box|bag of holding|oilskin sack)s?\b/i.test(
+    itemText,
+  );
+}
+
+function inventoryItemSupportsTip(
+  categoryId: InventoryCategoryId | null,
+  itemText: string,
+): boolean {
+  const normalizedText = String(itemText || "").trim().toLowerCase();
+  if (!normalizedText) {
+    return false;
+  }
+
+  const isHornOfPlenty = /\bhorn of plenty\b/i.test(normalizedText);
+  if (isHornOfPlenty) {
+    return true;
+  }
+
+  if (categoryId === "tools" || categoryId === "bagged_boxed_items") {
+    return inventoryItemLooksLikeContainer(normalizedText);
+  }
+  return false;
+}
+
+function inventoryItemSupportsLoot(
+  categoryId: InventoryCategoryId | null,
+  itemText: string,
+): boolean {
+  if (categoryId !== "tools" && categoryId !== "bagged_boxed_items") {
+    return false;
+  }
+  return inventoryItemLooksLikeContainer(String(itemText || "").toLowerCase());
+}
+
+function inventoryItemSupportsUntrap(itemText: string): boolean {
+  const normalizedText = String(itemText || "").trim().toLowerCase();
+  if (!normalizedText) {
+    return false;
+  }
+  return /\b(?:can of grease|potion(?:s)? of oil)\b/i.test(normalizedText);
+}
+
+function inventoryItemSupportsOffer(itemText: string): boolean {
+  const normalizedText = String(itemText || "").trim().toLowerCase();
+  if (!normalizedText) {
+    return false;
+  }
+  return /\b(?:corpse|(?:fake )?amulet of yendor)\b/i.test(normalizedText);
+}
+
+function inventoryItemSupportsInvoke(
+  categoryId: InventoryCategoryId | null,
+  itemText: string,
+): boolean {
+  const normalizedText = String(itemText || "").trim().toLowerCase();
+  if (!normalizedText) {
+    return false;
+  }
+
+  if (
+    /\b(?:crystal ball|magic lamp|oil lamp|brass lantern|mirror|bell of opening|candelabrum of invocation|book of the dead|(?:fake )?amulet of yendor)\b/i.test(
+      normalizedText,
+    )
+  ) {
+    return true;
+  }
+
+  return (
+    categoryId === "weapons" ||
+    categoryId === "armor" ||
+    categoryId === "rings" ||
+    categoryId === "amulets" ||
+    categoryId === "tools" ||
+    categoryId === "spellbooks"
+  );
+}
+
+function inventoryItemSupportsCall(categoryId: InventoryCategoryId | null): boolean {
+  return (
+    categoryId === "scrolls" ||
+    categoryId === "potions" ||
+    categoryId === "wands" ||
+    categoryId === "rings" ||
+    categoryId === "amulets" ||
+    categoryId === "gems_stones" ||
+    categoryId === "spellbooks" ||
+    categoryId === "armor" ||
+    categoryId === "tools"
+  );
+}
+
+function inventoryItemSupportsContextAction(
+  actionId: string,
+  categoryId: InventoryCategoryId | null,
+  itemText: string,
+): boolean {
+  switch (actionId) {
+    case "rub":
+      return inventoryItemSupportsRub(categoryId, itemText);
+    case "tip":
+      return inventoryItemSupportsTip(categoryId, itemText);
+    case "loot":
+      return inventoryItemSupportsLoot(categoryId, itemText);
+    case "invoke":
+      return inventoryItemSupportsInvoke(categoryId, itemText);
+    case "offer":
+      return inventoryItemSupportsOffer(itemText);
+    case "untrap":
+      return inventoryItemSupportsUntrap(itemText);
+    case "call":
+      return inventoryItemSupportsCall(categoryId);
+    case "name":
+    case "adjust":
+      return true;
+    default:
+      return true;
+  }
 }
 
 const mobileDefaultFpsLookSensitivity = 1.35;
@@ -4338,13 +4497,13 @@ export default function App(): JSX.Element {
       ? inventoryItemActions.filter((action) => !blocked.has(action.id))
       : inventoryItemActions;
     const selectedItemText = String(inventoryContextMenu?.itemText || "");
-    const supportsRub = inventoryItemSupportsRub(
-      inventoryContextCategoryId,
-      selectedItemText,
+    const filteredByItemSupport = filteredByCategory.filter((action) =>
+      inventoryItemSupportsContextAction(
+        action.id,
+        inventoryContextCategoryId,
+        selectedItemText,
+      ),
     );
-    const filteredByItemSupport = supportsRub
-      ? filteredByCategory
-      : filteredByCategory.filter((action) => action.id !== "rub");
     const visibleActions =
       inventoryContextCategoryId === "weapons"
         ? filteredByItemSupport
@@ -13258,11 +13417,13 @@ export default function App(): JSX.Element {
                   key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
                   onClick={() => {
                     if (action.kind === "extended" && action.value) {
-                      // Use the special prefix to ensure the runtime intercepts it and reliably
-                      // applies it to the next inventory prompt menu without race conditions
-                      controller?.sendInput(
-                        `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
-                      );
+                      if (action.armInventorySelection !== false) {
+                        // Use the special prefix to ensure the runtime intercepts it and reliably
+                        // applies it to the next inventory prompt menu without race conditions.
+                        controller?.sendInput(
+                          `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
+                        );
+                      }
                       controller?.runExtendedCommand(action.value);
                     } else {
                       controller?.runInventoryItemAction(

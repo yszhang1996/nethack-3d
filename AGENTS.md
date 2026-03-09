@@ -44,6 +44,8 @@ Start here before making changes.
   - player position updates
   - tile refresh commands
   - question dialogs (including direction and inventory flows)
+- Coding conventions
+  - Avoid timeouts at all costs unless there are no other alternative, as they tend to introduce bugs, race conditions, and brittle behavior.
 
 ## Reference NetHack for information about shims and NetHack game behavior
 

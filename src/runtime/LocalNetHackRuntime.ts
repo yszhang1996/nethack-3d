@@ -374,7 +374,9 @@ class LocalNetHackRuntime {
     const extendedCommandText =
       this.extractExtendedCommandSubmission(normalized);
     if (extendedCommandText !== null) {
-      if (this.resolvePendingExtendedCommandRequestFromText(extendedCommandText)) {
+      if (
+        this.resolvePendingExtendedCommandRequestFromText(extendedCommandText)
+      ) {
         return;
       }
       this.queueExtendedCommandSubmission(extendedCommandText, "synthetic");
@@ -429,6 +431,9 @@ class LocalNetHackRuntime {
       console.log("Cancelling pending text request due mouse input");
       this.handleTextInputResponse("\x1b", "system");
     }
+    if (source === "user" && this.hasPendingInventoryContextSelection()) {
+      this.clearPendingInventoryContextSelection("new user mouse input");
+    }
 
     this.enqueueMouseInput(tileX, tileY, clickMod, source);
   }
@@ -447,11 +452,21 @@ class LocalNetHackRuntime {
       awaitingQuestionInput: this.awaitingQuestionInput,
       pendingTextResponses: this.pendingTextResponses.length,
       activeInputRequestType: this.activeInputRequest?.kind || null,
-      pendingExtendedCommandRequest: Boolean(this.pendingExtendedCommandRequest),
+      pendingExtendedCommandRequest: Boolean(
+        this.pendingExtendedCommandRequest,
+      ),
       pendingMenuSelection: Boolean(this.pendingMenuSelection),
       isInMultiPickup: this.isInMultiPickup,
       hasPendingTextRequest: Boolean(this.pendingTextRequest),
     });
+
+    if (
+      source === "user" &&
+      this.hasPendingInventoryContextSelection() &&
+      !this.isInventoryContextSelectionInput(input)
+    ) {
+      this.clearPendingInventoryContextSelection("new user input");
+    }
 
     if (
       this.pendingMenuSelection &&
@@ -577,6 +592,7 @@ class LocalNetHackRuntime {
       this.currentMenuItems.some((item) => item && !item.isCategory)
     ) {
       this.lastMenuInteractionCancelled = true;
+      this.clearPendingInventoryContextSelection("menu interaction cancelled");
     }
     if (
       this.pendingGameOverPossessionsInventoryFlow &&
@@ -682,6 +698,9 @@ class LocalNetHackRuntime {
     if (this.isInMultiPickup && normalizedInput === "Escape") {
       this.menuSelections.clear();
       this.resolveMenuSelection(-1);
+      this.clearPendingInventoryContextSelection(
+        "multi-select menu interaction cancelled",
+      );
       if (this.inputBroker.hasPendingRequests("event")) {
         this.enqueueInputKeys(["Escape"], source, ["event"]);
       }
@@ -729,7 +748,8 @@ class LocalNetHackRuntime {
   }
 
   beginClickMoveBlockWindow() {
-    this.clickMoveBlockedUntilMs = Date.now() + this.getClickMoveBlockDurationMs();
+    this.clickMoveBlockedUntilMs =
+      Date.now() + this.getClickMoveBlockDurationMs();
   }
 
   isClickMoveBlocked() {
@@ -796,15 +816,19 @@ class LocalNetHackRuntime {
     }
 
     const heapSize = this.nethackModule.HEAPU8.length;
+    const directInBounds = ptr > 0 && ptr + 1 <= heapSize;
+    if (directInBounds) {
+      // getlin receives a writable char* buffer. Prefer using it directly to
+      // avoid accidentally treating plain text bytes as a pointer value.
+      return ptr;
+    }
+
+    // Fallback for potential marshalling oddities where a pointer slot was
+    // passed instead of the final char*.
     const slotValue = this.nethackModule.getValue(ptr, "*");
-    const looksLikeTargetPtr =
-      Number.isInteger(slotValue) &&
-      slotValue > 1024 &&
-      slotValue < heapSize &&
-      slotValue + 1 <= heapSize;
-    const targetPtr = looksLikeTargetPtr ? slotValue : ptr;
-    const inBounds = targetPtr > 0 && targetPtr + 1 <= heapSize;
-    return inBounds ? targetPtr : null;
+    const derefInBounds =
+      Number.isInteger(slotValue) && slotValue > 0 && slotValue + 1 <= heapSize;
+    return derefInBounds ? slotValue : null;
   }
 
   getPoskeyCoordStoreType(xTargetPtr, yTargetPtr) {
@@ -1003,7 +1027,10 @@ class LocalNetHackRuntime {
 
     const menuIndexToCommandIndex = new Map();
     for (const item of menuItems) {
-      if (Number.isInteger(item.menuIndex) && Number.isInteger(item.commandIndex)) {
+      if (
+        Number.isInteger(item.menuIndex) &&
+        Number.isInteger(item.commandIndex)
+      ) {
         menuIndexToCommandIndex.set(item.menuIndex, item.commandIndex);
       }
     }
@@ -1050,6 +1077,9 @@ class LocalNetHackRuntime {
       .toLowerCase();
     if (!normalized) {
       this.resolvePendingExtendedCommandRequest(-1);
+      this.clearPendingInventoryContextSelection(
+        "extended command submission cancelled",
+      );
       return true;
     }
 
@@ -1059,6 +1089,9 @@ class LocalNetHackRuntime {
         `Unknown extended command "${normalized}" while awaiting shim_get_ext_cmd; canceling`,
       );
       this.resolvePendingExtendedCommandRequest(-1);
+      this.clearPendingInventoryContextSelection(
+        "unknown extended command submission",
+      );
       return true;
     }
 
@@ -1081,6 +1114,9 @@ class LocalNetHackRuntime {
         this.resolvePendingExtendedCommandRequest(extCommandIndex);
       } else {
         this.resolvePendingExtendedCommandRequest(-1);
+        this.clearPendingInventoryContextSelection(
+          "extended command menu selection cancelled",
+        );
       }
       return true;
     }
@@ -1088,6 +1124,9 @@ class LocalNetHackRuntime {
     const normalizedInput = this.normalizeInputKey(input);
     if (normalizedInput === "Escape") {
       this.resolvePendingExtendedCommandRequest(-1);
+      this.clearPendingInventoryContextSelection(
+        "extended command prompt cancelled",
+      );
       return true;
     }
     if (this.isExtendedCommandSubmitToken(normalizedInput)) {
@@ -1110,6 +1149,7 @@ class LocalNetHackRuntime {
     // Unrelated keys should cancel stale ext-command waits so gameplay input
     // can flow back through normal nh_poskey handling.
     this.resolvePendingExtendedCommandRequest(-1);
+    this.clearPendingInventoryContextSelection("extended command input changed");
     return false;
   }
 
@@ -1194,7 +1234,6 @@ class LocalNetHackRuntime {
 
     this.pendingInventoryContextSelection = {
       accelerator,
-      createdAt: Date.now(),
     };
     console.log(
       `Armed inventory context selection accelerator: "${accelerator}"`,
@@ -1202,20 +1241,38 @@ class LocalNetHackRuntime {
     return true;
   }
 
-  consumePendingInventoryContextSelection(menuItems) {
+  hasPendingInventoryContextSelection() {
     const pending = this.pendingInventoryContextSelection;
+    if (!pending) {
+      return false;
+    }
+    const accelerator = String(pending.accelerator || "");
+    return accelerator.length === 1;
+  }
+
+  clearPendingInventoryContextSelection(reason = "") {
+    if (!this.pendingInventoryContextSelection) {
+      return;
+    }
     this.pendingInventoryContextSelection = null;
+    if (reason) {
+      console.log(`Cleared pending inventory context selection: ${reason}`);
+    }
+  }
+
+  consumePendingInventoryContextSelection(menuItems, options = {}) {
+    const { clearOnMiss = true } = options;
+    const pending = this.pendingInventoryContextSelection;
 
     if (!pending || !Array.isArray(menuItems) || menuItems.length === 0) {
       return null;
     }
 
-    if (Date.now() - pending.createdAt > 1500) {
-      return null;
-    }
-
     const accelerator = String(pending.accelerator || "");
     if (accelerator.length !== 1) {
+      if (clearOnMiss) {
+        this.clearPendingInventoryContextSelection("invalid accelerator");
+      }
       return null;
     }
 
@@ -1227,6 +1284,7 @@ class LocalNetHackRuntime {
         item.accelerator === accelerator,
     );
     if (exact) {
+      this.clearPendingInventoryContextSelection("consumed exact match");
       return exact;
     }
 
@@ -1237,7 +1295,16 @@ class LocalNetHackRuntime {
         typeof item.accelerator === "string" &&
         item.accelerator.toLowerCase() === accelerator.toLowerCase(),
     );
-    return caseInsensitive || null;
+    if (caseInsensitive) {
+      this.clearPendingInventoryContextSelection(
+        "consumed case-insensitive match",
+      );
+      return caseInsensitive;
+    }
+    if (clearOnMiss) {
+      this.clearPendingInventoryContextSelection("no matching menu item");
+    }
+    return null;
   }
 
   handleTextInputResponse(text, source = "user") {
@@ -1758,7 +1825,9 @@ class LocalNetHackRuntime {
   handleShimDisplayFile(args) {
     const [rawName, complain] = Array.isArray(args) ? args : [];
     const fileName =
-      typeof rawName === "string" ? rawName.trim() : String(rawName ?? "").trim();
+      typeof rawName === "string"
+        ? rawName.trim()
+        : String(rawName ?? "").trim();
     const mustExist = Boolean(complain);
     console.log(
       `DISPLAY FILE request: "${fileName || "<empty>"}" (mustExist=${mustExist})`,
@@ -1937,7 +2006,11 @@ class LocalNetHackRuntime {
     // Help menu's "List of extended commands." flow sometimes arrives as
     // WIN_INVEN with selectable identifiers. Treat it as informational text.
     const normalizedLines = nonCategoryItems
-      .map((item) => String(item.text || "").trim().toLowerCase())
+      .map((item) =>
+        String(item.text || "")
+          .trim()
+          .toLowerCase(),
+      )
       .filter((text) => text.length > 0);
     const isExtendedCommandsReport = normalizedLines.some((line) =>
       line.includes("extended commands list"),
@@ -2008,6 +2081,123 @@ class LocalNetHackRuntime {
   isLookAtMenuQuestion(question) {
     const normalized = this.normalizeQuestionText(question);
     return normalized.includes("what do you want to look at");
+  }
+
+  isNameRootQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    if (!normalized) {
+      return false;
+    }
+    return normalized.startsWith("what do you want to name");
+  }
+
+  resolveNameInventoryRouteMenuItem(menuItems) {
+    if (!Array.isArray(menuItems) || menuItems.length === 0) {
+      return null;
+    }
+
+    const byText = menuItems.find(
+      (item) =>
+        item &&
+        !item.isCategory &&
+        typeof item.text === "string" &&
+        item.text.toLowerCase().includes("particular object in inventory"),
+    );
+    if (byText) {
+      return byText;
+    }
+
+    const normalizedEntries = menuItems
+      .filter((item) => item && !item.isCategory)
+      .map((item) =>
+        typeof item.text === "string" ? item.text.trim().toLowerCase() : "",
+      )
+      .filter((text) => text.length > 0);
+    if (normalizedEntries.length === 0) {
+      return null;
+    }
+
+    const rootMarkers = [
+      "a monster",
+      "the type of an object in inventory",
+      "the type of an object upon the floor",
+      "the type of an object on discoveries list",
+      "record an annotation for the current level",
+    ];
+    const matchedRootMarkers = rootMarkers.filter((marker) =>
+      normalizedEntries.some((text) => text.includes(marker)),
+    );
+    if (matchedRootMarkers.length < 2) {
+      return null;
+    }
+
+    return (
+      menuItems.find(
+        (item) =>
+          item &&
+          !item.isCategory &&
+          typeof item.accelerator === "string" &&
+          item.accelerator.toLowerCase() === "i",
+      ) || null
+    );
+  }
+
+  tryAutoHandlePendingInventoryContextSelection(
+    menuQuestion,
+    menuItems,
+    options = {},
+  ) {
+    const reason =
+      typeof options.reason === "string" && options.reason.trim()
+        ? options.reason.trim()
+        : "context action";
+    if (!this.hasPendingInventoryContextSelection()) {
+      return false;
+    }
+
+    if (this.isNameRootQuestion(menuQuestion)) {
+      const nameInventoryRouteItem =
+        this.resolveNameInventoryRouteMenuItem(menuItems);
+      if (nameInventoryRouteItem) {
+        if (
+          this.tryAutoSelectMenuItem(
+            nameInventoryRouteItem,
+            `${reason} (#name inventory route)`,
+          )
+        ) {
+          return true;
+        }
+        this.clearPendingInventoryContextSelection(
+          "#name routing option unavailable",
+        );
+        return false;
+      }
+    }
+
+    const directInventorySelection =
+      this.consumePendingInventoryContextSelection(menuItems);
+    if (!directInventorySelection) {
+      return false;
+    }
+
+    return this.tryAutoSelectMenuItem(directInventorySelection, reason);
+  }
+
+  tryAutoSelectMenuItem(menuItem, reason = "context action") {
+    const selectionEntry = this.createSelectionEntryFromMenuItem(menuItem);
+    if (!selectionEntry) {
+      return false;
+    }
+
+    this.menuSelections.clear();
+    const selectionKey = this.getMenuSelectionKey(selectionEntry);
+    this.menuSelections.set(selectionKey, selectionEntry);
+    this.isInMultiPickup = false;
+    this.lastMenuInteractionCancelled = false;
+    console.log(
+      `Auto-selected menu item via ${reason}: ${selectionEntry.menuChar} (${selectionEntry.text})`,
+    );
+    return true;
   }
 
   isLookAtMapMenuSelection(menuItem) {
@@ -3463,24 +3653,18 @@ class LocalNetHackRuntime {
           console.log(
             `📋 Inventory action question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
-          const directInventorySelection =
-            this.consumePendingInventoryContextSelection(this.currentMenuItems);
-          if (directInventorySelection) {
-            const selectionEntry = this.createSelectionEntryFromMenuItem(
-              directInventorySelection,
-            );
-            if (selectionEntry) {
-              this.menuSelections.clear();
-              const selectionKey = this.getMenuSelectionKey(selectionEntry);
-              this.menuSelections.set(selectionKey, selectionEntry);
-              this.isInMultiPickup = false;
-              this.lastMenuInteractionCancelled = false;
-              console.log(
-                `Auto-selected inventory item via context action: ${selectionEntry.menuChar} (${selectionEntry.text})`,
-              );
-              // Skip question emission/wait so the clicked action resolves immediately.
-              return 0;
-            }
+          // Contextual inventory actions can arm a pending accelerator. For #name,
+          // this auto-routes through "a particular object in inventory" first, then
+          // applies the selected item accelerator on the follow-up menu.
+          if (
+            this.tryAutoHandlePendingInventoryContextSelection(
+              menuQuestion,
+              this.currentMenuItems,
+              { reason: "context action" },
+            )
+          ) {
+            // Skip question emission/wait so the clicked action resolves immediately.
+            return 0;
           }
 
           const isMultiSelectQuestion =
@@ -3507,6 +3691,16 @@ class LocalNetHackRuntime {
 
         // If there's a menu question (like "Pick up what?"), send it to the client
         if (hasMenuQuestion && this.currentMenuItems.length > 0) {
+          if (
+            this.tryAutoHandlePendingInventoryContextSelection(
+              menuQuestion,
+              this.currentMenuItems,
+              { reason: "context action (generic menu question)" },
+            )
+          ) {
+            // Skip question emission/wait so the clicked action resolves immediately.
+            return 0;
+          }
           console.log(
             `📋 Menu question detected: "${menuQuestion}" with ${this.currentMenuItems.length} items`,
           );
@@ -4115,6 +4309,11 @@ class LocalNetHackRuntime {
         const consumeMenuInteractionCancelled = () => {
           const cancelled = this.lastMenuInteractionCancelled;
           this.lastMenuInteractionCancelled = false;
+          if (cancelled) {
+            this.clearPendingInventoryContextSelection(
+              "menu interaction cancelled",
+            );
+          }
           return cancelled;
         };
         let ptrArgSlot = 0;
@@ -4219,6 +4418,30 @@ class LocalNetHackRuntime {
             this.menuSelections.clear();
             this.isInMultiPickup = false;
             return 0;
+          }
+
+          const directInventorySelection =
+            this.consumePendingInventoryContextSelection(this.currentMenuItems);
+          if (directInventorySelection) {
+            if (
+              this.tryAutoSelectMenuItem(
+                directInventorySelection,
+                "context action (questionless PICK_ONE)",
+              )
+            ) {
+              const selectedItems = Array.from(this.menuSelections.values());
+              const selectedItem = selectedItems[0];
+              if (selectedItem) {
+                console.log(
+                  `Returning single menu selection count (questionless auto): 1 (${selectedItem.menuChar} ${selectedItem.text})`,
+                );
+              }
+              this.writeMenuSelectionResult(menuListPtrPtr, 1);
+              this.menuSelections.clear();
+              this.isInMultiPickup = false;
+              this.lastMenuInteractionCancelled = false;
+              return 1;
+            }
           }
 
           console.log(
@@ -4560,8 +4783,12 @@ class LocalNetHackRuntime {
         return 0;
 
       case "shim_status_enablefield":
-        const [enabledFieldIndex, enabledFieldName, enabledFieldFormat, enabled] =
-          args;
+        const [
+          enabledFieldIndex,
+          enabledFieldName,
+          enabledFieldFormat,
+          enabled,
+        ] = args;
         console.log(
           "Status field enable callback:",
           enabledFieldIndex,
