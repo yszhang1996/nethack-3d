@@ -1674,6 +1674,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return normalized.length > 0 ? normalized : null;
   }
 
+  private normalizeDungeonDisplayName(rawValue: unknown): string | null {
+    const normalized = this.normalizeLevelCacheName(rawValue);
+    if (!normalized) {
+      return null;
+    }
+    return normalized.replace(/^the\s+/i, "").trim();
+  }
+
   private parseRuntimeLevelIdentity(
     rawIdentity: unknown,
   ): RuntimeLevelIdentity | null {
@@ -1741,8 +1749,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (Number.isFinite(identity.dlevel)) {
       this.playerStats.dlevel = Math.trunc(identity.dlevel);
     }
-    if (identity.dungeonName) {
-      this.playerStats.dungeon = identity.dungeonName;
+    const identityDungeonName = this.normalizeDungeonDisplayName(
+      identity.dungeonName,
+    );
+    if (identityDungeonName) {
+      this.playerStats.dungeon = identityDungeonName;
     }
   }
 
@@ -1791,12 +1802,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return endgameElementByDescriptor[normalizedLower];
     }
 
-    const dungeonNameFromIdentity = this.normalizeLevelCacheName(
+    const dungeonNameFromIdentity = this.normalizeDungeonDisplayName(
       identity?.dungeonName,
     );
     const dungeonLabel =
       dungeonNameFromIdentity ??
-      this.normalizeLevelCacheName(this.playerStats.dungeon);
+      this.normalizeDungeonDisplayName(this.playerStats.dungeon);
     const parsedLevel = this.extractDlevelFromLevelDescriptor(
       normalizedDescriptor,
     );
@@ -1825,7 +1836,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof identity.depth === "number" &&
       Number.isFinite(identity.depth)
     ) {
-      const dungeonLabel = this.normalizeLevelCacheName(identity.dungeonName);
+      const dungeonLabel = this.normalizeDungeonDisplayName(identity.dungeonName);
       const levelLabel = String(Math.trunc(identity.depth));
       this.playerStats.locationLabel = dungeonLabel
         ? `${dungeonLabel} ${levelLabel}`
@@ -13329,13 +13340,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
 
         if (/^dlvl:/i.test(normalizedDescriptor)) {
-          const identityDungeonName = this.normalizeLevelCacheName(
+          const identityDungeonName = this.normalizeDungeonDisplayName(
             this.latestRuntimeLevelIdentity?.dungeonName,
           );
           this.playerStats.dungeon =
             identityDungeonName ?? "Dungeons of Doom";
         } else if (/^home\s+/i.test(normalizedDescriptor)) {
-          const identityDungeonName = this.normalizeLevelCacheName(
+          const identityDungeonName = this.normalizeDungeonDisplayName(
             this.latestRuntimeLevelIdentity?.dungeonName,
           );
           this.playerStats.dungeon = identityDungeonName ?? "Quest";
@@ -13344,7 +13355,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             /^([^:]+):\s*-?\d+\s*$/i,
           );
           if (descriptorDungeonMatch && descriptorDungeonMatch[1]) {
-            const normalizedDungeonLabel = this.normalizeLevelCacheName(
+            const normalizedDungeonLabel = this.normalizeDungeonDisplayName(
               descriptorDungeonMatch[1],
             );
             if (normalizedDungeonLabel) {
