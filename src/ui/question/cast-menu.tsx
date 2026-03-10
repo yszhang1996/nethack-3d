@@ -365,23 +365,29 @@ export function parseCastSpellMenu(
 }
 
 function renderSpellRowContent(entry: CastSpellEntry): JSX.Element {
+  const spellDisplayName = entry.accelerator
+    ? `${entry.accelerator}) ${entry.name}`
+    : entry.name;
+
   return (
     <>
       <span className="nh3d-cast-row-name">
-        {entry.accelerator ? (
-          <span className="nh3d-cast-key">{entry.accelerator})</span>
-        ) : null}
-        <span className="nh3d-cast-spell-name">{entry.name}</span>
+        <span className="nh3d-cast-spell-name">{spellDisplayName}</span>
       </span>
       <span className="nh3d-cast-row-level">{entry.level}</span>
-      <span className="nh3d-cast-row-category">{entry.category}</span>
-      <span className={`nh3d-cast-chip nh3d-cast-chip-fail is-${entry.failBand}`}>
-        {entry.failPercent}%
+      <span className="nh3d-cast-row-category">
+        <span className="nh3d-cast-row-category-label">School:</span>
+        <span className="nh3d-cast-row-category-value">{entry.category}</span>
       </span>
-      <span
-        className={`nh3d-cast-chip nh3d-cast-chip-retention is-${entry.retentionBand}`}
-      >
-        {entry.retentionLabel}
+      <span className="nh3d-cast-chip-stack">
+        <span className={`nh3d-cast-chip nh3d-cast-chip-fail is-${entry.failBand}`}>
+          {entry.failPercent}%
+        </span>
+        <span
+          className={`nh3d-cast-chip nh3d-cast-chip-retention is-${entry.retentionBand}`}
+        >
+          {entry.retentionLabel}
+        </span>
       </span>
     </>
   );
