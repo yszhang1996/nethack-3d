@@ -6358,6 +6358,8 @@ export default function App(): JSX.Element {
   const showPickupActionButtons =
     Boolean(question?.isPickupDialog) &&
     (questionSelectableMenuItemCount > 1 || isMobileViewport);
+  const showPickupToggleAllButton =
+    Boolean(question?.isPickupDialog) && questionSelectableMenuItemCount > 1;
   const inventoryContextActionsEnabled =
     inventory.contextActionsEnabled !== false;
   const inventoryCloseInstructionText = inventoryContextActionsEnabled
@@ -12156,6 +12158,19 @@ export default function App(): JSX.Element {
                 })}
                 {showPickupActionButtons ? (
                   <div className="nh3d-pickup-actions">
+                    {showPickupToggleAllButton ? (
+                      <button
+                        className={`nh3d-pickup-action-button${
+                          question.activeActionButton === "select-all"
+                            ? " nh3d-action-button-active"
+                            : ""
+                        }`}
+                        onClick={() => controller?.toggleAllPickupChoices()}
+                        type="button"
+                      >
+                        {question.allPickupSelected ? "Deselect All" : "Select All"}
+                      </button>
+                    ) : null}
                     <button
                       className={`nh3d-pickup-action-button nh3d-pickup-action-confirm${
                         question.activeActionButton === "confirm"

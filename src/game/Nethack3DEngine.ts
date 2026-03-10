@@ -13655,6 +13655,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private getAllPickupSelectableMenuItems(): any[] {
+    if (!Array.isArray(this.activeQuestionMenuItems)) {
+      return [];
+    }
+    return this.activeQuestionMenuItems.filter((item) =>
+      this.isSelectableQuestionMenuItem(item),
+    );
+  }
+
+  private isAllPickupItemsSelected(): boolean {
+    if (!this.activeQuestionIsPickupDialog) {
+      return false;
+    }
+    const selectableItems = this.getAllPickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return false;
+    }
+    return selectableItems.every((item) =>
+      this.activePickupSelections.has(this.getMenuSelectionStateKey(item)),
+    );
+  }
+
   private normalizeActivePickupFocusIndex(): void {
     const selectableItems = this.getVisiblePickupSelectableMenuItems();
     if (selectableItems.length === 0) {
@@ -13731,7 +13753,48 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.togglePickupChoice(focusedSelectionInput);
   }
 
-  private getActiveQuestionActionButtons(): Array<"confirm" | "cancel"> {
+  private toggleAllPickupSelections(shouldSendInput: boolean): void {
+    if (!this.isInQuestion || !this.activeQuestionIsPickupDialog) {
+      return;
+    }
+
+    const selectableItems = this.getAllPickupSelectableMenuItems();
+    if (selectableItems.length === 0) {
+      return;
+    }
+
+    const shouldDeselectAll = this.isAllPickupItemsSelected();
+    const selectionInputs: string[] = [];
+    for (const menuItem of selectableItems) {
+      const selectionKey = this.getMenuSelectionStateKey(menuItem);
+      const selectionInput = this.getQuestionMenuSelectionInput(menuItem);
+      if (!selectionInput) {
+        continue;
+      }
+      const isSelected = this.activePickupSelections.has(selectionKey);
+      if (shouldDeselectAll) {
+        if (!isSelected) {
+          continue;
+        }
+        this.activePickupSelections.delete(selectionKey);
+      } else {
+        if (isSelected) {
+          continue;
+        }
+        this.activePickupSelections.add(selectionKey);
+      }
+      selectionInputs.push(selectionInput);
+    }
+
+    if (shouldSendInput && selectionInputs.length > 0) {
+      this.sendInputSequence(selectionInputs);
+    }
+    this.updatePickupFocusVisualState();
+  }
+
+  private getActiveQuestionActionButtons(): Array<
+    "select-all" | "confirm" | "cancel"
+  > {
     if (!this.isInQuestion || this.activeQuestionMenuItems.length === 0) {
       return [];
     }
@@ -13740,12 +13803,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return [];
     }
     if (this.activeQuestionIsPickupDialog) {
-      return ["confirm", "cancel"];
+      return ["select-all", "confirm", "cancel"];
     }
     return ["cancel"];
   }
 
-  private getActiveQuestionActionButton(): "confirm" | "cancel" | null {
+  private getActiveQuestionActionButton():
+    | "select-all"
+    | "confirm"
+    | "cancel"
+    | null {
     const actions = this.getActiveQuestionActionButtons();
     if (actions.length === 0) {
       this.activeQuestionActionFocusIndex = -1;
@@ -13812,6 +13879,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const action = this.getActiveQuestionActionButton();
     if (!action) {
       return false;
+    }
+    if (action === "select-all") {
+      this.toggleAllPickupChoices();
+      return true;
     }
     if (action === "cancel") {
       this.cancelActivePrompt();
@@ -14155,6 +14226,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         typeof item.accelerator === "string" ? item.accelerator : "",
       )
       .filter((value) => value.length > 0);
+    const allPickupSelected = this.isAllPickupItemsSelected();
     const activeActionButton = this.getActiveQuestionActionButton();
     const activeMenuSelectionInput =
       this.activeQuestionMenuItems.length > 0 && !activeActionButton
@@ -14170,6 +14242,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       menuItems: [...this.activeQuestionVisibleMenuItems],
       isPickupDialog: this.activeQuestionIsPickupDialog,
       selectedAccelerators,
+      allPickupSelected,
       activePickupSelectionInput: this.activeQuestionIsPickupDialog
         ? activeMenuSelectionInput
         : null,
@@ -14485,6 +14558,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.getQuestionMenuSelectionInput(menuItem),
       true,
     );
+  }
+
+  public toggleAllPickupChoices(): void {
+    this.toggleAllPickupSelections(true);
   }
 
   public confirmPickupChoices(): void {
@@ -16973,6 +17050,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       // For other questions, handle pickup dialogs specially
       if (isPickupDialog) {
+        if (event.key === ",") {
+          event.preventDefault();
+          this.toggleAllPickupChoices();
+          return;
+        }
+
         if (modalDirection) {
           event.preventDefault();
           const isActionFocused = this.isQuestionActionFocused();

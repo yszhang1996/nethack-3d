@@ -66,9 +66,10 @@ export type QuestionDialogState = {
   menuItems: NethackMenuItem[];
   isPickupDialog: boolean;
   selectedAccelerators: string[];
+  allPickupSelected?: boolean;
   activePickupSelectionInput?: string | null;
   activeMenuSelectionInput?: string | null;
-  activeActionButton?: "confirm" | "cancel" | null;
+  activeActionButton?: "select-all" | "confirm" | "cancel" | null;
   menuPageIndex?: number;
   menuPageCount?: number;
 };
@@ -917,6 +918,7 @@ export interface Nethack3DEngineController {
   chooseQuestionChoice(choice: string): void;
   confirmQuestionMenuChoice(): void;
   togglePickupChoice(accelerator: string): void;
+  toggleAllPickupChoices(): void;
   goToPreviousQuestionMenuPage(): void;
   goToNextQuestionMenuPage(): void;
   confirmPickupChoices(): void;
