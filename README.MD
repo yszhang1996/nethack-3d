@@ -3,6 +3,7 @@
 Play in browser: https://jamesiv4.github.io/nethack-3d/
 
 ## Windows and Android App
+
 [Download the latest release](https://github.com/JamesIV4/nethack-3d/releases/latest)
 
 ## iOS App
@@ -21,7 +22,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 | Combat in the Gnomish Mines                                                                                            | Shatter monsters into pieces!                                                                                |
 | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
 | [![Combat in the Gnomish Mines](docs/screenshots/combat-gnomish-mines.png)](docs/screenshots/combat-gnomish-mines.png) | [![Shatter monsters into pieces!](docs/screenshots/combat-effects.png)](docs/screenshots/combat-effects.png) |
-| Multiple tile sets                                                                                                     | Beautiful UI                                                                                                 |
+| **Multiple tile sets**                                                                                                 | **Beautiful UI**                                                                                             |
 | [![Multiple tile sets](docs/screenshots/tile-sets.png)](docs/screenshots/tile-sets.png)                                | [![Beautiful UI](docs/screenshots/inventory-panel.png)](docs/screenshots/inventory-panel.png)                |
 
 ## Current Features
