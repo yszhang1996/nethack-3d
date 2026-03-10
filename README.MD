@@ -2,6 +2,9 @@
 
 Play in browser: https://jamesiv4.github.io/nethack-3d/
 
+## Windows and Android App
+[Download the latest release](https://github.com/JamesIV4/nethack-3d/releases/latest)
+
 ## iOS App
 
 On iPhone/iPad, open the play link in Safari, tap the Share button, then tap `Add to Home Screen`.
