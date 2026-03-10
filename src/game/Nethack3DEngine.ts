@@ -473,6 +473,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private activeAutoOverviewProbeEntryId: string | null = null;
   private activeAutoOverviewProbeIssuedAtMs: number = 0;
   private readonly autoOverviewProbeStaleAfterMs: number = 15000;
+  private hasResolvedInitialDeterministicLevelThisSession: boolean = false;
   private pendingLevelCacheTransition: PendingLevelCacheTransition | null =
     null;
   private readonly levelCacheDisambiguationWallSampleMin: number = 6;
@@ -2021,6 +2022,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (!this.hasResolvedInitialDeterministicLevelThisSession) {
+      this.hasResolvedInitialDeterministicLevelThisSession = true;
+      return;
+    }
+
     if (
       this.pendingAutoOverviewProbeEntryId === activeCacheEntryId ||
       this.activeAutoOverviewProbeEntryId === activeCacheEntryId
@@ -2341,6 +2347,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingAutoOverviewProbeEntryId = null;
     this.activeAutoOverviewProbeEntryId = null;
     this.activeAutoOverviewProbeIssuedAtMs = 0;
+    this.hasResolvedInitialDeterministicLevelThisSession = false;
     this.pendingLevelCacheTransition = null;
   }
 
@@ -14170,11 +14177,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return [];
     }
     const selectableCount = this.getVisiblePickupSelectableMenuItems().length;
-    if (selectableCount <= 1) {
+    if (this.activeQuestionIsPickupDialog) {
+      if (selectableCount > 1) {
+        return ["select-all", "confirm", "cancel"];
+      }
+      if (selectableCount === 1) {
+        return ["confirm", "cancel"];
+      }
       return [];
     }
-    if (this.activeQuestionIsPickupDialog) {
-      return ["select-all", "confirm", "cancel"];
+    if (selectableCount <= 1) {
+      return [];
     }
     return ["cancel"];
   }

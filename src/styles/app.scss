@@ -1253,7 +1253,7 @@ canvas {
   }
 
   @media (pointer: coarse) {
-    --nh3d-dialog-mobile-padding: 9px;
+    --nh3d-dialog-mobile-padding: 12px;
     top: var(--nh3d-modal-safe-center-y);
     left: var(--nh3d-modal-safe-center-x);
     transform: translate(-50%, -50%);
@@ -3841,6 +3841,7 @@ canvas {
 #character-setup-dialog .nh3d-choice-list-startup-choose {
   max-height: none;
   overflow-y: visible;
+  padding-bottom: 25px;
 }
 
 .nh3d-startup-config-grid {

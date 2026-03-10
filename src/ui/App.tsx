@@ -6477,7 +6477,7 @@ export default function App(): JSX.Element {
     : 0;
   const showPickupActionButtons =
     Boolean(question?.isPickupDialog) &&
-    (questionSelectableMenuItemCount > 1 || isMobileViewport);
+    (questionSelectableMenuItemCount > 0 || isMobileViewport);
   const showPickupToggleAllButton =
     Boolean(question?.isPickupDialog) && questionSelectableMenuItemCount > 1;
   const inventoryContextActionsEnabled =
