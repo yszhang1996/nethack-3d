@@ -468,9 +468,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private latestLevelDescriptorName: string | null = null;
   private latestRuntimeLevelIdentity: RuntimeLevelIdentity | null = null;
   private runtimeOverviewDungeonByIdentityKey: Map<string, string> = new Map();
-  private runtimeOverviewDungeonByLevelName: Map<string, string> = new Map();
-  private pendingAutoOverviewProbeLevelName: string | null = null;
-  private activeAutoOverviewProbeLevelName: string | null = null;
+  private runtimeOverviewDungeonByCacheEntryId: Map<string, string> = new Map();
+  private pendingAutoOverviewProbeEntryId: string | null = null;
+  private activeAutoOverviewProbeEntryId: string | null = null;
   private activeAutoOverviewProbeIssuedAtMs: number = 0;
   private readonly autoOverviewProbeStaleAfterMs: number = 15000;
   private pendingLevelCacheTransition: PendingLevelCacheTransition | null =
@@ -1810,16 +1810,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const currentLevelName = this.normalizeLevelCacheName(
-      this.currentLevelCacheName,
-    );
-    if (currentLevelName) {
-      const cachedOverviewDungeonNameByLevelName =
+    const currentCacheEntryId =
+      this.activeLevelCacheRef &&
+      typeof this.activeLevelCacheRef.entryId === "string"
+        ? this.activeLevelCacheRef.entryId
+        : null;
+    if (currentCacheEntryId) {
+      const cachedOverviewDungeonNameByCacheEntry =
         this.normalizeDungeonDisplayName(
-          this.runtimeOverviewDungeonByLevelName.get(currentLevelName),
+          this.runtimeOverviewDungeonByCacheEntryId.get(currentCacheEntryId),
         );
-      if (cachedOverviewDungeonNameByLevelName) {
-        this.playerStats.dungeon = cachedOverviewDungeonNameByLevelName;
+      if (cachedOverviewDungeonNameByCacheEntry) {
+        this.playerStats.dungeon = cachedOverviewDungeonNameByCacheEntry;
         return;
       }
     }
@@ -1889,9 +1891,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.clearStaleAutoOverviewProbe();
     const parsed = this.parseCurrentDungeonFromOverviewLines(lines);
     const consumedAutoProbeResponse =
-      Boolean(this.activeAutoOverviewProbeLevelName) && Boolean(parsed);
-    const activeProbeLevelName = this.activeAutoOverviewProbeLevelName;
-    this.activeAutoOverviewProbeLevelName = null;
+      Boolean(this.activeAutoOverviewProbeEntryId) && Boolean(parsed);
+    const activeProbeEntryId = this.activeAutoOverviewProbeEntryId;
+    this.activeAutoOverviewProbeEntryId = null;
     this.activeAutoOverviewProbeIssuedAtMs = 0;
     if (!parsed) {
       return false;
@@ -1911,12 +1913,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         normalizedDungeonName,
       );
     }
-    const resolvedLevelName = this.normalizeLevelCacheName(
-      activeProbeLevelName ?? this.resolvePreferredLevelCacheName(),
-    );
-    if (resolvedLevelName) {
-      this.runtimeOverviewDungeonByLevelName.set(
-        resolvedLevelName,
+    const resolvedCacheEntryId =
+      activeProbeEntryId ??
+      (this.activeLevelCacheRef &&
+      typeof this.activeLevelCacheRef.entryId === "string"
+        ? this.activeLevelCacheRef.entryId
+        : null);
+    if (resolvedCacheEntryId) {
+      this.runtimeOverviewDungeonByCacheEntryId.set(
+        resolvedCacheEntryId,
         normalizedDungeonName,
       );
     }
@@ -1936,7 +1941,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private clearStaleAutoOverviewProbe(nowMs: number = Date.now()): void {
-    if (!this.activeAutoOverviewProbeLevelName) {
+    if (!this.activeAutoOverviewProbeEntryId) {
       return;
     }
     if (
@@ -1945,7 +1950,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       return;
     }
-    this.activeAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeEntryId = null;
     this.activeAutoOverviewProbeIssuedAtMs = 0;
   }
 
@@ -1967,21 +1972,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private maybeDispatchAutoOverviewProbe(): void {
     this.clearStaleAutoOverviewProbe();
-    if (this.activeAutoOverviewProbeLevelName) {
+    if (this.activeAutoOverviewProbeEntryId) {
       return;
     }
-    const pendingLevelName = this.normalizeLevelCacheName(
-      this.pendingAutoOverviewProbeLevelName,
-    );
-    if (!pendingLevelName) {
-      this.pendingAutoOverviewProbeLevelName = null;
+    const pendingEntryId =
+      typeof this.pendingAutoOverviewProbeEntryId === "string" &&
+      this.pendingAutoOverviewProbeEntryId.trim().length > 0
+        ? this.pendingAutoOverviewProbeEntryId
+        : null;
+    if (!pendingEntryId) {
+      this.pendingAutoOverviewProbeEntryId = null;
       return;
     }
     if (!this.canDispatchAutoOverviewProbe()) {
       return;
     }
-    this.pendingAutoOverviewProbeLevelName = null;
-    this.activeAutoOverviewProbeLevelName = pendingLevelName;
+    this.pendingAutoOverviewProbeEntryId = null;
+    this.activeAutoOverviewProbeEntryId = pendingEntryId;
     this.activeAutoOverviewProbeIssuedAtMs = Date.now();
     this.sendInput(`${this.ctrlInputPrefix}o`);
   }
@@ -1995,8 +2002,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    const activeCacheEntryId =
+      this.activeLevelCacheRef &&
+      typeof this.activeLevelCacheRef.entryId === "string"
+        ? this.activeLevelCacheRef.entryId
+        : null;
+    if (!activeCacheEntryId) {
+      return;
+    }
+
     const cachedDungeonName = this.normalizeDungeonDisplayName(
-      this.runtimeOverviewDungeonByLevelName.get(normalizedLevelName),
+      this.runtimeOverviewDungeonByCacheEntryId.get(activeCacheEntryId),
     );
     if (cachedDungeonName) {
       this.playerStats.dungeon = cachedDungeonName;
@@ -2006,12 +2022,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (
-      this.pendingAutoOverviewProbeLevelName === normalizedLevelName ||
-      this.activeAutoOverviewProbeLevelName === normalizedLevelName
+      this.pendingAutoOverviewProbeEntryId === activeCacheEntryId ||
+      this.activeAutoOverviewProbeEntryId === activeCacheEntryId
     ) {
       return;
     }
-    this.pendingAutoOverviewProbeLevelName = normalizedLevelName;
+    this.pendingAutoOverviewProbeEntryId = activeCacheEntryId;
     this.maybeDispatchAutoOverviewProbe();
   }
 
@@ -2321,9 +2337,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.latestLevelDescriptorName = null;
     this.latestRuntimeLevelIdentity = null;
     this.runtimeOverviewDungeonByIdentityKey.clear();
-    this.runtimeOverviewDungeonByLevelName.clear();
-    this.pendingAutoOverviewProbeLevelName = null;
-    this.activeAutoOverviewProbeLevelName = null;
+    this.runtimeOverviewDungeonByCacheEntryId.clear();
+    this.pendingAutoOverviewProbeEntryId = null;
+    this.activeAutoOverviewProbeEntryId = null;
     this.activeAutoOverviewProbeIssuedAtMs = 0;
     this.pendingLevelCacheTransition = null;
   }
