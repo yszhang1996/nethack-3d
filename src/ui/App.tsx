@@ -100,6 +100,7 @@ import {
   type CharacterSheetStatKey,
 } from "./character-sheet";
 import { parseEnhanceMenu } from "./enhance-menu";
+import { CastSpellMenu, parseCastSpellMenu } from "./question/cast-menu";
 import { useConfirmationDialog } from "./useConfirmationDialog";
 
 type DirectionChoice = {
@@ -6465,6 +6466,11 @@ export default function App(): JSX.Element {
       question ? parseEnhanceMenu(question.text, question.menuItems) : null,
     [question],
   );
+  const castMenuData = useMemo(
+    () =>
+      question ? parseCastSpellMenu(question.text, question.menuItems) : null,
+    [question],
+  );
   const questionSelectableMenuItemCount = question
     ? question.menuItems.filter((item) => isSelectableQuestionMenuItem(item))
         .length
@@ -12192,7 +12198,9 @@ export default function App(): JSX.Element {
             question.menuItems.length === 0 && isYesNoQuestionChoices
               ? " nh3d-dialog-question-yes-no"
               : ""
-          }${enhanceMenuData ? " nh3d-dialog-question-enhance" : ""}`}
+          }${enhanceMenuData ? " nh3d-dialog-question-enhance" : ""}${
+            castMenuData ? " nh3d-dialog-question-cast" : ""
+          }`}
           id="question-dialog"
         >
           {renderMobileDialogCloseButton(
@@ -12487,6 +12495,31 @@ export default function App(): JSX.Element {
                     Cancel
                   </button>
                 </div>
+              </>
+            ) : castMenuData ? (
+              <>
+                <CastSpellMenu
+                  activeSelectionInput={question.activeMenuSelectionInput}
+                  menuData={castMenuData}
+                  onChooseSpell={(selectionInput) =>
+                    controller?.chooseQuestionChoice(selectionInput)
+                  }
+                />
+                {questionSelectableMenuItemCount > 1 ? (
+                  <div className="nh3d-menu-actions">
+                    <button
+                      className={`nh3d-menu-action-button nh3d-menu-action-cancel${
+                        question.activeActionButton === "cancel"
+                          ? " nh3d-action-button-active"
+                          : ""
+                      }`}
+                      onClick={() => controller?.cancelActivePrompt()}
+                      type="button"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : null}
               </>
             ) : (
               <>
