@@ -45,8 +45,8 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Live message log plus on-screen message popups.
 - Full mobile touch support (or even in desktop if you want).
 - Beautiful menus: item category headers, keyboard tips, multi-pickup selection, and menu paging.
-- Fast character start: random hero or manual setup (name, role, race, gender, alignment).
-- Customize your NetHack initialization options: pet names, autopickup,
+- Fast character start: random hero or create a character (name, role, race, gender, alignment), saved for your next run too.
+- Customize your NetHack initialization options: explore mode, autopickup, pet names and other advanced settings.
 - Save and load your game. Perfect for long runs.
 - Autofill on extended commands with `#` so advanced playstyles are easy to manage, plus all commands available via buttons on mobile.
 - Desktop-friendly controls: keyboard-first with mouse support for map interaction and camera control.
