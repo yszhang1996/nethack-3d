@@ -467,6 +467,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private currentLevelCacheName: string | null = null;
   private latestLevelDescriptorName: string | null = null;
   private latestRuntimeLevelIdentity: RuntimeLevelIdentity | null = null;
+  private runtimeOverviewDungeonByIdentityKey: Map<string, string> = new Map();
+  private runtimeOverviewDungeonByLevelName: Map<string, string> = new Map();
+  private pendingAutoOverviewProbeLevelName: string | null = null;
+  private activeAutoOverviewProbeLevelName: string | null = null;
+  private activeAutoOverviewProbeIssuedAtMs: number = 0;
+  private readonly autoOverviewProbeStaleAfterMs: number = 15000;
   private pendingLevelCacheTransition: PendingLevelCacheTransition | null =
     null;
   private readonly levelCacheDisambiguationWallSampleMin: number = 6;
@@ -1801,7 +1807,212 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const branchDisplayName = this.normalizeBranchDisplayName(identity.branchTag);
     if (branchDisplayName) {
       this.playerStats.dungeon = branchDisplayName;
+      return;
     }
+
+    const currentLevelName = this.normalizeLevelCacheName(
+      this.currentLevelCacheName,
+    );
+    if (currentLevelName) {
+      const cachedOverviewDungeonNameByLevelName =
+        this.normalizeDungeonDisplayName(
+          this.runtimeOverviewDungeonByLevelName.get(currentLevelName),
+        );
+      if (cachedOverviewDungeonNameByLevelName) {
+        this.playerStats.dungeon = cachedOverviewDungeonNameByLevelName;
+        return;
+      }
+    }
+
+    const identityKey =
+      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity(identity);
+    if (!identityKey) {
+      return;
+    }
+
+    const cachedOverviewDungeonNameByIdentity = this.normalizeDungeonDisplayName(
+      this.runtimeOverviewDungeonByIdentityKey.get(identityKey),
+    );
+    if (cachedOverviewDungeonNameByIdentity) {
+      this.playerStats.dungeon = cachedOverviewDungeonNameByIdentity;
+    }
+  }
+
+  private parseCurrentDungeonFromOverviewLines(lines: string[]): {
+    dungeonName: string;
+    dlevel: number | null;
+  } | null {
+    if (!Array.isArray(lines) || lines.length === 0) {
+      return null;
+    }
+
+    let activeDungeon: string | null = null;
+    for (const rawLine of lines) {
+      const line = String(rawLine ?? "").replace(/\u0000/g, "");
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const isLevelLine = /^level\s+-?\d+\s*:/i.test(trimmed);
+      let dungeonHeaderMatch: RegExpMatchArray | null = null;
+      if (!isLevelLine) {
+        dungeonHeaderMatch =
+          trimmed.match(/^(.+?):\s*levels?\s*-?\d+\s+to\s+-?\d+\s*$/i) ??
+          trimmed.match(/^(.+?):\s*$/i);
+      }
+      if (dungeonHeaderMatch && dungeonHeaderMatch[1]) {
+        activeDungeon = this.normalizeDungeonDisplayName(dungeonHeaderMatch[1]);
+        continue;
+      }
+
+      const levelLineMatch = trimmed.match(/^level\s+(-?\d+)\s*:\s*(.*)$/i);
+      if (!levelLineMatch || !levelLineMatch[1]) {
+        continue;
+      }
+      const levelSuffix = String(levelLineMatch[2] ?? "").toLowerCase();
+      if (!levelSuffix.includes("you are here") || !activeDungeon) {
+        continue;
+      }
+
+      const parsedDlevel = Number.parseInt(levelLineMatch[1], 10);
+      return {
+        dungeonName: activeDungeon,
+        dlevel: Number.isFinite(parsedDlevel) ? Math.trunc(parsedDlevel) : null,
+      };
+    }
+
+    return null;
+  }
+
+  private applyOverviewDungeonFromInfoMenu(lines: string[]): boolean {
+    this.clearStaleAutoOverviewProbe();
+    const parsed = this.parseCurrentDungeonFromOverviewLines(lines);
+    const consumedAutoProbeResponse =
+      Boolean(this.activeAutoOverviewProbeLevelName) && Boolean(parsed);
+    const activeProbeLevelName = this.activeAutoOverviewProbeLevelName;
+    this.activeAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeIssuedAtMs = 0;
+    if (!parsed) {
+      return false;
+    }
+
+    const normalizedDungeonName = this.normalizeDungeonDisplayName(
+      parsed.dungeonName,
+    );
+    if (!normalizedDungeonName) {
+      return false;
+    }
+
+    const identityKey = this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
+    if (identityKey) {
+      this.runtimeOverviewDungeonByIdentityKey.set(
+        identityKey,
+        normalizedDungeonName,
+      );
+    }
+    const resolvedLevelName = this.normalizeLevelCacheName(
+      activeProbeLevelName ?? this.resolvePreferredLevelCacheName(),
+    );
+    if (resolvedLevelName) {
+      this.runtimeOverviewDungeonByLevelName.set(
+        resolvedLevelName,
+        normalizedDungeonName,
+      );
+    }
+
+    if (
+      parsed.dlevel !== null &&
+      Number.isFinite(this.playerStats.dlevel) &&
+      Math.trunc(this.playerStats.dlevel) !== Math.trunc(parsed.dlevel)
+    ) {
+      return consumedAutoProbeResponse;
+    }
+
+    this.playerStats.dungeon = normalizedDungeonName;
+    this.refreshOverviewStyleLocationLabel();
+    this.updateStatsDisplay();
+    return consumedAutoProbeResponse;
+  }
+
+  private clearStaleAutoOverviewProbe(nowMs: number = Date.now()): void {
+    if (!this.activeAutoOverviewProbeLevelName) {
+      return;
+    }
+    if (
+      nowMs - this.activeAutoOverviewProbeIssuedAtMs <=
+      this.autoOverviewProbeStaleAfterMs
+    ) {
+      return;
+    }
+    this.activeAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeIssuedAtMs = 0;
+  }
+
+  private canDispatchAutoOverviewProbe(): boolean {
+    if (!this.session) {
+      return false;
+    }
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      return false;
+    }
+    if (this.positionInputModeActive || this.metaCommandModeActive) {
+      return false;
+    }
+    if (this.isTextInputActive || this.isAnyModalVisible()) {
+      return false;
+    }
+    return true;
+  }
+
+  private maybeDispatchAutoOverviewProbe(): void {
+    this.clearStaleAutoOverviewProbe();
+    if (this.activeAutoOverviewProbeLevelName) {
+      return;
+    }
+    const pendingLevelName = this.normalizeLevelCacheName(
+      this.pendingAutoOverviewProbeLevelName,
+    );
+    if (!pendingLevelName) {
+      this.pendingAutoOverviewProbeLevelName = null;
+      return;
+    }
+    if (!this.canDispatchAutoOverviewProbe()) {
+      return;
+    }
+    this.pendingAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeLevelName = pendingLevelName;
+    this.activeAutoOverviewProbeIssuedAtMs = Date.now();
+    this.sendInput(`${this.ctrlInputPrefix}o`);
+  }
+
+  private handleDeterministicLevelCacheResolution(levelName: string): void {
+    const normalizedLevelName = this.normalizeLevelCacheName(levelName);
+    if (!normalizedLevelName) {
+      return;
+    }
+    if (/^unresolved level\s+\d+$/i.test(normalizedLevelName)) {
+      return;
+    }
+
+    const cachedDungeonName = this.normalizeDungeonDisplayName(
+      this.runtimeOverviewDungeonByLevelName.get(normalizedLevelName),
+    );
+    if (cachedDungeonName) {
+      this.playerStats.dungeon = cachedDungeonName;
+      this.refreshOverviewStyleLocationLabel();
+      this.updateStatsDisplay();
+      return;
+    }
+
+    if (
+      this.pendingAutoOverviewProbeLevelName === normalizedLevelName ||
+      this.activeAutoOverviewProbeLevelName === normalizedLevelName
+    ) {
+      return;
+    }
+    this.pendingAutoOverviewProbeLevelName = normalizedLevelName;
+    this.maybeDispatchAutoOverviewProbe();
   }
 
   private extractDlevelFromLevelDescriptor(levelDescriptor: string): number | null {
@@ -2109,6 +2320,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.currentLevelCacheName = null;
     this.latestLevelDescriptorName = null;
     this.latestRuntimeLevelIdentity = null;
+    this.runtimeOverviewDungeonByIdentityKey.clear();
+    this.runtimeOverviewDungeonByLevelName.clear();
+    this.pendingAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeLevelName = null;
+    this.activeAutoOverviewProbeIssuedAtMs = 0;
     this.pendingLevelCacheTransition = null;
   }
 
@@ -2486,6 +2702,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const candidates = this.levelTerrainCachesByName.get(levelName) ?? [];
     if (candidates.length === 0) {
       this.activateNewLevelTerrainCacheEntry(levelName);
+      this.handleDeterministicLevelCacheResolution(levelName);
       this.pendingLevelCacheTransition = null;
       return;
     }
@@ -2499,6 +2716,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           candidates[0],
           pending.observedTiles,
         );
+        this.handleDeterministicLevelCacheResolution(levelName);
         this.pendingLevelCacheTransition = null;
         return;
       }
@@ -2527,6 +2745,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else {
         this.activateNewLevelTerrainCacheEntry(levelName);
       }
+      this.handleDeterministicLevelCacheResolution(levelName);
       this.pendingLevelCacheTransition = null;
       return;
     }
@@ -2555,6 +2774,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       this.activateNewLevelTerrainCacheEntry(levelName);
     }
+    this.handleDeterministicLevelCacheResolution(levelName);
     this.pendingLevelCacheTransition = null;
   }
 
@@ -5081,6 +5301,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const infoMenuSource =
           typeof data.source === "string" ? data.source : "";
         const shouldRefreshCtrlMCache = infoMenuSource !== "doprev_message";
+        const consumedAutoOverviewProbe = this.applyOverviewDungeonFromInfoMenu(
+          normalizedInfoMenu.lines,
+        );
+        if (consumedAutoOverviewProbe) {
+          break;
+        }
         if (shouldRefreshCtrlMCache) {
           this.lastInfoMenu = normalizedInfoMenu;
         }
@@ -13183,6 +13409,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.currentLevelCacheName = resolvedLevelName;
     }
     this.maybeFinalizePendingLevelCacheTransition("status");
+    this.maybeDispatchAutoOverviewProbe();
   }
 
   private updatePlayerStats(
@@ -22376,6 +22603,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.renderMinimapViewportOverlay();
     }
     this.updateMetaCommandModalPosition();
+    this.maybeDispatchAutoOverviewProbe();
     this.disposeLightingOverlay();
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
