@@ -4264,11 +4264,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const canvasRect = this.renderer.domElement.getBoundingClientRect();
       const anchorX = canvasRect.left + canvasRect.width * 0.5;
       const anchorY = canvasRect.top + Math.max(54, canvasRect.height * 0.2);
+      // FPS anchors near the top of the viewport; avoid the normal -30vh lift
+      // used in top-down mode or the modal can end up off-screen.
+      this.metaCommandModal.style.transform = "translate(-50%, 0)";
       this.metaCommandModal.style.visibility = "visible";
       this.metaCommandModal.style.left = `${Math.round(anchorX)}px`;
       this.metaCommandModal.style.top = `${Math.round(anchorY)}px`;
       return;
     }
+
+    this.metaCommandModal.style.transform = "translate(-50%, -30vh)";
 
     const projected = this.projectWorldToScreen(
       this.playerPos.x * TILE_SIZE,
