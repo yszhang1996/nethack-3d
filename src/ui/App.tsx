@@ -12520,21 +12520,19 @@ export default function App(): JSX.Element {
                     controller?.chooseQuestionChoice(selectionInput)
                   }
                 />
-                {questionSelectableMenuItemCount > 1 ? (
-                  <div className="nh3d-menu-actions">
-                    <button
-                      className={`nh3d-menu-action-button nh3d-menu-action-cancel${
-                        question.activeActionButton === "cancel"
-                          ? " nh3d-action-button-active"
-                          : ""
-                      }`}
-                      onClick={() => controller?.cancelActivePrompt()}
-                      type="button"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : null}
+                <div className="nh3d-menu-actions">
+                  <button
+                    className={`nh3d-menu-action-button nh3d-menu-action-cancel${
+                      question.activeActionButton === "cancel"
+                        ? " nh3d-action-button-active"
+                        : ""
+                    }`}
+                    onClick={() => controller?.cancelActivePrompt()}
+                    type="button"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </>
             ) : (
               <>

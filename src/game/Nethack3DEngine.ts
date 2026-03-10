@@ -944,6 +944,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardMaxPieces: number = 18;
   private readonly monsterBillboardShardBoundaryRedChancePercent: number = 40;
   private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number = 42;
+  private readonly monsterBillboardShardBoundaryRed2x2ChancePercent: number = 30;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -12057,7 +12058,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const descriptors: BillboardShardDescriptor[] = [];
-    for (const region of limitedRegions) {
+    for (
+      let regionIndex = 0;
+      regionIndex < limitedRegions.length;
+      regionIndex += 1
+    ) {
+      const region = limitedRegions[regionIndex];
       let minPixelX = sourceWidth;
       let minPixelY = sourceHeight;
       let maxPixelX = 0;
@@ -12174,9 +12180,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
             1,
           )
         : 0;
+      // The first region is the largest (sorted above) and acts as the master shard.
+      const masterShardBoundaryRed2x2Chance = this.clientOptions
+        .monsterShatterBloodBorders
+        ? regionIndex === 0
+          ? THREE.MathUtils.clamp(
+              this.monsterBillboardShardBoundaryRed2x2ChancePercent / 100,
+              0,
+              1,
+            )
+          : 0
+        : 0;
       if (boundaryCells.length > 0 && boundaryRedChance > 0) {
         const imageData = context.getImageData(0, 0, shardWidth, shardHeight);
         const data = imageData.data;
+        const paintBoundaryBloodPixel = (
+          x: number,
+          y: number,
+          use2x2: boolean,
+        ): void => {
+          const paintPixel = (pixelX: number, pixelY: number): void => {
+            if (
+              pixelX < 0 ||
+              pixelX >= shardWidth ||
+              pixelY < 0 ||
+              pixelY >= shardHeight
+            ) {
+              return;
+            }
+            const baseIndex = (pixelY * shardWidth + pixelX) * 4;
+            const alphaIndex = baseIndex + 3;
+            if (data[alphaIndex] === 0) {
+              return;
+            }
+            data[baseIndex] = 255;
+            data[baseIndex + 1] = 30;
+            data[baseIndex + 2] = 30;
+          };
+          paintPixel(x, y);
+          if (!use2x2) {
+            return;
+          }
+          paintPixel(x + 1, y);
+          paintPixel(x, y + 1);
+          paintPixel(x + 1, y + 1);
+        };
         for (const boundaryCell of boundaryCells) {
           const { cellIndex, towardSplitSteps } = boundaryCell;
           const cellXIndex = cellIndex % gridWidth;
@@ -12208,9 +12256,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
               if (Math.random() > boundaryRedChance) {
                 continue;
               }
-              data[baseIndex] = 255;
-              data[baseIndex + 1] = 30;
-              data[baseIndex + 2] = 30;
+              const useMasterShard2x2 =
+                masterShardBoundaryRed2x2Chance > 0 &&
+                Math.random() <= masterShardBoundaryRed2x2Chance;
+              paintBoundaryBloodPixel(pixelX, pixelY, useMasterShard2x2);
               if (
                 boundaryRedBleedChance <= 0 ||
                 towardSplitSteps.length === 0 ||
@@ -12237,9 +12286,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
               if (data[bleedBaseIndex + 3] === 0) {
                 continue;
               }
-              data[bleedBaseIndex] = 255;
-              data[bleedBaseIndex + 1] = 30;
-              data[bleedBaseIndex + 2] = 30;
+              paintBoundaryBloodPixel(
+                bleedPixelX,
+                bleedPixelY,
+                useMasterShard2x2,
+              );
             }
           }
         }

@@ -23,12 +23,32 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "door-opens",
     label: "Door opens",
-    messageLogKeywords: [/\bdoor\b.*\bopens?\b/i, /\bopens?\b.*\bdoor\b/i],
+    messageLogKeywords: ["The door opens."],
   },
   {
     key: "door-closes",
     label: "Door closes",
-    messageLogKeywords: [/\bdoor\b.*\bcloses?\b/i, /\bcloses?\b.*\bdoor\b/i],
+    messageLogKeywords: ["The door closes."],
+  },
+  {
+    key: "door-kick",
+    label: "Door kick",
+    messageLogKeywords: ["WHAMMMM!!!"],
+  },
+  {
+    key: "door-smash",
+    label: "Door smash",
+    messageLogKeywords: ["As you kick the door, it crashes open!"],
+  },
+  {
+    key: "door-resists",
+    label: "Door resists",
+    messageLogKeywords: ["The door resists!"],
+  },
+  {
+    key: "door-distant",
+    label: "Door in the distance",
+    messageLogKeywords: ["hear a door"],
   },
   {
     key: "walk-down-stairs",
@@ -126,6 +146,11 @@ export const nh3dSoundEffectDefinitions = [
   //   label: "Scroll reading (neutral)",
   //   messageLogKeywords: [/\byou read (?:the )?scroll\b/i],
   // },
+  {
+    key: "splash",
+    label: "Splash",
+    messageLogKeywords: ["splashing of a naiad"],
+  },
   {
     key: "searching",
     label: "Searching",
