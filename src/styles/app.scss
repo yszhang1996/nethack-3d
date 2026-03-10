@@ -1522,7 +1522,7 @@ canvas {
 }
 
 .nh3d-dialog-question.nh3d-dialog-question-cast {
-  width: min(78vw, 760px);
+  width: min(78vw, 600px);
   max-width: calc(
     100vw - var(--nh3d-modal-safe-left-inset) - var(
         --nh3d-modal-safe-right-inset
@@ -4928,8 +4928,8 @@ canvas {
 .nh3d-cast-table-head > :nth-child(4),
 .nh3d-cast-table-head > :nth-child(5),
 .nh3d-cast-row-category {
-  justify-self: end;
-  text-align: right;
+  justify-self: center;
+  text-align: center;
 }
 
 .nh3d-cast-row {
@@ -5037,7 +5037,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-cast-chip-fail {
-  justify-self: end;
+  justify-self: center;
 
   &.is-low {
     border-color: rgba(117, 212, 160, 0.58);
@@ -5059,7 +5059,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-cast-chip-retention {
-  justify-self: end;
+  justify-self: center;
 
   &.is-full {
     border-color: rgba(117, 212, 160, 0.58);
@@ -5133,7 +5133,7 @@ button.nh3d-cast-row {
 
   .nh3d-cast-chip-fail {
     grid-area: fail;
-    justify-self: end;
+    justify-self: center;
 
     &::before {
       content: "Fail ";
@@ -5144,7 +5144,7 @@ button.nh3d-cast-row {
 
   .nh3d-cast-chip-retention {
     grid-area: retention;
-    justify-self: end;
+    justify-self: center;
 
     &::before {
       content: "Retention ";
