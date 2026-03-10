@@ -832,7 +832,8 @@ canvas {
   }
 
   .nh3d-stats-hunger {
-    color: #ffaaff;
+    color: inherit;
+    min-width: 0;
   }
 
   .nh3d-stats-mobile-inline-secondary,
@@ -842,7 +843,43 @@ canvas {
 
   .nh3d-stats-mobile-location-status {
     margin-left: 8px;
-    color: #ffaaff;
+  }
+
+  .nh3d-stats-status-list {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .nh3d-stats-status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    font-weight: bold;
+    line-height: 1.15;
+    white-space: nowrap;
+
+    &.is-good {
+      color: #7ff19d;
+      border-color: rgba(127, 241, 157, 0.45);
+      background: rgba(47, 125, 69, 0.2);
+    }
+
+    &.is-warning {
+      color: #ffd66a;
+      border-color: rgba(255, 214, 106, 0.45);
+      background: rgba(140, 104, 20, 0.22);
+    }
+
+    &.is-danger {
+      color: #ff8f8f;
+      border-color: rgba(255, 143, 143, 0.5);
+      background: rgba(150, 36, 36, 0.22);
+    }
   }
 
   @media (pointer: coarse) {

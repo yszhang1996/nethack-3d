@@ -55,6 +55,7 @@ export type PlayerStatsSnapshot = {
   alignment: string;
   hunger: string;
   encumbrance: string;
+  conditionMask: number;
   time: number;
   score: number;
 };

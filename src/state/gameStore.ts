@@ -39,6 +39,7 @@ export const defaultPlayerStats: PlayerStatsSnapshot = {
   alignment: "Neutral",
   hunger: "Not Hungry",
   encumbrance: "",
+  conditionMask: 0,
   time: 1,
   score: 0,
 };

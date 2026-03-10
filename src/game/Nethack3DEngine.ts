@@ -593,6 +593,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     alignment: "Neutral",
     hunger: "Not Hungry",
     encumbrance: "",
+    conditionMask: 0,
     time: 1,
     score: 0,
   };
@@ -4688,6 +4689,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.pendingInventoryDialog = false;
     this.pendingInventoryDialogOptions = null;
     this.statusConditionMask = 0;
+    this.playerStats.conditionMask = 0;
     this.resetPlayerStatusDeltaTracking();
     this.pendingBoulderPushDarkCorridorInference = null;
     this.updateConnectionStatus("Starting", "starting");
@@ -13182,9 +13184,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (parsedConditionMask !== null) {
         this.statusConditionMask = parsedConditionMask;
       }
+      this.playerStats.conditionMask = this.statusConditionMask;
       if (previousConditionMask !== this.statusConditionMask) {
         this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
       }
+      this.updateStatsDisplay();
       return;
     }
 

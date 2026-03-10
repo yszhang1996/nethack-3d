@@ -123,6 +123,119 @@ type CoreStatSnapshot = {
   values: Record<CoreStatKey, number>;
 };
 
+type StatusSeverity = "good" | "warning" | "danger";
+
+type PlayerStatusBadge = {
+  label: string;
+  severity: StatusSeverity;
+};
+
+const playerConditionStatusDefinitions: ReadonlyArray<{
+  mask: number;
+  label: string;
+  severity: StatusSeverity;
+}> = [
+  { mask: 0x00000001, label: "Stone", severity: "danger" },
+  { mask: 0x00000002, label: "Slime", severity: "danger" },
+  { mask: 0x00000004, label: "Strngl", severity: "danger" },
+  { mask: 0x00000008, label: "FoodPois", severity: "danger" },
+  { mask: 0x00000010, label: "TermIll", severity: "danger" },
+  { mask: 0x00000020, label: "Blind", severity: "warning" },
+  { mask: 0x00000040, label: "Deaf", severity: "warning" },
+  { mask: 0x00000080, label: "Stun", severity: "warning" },
+  { mask: 0x00000100, label: "Conf", severity: "warning" },
+  { mask: 0x00000200, label: "Hallu", severity: "warning" },
+  { mask: 0x00000400, label: "Lev", severity: "good" },
+  { mask: 0x00000800, label: "Fly", severity: "good" },
+  { mask: 0x00001000, label: "Ride", severity: "good" },
+];
+
+function resolveHungerStatusBadge(rawHunger: unknown): PlayerStatusBadge | null {
+  const label = String(rawHunger || "").trim();
+  if (!label) {
+    return null;
+  }
+  const normalized = label.toLowerCase();
+  if (normalized === "not hungry" || normalized === "satiated") {
+    return { label, severity: "good" };
+  }
+  if (normalized === "hungry") {
+    return { label, severity: "warning" };
+  }
+  if (
+    normalized === "weak" ||
+    normalized === "fainting" ||
+    normalized === "fainted" ||
+    normalized === "starved"
+  ) {
+    return { label, severity: "danger" };
+  }
+  return { label, severity: "warning" };
+}
+
+function resolveEncumbranceStatusBadge(
+  rawEncumbrance: unknown,
+): PlayerStatusBadge | null {
+  const label = String(rawEncumbrance || "").trim();
+  if (!label) {
+    return null;
+  }
+  const normalized = label.toLowerCase();
+  if (normalized.includes("unencumbered")) {
+    return { label, severity: "good" };
+  }
+  if (normalized.includes("burdened") || normalized.includes("stressed")) {
+    return { label, severity: "warning" };
+  }
+  if (
+    normalized.includes("strained") ||
+    normalized.includes("overtaxed") ||
+    normalized.includes("overloaded")
+  ) {
+    return { label, severity: "danger" };
+  }
+  return { label, severity: "warning" };
+}
+
+function resolveConditionStatusBadges(rawMask: unknown): PlayerStatusBadge[] {
+  const conditionMask =
+    typeof rawMask === "number" && Number.isFinite(rawMask)
+      ? Math.trunc(rawMask) >>> 0
+      : 0;
+  if (conditionMask === 0) {
+    return [];
+  }
+  return playerConditionStatusDefinitions
+    .filter((entry) => (conditionMask & entry.mask) !== 0)
+    .map((entry) => ({
+      label: entry.label,
+      severity: entry.severity,
+    }));
+}
+
+function buildPlayerStatusBadges(stats: PlayerStatsSnapshot): PlayerStatusBadge[] {
+  const badges: PlayerStatusBadge[] = [];
+  const seen = new Set<string>();
+  const pushUnique = (badge: PlayerStatusBadge | null): void => {
+    if (!badge) {
+      return;
+    }
+    const key = badge.label.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    badges.push(badge);
+  };
+
+  pushUnique(resolveHungerStatusBadge(stats.hunger));
+  pushUnique(resolveEncumbranceStatusBadge(stats.encumbrance));
+  for (const badge of resolveConditionStatusBadges(stats.conditionMask)) {
+    pushUnique(badge);
+  }
+  return badges;
+}
+
 const trackedCoreStatKeys: CoreStatKey[] = [
   "strength",
   "dexterity",
@@ -6331,9 +6444,10 @@ export default function App(): JSX.Element {
     },
     [coreStatBoldUntilTurn, currentStatsTurn, highlightedCoreStatStyle],
   );
-  const locationStatusText = [playerStats.hunger, playerStats.encumbrance]
-    .filter((value) => Boolean(value))
-    .join(" ");
+  const playerStatusBadges = useMemo(
+    () => buildPlayerStatusBadges(playerStats),
+    [playerStats],
+  );
   const locationLabel = String(playerStats.locationLabel || "").trim();
   const fallbackLocationLabel = Number.isFinite(playerStats.dlevel)
     ? `${playerStats.dungeon} ${Math.trunc(playerStats.dlevel)}`.trim()
@@ -10763,16 +10877,33 @@ export default function App(): JSX.Element {
               T:{playerStats.time}
             </div>
             <div className="nh3d-stats-hunger nh3d-stats-desktop-secondary">
-              {playerStats.hunger}
-              {playerStats.encumbrance ? ` ${playerStats.encumbrance}` : ""}
+              <span className="nh3d-stats-status-list">
+                {playerStatusBadges.map((status) => (
+                  <span
+                    className={`nh3d-stats-status-badge is-${status.severity}`}
+                    key={`desktop-status-${status.label}`}
+                  >
+                    {status.label}
+                  </span>
+                ))}
+              </span>
             </div>
           </div>
           <div className="nh3d-stats-location">
             <div className="nh3d-stats-dungeon">
               {visibleLocationLabel}
-              {locationStatusText ? (
+              {playerStatusBadges.length > 0 ? (
                 <span className="nh3d-stats-mobile-location-status">
-                  {locationStatusText}
+                  <span className="nh3d-stats-status-list">
+                    {playerStatusBadges.map((status) => (
+                      <span
+                        className={`nh3d-stats-status-badge is-${status.severity}`}
+                        key={`mobile-status-${status.label}`}
+                      >
+                        {status.label}
+                      </span>
+                    ))}
+                  </span>
                 </span>
               ) : null}
             </div>
