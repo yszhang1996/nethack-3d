@@ -3,7 +3,7 @@
 Play in browser: https://jamesiv4.github.io/nethack-3d/
 
 ## Windows and Android App
-[Download the latest release](https://github.com/JamesIV4/nethack-3d/releases/lastest)
+[Download the latest release](https://github.com/JamesIV4/nethack-3d/releases/latest)
 
 ## iOS App
 
