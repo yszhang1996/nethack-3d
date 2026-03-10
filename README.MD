@@ -13,13 +13,13 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 
 [![NetHack 3D](https://img.youtube.com/vi/LNk3G-lV77k/0.jpg)](https://www.youtube.com/watch?v=LNk3G-lV77k)
 
-## Screenshots (outdated)
+## Screenshots
 
-| Combat (Gnomish Mines)                                                                                                                                                                                                   | Enhanced Combat Visuals (Tile shake, damage numbers, blood)                                                            |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| [![Combat in the Gnomish Mines](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/combat-gnomish-mines.png)](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/combat-gnomish-mines.png) | [![Blood effects during combat](docs/screenshots/blood-effects-combat.png)](docs/screenshots/blood-effects-combat.png) |
-| Attributes                                                                                                                                                                                                               | Inventory                                                                                                              |
-| [![Attributes panel](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/attributes-panel.png)](https://github.com/JamesIV4/nethack-3d/blob/main/docs/screenshots/attributes-panel.png)                    | [![Inventory panel](docs/screenshots/inventory-panel.png)](docs/screenshots/inventory-panel.png)                       |
+| Combat in the Gnomish Mines                                                                                            | Shatter monsters into pieces!                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| [![Combat in the Gnomish Mines](docs/screenshots/combat-gnomish-mines.png)](docs/screenshots/combat-gnomish-mines.png) | [![Shatter monsters into pieces!](docs/screenshots/combat-effects.png)](docs/screenshots/combat-effects.png) |
+| Multiple tile sets                                                                                                     | Beautiful UI                                                                                                 |
+| [![Multiple tile sets](docs/screenshots/tile-sets.png)](docs/screenshots/tile-sets.png)                                | [![Beautiful UI](docs/screenshots/inventory-panel.png)](docs/screenshots/inventory-panel.png)                |
 
 ## Current Features
 
