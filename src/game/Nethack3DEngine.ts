@@ -942,7 +942,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardVerticalBaseSpeed: number = -2.5;
   private readonly monsterBillboardShardVerticalVariance: number = 5;
   private readonly monsterBillboardShardMaxPieces: number = 18;
-  private readonly monsterBillboardShardBoundaryRedChancePercent: number = 70;
+  private readonly monsterBillboardShardBoundaryRedChancePercent: number = 40;
   private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number = 42;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
@@ -1777,10 +1777,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ) {
       return `branch:${identity.branchTag.trim().toLowerCase()};dlevel:${Math.trunc(identity.dlevel)}`;
     }
-    if (
-      Number.isFinite(identity.dnum) &&
-      Number.isFinite(identity.dlevel)
-    ) {
+    if (Number.isFinite(identity.dnum) && Number.isFinite(identity.dlevel)) {
       return `dnum:${Math.trunc(identity.dnum)};dlevel:${Math.trunc(identity.dlevel)}`;
     }
     return null;
@@ -1805,7 +1802,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const branchDisplayName = this.normalizeBranchDisplayName(identity.branchTag);
+    const branchDisplayName = this.normalizeBranchDisplayName(
+      identity.branchTag,
+    );
     if (branchDisplayName) {
       this.playerStats.dungeon = branchDisplayName;
       return;
@@ -1833,9 +1832,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const cachedOverviewDungeonNameByIdentity = this.normalizeDungeonDisplayName(
-      this.runtimeOverviewDungeonByIdentityKey.get(identityKey),
-    );
+    const cachedOverviewDungeonNameByIdentity =
+      this.normalizeDungeonDisplayName(
+        this.runtimeOverviewDungeonByIdentityKey.get(identityKey),
+      );
     if (cachedOverviewDungeonNameByIdentity) {
       this.playerStats.dungeon = cachedOverviewDungeonNameByIdentity;
     }
@@ -1907,7 +1907,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    const identityKey = this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
+    const identityKey =
+      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
     if (identityKey) {
       this.runtimeOverviewDungeonByIdentityKey.set(
         identityKey,
@@ -2037,7 +2038,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.maybeDispatchAutoOverviewProbe();
   }
 
-  private extractDlevelFromLevelDescriptor(levelDescriptor: string): number | null {
+  private extractDlevelFromLevelDescriptor(
+    levelDescriptor: string,
+  ): number | null {
     const clean = String(levelDescriptor || "").trim();
     if (!clean) {
       return null;
@@ -2088,9 +2091,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const dungeonLabel =
       dungeonNameFromIdentity ??
       this.normalizeDungeonDisplayName(this.playerStats.dungeon);
-    const parsedLevel = this.extractDlevelFromLevelDescriptor(
-      normalizedDescriptor,
-    );
+    const parsedLevel =
+      this.extractDlevelFromLevelDescriptor(normalizedDescriptor);
     if (parsedLevel !== null) {
       if (dungeonLabel) {
         return `${dungeonLabel} ${parsedLevel}`;
@@ -2116,7 +2118,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof identity.depth === "number" &&
       Number.isFinite(identity.depth)
     ) {
-      const dungeonLabel = this.normalizeDungeonDisplayName(identity.dungeonName);
+      const dungeonLabel = this.normalizeDungeonDisplayName(
+        identity.dungeonName,
+      );
       const levelLabel = String(Math.trunc(identity.depth));
       this.playerStats.locationLabel = dungeonLabel
         ? `${dungeonLabel} ${levelLabel}`
@@ -4486,7 +4490,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
             lengthDelta: Math.abs(command.length - normalizedQuery.length),
           };
         }
-        const distance = this.computeLevenshteinDistance(normalizedQuery, command);
+        const distance = this.computeLevenshteinDistance(
+          normalizedQuery,
+          command,
+        );
         if (distance > maxDistance) {
           return null;
         }
@@ -4651,7 +4658,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ghostSuffix.length > 0 ? "block" : "none";
     }
     if (this.metaCommandInputGhostTypedElement) {
-      this.metaCommandInputGhostTypedElement.textContent = this.metaCommandBuffer;
+      this.metaCommandInputGhostTypedElement.textContent =
+        this.metaCommandBuffer;
     }
     if (this.metaCommandInputGhostSuffixElement) {
       this.metaCommandInputGhostSuffixElement.textContent = ghostSuffix;
@@ -5358,8 +5366,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         break;
 
       case "extended_commands":
-        this.availableExtendedCommands =
-          this.normalizeRuntimeExtendedCommands(data.commands);
+        this.availableExtendedCommands = this.normalizeRuntimeExtendedCommands(
+          data.commands,
+        );
         this.uiAdapter.setExtendedCommands([...this.availableExtendedCommands]);
         if (this.metaCommandModeActive) {
           this.updateMetaCommandSuggestionsState();
@@ -6438,7 +6447,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   public requestRuntimeGlobalsSnapshot(): void {
     if (!this.session) {
-      console.log("Cannot request runtime globals snapshot - runtime not started");
+      console.log(
+        "Cannot request runtime globals snapshot - runtime not started",
+      );
       return;
     }
     this.session.requestRuntimeGlobalsSnapshot();
@@ -13440,7 +13451,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     value: string | number | null,
     data: any,
   ): void {
-    const runtimeVersion = this.characterCreationConfig.runtimeVersion ?? "3.6.7";
+    const runtimeVersion =
+      this.characterCreationConfig.runtimeVersion ?? "3.6.7";
     const legacyByIndex37: { [key: number]: string } = {
       0: "name",
       1: "strength",
@@ -15406,7 +15418,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.metaCommandModeActive) {
       return;
     }
-    const normalizedBuffer = this.normalizeMetaCommandValue(this.metaCommandBuffer);
+    const normalizedBuffer = this.normalizeMetaCommandValue(
+      this.metaCommandBuffer,
+    );
     const sequence = ["#", ...normalizedBuffer.split(""), "Enter"];
     this.sendInputSequence(sequence);
     this.exitMetaCommandMode();
@@ -15438,7 +15452,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const activeSuggestion = this.getActiveMetaCommandSuggestion();
       if (
         activeSuggestion &&
-        activeSuggestion !== this.normalizeMetaCommandValue(this.metaCommandBuffer)
+        activeSuggestion !==
+          this.normalizeMetaCommandValue(this.metaCommandBuffer)
       ) {
         this.metaCommandBuffer = activeSuggestion;
         this.metaCommandSuggestionIndex = 0;
@@ -15738,7 +15753,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private isClientOptionsDialogOpen(): boolean {
     return Boolean(
-      document.querySelector<HTMLElement>("#nh3d-client-options-dialog.is-visible"),
+      document.querySelector<HTMLElement>(
+        "#nh3d-client-options-dialog.is-visible",
+      ),
     );
   }
 
@@ -15892,10 +15909,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const previousScrollTop = scrollElement.scrollTop;
     scrollElement.scrollTop += scrollDelta;
     if (Math.abs(scrollElement.scrollTop - previousScrollTop) >= 0.5) {
-      this.maintainFocusAfterKeyboardPageScroll(
-        scrollElement,
-        scrollDirection,
-      );
+      this.maintainFocusAfterKeyboardPageScroll(scrollElement, scrollDirection);
     }
     return true;
   }
@@ -15929,7 +15943,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const visibleFocusable = focusableInScrollElement.filter((element) => {
       const rect = element.getBoundingClientRect();
-      return rect.bottom > scrollRect.top + 2 && rect.top < scrollRect.bottom - 2;
+      return (
+        rect.bottom > scrollRect.top + 2 && rect.top < scrollRect.bottom - 2
+      );
     });
     if (visibleFocusable.length === 0) {
       return;
@@ -16751,7 +16767,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    const defaultChoice = this.getSimpleQuestionDefaultChoiceValue(choiceButtons);
+    const defaultChoice =
+      this.getSimpleQuestionDefaultChoiceValue(choiceButtons);
     if (defaultChoice) {
       return defaultChoice;
     }
@@ -16787,7 +16804,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       const delta = direction === "left" ? -1 : 1;
       targetIndex =
-        (((activeIndex + delta) % choiceButtons.length) + choiceButtons.length) %
+        (((activeIndex + delta) % choiceButtons.length) +
+          choiceButtons.length) %
         choiceButtons.length;
     }
 
@@ -16827,7 +16845,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         return false;
       }
       event.preventDefault();
-      this.setQuestionActionFocusIndex(focusLast ? actionButtons.length - 1 : 0);
+      this.setQuestionActionFocusIndex(
+        focusLast ? actionButtons.length - 1 : 0,
+      );
       return true;
     }
 
@@ -16835,7 +16855,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (selectableItems.length > 0) {
       event.preventDefault();
       if (this.activeQuestionIsPickupDialog) {
-        this.activePickupFocusIndex = focusLast ? selectableItems.length - 1 : 0;
+        this.activePickupFocusIndex = focusLast
+          ? selectableItems.length - 1
+          : 0;
         this.clearQuestionActionFocus();
         this.updatePickupFocusVisualState();
       } else {
@@ -16850,7 +16872,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (actionButtons.length > 0) {
       event.preventDefault();
-      this.setQuestionActionFocusIndex(focusLast ? actionButtons.length - 1 : 0);
+      this.setQuestionActionFocusIndex(
+        focusLast ? actionButtons.length - 1 : 0,
+      );
       return true;
     }
 
@@ -16870,7 +16894,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (target.tagName !== "INPUT") {
       return false;
     }
-    const inputType = String((target as HTMLInputElement).type || "").toLowerCase();
+    const inputType = String(
+      (target as HTMLInputElement).type || "",
+    ).toLowerCase();
     switch (inputType) {
       case "checkbox":
       case "radio":
@@ -16904,7 +16930,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ].join(", ");
 
     if (activeElement && overlay.contains(activeElement)) {
-      const directListContainer = activeElement.closest<HTMLElement>(listSelector);
+      const directListContainer =
+        activeElement.closest<HTMLElement>(listSelector);
       if (
         directListContainer instanceof HTMLElement &&
         overlay.contains(directListContainer)
@@ -16914,7 +16941,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       let ancestor: HTMLElement | null = activeElement.parentElement;
       while (ancestor && ancestor !== overlay) {
-        const focusableInAncestor = this.getControllerFocusableElements(ancestor);
+        const focusableInAncestor =
+          this.getControllerFocusableElements(ancestor);
         if (
           focusableInAncestor.length > 1 &&
           focusableInAncestor.some((element) => element === activeElement)
@@ -16971,7 +16999,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
 
-    const focusableElements = this.getControllerFocusableElements(listContainer);
+    const focusableElements =
+      this.getControllerFocusableElements(listContainer);
     if (focusableElements.length === 0) {
       return false;
     }
@@ -18193,9 +18222,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       };
     }
 
-    const seenLines = new Set(
-      existingLines.map((line) => line.toLowerCase()),
-    );
+    const seenLines = new Set(existingLines.map((line) => line.toLowerCase()));
     let changed = false;
     if (!seenLines.has(nextLine.toLowerCase())) {
       existingLines.push(nextLine);

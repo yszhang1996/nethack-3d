@@ -3898,14 +3898,29 @@ type Nh3dElectronBridge = {
   quitGame?: () => Promise<unknown>;
 };
 
+type Nh3dAndroidBridge = {
+  quitGame?: () => void;
+};
+
+type Nh3dWindowBridges = Window & {
+  nh3dElectron?: Nh3dElectronBridge;
+  nh3dAndroid?: Nh3dAndroidBridge;
+};
+
 async function requestGameQuit(): Promise<void> {
-  const electronBridge = (
-    window as Window & { nh3dElectron?: Nh3dElectronBridge }
-  ).nh3dElectron;
+  const bridgeWindow = window as Nh3dWindowBridges;
+  const electronBridge = bridgeWindow.nh3dElectron;
   if (typeof electronBridge?.quitGame === "function") {
     await electronBridge.quitGame();
     return;
   }
+
+  const androidBridge = bridgeWindow.nh3dAndroid;
+  if (typeof androidBridge?.quitGame === "function") {
+    androidBridge.quitGame();
+    return;
+  }
+
   window.close();
 }
 
