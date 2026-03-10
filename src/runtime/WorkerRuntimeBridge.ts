@@ -120,6 +120,10 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     });
   }
 
+  requestRuntimeGlobalsSnapshot(): void {
+    this.postCommand({ type: "request_runtime_globals_snapshot" });
+  }
+
   setLoggingEnabled(enabled: boolean): void {
     this.postCommand({ type: "set_logging", enabled: Boolean(enabled) });
   }

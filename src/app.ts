@@ -10,6 +10,7 @@ import {
 
 export function registerDebugHelpers(game: Nethack3DEngine): void {
   (window as any).nethackGame = game;
+  (window as any).nethackRuntimeGlobals = null;
 
   (window as any).refreshTile = (x: number, y: number) => {
     game.requestTileUpdate(x, y);
@@ -29,6 +30,16 @@ export function registerDebugHelpers(game: Nethack3DEngine): void {
 
   (window as any).dumpStatusDebug = () => {
     return (game as any).statusDebugHistory;
+  };
+
+  (window as any).requestRuntimeGlobalsSnapshot = () => {
+    game.requestRuntimeGlobalsSnapshot();
+  };
+
+  (window as any).dumpRuntimeGlobals = () => {
+    const snapshot = game.getLatestRuntimeGlobalsSnapshot();
+    (window as any).nethackRuntimeGlobals = snapshot;
+    return snapshot;
   };
 
   (window as any).toggleInfoMenu = () => {
@@ -70,6 +81,12 @@ export function registerDebugHelpers(game: Nethack3DEngine): void {
   console.log("  refreshArea(x, y, radius) - Refresh an area");
   console.log("  refreshPlayerArea(radius) - Refresh around player");
   console.log("  dumpStatusDebug() - Get recent status_update payloads");
+  console.log(
+    "  requestRuntimeGlobalsSnapshot() - Ask worker for a fresh nethackGlobal snapshot",
+  );
+  console.log(
+    "  dumpRuntimeGlobals() - Return latest runtime globals snapshot (also sets window.nethackRuntimeGlobals)",
+  );
   console.log("  setGlyphOverride(glyph, override) - Manual glyph-level render override");
   console.log("  setGlyphKindOverride(kind, override) - Manual kind-level render override");
   console.log("  clearGlyphOverride(glyph), clearGlyphKindOverride(kind), clearGlyphOverrides()");

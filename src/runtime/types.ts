@@ -14,6 +14,7 @@ export interface RuntimeBridge {
   sendMouseInput(x: number, y: number, button: number): void;
   requestTileUpdate(x: number, y: number): void;
   requestAreaUpdate(centerX: number, centerY: number, radius: number): void;
+  requestRuntimeGlobalsSnapshot(): void;
   setLoggingEnabled(enabled: boolean): void;
 }
 
@@ -45,6 +46,7 @@ export type RuntimeCommand =
       centerY: number;
       radius: number;
     }
+  | { type: "request_runtime_globals_snapshot" }
   | { type: "set_logging"; enabled: boolean };
 
 export type RuntimeWorkerEnvelope =

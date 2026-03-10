@@ -251,6 +251,9 @@ self.onmessage = async (message: MessageEvent<RuntimeCommand>) => {
           command.radius,
         );
         return;
+      case "request_runtime_globals_snapshot":
+        ensureRuntime().requestRuntimeGlobalsSnapshot();
+        return;
       case "set_logging":
         setLoggingEnabled(Boolean(command.enabled));
         return;

@@ -79,6 +79,7 @@ class LocalNetHackRuntime {
     this.travelSpeedDelayMs = 60; // Default to normal
     this.travelClickMoveBlockExtraMs = 5;
     this.clickMoveBlockedUntilMs = 0;
+    this.didLogMissingLevelIdentityGlobals = false;
 
     this.ready = this.initializeNetHack();
   }
@@ -348,6 +349,7 @@ class LocalNetHackRuntime {
   async start() {
     await this.ready;
     this.sendReconnectSnapshot();
+    this.requestRuntimeGlobalsSnapshot();
   }
 
   sendInput(input) {
@@ -368,6 +370,13 @@ class LocalNetHackRuntime {
 
   requestAreaUpdate(centerX, centerY, radius) {
     this.handleAreaUpdateRequest(centerX, centerY, radius);
+  }
+
+  requestRuntimeGlobalsSnapshot() {
+    this.emit({
+      type: "runtime_globals_snapshot",
+      snapshot: this.buildRuntimeGlobalsSnapshot(),
+    });
   }
 
   shutdown(reason = "session shutdown") {
@@ -2968,6 +2977,111 @@ class LocalNetHackRuntime {
     return null;
   }
 
+  cloneRuntimeValueForSnapshot(value, depth = 0, seen = new WeakSet()) {
+    if (value === null || value === undefined) {
+      return value ?? null;
+    }
+
+    const valueType = typeof value;
+    if (
+      valueType === "string" ||
+      valueType === "number" ||
+      valueType === "boolean"
+    ) {
+      return value;
+    }
+    if (valueType === "bigint") {
+      return String(value);
+    }
+    if (valueType === "function") {
+      const fnName =
+        typeof value.name === "string" && value.name.trim()
+          ? value.name.trim()
+          : "anonymous";
+      return `[Function ${fnName}]`;
+    }
+    if (valueType !== "object") {
+      return String(value);
+    }
+    if (seen.has(value)) {
+      return "[Circular]";
+    }
+    if (depth >= 6) {
+      return "[MaxDepth]";
+    }
+
+    seen.add(value);
+
+    if (Array.isArray(value)) {
+      const maxItems = 300;
+      const clonedItems = value
+        .slice(0, maxItems)
+        .map((item) =>
+          this.cloneRuntimeValueForSnapshot(item, depth + 1, seen),
+        );
+      if (value.length > maxItems) {
+        clonedItems.push(`[Truncated ${value.length - maxItems} items]`);
+      }
+      return clonedItems;
+    }
+
+    const output = {};
+    const keys = Object.keys(value);
+    const maxEntries = 400;
+    for (let i = 0; i < keys.length && i < maxEntries; i += 1) {
+      const key = keys[i];
+      try {
+        output[key] = this.cloneRuntimeValueForSnapshot(
+          value[key],
+          depth + 1,
+          seen,
+        );
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : String(error);
+        output[key] = `[ReadError: ${message}]`;
+      }
+    }
+    if (keys.length > maxEntries) {
+      output.__truncatedKeys = keys.length - maxEntries;
+    }
+    return output;
+  }
+
+  buildRuntimeGlobalsSnapshot() {
+    const root =
+      globalThis.nethackGlobal && typeof globalThis.nethackGlobal === "object"
+        ? globalThis.nethackGlobal
+        : null;
+
+    if (!root) {
+      return {
+        capturedAtMs: Date.now(),
+        runtimeVersion: this.runtimeVersion,
+        nethackGlobal: null,
+      };
+    }
+
+    const helperKeys =
+      root.helpers && typeof root.helpers === "object"
+        ? Object.keys(root.helpers).sort()
+        : [];
+
+    return {
+      capturedAtMs: Date.now(),
+      runtimeVersion: this.runtimeVersion,
+      nethackGlobal: {
+        keys: Object.keys(root).sort(),
+        globals: this.cloneRuntimeValueForSnapshot(root.globals),
+        constants: this.cloneRuntimeValueForSnapshot(root.constants),
+        pointers: this.cloneRuntimeValueForSnapshot(root.pointers),
+        helperKeys,
+      },
+    };
+  }
+
   resolveDungeonByIndex(dungeons, dnum) {
     if (Array.isArray(dungeons)) {
       return dungeons[dnum] ?? null;
@@ -3027,7 +3141,9 @@ class LocalNetHackRuntime {
     }
 
     try {
-      const u = globals.u;
+      const globalsRoot =
+        globals.g && typeof globals.g === "object" ? globals.g : null;
+      const u = globals.u ?? globalsRoot?.u;
       const uz = u && typeof u === "object" ? u.uz : null;
       const dnum =
         uz && typeof uz === "object"
@@ -3038,10 +3154,11 @@ class LocalNetHackRuntime {
           ? this.normalizeRuntimeInteger(uz.dlevel)
           : null;
       if (dnum === null || dlevel === null) {
+        this.logMissingRuntimeLevelIdentityGlobals(globals);
         return null;
       }
 
-      const dungeons = globals.dungeons;
+      const dungeons = globals.dungeons ?? globalsRoot?.dungeons;
       const dungeonEntry = this.resolveDungeonByIndex(dungeons, dnum);
       const dungeonName =
         dungeonEntry &&
@@ -3066,6 +3183,9 @@ class LocalNetHackRuntime {
       const topology =
         globals.dungeon_topology && typeof globals.dungeon_topology === "object"
           ? globals.dungeon_topology
+          : globalsRoot?.dungeon_topology &&
+              typeof globalsRoot.dungeon_topology === "object"
+            ? globalsRoot.dungeon_topology
           : null;
       const branchTag = this.resolveRuntimeBranchTag(dnum, topology);
       return {
@@ -3080,6 +3200,29 @@ class LocalNetHackRuntime {
       console.log("Failed to resolve runtime level identity:", error);
       return null;
     }
+  }
+
+  logMissingRuntimeLevelIdentityGlobals(globals) {
+    if (this.didLogMissingLevelIdentityGlobals) {
+      return;
+    }
+    this.didLogMissingLevelIdentityGlobals = true;
+    const topLevelKeys =
+      globals && typeof globals === "object" ? Object.keys(globals).sort() : [];
+    const nestedKeys =
+      globals &&
+      typeof globals === "object" &&
+      globals.g &&
+      typeof globals.g === "object"
+        ? Object.keys(globals.g).sort()
+        : [];
+    console.warn(
+      "[LEVEL_IDENTITY_DEBUG] Runtime globals missing exported level identity fields (expected u.uz/dungeons/dungeon_topology).",
+      {
+        topLevelKeys,
+        nestedGKeys: nestedKeys,
+      },
+    );
   }
 
   shouldUseAllCountForMenuItem(item) {

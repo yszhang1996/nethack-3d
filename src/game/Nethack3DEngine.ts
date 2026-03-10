@@ -339,6 +339,7 @@ type RuntimeLevelIdentity = {
   ledgerNo: number | null;
   depth: number | null;
   dungeonName: string | null;
+  branchTag: string | null;
 };
 
 type WallSideTileOverlay = {
@@ -531,6 +532,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // NetHack BL_MASK_BLIND from botl.h
   private readonly statusConditionBlindMask: number = 0x00000020;
   private statusDebugHistory: any[] = [];
+  private latestRuntimeGlobalsSnapshot: unknown = null;
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
   private pendingInventoryDialogOptions: InventoryDialogOptions | null = null;
@@ -1682,6 +1684,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return normalized.replace(/^the\s+/i, "").trim();
   }
 
+  private normalizeBranchDisplayName(rawValue: unknown): string | null {
+    const normalized = this.normalizeLevelCacheName(rawValue);
+    if (!normalized) {
+      return null;
+    }
+    const byTag: Record<string, string> = {
+      dungeons_of_doom: "Dungeons of Doom",
+      mines: "Gnomish Mines",
+      quest: "Quest",
+      sokoban: "Sokoban",
+      vlads_tower: "Vlad's Tower",
+      endgame: "Endgame",
+    };
+    const key = normalized.toLowerCase();
+    return byTag[key] ?? null;
+  }
+
+  private isDepthOnlyLevelDescriptor(levelName: string): boolean {
+    return /^dlvl:\s*-?\d+\s*$/i.test(String(levelName || "").trim());
+  }
+
+  private shouldDisambiguateSingleLevelCacheCandidate(
+    levelName: string,
+    identity: RuntimeLevelIdentity | null = this.latestRuntimeLevelIdentity,
+  ): boolean {
+    if (this.buildLevelCacheIdentifierFromRuntimeLevelIdentity(identity)) {
+      return false;
+    }
+    return this.isDepthOnlyLevelDescriptor(levelName);
+  }
+
   private parseRuntimeLevelIdentity(
     rawIdentity: unknown,
   ): RuntimeLevelIdentity | null {
@@ -1714,6 +1747,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ledgerNo: parseInteger(identity.ledgerNo),
       depth: parseInteger(identity.depth),
       dungeonName: this.normalizeLevelCacheName(identity.dungeonName),
+      branchTag: this.normalizeLevelCacheName(identity.branchTag),
     };
   }
 
@@ -1728,6 +1762,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(identity.ledgerNo)
     ) {
       return `ledger:${Math.trunc(identity.ledgerNo)}`;
+    }
+    if (
+      typeof identity.branchTag === "string" &&
+      identity.branchTag.trim().length > 0 &&
+      Number.isFinite(identity.dlevel)
+    ) {
+      return `branch:${identity.branchTag.trim().toLowerCase()};dlevel:${Math.trunc(identity.dlevel)}`;
     }
     if (
       Number.isFinite(identity.dnum) &&
@@ -1754,6 +1795,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     if (identityDungeonName) {
       this.playerStats.dungeon = identityDungeonName;
+      return;
+    }
+
+    const branchDisplayName = this.normalizeBranchDisplayName(identity.branchTag);
+    if (branchDisplayName) {
+      this.playerStats.dungeon = branchDisplayName;
     }
   }
 
@@ -2444,11 +2491,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (candidates.length === 1) {
-      this.restoreLevelTerrainCacheEntry(
-        levelName,
-        candidates[0],
+      const shouldDisambiguateSingleCandidate =
+        this.shouldDisambiguateSingleLevelCacheCandidate(levelName);
+      if (!shouldDisambiguateSingleCandidate) {
+        this.restoreLevelTerrainCacheEntry(
+          levelName,
+          candidates[0],
+          pending.observedTiles,
+        );
+        this.pendingLevelCacheTransition = null;
+        return;
+      }
+
+      const observedWallCount = this.countObservedWallTilesForPendingTransition(
         pending.observedTiles,
       );
+      const shouldAttemptWallDisambiguation =
+        observedWallCount >= this.levelCacheDisambiguationWallSampleMin ||
+        pending.firstPassComplete ||
+        trigger === "player_move";
+      if (!shouldAttemptWallDisambiguation) {
+        return;
+      }
+
+      const matchedEntry = this.selectMatchingLevelTerrainCacheEntryByWalls(
+        candidates,
+        pending.observedTiles,
+      );
+      if (matchedEntry) {
+        this.restoreLevelTerrainCacheEntry(
+          levelName,
+          matchedEntry,
+          pending.observedTiles,
+        );
+      } else {
+        this.activateNewLevelTerrainCacheEntry(levelName);
+      }
       this.pendingLevelCacheTransition = null;
       return;
     }
@@ -4732,6 +4810,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     try {
       await this.session.start();
       this.session.setLoggingEnabled(isLoggingEnabled());
+      this.session.requestRuntimeGlobalsSnapshot();
       this.updateConnectionStatus("Running", "running");
       this.updateStatus("Local NetHack runtime started");
       // this.addGameMessage("Local NetHack runtime started");
@@ -5072,6 +5151,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.updatePlayerStats(data.field, data.value, data);
         break;
 
+      case "runtime_globals_snapshot":
+        this.applyRuntimeGlobalsSnapshot(data.snapshot);
+        break;
+
       case "damage_event":
         if (
           typeof data.x === "number" &&
@@ -5096,6 +5179,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       default:
         console.log("Unknown message type:", data.type, data);
+    }
+  }
+
+  private applyRuntimeGlobalsSnapshot(snapshot: unknown): void {
+    this.latestRuntimeGlobalsSnapshot = snapshot ?? null;
+    if (typeof window !== "undefined") {
+      (window as any).nethackRuntimeGlobals = this.latestRuntimeGlobalsSnapshot;
     }
   }
 
@@ -6095,6 +6185,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
   public requestPlayerAreaUpdate(radius: number = 5): void {
     this.requestAreaUpdate(this.playerPos.x, this.playerPos.y, radius);
+  }
+
+  public requestRuntimeGlobalsSnapshot(): void {
+    if (!this.session) {
+      console.log("Cannot request runtime globals snapshot - runtime not started");
+      return;
+    }
+    this.session.requestRuntimeGlobalsSnapshot();
+  }
+
+  public getLatestRuntimeGlobalsSnapshot(): unknown {
+    return this.latestRuntimeGlobalsSnapshot;
   }
 
   private requestTileUpdateWithRetry(x: number, y: number): void {
@@ -13343,8 +13445,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
           const identityDungeonName = this.normalizeDungeonDisplayName(
             this.latestRuntimeLevelIdentity?.dungeonName,
           );
+          const identityBranchName = this.normalizeBranchDisplayName(
+            this.latestRuntimeLevelIdentity?.branchTag,
+          );
           this.playerStats.dungeon =
-            identityDungeonName ?? "Dungeons of Doom";
+            identityDungeonName ??
+            identityBranchName ??
+            this.playerStats.dungeon ??
+            "Dungeons of Doom";
         } else if (/^home\s+/i.test(normalizedDescriptor)) {
           const identityDungeonName = this.normalizeDungeonDisplayName(
             this.latestRuntimeLevelIdentity?.dungeonName,
