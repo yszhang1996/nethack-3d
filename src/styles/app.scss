@@ -1522,7 +1522,7 @@ canvas {
 }
 
 .nh3d-dialog-question.nh3d-dialog-question-cast {
-  width: min(92vw, 980px);
+  width: min(78vw, 760px);
   max-width: calc(
     100vw - var(--nh3d-modal-safe-left-inset) - var(
         --nh3d-modal-safe-right-inset
@@ -4848,12 +4848,15 @@ canvas {
 }
 
 .nh3d-cast-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 999px;
   border: 1px solid rgba(96, 137, 183, 0.6);
   background: rgba(17, 39, 63, 0.64);
   color: var(--nh3d-ui-text-muted);
   font-size: nh3d-scale-font(11px);
-  line-height: 1.2;
+  line-height: 1;
   padding: 4px 8px;
 
   &.is-count,
@@ -4897,11 +4900,11 @@ canvas {
 .nh3d-cast-row {
   display: grid;
   grid-template-columns:
-    minmax(0, 1.9fr)
-    minmax(52px, 0.55fr)
-    minmax(98px, 0.98fr)
-    minmax(78px, 0.72fr)
-    minmax(112px, 0.95fr);
+    minmax(0, 1fr)
+    58px
+    112px
+    72px
+    120px;
   align-items: center;
   gap: 8px;
 }
@@ -4913,6 +4916,20 @@ canvas {
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;
+}
+
+.nh3d-cast-table-head > :nth-child(2),
+.nh3d-cast-row-level {
+  justify-self: center;
+  text-align: center;
+}
+
+.nh3d-cast-table-head > :nth-child(3),
+.nh3d-cast-table-head > :nth-child(4),
+.nh3d-cast-table-head > :nth-child(5),
+.nh3d-cast-row-category {
+  justify-self: end;
+  text-align: right;
 }
 
 .nh3d-cast-row {
@@ -5007,6 +5024,7 @@ button.nh3d-cast-row {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
   border-radius: 999px;
   border: 1px solid rgba(112, 161, 209, 0.55);
   background: rgba(19, 52, 81, 0.64);
@@ -5014,13 +5032,12 @@ button.nh3d-cast-row {
   font-size: nh3d-scale-font(10px);
   font-weight: bold;
   letter-spacing: 0.02em;
-  line-height: 1;
   padding: 4px 8px;
   white-space: nowrap;
 }
 
 .nh3d-cast-chip-fail {
-  justify-self: start;
+  justify-self: end;
 
   &.is-low {
     border-color: rgba(117, 212, 160, 0.58);
@@ -5042,7 +5059,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-cast-chip-retention {
-  justify-self: start;
+  justify-self: end;
 
   &.is-full {
     border-color: rgba(117, 212, 160, 0.58);
@@ -5127,7 +5144,7 @@ button.nh3d-cast-row {
 
   .nh3d-cast-chip-retention {
     grid-area: retention;
-    justify-self: start;
+    justify-self: end;
 
     &::before {
       content: "Retention ";
@@ -5156,7 +5173,6 @@ button.nh3d-cast-row {
   background: rgba(17, 39, 63, 0.64);
   color: var(--nh3d-ui-text-muted);
   font-size: nh3d-scale-font(11px);
-  line-height: 1.2;
   padding: 4px 8px;
 
   &.is-available {
