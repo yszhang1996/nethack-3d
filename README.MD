@@ -41,7 +41,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Upload and manage your own custom tilesets directly in-game.
 - Tileset background removal tools built-in.
 - Dynamic lighting around the player.
-- Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon depth.
+- Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon branch and depth.
 - Live message log plus on-screen message popups.
 - Full mobile touch support (or even in desktop if you want).
 - Beautiful menus: item category headers, keyboard tips, multi-pickup selection, and menu paging.
