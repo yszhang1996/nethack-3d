@@ -29,25 +29,30 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 
 - Play NetHack in a 3D dungeon view while keeping core game rules and depth.
 - Two play styles: classic top-down and first-person (FPS) mode.
-- Minimap for full-level awareness, with viewport box and drag-to-center camera navigation.
+- Combat feedback effects: Monsters dynamically shatter into bloody pieces, different every time.
+- Full sound support. Monsters die with a satisfying crunch.
+- Customize sound to your liking and create your own sound packs directly in-game.
+- Play on the couch with full controller support. Radial wheel for actions, move confirmation for careful roguelike navigation.
+- Scalable minimap for level awareness, with viewport box and drag-to-center camera navigation.
+- Optional floating damage/heal numbers, status changes, XP, blood mist combat particles.
 - Camera panning and rotation.
-- Crisp ASCII monsters and items.
-- Built-in graphical tilesets: Absurdly Evil, DawnHack, NetHack Modern, Nevanda, and Vanilla NetHack Tiles.
+- Crisp ASCII monsters and items are supported in addition to tiles.
+- Built-in graphical tilesets: Absurdly Evil, DawnHack, NetHack Modern, Nevanda, RZTiles, and Vanilla NetHack Tiles.
 - Upload and manage your own custom tilesets directly in-game.
-- Per-tileset background cleanup controls (tile selection, chroma key, and removal mode tuning).
-- Dynamic darkness and lighting around your hero.
-- Combat feedback effects (screen-space and tile effects)
-- Optional floating damage/heal numbers and blood mist combat particles.
+- Tileset background removal tools built-in.
+- Dynamic lighting around the player.
 - Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon depth.
-- Live message log plus on-screen message popups
-- Full mobile touch support for NetHack prompts: yes/no, directional actions, text entry, and tile targeting/look mode.
+- Live message log plus on-screen message popups.
+- Full mobile touch support (or even in desktop if you want).
 - Beautiful menus: item category headers, keyboard tips, multi-pickup selection, and menu paging.
 - Fast character start: random hero or manual setup (name, role, race, gender, alignment).
-- Extended command support with `#` so advanced playstyles are available, with all commands available via buttons on mobile.
+- Customize your NetHack initialization options: pet names, autopickup,
+- Save and load your game. Perfect for long runs.
+- Autofill on extended commands with `#` so advanced playstyles are easy to manage, plus all commands available via buttons on mobile.
 - Desktop-friendly controls: keyboard-first with mouse support for map interaction and camera control.
 - Mobile-friendly controls: tap/swipe movement, quick actions, extended command sheet, mobile log view, and FPS touch-look/touch-run gestures.
 - Inventory context actions for common item interactions without typing command sequences.
-- Adjustable client options including FPS FOV, look sensitivity, inverted look, antialiasing, and minimap visibility.
+- Options to tweaks just about everything to your liking.
 
 ## Run Locally
 
