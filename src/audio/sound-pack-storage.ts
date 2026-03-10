@@ -33,7 +33,7 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "door-kick",
     label: "Door kick",
-    messageLogKeywords: ["WHAMMMM!!!"],
+    messageLogKeywords: ["WHAMMM!!!"],
   },
   {
     key: "door-smash",
@@ -58,7 +58,7 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "walk-up-stairs",
     label: "Walk up stairs",
-    messageLogKeywords: ["You ascend the stairs."],
+    messageLogKeywords: ["You climb up the stairs."],
   },
   // {
   //   key: "explosion",
