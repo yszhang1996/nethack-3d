@@ -3,7 +3,7 @@ import {
   type GeneratedTilesetManifestEntry,
 } from "./tilesets.generated";
 
-export type Nh3dTilesetSource = "builtin" | "user";
+export type Nh3dTilesetSource = "builtin" | "user" | "vulture";
 
 export type Nh3dTilesetEntry = GeneratedTilesetManifestEntry & {
   readonly source: Nh3dTilesetSource;
@@ -22,6 +22,10 @@ const fallbackBackgroundTileId = 0;
 const fallbackSolidChromaKeyColorHex = "#466d6c";
 export const nh3dTilesetAtlasTileColumns = 40;
 const userTilesetPathPrefix = "user:";
+const vultureTilesetPathPrefix = "vulture:";
+const vultureTilesetLabel = "Vulture (isometric)";
+const vultureDefaultDataRoot = "assets/vulture/win/vulture/gamedata";
+const vultureNominalTileSize = 112;
 const tilesetBackgroundTilePresetByLabel: Readonly<Record<string, number>> = {
   "Absurdly Evil": 869,
   DawnHack: 869,
@@ -45,6 +49,39 @@ export function inferNh3dTilesetTileSizeFromAtlasWidth(width: number): number {
   return Math.max(1, Math.trunc(safeWidth / nh3dTilesetAtlasTileColumns));
 }
 
+function normalizeVultureDataRoot(rawRoot: string): string {
+  const normalized = String(rawRoot || "")
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  return normalized || vultureDefaultDataRoot;
+}
+
+export function getNh3dVultureTilesetPath(dataRoot?: string): string {
+  return `${vultureTilesetPathPrefix}${normalizeVultureDataRoot(
+    String(dataRoot || ""),
+  )}`;
+}
+
+export function isNh3dVultureTilesetPath(path: string): boolean {
+  return String(path || "")
+    .trim()
+    .startsWith(vultureTilesetPathPrefix);
+}
+
+function createDynamicVultureTilesetEntry(path: string): Nh3dTilesetEntry {
+  const normalizedPath = String(path || "").trim();
+  const rawRoot = normalizedPath.slice(vultureTilesetPathPrefix.length);
+  const dataRoot = normalizeVultureDataRoot(rawRoot);
+  return {
+    path: normalizedPath || getNh3dVultureTilesetPath(dataRoot),
+    label: vultureTilesetLabel,
+    tileSize: vultureNominalTileSize,
+    source: "vulture",
+    assetUrl: dataRoot,
+  };
+}
+
 const builtinTilesets: Nh3dTilesetEntry[] = [];
 const seenPaths = new Set<string>();
 for (const rawEntry of GENERATED_TILESET_MANIFEST) {
@@ -61,6 +98,19 @@ for (const rawEntry of GENERATED_TILESET_MANIFEST) {
     tileSize,
     source: "builtin",
     assetUrl: path,
+  });
+}
+const builtinVultureTilesetPath = getNh3dVultureTilesetPath(
+  vultureDefaultDataRoot,
+);
+if (!seenPaths.has(builtinVultureTilesetPath)) {
+  seenPaths.add(builtinVultureTilesetPath);
+  builtinTilesets.push({
+    path: builtinVultureTilesetPath,
+    label: vultureTilesetLabel,
+    tileSize: vultureNominalTileSize,
+    source: "vulture",
+    assetUrl: vultureDefaultDataRoot,
   });
 }
 
@@ -186,7 +236,14 @@ export function findNh3dTilesetByPath(
   if (!normalizedPath) {
     return null;
   }
-  return tilesetByPath.get(normalizedPath) ?? null;
+  const fromCatalog = tilesetByPath.get(normalizedPath);
+  if (fromCatalog) {
+    return fromCatalog;
+  }
+  if (isNh3dVultureTilesetPath(normalizedPath)) {
+    return createDynamicVultureTilesetEntry(normalizedPath);
+  }
+  return null;
 }
 
 export function isNh3dTilesetPathAvailable(

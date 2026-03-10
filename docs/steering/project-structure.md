@@ -12,6 +12,7 @@
 - `src/ui/App.tsx`: React UI shell (hooks + Zustand).
 - `src/app.ts`: debug helper registration.
 - `src/game/Nethack3DEngine.ts`: browser-side 3D engine and UI controller.
+- `src/game/vulture/translation.ts`: Vulture tileset translation + isometric-to-topdown projection adapter.
 - `src/audio/FmodRuntime.ts`: FMOD Studio HTML5/WASM bootstrap + runtime wrapper.
 - `src/game/glyphs/behavior.ts`: centralized glyph-to-render behavior rules.
 - `src/game/glyphs/registry.ts`: glyph catalog lookup/resolution helpers.
@@ -23,6 +24,7 @@
 - `scripts/glyphs/generate-glyph-catalog.mjs`: regenerates glyph catalog from runtime artifacts.
 - `scripts/glyphs/check-glyph-catalog.mjs`: verifies catalog is not stale.
 - `public/nethack.js`, `public/nethack-367.wasm`: NetHack runtime artifacts.
+- `public/assets/vulture/win/vulture/gamedata/*`: expected Vulture tileset asset root (`config/vulture_tiles.conf`, `tiles/*.png`) when using `vulture:` paths.
 - `package.json`: build/start scripts.
 
 ## Build And Run

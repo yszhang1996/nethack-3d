@@ -83,6 +83,11 @@ import {
 } from "./tilesets";
 import { getItemTextClassName } from "./helpers";
 import { MessageSoundHooks } from "./message-sound-hooks";
+import {
+  VultureTilesetTranslator,
+  type VultureTileLookup,
+  type VultureWallFaceDirection,
+} from "./vulture/translation";
 
 type PendingCharacterDamage = {
   amount: number;
@@ -347,6 +352,11 @@ type WallSideTileOverlay = {
   material: THREE.MeshBasicMaterial;
 };
 type WallSideTileRotation = "none" | "cw90" | "ccw90";
+type VultureWallFaceSlot = "west" | "north" | "east" | "south";
+type VultureWallFaceOverlay = {
+  textureKey: string;
+  material: THREE.MeshBasicMaterial;
+};
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
 type ControllerActionSnapshot = {
@@ -361,6 +371,23 @@ type ControllerFocusableEntry = {
   centerX: number;
   centerY: number;
   height: number;
+};
+type VultureWallProjectionFamily = "ew" | "sn";
+type VultureWallProjectionCornerId =
+  | "topLeft"
+  | "topRight"
+  | "bottomRight"
+  | "bottomLeft";
+type VultureWallProjectionPoint = {
+  x: number;
+  y: number;
+};
+type VultureWallProjectionQuad = Record<
+  VultureWallProjectionCornerId,
+  VultureWallProjectionPoint
+>;
+type VultureWallProjectionLookup = VultureTileLookup & {
+  wallFace?: VultureWallFaceSlot | null;
 };
 
 const nh3dControllerActionIds = nh3dControllerActionSpecs.map(
@@ -834,6 +861,53 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly desktopTaaSampleLevel: number = 1;
   private tilesetTexture: THREE.Texture | null = null;
   private tileSourceSize = 32;
+  private vultureWallProjectionQuadEW: VultureWallProjectionQuad = {
+    topLeft: { x: 0.2062, y: 0.2216 },
+    topRight: { x: 0.7887, y: 0 },
+    bottomRight: { x: 0.7938, y: 0.7629 },
+    bottomLeft: { x: 0.2113, y: 1 },
+  };
+  private vultureWallProjectionQuadSN: VultureWallProjectionQuad = {
+    topLeft: { x: 0.2165, y: 0 },
+    topRight: { x: 0.7938, y: 0.2268 },
+    bottomRight: { x: 0.8041, y: 1 },
+    bottomLeft: { x: 0.2268, y: 0.7732 },
+  };
+  private vultureWallProjectionDebugPanel: HTMLDivElement | null = null;
+  private vultureWallProjectionDebugCanvasEW: HTMLCanvasElement | null = null;
+  private vultureWallProjectionDebugCanvasSN: HTMLCanvasElement | null = null;
+  private vultureWallProjectionDebugSourceCanvasEW: HTMLCanvasElement | null =
+    null;
+  private vultureWallProjectionDebugSourceCanvasSN: HTMLCanvasElement | null =
+    null;
+  private vultureWallProjectionRotationByFace: Record<VultureWallFaceSlot, number> =
+    {
+      north: 0,
+      east: 90,
+      south: 0,
+      west: 90,
+    };
+  private vultureWallProjectionRotationButtons: Partial<
+    Record<VultureWallFaceSlot, HTMLButtonElement>
+  > = {};
+  private vultureWallProjectionDebugStatusLabel: HTMLDivElement | null = null;
+  private vultureWallProjectionWorkCanvas: HTMLCanvasElement | null = null;
+  private vultureWallProjectionDebugDrag:
+    | {
+        family: VultureWallProjectionFamily;
+        cornerId: VultureWallProjectionCornerId;
+      }
+    | null = null;
+  private vultureWallProjectionRefreshScheduled = false;
+  private vultureTilesetTranslator: VultureTilesetTranslator | null = null;
+  private vultureTilesetDataRootUrl = "";
+  private readonly handleVultureTilesetAssetReady = (): void => {
+    if (this.clientOptions.tilesetMode !== "tiles") {
+      return;
+    }
+    this.invalidateTilesetDependentCaches();
+    this.refreshTilesFromStateCache();
+  };
 
   // Direction question handling
   private isInDirectionQuestion: boolean = false;
@@ -3403,6 +3477,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.disposeWallSideTileOverlay(mesh);
+    this.disposeVultureWallFaceOverlay(mesh);
     this.scene.remove(mesh);
     this.tileMap.delete(key);
     this.tileRevealStartMs.delete(key);
@@ -3428,6 +3503,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       true,
     );
     this.refreshFpsWallChamferGeometryNear(tileX, tileY);
+    this.refreshVultureWallMaterialsNear(tileX, tileY);
     this.markLightingDirty();
   }
 
@@ -3794,6 +3870,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearPlayerCliparoundInputCooldown();
     }
     this.syncFmodRuntimeWithClientOptions(normalized.soundEnabled);
+    this.syncVultureWallProjectionDebugPanelVisibility();
   }
 
   private shouldUseDesktopTextureAnisotropy(): boolean {
@@ -3854,10 +3931,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.tilesetBackgroundTilePixelsCache.clear();
   }
 
+  private disposeVultureTilesetTranslator(): void {
+    this.vultureTilesetTranslator?.dispose();
+    this.vultureTilesetTranslator = null;
+    this.vultureTilesetDataRootUrl = "";
+  }
+
+  private ensureVultureTilesetTranslator(dataRootUrl: string): void {
+    const normalizedDataRootUrl = String(dataRootUrl || "")
+      .trim()
+      .replace(/\/+$/, "");
+    if (!normalizedDataRootUrl) {
+      this.disposeVultureTilesetTranslator();
+      return;
+    }
+    if (
+      this.vultureTilesetTranslator &&
+      this.vultureTilesetDataRootUrl === normalizedDataRootUrl
+    ) {
+      return;
+    }
+    this.disposeVultureTilesetTranslator();
+    this.vultureTilesetTranslator = new VultureTilesetTranslator({
+      dataRootUrl: normalizedDataRootUrl,
+      onAssetReady: this.handleVultureTilesetAssetReady,
+    });
+    this.vultureTilesetDataRootUrl = normalizedDataRootUrl;
+  }
+
   private loadTilesetTexture(options: Nh3dClientOptions): void {
     const tileset = findNh3dTilesetByPath(options.tilesetPath);
     const tilesetAssetUrl = resolveNh3dTilesetAssetUrl(options.tilesetPath);
     if (!tileset) {
+      this.disposeVultureTilesetTranslator();
       this.tilesetTexture?.dispose();
       this.tilesetTexture = null;
       this.tileSourceSize = 32;
@@ -3865,9 +3971,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (this.clientOptions.tilesetMode === "tiles") {
         this.refreshTilesFromStateCache();
       }
+      this.syncVultureWallProjectionDebugPanelVisibility();
       return;
     }
 
+    if (tileset.source === "vulture") {
+      this.tilesetTexture?.dispose();
+      this.tilesetTexture = null;
+      this.ensureVultureTilesetTranslator(tilesetAssetUrl || "");
+      this.tileSourceSize = this.vultureTilesetTranslator?.nominalTileSize ?? 112;
+      this.invalidateTilesetDependentCaches();
+      if (this.clientOptions.tilesetMode === "tiles") {
+        this.refreshTilesFromStateCache();
+      }
+      this.syncVultureWallProjectionDebugPanelVisibility();
+      return;
+    }
+
+    this.disposeVultureTilesetTranslator();
+    this.syncVultureWallProjectionDebugPanelVisibility();
     this.tileSourceSize = 32;
     const textureLoader = new THREE.TextureLoader();
     let nextTexture: THREE.Texture;
@@ -4813,6 +4935,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.ensureMetaCommandModal();
     this.ensureMinimapOverlay();
     this.ensureControllerVirtualCursorOverlay();
+    this.ensureVultureWallProjectionDebugPanel();
+    this.syncVultureWallProjectionDebugPanelVisibility();
     this.resetControllerVirtualCursor();
     this.uiAdapter.setStatus("Starting local NetHack runtime...");
     this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
@@ -4821,6 +4945,663 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setExtendedCommands([]);
     this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
     this.uiAdapter.setGameOver({ ...this.gameOverState });
+  }
+
+  private ensureVultureWallProjectionDebugPanel(): void {
+    if (this.vultureWallProjectionDebugPanel) {
+      this.renderVultureWallProjectionDebugCanvas("ew");
+      this.renderVultureWallProjectionDebugCanvas("sn");
+      return;
+    }
+
+    const host = this.mountElement ?? document.body;
+    const panel = document.createElement("div");
+    panel.className = "nh3d-vulture-wall-projection-debug";
+    panel.style.position = "fixed";
+    panel.style.top = "150px";
+    panel.style.right = "8px";
+    panel.style.zIndex = "2147483647";
+    panel.style.padding = "8px";
+    panel.style.border = "1px solid rgba(255, 255, 255, 0.35)";
+    panel.style.borderRadius = "4px";
+    panel.style.background = "rgba(0, 0, 0, 0.78)";
+    panel.style.color = "#f3f3f3";
+    panel.style.font = "12px monospace";
+    panel.style.lineHeight = "1.25";
+    panel.style.display = "none";
+    panel.style.userSelect = "none";
+    panel.style.pointerEvents = "auto";
+    panel.style.width = "214px";
+
+    const headerRow = document.createElement("div");
+    headerRow.style.display = "flex";
+    headerRow.style.justifyContent = "space-between";
+    headerRow.style.alignItems = "center";
+    headerRow.style.marginBottom = "6px";
+
+    const title = document.createElement("div");
+    title.textContent = "Vulture Wall Quad";
+    title.style.fontWeight = "700";
+    headerRow.appendChild(title);
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copy Values";
+    copyButton.style.font = "11px monospace";
+    copyButton.style.padding = "1px 4px";
+    copyButton.addEventListener("click", () => {
+      void this.copyVultureWallProjectionValuesToClipboard();
+    });
+    headerRow.appendChild(copyButton);
+    panel.appendChild(headerRow);
+
+    const rotationRow = document.createElement("div");
+    rotationRow.style.display = "grid";
+    rotationRow.style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
+    rotationRow.style.columnGap = "4px";
+    rotationRow.style.marginBottom = "8px";
+    const createRotationButton = (face: VultureWallFaceSlot): HTMLButtonElement => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.style.font = "11px monospace";
+      button.style.padding = "2px 0";
+      button.addEventListener("click", () => {
+        this.cycleVultureWallProjectionRotation(face);
+      });
+      rotationRow.appendChild(button);
+      this.vultureWallProjectionRotationButtons[face] = button;
+      return button;
+    };
+    createRotationButton("north");
+    createRotationButton("east");
+    createRotationButton("south");
+    createRotationButton("west");
+    panel.appendChild(rotationRow);
+
+    const createSection = (
+      family: VultureWallProjectionFamily,
+      labelText: string,
+    ): HTMLCanvasElement => {
+      const section = document.createElement("div");
+      section.style.marginBottom = "8px";
+
+      const labelRow = document.createElement("div");
+      labelRow.style.display = "flex";
+      labelRow.style.justifyContent = "space-between";
+      labelRow.style.alignItems = "center";
+      labelRow.style.marginBottom = "3px";
+
+      const label = document.createElement("span");
+      label.textContent = labelText;
+      labelRow.appendChild(label);
+
+      const resetButton = document.createElement("button");
+      resetButton.type = "button";
+      resetButton.textContent = "Reset";
+      resetButton.style.font = "11px monospace";
+      resetButton.style.padding = "1px 4px";
+      resetButton.addEventListener("click", () => {
+        this.resetVultureWallProjectionQuad(family);
+      });
+      labelRow.appendChild(resetButton);
+      section.appendChild(labelRow);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 192;
+      canvas.height = 192;
+      canvas.style.width = "192px";
+      canvas.style.height = "192px";
+      canvas.style.display = "block";
+      canvas.style.border = "1px solid rgba(255, 255, 255, 0.2)";
+      canvas.style.touchAction = "none";
+      canvas.addEventListener("pointerdown", (event) => {
+        this.handleVultureWallProjectionPointerDown(event, family);
+      });
+      canvas.addEventListener("pointermove", (event) => {
+        this.handleVultureWallProjectionPointerMove(event, family);
+      });
+      canvas.addEventListener("pointerup", (event) => {
+        this.handleVultureWallProjectionPointerEnd(event, family);
+      });
+      canvas.addEventListener("pointercancel", (event) => {
+        this.handleVultureWallProjectionPointerEnd(event, family);
+      });
+      section.appendChild(canvas);
+
+      panel.appendChild(section);
+      return canvas;
+    };
+
+    this.vultureWallProjectionDebugCanvasEW = createSection("ew", "E/W");
+    this.vultureWallProjectionDebugCanvasSN = createSection("sn", "S/N");
+
+    const note = document.createElement("div");
+    note.textContent = "Drag corners to remap";
+    note.style.opacity = "0.76";
+    panel.appendChild(note);
+
+    const status = document.createElement("div");
+    status.textContent = "";
+    status.style.opacity = "0.85";
+    status.style.minHeight = "14px";
+    status.style.marginTop = "2px";
+    panel.appendChild(status);
+
+    host.appendChild(panel);
+    this.vultureWallProjectionDebugPanel = panel;
+    this.vultureWallProjectionDebugStatusLabel = status;
+    this.syncVultureWallProjectionRotationButtonLabels();
+    this.renderVultureWallProjectionDebugCanvas("ew");
+    this.renderVultureWallProjectionDebugCanvas("sn");
+    this.syncVultureWallProjectionDebugPanelVisibility();
+  }
+
+  private getVultureWallProjectionRotationDegrees(
+    face: VultureWallFaceSlot,
+  ): number {
+    const rawValue = this.vultureWallProjectionRotationByFace[face];
+    const normalized = ((Math.trunc(rawValue / 90) % 4) + 4) % 4;
+    return normalized * 90;
+  }
+
+  private setVultureWallProjectionDebugStatus(message: string): void {
+    if (this.vultureWallProjectionDebugStatusLabel) {
+      this.vultureWallProjectionDebugStatusLabel.textContent = message;
+    }
+  }
+
+  private syncVultureWallProjectionRotationButtonLabels(): void {
+    const labelByFace: Record<VultureWallFaceSlot, string> = {
+      north: "N",
+      east: "E",
+      south: "S",
+      west: "W",
+    };
+    for (const face of ["north", "east", "south", "west"] as const) {
+      const button = this.vultureWallProjectionRotationButtons[face];
+      if (!button) {
+        continue;
+      }
+      const rotation = this.getVultureWallProjectionRotationDegrees(face);
+      button.textContent = `${labelByFace[face]} ${rotation}deg`;
+    }
+  }
+
+  private cycleVultureWallProjectionRotation(face: VultureWallFaceSlot): void {
+    const current = this.getVultureWallProjectionRotationDegrees(face);
+    const next = (current + 90) % 360;
+    this.vultureWallProjectionRotationByFace[face] = next;
+    this.syncVultureWallProjectionRotationButtonLabels();
+    this.scheduleVultureWallProjectionRefresh();
+  }
+
+  private copyVultureWallProjectionValues(): string {
+    const roundPoint = (
+      point: VultureWallProjectionPoint,
+    ): VultureWallProjectionPoint => ({
+      x: Number(point.x.toFixed(4)),
+      y: Number(point.y.toFixed(4)),
+    });
+    const roundQuad = (quad: VultureWallProjectionQuad): VultureWallProjectionQuad => ({
+      topLeft: roundPoint(quad.topLeft),
+      topRight: roundPoint(quad.topRight),
+      bottomRight: roundPoint(quad.bottomRight),
+      bottomLeft: roundPoint(quad.bottomLeft),
+    });
+    const payload = {
+      ew: roundQuad(this.vultureWallProjectionQuadEW),
+      sn: roundQuad(this.vultureWallProjectionQuadSN),
+      rotation: {
+        north: this.getVultureWallProjectionRotationDegrees("north"),
+        east: this.getVultureWallProjectionRotationDegrees("east"),
+        south: this.getVultureWallProjectionRotationDegrees("south"),
+        west: this.getVultureWallProjectionRotationDegrees("west"),
+      },
+    };
+    return JSON.stringify(payload, null, 2);
+  }
+
+  private async copyVultureWallProjectionValuesToClipboard(): Promise<void> {
+    const payload = this.copyVultureWallProjectionValues();
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator.clipboard &&
+        typeof navigator.clipboard.writeText === "function"
+      ) {
+        await navigator.clipboard.writeText(payload);
+        this.setVultureWallProjectionDebugStatus("Copied values to clipboard.");
+        return;
+      }
+    } catch (_error) {
+      // Fallback to textarea copy path below.
+    }
+    if (typeof document !== "undefined") {
+      const textarea = document.createElement("textarea");
+      textarea.value = payload;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-10000px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      if (copied) {
+        this.setVultureWallProjectionDebugStatus("Copied values to clipboard.");
+      } else {
+        this.setVultureWallProjectionDebugStatus(
+          "Copy failed. Open console and copy manually.",
+        );
+        console.log(payload);
+      }
+      return;
+    }
+    this.setVultureWallProjectionDebugStatus(
+      "Copy unavailable. Open console and copy manually.",
+    );
+    console.log(payload);
+  }
+
+  private createDefaultVultureWallProjectionQuad(
+    family: VultureWallProjectionFamily,
+  ): VultureWallProjectionQuad {
+    if (family === "ew") {
+      return {
+        topLeft: { x: 0.2062, y: 0.2216 },
+        topRight: { x: 0.7887, y: 0 },
+        bottomRight: { x: 0.7938, y: 0.7629 },
+        bottomLeft: { x: 0.2113, y: 1 },
+      };
+    }
+    return {
+      topLeft: { x: 0.2165, y: 0 },
+      topRight: { x: 0.7938, y: 0.2268 },
+      bottomRight: { x: 0.8041, y: 1 },
+      bottomLeft: { x: 0.2268, y: 0.7732 },
+    };
+  }
+
+  private getVultureWallProjectionQuad(
+    family: VultureWallProjectionFamily,
+  ): VultureWallProjectionQuad {
+    return family === "ew"
+      ? this.vultureWallProjectionQuadEW
+      : this.vultureWallProjectionQuadSN;
+  }
+
+  private getVultureWallProjectionDebugCanvas(
+    family: VultureWallProjectionFamily,
+  ): HTMLCanvasElement | null {
+    return family === "ew"
+      ? this.vultureWallProjectionDebugCanvasEW
+      : this.vultureWallProjectionDebugCanvasSN;
+  }
+
+  private getVultureWallProjectionDebugSourceCanvas(
+    family: VultureWallProjectionFamily,
+  ): HTMLCanvasElement | null {
+    return family === "ew"
+      ? this.vultureWallProjectionDebugSourceCanvasEW
+      : this.vultureWallProjectionDebugSourceCanvasSN;
+  }
+
+  private ensureVultureWallProjectionDebugSourceCanvas(
+    family: VultureWallProjectionFamily,
+    size: number,
+  ): HTMLCanvasElement {
+    let canvas = this.getVultureWallProjectionDebugSourceCanvas(family);
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      if (family === "ew") {
+        this.vultureWallProjectionDebugSourceCanvasEW = canvas;
+      } else {
+        this.vultureWallProjectionDebugSourceCanvasSN = canvas;
+      }
+    }
+    if (canvas.width !== size || canvas.height !== size) {
+      canvas.width = size;
+      canvas.height = size;
+    }
+    return canvas;
+  }
+
+  private ensureVultureWallProjectionWorkCanvas(size: number): HTMLCanvasElement {
+    let canvas = this.vultureWallProjectionWorkCanvas;
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      this.vultureWallProjectionWorkCanvas = canvas;
+    }
+    if (canvas.width !== size || canvas.height !== size) {
+      canvas.width = size;
+      canvas.height = size;
+    }
+    return canvas;
+  }
+
+  private syncVultureWallProjectionDebugPanelVisibility(): void {
+    if (!this.vultureWallProjectionDebugPanel) {
+      return;
+    }
+    this.syncVultureWallProjectionRotationButtonLabels();
+    const wasVisible = this.vultureWallProjectionDebugPanel.style.display === "block";
+    const visible =
+      this.vultureTilesetTranslator !== null &&
+      this.clientOptions.tilesetMode === "tiles";
+    this.vultureWallProjectionDebugPanel.style.display = visible ? "block" : "none";
+    if (visible) {
+      if (!wasVisible) {
+        this.scheduleVultureWallProjectionRefresh();
+      }
+      this.renderVultureWallProjectionDebugCanvas("ew");
+      this.renderVultureWallProjectionDebugCanvas("sn");
+    }
+  }
+
+  private handleVultureWallProjectionPointerDown(
+    event: PointerEvent,
+    family: VultureWallProjectionFamily,
+  ): void {
+    const canvas = event.currentTarget;
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return;
+    }
+    const pointer = this.resolveVultureWallProjectionPointerPosition(
+      canvas,
+      event,
+    );
+    if (!pointer) {
+      return;
+    }
+    const cornerId = this.findNearestVultureWallProjectionCorner(family, pointer);
+    if (!cornerId) {
+      return;
+    }
+    this.vultureWallProjectionDebugDrag = { family, cornerId };
+    canvas.setPointerCapture(event.pointerId);
+    this.updateVultureWallProjectionCorner(family, cornerId, pointer.x, pointer.y);
+    event.preventDefault();
+  }
+
+  private handleVultureWallProjectionPointerMove(
+    event: PointerEvent,
+    family: VultureWallProjectionFamily,
+  ): void {
+    const drag = this.vultureWallProjectionDebugDrag;
+    if (!drag || drag.family !== family) {
+      return;
+    }
+    const canvas = event.currentTarget;
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      return;
+    }
+    const pointer = this.resolveVultureWallProjectionPointerPosition(
+      canvas,
+      event,
+    );
+    if (!pointer) {
+      return;
+    }
+    this.updateVultureWallProjectionCorner(
+      family,
+      drag.cornerId,
+      pointer.x,
+      pointer.y,
+    );
+    event.preventDefault();
+  }
+
+  private handleVultureWallProjectionPointerEnd(
+    event: PointerEvent,
+    family: VultureWallProjectionFamily,
+  ): void {
+    const drag = this.vultureWallProjectionDebugDrag;
+    if (!drag || drag.family !== family) {
+      return;
+    }
+    const canvas = event.currentTarget;
+    if (
+      canvas instanceof HTMLCanvasElement &&
+      canvas.hasPointerCapture(event.pointerId)
+    ) {
+      canvas.releasePointerCapture(event.pointerId);
+    }
+    this.vultureWallProjectionDebugDrag = null;
+    this.renderVultureWallProjectionDebugCanvas(family);
+  }
+
+  private resolveVultureWallProjectionPointerPosition(
+    canvas: HTMLCanvasElement,
+    event: PointerEvent,
+  ): VultureWallProjectionPoint | null {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+    const xPx =
+      ((event.clientX - rect.left) / rect.width) * Math.max(1, canvas.width - 1);
+    const yPx =
+      ((event.clientY - rect.top) / rect.height) * Math.max(1, canvas.height - 1);
+    return {
+      x: THREE.MathUtils.clamp(xPx / Math.max(1, canvas.width - 1), 0, 1),
+      y: THREE.MathUtils.clamp(yPx / Math.max(1, canvas.height - 1), 0, 1),
+    };
+  }
+
+  private findNearestVultureWallProjectionCorner(
+    family: VultureWallProjectionFamily,
+    point: VultureWallProjectionPoint,
+  ): VultureWallProjectionCornerId | null {
+    const canvas = this.getVultureWallProjectionDebugCanvas(family);
+    if (!canvas) {
+      return null;
+    }
+    const quad = this.getVultureWallProjectionQuad(family);
+    const pxX = point.x * Math.max(1, canvas.width - 1);
+    const pxY = point.y * Math.max(1, canvas.height - 1);
+    const maxDistanceSq = 14 * 14;
+    const cornerOrder: VultureWallProjectionCornerId[] = [
+      "topLeft",
+      "topRight",
+      "bottomRight",
+      "bottomLeft",
+    ];
+    let nearestCorner: VultureWallProjectionCornerId | null = null;
+    let nearestDistanceSq = maxDistanceSq;
+    for (const cornerId of cornerOrder) {
+      const corner = quad[cornerId];
+      const cornerPxX = corner.x * Math.max(1, canvas.width - 1);
+      const cornerPxY = corner.y * Math.max(1, canvas.height - 1);
+      const dx = cornerPxX - pxX;
+      const dy = cornerPxY - pxY;
+      const distanceSq = dx * dx + dy * dy;
+      if (distanceSq > nearestDistanceSq) {
+        continue;
+      }
+      nearestDistanceSq = distanceSq;
+      nearestCorner = cornerId;
+    }
+    return nearestCorner;
+  }
+
+  private updateVultureWallProjectionCorner(
+    family: VultureWallProjectionFamily,
+    cornerId: VultureWallProjectionCornerId,
+    x: number,
+    y: number,
+  ): void {
+    const quad = this.getVultureWallProjectionQuad(family);
+    const corner = quad[cornerId];
+    const nextX = THREE.MathUtils.clamp(x, 0, 1);
+    const nextY = THREE.MathUtils.clamp(y, 0, 1);
+    if (Math.abs(corner.x - nextX) < 0.0001 && Math.abs(corner.y - nextY) < 0.0001) {
+      return;
+    }
+    corner.x = nextX;
+    corner.y = nextY;
+    this.renderVultureWallProjectionDebugCanvas(family);
+    this.scheduleVultureWallProjectionRefresh();
+  }
+
+  private resetVultureWallProjectionQuad(
+    family: VultureWallProjectionFamily,
+  ): void {
+    const nextQuad = this.createDefaultVultureWallProjectionQuad(family);
+    if (family === "ew") {
+      this.vultureWallProjectionQuadEW = nextQuad;
+    } else {
+      this.vultureWallProjectionQuadSN = nextQuad;
+    }
+    this.renderVultureWallProjectionDebugCanvas(family);
+    this.scheduleVultureWallProjectionRefresh();
+  }
+
+  private scheduleVultureWallProjectionRefresh(): void {
+    if (this.vultureWallProjectionRefreshScheduled) {
+      return;
+    }
+    this.vultureWallProjectionRefreshScheduled = true;
+    requestAnimationFrame(() => {
+      this.vultureWallProjectionRefreshScheduled = false;
+      if (
+        this.vultureTilesetTranslator === null ||
+        this.clientOptions.tilesetMode !== "tiles"
+      ) {
+        return;
+      }
+      this.invalidateTilesetDependentCaches();
+      this.refreshTilesFromStateCache();
+    });
+  }
+
+  private renderVultureWallProjectionDebugCanvas(
+    family: VultureWallProjectionFamily,
+  ): void {
+    const canvas = this.getVultureWallProjectionDebugCanvas(family);
+    if (!canvas) {
+      return;
+    }
+    const context = canvas.getContext("2d");
+    if (!context) {
+      return;
+    }
+    const sourceCanvas = this.getVultureWallProjectionDebugSourceCanvas(family);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    this.drawVultureWallProjectionPreviewBackground(
+      context,
+      canvas.width,
+      canvas.height,
+    );
+    if (sourceCanvas && sourceCanvas.width > 0 && sourceCanvas.height > 0) {
+      context.drawImage(sourceCanvas, 0, 0, canvas.width, canvas.height);
+    } else {
+      context.fillStyle = "rgba(255, 255, 255, 0.6)";
+      context.font = "11px monospace";
+      context.fillText("Waiting for wall sample...", 10, 20);
+    }
+
+    const quad = this.getVultureWallProjectionQuad(family);
+    const corners: Array<{
+      id: VultureWallProjectionCornerId;
+      label: string;
+    }> = [
+      { id: "topLeft", label: "TL" },
+      { id: "topRight", label: "TR" },
+      { id: "bottomRight", label: "BR" },
+      { id: "bottomLeft", label: "BL" },
+    ];
+    const dragCornerId =
+      this.vultureWallProjectionDebugDrag?.family === family
+        ? this.vultureWallProjectionDebugDrag.cornerId
+        : null;
+
+    context.strokeStyle = "rgba(74, 255, 170, 0.95)";
+    context.lineWidth = 2;
+    context.beginPath();
+    for (let index = 0; index < corners.length; index += 1) {
+      const corner = quad[corners[index].id];
+      const x = corner.x * Math.max(1, canvas.width - 1);
+      const y = corner.y * Math.max(1, canvas.height - 1);
+      if (index === 0) {
+        context.moveTo(x, y);
+      } else {
+        context.lineTo(x, y);
+      }
+    }
+    const firstCorner = quad[corners[0].id];
+    context.lineTo(
+      firstCorner.x * Math.max(1, canvas.width - 1),
+      firstCorner.y * Math.max(1, canvas.height - 1),
+    );
+    context.stroke();
+
+    context.font = "10px monospace";
+    for (const cornerDescriptor of corners) {
+      const corner = quad[cornerDescriptor.id];
+      const x = corner.x * Math.max(1, canvas.width - 1);
+      const y = corner.y * Math.max(1, canvas.height - 1);
+      const active = dragCornerId === cornerDescriptor.id;
+      context.fillStyle = active ? "#ffb347" : "#ffffff";
+      context.beginPath();
+      context.arc(x, y, 4.5, 0, Math.PI * 2);
+      context.fill();
+      context.strokeStyle = "rgba(0, 0, 0, 0.7)";
+      context.lineWidth = 1;
+      context.stroke();
+      context.fillStyle = "#000000";
+      context.fillText(cornerDescriptor.label, x + 6, y - 6);
+    }
+  }
+
+  private drawVultureWallProjectionPreviewBackground(
+    context: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+  ): void {
+    const step = 12;
+    for (let y = 0; y < height; y += step) {
+      for (let x = 0; x < width; x += step) {
+        const evenCell = ((x / step + y / step) & 1) === 0;
+        context.fillStyle = evenCell
+          ? "rgba(64, 64, 64, 0.95)"
+          : "rgba(34, 34, 34, 0.95)";
+        context.fillRect(x, y, step, step);
+      }
+    }
+  }
+
+  private captureVultureWallProjectionSourcePreview(
+    context: CanvasRenderingContext2D,
+    size: number,
+    family: VultureWallProjectionFamily,
+    lookup: VultureWallProjectionLookup,
+  ): void {
+    const panelVisible =
+      this.vultureWallProjectionDebugPanel?.style.display === "block";
+    if (!panelVisible) {
+      return;
+    }
+    const sourceCanvas = this.ensureVultureWallProjectionDebugSourceCanvas(
+      family,
+      size,
+    );
+    const sourceContext = sourceCanvas.getContext("2d");
+    if (!sourceContext) {
+      return;
+    }
+    let drewRawPreview = false;
+    if (this.vultureTilesetTranslator) {
+      drewRawPreview = this.vultureTilesetTranslator.drawLookupSourcePreview({
+        context: sourceContext,
+        size,
+        lookup,
+      });
+    }
+    if (!drewRawPreview) {
+      sourceContext.clearRect(0, 0, size, size);
+      sourceContext.drawImage(context.canvas, 0, 0, size, size, 0, 0, size, size);
+    }
+    this.renderVultureWallProjectionDebugCanvas(family);
   }
 
   private async initializeFmodRuntime(): Promise<void> {
@@ -7021,6 +7802,118 @@ class Nethack3DEngine implements Nethack3DEngineController {
     delete mesh.userData.wallSideTileOverlays;
   }
 
+  private getAllVultureWallFaceOverlays(
+    mesh: THREE.Mesh,
+  ): VultureWallFaceOverlay[] {
+    const overlays = mesh.userData?.vultureWallFaceOverlays as
+      | Partial<Record<VultureWallFaceSlot, VultureWallFaceOverlay>>
+      | undefined;
+    if (!overlays) {
+      return [];
+    }
+    const results: VultureWallFaceOverlay[] = [];
+    for (const face of ["west", "north", "east", "south"] as const) {
+      const overlay = overlays[face];
+      if (
+        overlay &&
+        overlay.material instanceof THREE.MeshBasicMaterial &&
+        !results.includes(overlay)
+      ) {
+        results.push(overlay);
+      }
+    }
+    return results;
+  }
+
+  private disposeVultureWallFaceOverlay(
+    mesh: THREE.Mesh,
+    face?: VultureWallFaceSlot,
+  ): void {
+    if (face) {
+      const overlays = mesh.userData?.vultureWallFaceOverlays as
+        | Partial<Record<VultureWallFaceSlot, VultureWallFaceOverlay>>
+        | undefined;
+      const overlay = overlays?.[face];
+      if (overlay) {
+        this.releaseGlyphTexture(overlay.textureKey);
+        overlay.material.dispose();
+        if (overlays) {
+          delete overlays[face];
+          if (!overlays.west && !overlays.north && !overlays.east && !overlays.south) {
+            delete mesh.userData.vultureWallFaceOverlays;
+          }
+        }
+      }
+      return;
+    }
+
+    for (const overlay of this.getAllVultureWallFaceOverlays(mesh)) {
+      this.releaseGlyphTexture(overlay.textureKey);
+      overlay.material.dispose();
+    }
+    delete mesh.userData.vultureWallFaceOverlays;
+  }
+
+  private ensureVultureWallFaceOverlayMaterial(
+    mesh: THREE.Mesh,
+    face: VultureWallFaceSlot,
+    lookup: VultureTileLookup,
+    darkenFactor: number,
+    opacity: number,
+  ): THREE.MeshBasicMaterial {
+    let overlays = mesh.userData?.vultureWallFaceOverlays as
+      | Partial<Record<VultureWallFaceSlot, VultureWallFaceOverlay>>
+      | undefined;
+    if (!overlays) {
+      overlays = {};
+      mesh.userData.vultureWallFaceOverlays = overlays;
+    }
+
+    let overlay = overlays[face];
+    if (!overlay) {
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 1,
+      });
+      this.patchMaterialForVignette(material);
+      overlay = {
+        textureKey: "",
+        material,
+      };
+      overlays[face] = overlay;
+    }
+
+    const rotation = this.getVultureWallProjectionRotationDegrees(face);
+    const textureKey = `vwall:${lookup.category}.${lookup.name}|face:${face}|rot:${rotation}|${darkenFactor.toFixed(3)}`;
+    const needsTextureRefresh =
+      overlay.textureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey);
+    if (needsTextureRefresh) {
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
+      }
+      const projectionLookup: VultureWallProjectionLookup = {
+        ...lookup,
+        wallFace: face,
+      };
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(-1, darkenFactor, false, {
+          sourceGlyph: null,
+          materialKind: null,
+          vultureLookup: projectionLookup,
+        }),
+      );
+      overlay.material.map = texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
+    }
+
+    overlay.material.color.set("#ffffff");
+    overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    return overlay.material;
+  }
+
   private ensureWallSideTileOverlayMaterial(
     mesh: THREE.Mesh,
     tileIndex: number,
@@ -7051,7 +7944,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlays[rotation] = overlay;
     }
 
-    const textureKey = `tile:${tileIndex}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
+    const tileTextureSourceGlyph =
+      typeof mesh.userData?.tileTextureSourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.tileTextureSourceGlyph)
+        ? Math.trunc(mesh.userData.tileTextureSourceGlyph)
+        : null;
+    const tileTextureMaterialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    const tileTextureSourceGlyphKey =
+      tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
+    const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
+    const textureKey = `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
     const needsTextureRefresh =
       overlay.textureKey !== textureKey ||
       !this.glyphTextureCache.has(textureKey);
@@ -7060,7 +7965,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.releaseGlyphTexture(overlay.textureKey);
       }
       const texture = this.acquireGlyphTexture(textureKey, () =>
-        this.createTileTexture(tileIndex, darkenFactor, false),
+        this.createTileTexture(tileIndex, darkenFactor, false, {
+          sourceGlyph: tileTextureSourceGlyph,
+          materialKind: tileTextureMaterialKind,
+        }),
       );
       texture.center.set(0.5, 0.5);
       texture.rotation =
@@ -7083,7 +7991,149 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private disposeAllWallSideTileOverlays(): void {
     this.tileMap.forEach((mesh) => {
       this.disposeWallSideTileOverlay(mesh);
+      this.disposeVultureWallFaceOverlay(mesh);
     });
+  }
+
+  private shouldUseVultureWallFaceRendering(): boolean {
+    return (
+      this.clientOptions.tilesetMode === "tiles" &&
+      this.vultureTilesetTranslator !== null
+    );
+  }
+
+  private resolveVultureWallNeighborFaceMaterial(
+    mesh: THREE.Mesh,
+    face: VultureWallFaceSlot,
+    wallX: number,
+    wallY: number,
+    floorX: number,
+    floorY: number,
+    darkenFactor: number,
+    opacity: number,
+    wallMaterialKind: TileMaterialKind | null,
+  ): THREE.MeshBasicMaterial | null {
+    const translator = this.vultureTilesetTranslator;
+    if (!translator) {
+      this.disposeVultureWallFaceOverlay(mesh, face);
+      return null;
+    }
+    const floorMesh = this.tileMap.get(`${floorX},${floorY}`);
+    if (!floorMesh) {
+      this.disposeVultureWallFaceOverlay(mesh, face);
+      return null;
+    }
+    const floorTileIndex =
+      typeof floorMesh.userData?.tileIndex === "number" &&
+      Number.isFinite(floorMesh.userData.tileIndex)
+        ? Math.trunc(floorMesh.userData.tileIndex)
+        : null;
+    const floorGlyph =
+      typeof floorMesh.userData?.tileTextureSourceGlyph === "number" &&
+      Number.isFinite(floorMesh.userData.tileTextureSourceGlyph)
+        ? Math.trunc(floorMesh.userData.tileTextureSourceGlyph)
+        : typeof floorMesh.userData?.sourceGlyph === "number" &&
+            Number.isFinite(floorMesh.userData.sourceGlyph)
+          ? Math.trunc(floorMesh.userData.sourceGlyph)
+          : null;
+    const floorMaterialKind =
+      typeof floorMesh.userData?.materialKind === "string"
+        ? (floorMesh.userData.materialKind as TileMaterialKind)
+        : null;
+    const wallFaceDirection: VultureWallFaceDirection = face;
+    const lookup = translator.resolveWallFaceLookup({
+      face: wallFaceDirection,
+      wallX,
+      wallY,
+      floorX,
+      floorY,
+      floorTileIndex,
+      floorGlyph,
+      floorMaterialKind,
+      wallMaterialKind,
+      halfHeight: false,
+    });
+    if (!lookup) {
+      this.disposeVultureWallFaceOverlay(mesh, face);
+      return null;
+    }
+    return this.ensureVultureWallFaceOverlayMaterial(
+      mesh,
+      face,
+      lookup,
+      darkenFactor,
+      opacity,
+    );
+  }
+
+  private refreshVultureWallMaterialAt(tileX: number, tileY: number): void {
+    if (!this.shouldUseVultureWallFaceRendering()) {
+      return;
+    }
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (!mesh || !mesh.userData?.isWall) {
+      return;
+    }
+    const materialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    if (!materialKind) {
+      return;
+    }
+    const baseMaterial = this.getMaterialByKind(materialKind);
+    const glyphChar =
+      typeof mesh.userData?.glyphChar === "string" ? mesh.userData.glyphChar : " ";
+    const textColor =
+      typeof mesh.userData?.glyphTextColor === "string"
+        ? mesh.userData.glyphTextColor
+        : "#F4F4F4";
+    const darkenFactor =
+      typeof mesh.userData?.glyphDarkenFactor === "number"
+        ? mesh.userData.glyphDarkenFactor
+        : 1;
+    const tileIndex =
+      typeof mesh.userData?.tileIndex === "number"
+        ? mesh.userData.tileIndex
+        : -1;
+    const inferredDarkWallSolidColorHex =
+      this.resolveInferredDarkCorridorWallSolidColorHex(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
+    const inferredDarkWallSolidColorGridEnabled =
+      this.resolveInferredDarkCorridorWallSolidColorGridEnabled(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
+    const inferredDarkWallSolidColorGridDarknessPercent =
+      this.resolveInferredDarkCorridorWallSolidColorGridDarknessPercent(
+        mesh.userData?.isInferredDarkCorridorWall === true,
+      );
+    this.applyGlyphMaterial(
+      key,
+      mesh,
+      baseMaterial,
+      glyphChar,
+      textColor,
+      true,
+      darkenFactor,
+      this.isFpsMode() && mesh.userData?.isInferredDarkCorridorWall !== true,
+      tileIndex,
+      inferredDarkWallSolidColorHex,
+      inferredDarkWallSolidColorGridEnabled,
+      inferredDarkWallSolidColorGridDarknessPercent,
+    );
+  }
+
+  private refreshVultureWallMaterialsNear(tileX: number, tileY: number): void {
+    if (!this.shouldUseVultureWallFaceRendering()) {
+      return;
+    }
+    this.refreshVultureWallMaterialAt(tileX, tileY);
+    this.refreshVultureWallMaterialAt(tileX - 1, tileY);
+    this.refreshVultureWallMaterialAt(tileX + 1, tileY);
+    this.refreshVultureWallMaterialAt(tileX, tileY - 1);
+    this.refreshVultureWallMaterialAt(tileX, tileY + 1);
   }
 
   private resolveWallOrientationChar(
@@ -7230,6 +8280,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileIndex: number,
     darkenFactor: number = 1,
     applyChromaKey: boolean = false,
+    sourceContext: {
+      sourceGlyph?: number | null;
+      materialKind?: TileMaterialKind | null;
+      vultureLookup?: VultureWallProjectionLookup | null;
+    } = {},
   ): THREE.CanvasTexture {
     const size = this.tileSourceSize;
     const canvas = document.createElement("canvas");
@@ -7242,7 +8297,81 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     context.clearRect(0, 0, size, size);
 
+    const sourceGlyph =
+      typeof sourceContext.sourceGlyph === "number" &&
+      Number.isFinite(sourceContext.sourceGlyph)
+        ? Math.trunc(sourceContext.sourceGlyph)
+        : null;
+    const materialKind =
+      typeof sourceContext.materialKind === "string"
+        ? (sourceContext.materialKind as TileMaterialKind)
+        : null;
+    const vultureLookup: VultureWallProjectionLookup | null =
+      sourceContext.vultureLookup &&
+      typeof sourceContext.vultureLookup.category === "string" &&
+      typeof sourceContext.vultureLookup.name === "string" &&
+      (sourceContext.vultureLookup.projection === "sprite" ||
+        sourceContext.vultureLookup.projection === "iso_floor")
+        ? (sourceContext.vultureLookup as VultureWallProjectionLookup)
+        : null;
+    const normalizedTileIndex =
+      Number.isFinite(tileIndex) && tileIndex >= 0 ? Math.trunc(tileIndex) : -1;
+    let translatedDrawSucceeded = false;
+    if (this.vultureTilesetTranslator) {
+      if (vultureLookup) {
+        translatedDrawSucceeded = this.vultureTilesetTranslator.drawLookupTile({
+          context,
+          size,
+          lookup: vultureLookup,
+          forBillboard: applyChromaKey,
+        });
+      } else if (sourceGlyph !== null || normalizedTileIndex >= 0) {
+        translatedDrawSucceeded =
+          this.vultureTilesetTranslator.drawTranslatedTile({
+            context,
+            size,
+            glyph: sourceGlyph ?? -1,
+            tileIndex: normalizedTileIndex >= 0 ? normalizedTileIndex : null,
+            materialKind,
+            forBillboard: applyChromaKey,
+          });
+      }
+      if (!translatedDrawSucceeded && !this.tilesetTexture) {
+        this.vultureTilesetTranslator.drawFallbackTile(
+          context,
+          size,
+          applyChromaKey,
+        );
+        translatedDrawSucceeded = true;
+      }
+    }
+
     if (
+      translatedDrawSucceeded &&
+      !applyChromaKey &&
+      vultureLookup?.category === "wall"
+    ) {
+      const projectionFamily =
+        this.resolveVultureWallProjectionFamily(vultureLookup);
+      if (projectionFamily) {
+        this.captureVultureWallProjectionSourcePreview(
+          context,
+          size,
+          projectionFamily,
+          vultureLookup,
+        );
+        this.reprojectVultureWallTexture(
+          context,
+          size,
+          projectionFamily,
+          vultureLookup,
+        );
+      }
+    }
+
+    if (
+      !translatedDrawSucceeded &&
+      !vultureLookup &&
       this.tilesetTexture &&
       this.tilesetTexture.image &&
       this.tilesetTexture.image.complete &&
@@ -7254,11 +8383,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const tileRows = Math.floor(img.height / size);
       const tileCount =
         tilesPerRow > 0 && tileRows > 0 ? tilesPerRow * tileRows : 0;
-      if (tilesPerRow <= 0 || tileCount <= 0) {
-        // Leave transparent if atlas geometry is not yet usable.
-      } else {
-        const sx = (tileIndex % tilesPerRow) * size;
-        const sy = Math.floor(tileIndex / tilesPerRow) * size;
+      if (tilesPerRow > 0 && tileCount > 0) {
+        const atlasTileIndex = Math.max(0, Math.trunc(tileIndex));
+        const sx = (atlasTileIndex % tilesPerRow) * size;
+        const sy = Math.floor(atlasTileIndex / tilesPerRow) * size;
 
         // Draw the specific tile from the atlas
         context.drawImage(img, sx, sy, size, size, 0, 0, size, size);
@@ -7273,8 +8401,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
           );
         }
       }
-    } else {
-      // Leave transparent until the tileset texture has loaded.
     }
 
     // Apply darkening if needed (for shadows/fog of war)
@@ -7296,6 +8422,269 @@ class Nethack3DEngine implements Nethack3DEngineController {
     texture.anisotropy = this.resolveTextureAnisotropyLevel();
 
     return texture;
+  }
+
+  private resolveVultureWallProjectionFamily(
+    lookup: VultureWallProjectionLookup,
+  ): VultureWallProjectionFamily | null {
+    if (lookup.category !== "wall") {
+      return null;
+    }
+    const normalizedName = String(lookup.name || "").toUpperCase();
+    if (normalizedName.endsWith("_E") || normalizedName.endsWith("_W")) {
+      return "ew";
+    }
+    if (normalizedName.endsWith("_S") || normalizedName.endsWith("_N")) {
+      return "sn";
+    }
+    return null;
+  }
+
+  private resolveVultureWallProjectionFace(
+    lookup: VultureWallProjectionLookup,
+    family: VultureWallProjectionFamily,
+  ): VultureWallFaceSlot {
+    const explicitFace = lookup.wallFace;
+    if (
+      explicitFace === "north" ||
+      explicitFace === "east" ||
+      explicitFace === "south" ||
+      explicitFace === "west"
+    ) {
+      return explicitFace;
+    }
+    return family === "ew" ? "east" : "south";
+  }
+
+  private rotateVultureWallProjectionUv(
+    u: number,
+    v: number,
+    rotationDegrees: number,
+  ): { u: number; v: number } {
+    const normalizedRotation = ((Math.trunc(rotationDegrees / 90) % 4) + 4) % 4;
+    switch (normalizedRotation) {
+      case 1:
+        return { u: v, v: 1 - u };
+      case 2:
+        return { u: 1 - u, v: 1 - v };
+      case 3:
+        return { u: 1 - v, v: u };
+      case 0:
+      default:
+        return { u, v };
+    }
+  }
+
+  private dilateOpaqueVultureWallPixels(
+    pixels: Uint8ClampedArray,
+    size: number,
+    iterations: number,
+  ): void {
+    if (iterations <= 0 || size <= 1) {
+      return;
+    }
+    const directions: ReadonlyArray<readonly [number, number]> = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
+    for (let pass = 0; pass < iterations; pass += 1) {
+      const source = new Uint8ClampedArray(pixels);
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const index = (y * size + x) * 4;
+          if (source[index + 3] > 0) {
+            continue;
+          }
+          let bestNeighborIndex = -1;
+          let bestNeighborAlpha = 0;
+          for (const [dx, dy] of directions) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= size || ny >= size) {
+              continue;
+            }
+            const neighborIndex = (ny * size + nx) * 4;
+            const neighborAlpha = source[neighborIndex + 3];
+            if (neighborAlpha <= bestNeighborAlpha) {
+              continue;
+            }
+            bestNeighborAlpha = neighborAlpha;
+            bestNeighborIndex = neighborIndex;
+          }
+          if (bestNeighborIndex < 0) {
+            continue;
+          }
+          pixels[index] = source[bestNeighborIndex];
+          pixels[index + 1] = source[bestNeighborIndex + 1];
+          pixels[index + 2] = source[bestNeighborIndex + 2];
+          pixels[index + 3] = source[bestNeighborIndex + 3];
+        }
+      }
+    }
+  }
+
+  private extendVultureWallOpaqueRunsToBorders(
+    pixels: Uint8ClampedArray,
+    size: number,
+  ): void {
+    const rowHasOpaque = new Array<boolean>(size).fill(false);
+    for (let y = 0; y < size; y += 1) {
+      let firstOpaqueX = -1;
+      let lastOpaqueX = -1;
+      for (let x = 0; x < size; x += 1) {
+        const alpha = pixels[(y * size + x) * 4 + 3];
+        if (alpha <= 0) {
+          continue;
+        }
+        if (firstOpaqueX < 0) {
+          firstOpaqueX = x;
+        }
+        lastOpaqueX = x;
+      }
+      if (firstOpaqueX < 0 || lastOpaqueX < 0) {
+        continue;
+      }
+      rowHasOpaque[y] = true;
+      const firstIndex = (y * size + firstOpaqueX) * 4;
+      const lastIndex = (y * size + lastOpaqueX) * 4;
+      for (let x = 0; x < firstOpaqueX; x += 1) {
+        const index = (y * size + x) * 4;
+        pixels[index] = pixels[firstIndex];
+        pixels[index + 1] = pixels[firstIndex + 1];
+        pixels[index + 2] = pixels[firstIndex + 2];
+        pixels[index + 3] = pixels[firstIndex + 3];
+      }
+      for (let x = lastOpaqueX + 1; x < size; x += 1) {
+        const index = (y * size + x) * 4;
+        pixels[index] = pixels[lastIndex];
+        pixels[index + 1] = pixels[lastIndex + 1];
+        pixels[index + 2] = pixels[lastIndex + 2];
+        pixels[index + 3] = pixels[lastIndex + 3];
+      }
+    }
+
+    for (let y = 0; y < size; y += 1) {
+      if (rowHasOpaque[y]) {
+        continue;
+      }
+      let sourceRow = -1;
+      for (let search = y - 1; search >= 0; search -= 1) {
+        if (rowHasOpaque[search]) {
+          sourceRow = search;
+          break;
+        }
+      }
+      if (sourceRow < 0) {
+        for (let search = y + 1; search < size; search += 1) {
+          if (rowHasOpaque[search]) {
+            sourceRow = search;
+            break;
+          }
+        }
+      }
+      if (sourceRow < 0) {
+        continue;
+      }
+      for (let x = 0; x < size; x += 1) {
+        const srcIndex = (sourceRow * size + x) * 4;
+        const destIndex = (y * size + x) * 4;
+        pixels[destIndex] = pixels[srcIndex];
+        pixels[destIndex + 1] = pixels[srcIndex + 1];
+        pixels[destIndex + 2] = pixels[srcIndex + 2];
+        pixels[destIndex + 3] = pixels[srcIndex + 3];
+      }
+      rowHasOpaque[y] = true;
+    }
+  }
+
+  private solidifyVultureWallTexturePixels(
+    pixels: Uint8ClampedArray,
+    size: number,
+  ): void {
+    this.dilateOpaqueVultureWallPixels(pixels, size, 3);
+    this.extendVultureWallOpaqueRunsToBorders(pixels, size);
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index + 3] <= 0) {
+        continue;
+      }
+      pixels[index + 3] = 255;
+    }
+  }
+
+  private reprojectVultureWallTexture(
+    context: CanvasRenderingContext2D,
+    size: number,
+    family: VultureWallProjectionFamily,
+    lookup: VultureWallProjectionLookup,
+  ): void {
+    const source = context.getImageData(0, 0, size, size);
+    let sourcePixels: Uint8ClampedArray = source.data;
+    if (this.vultureTilesetTranslator) {
+      const workCanvas = this.ensureVultureWallProjectionWorkCanvas(size);
+      const workContext = workCanvas.getContext("2d");
+      if (workContext) {
+        const drewRawSource = this.vultureTilesetTranslator.drawLookupSourcePreview({
+          context: workContext,
+          size,
+          lookup,
+        });
+        if (drewRawSource) {
+          sourcePixels = workContext.getImageData(0, 0, size, size).data;
+        }
+      }
+    }
+    const destPixels = new Uint8ClampedArray(sourcePixels.length);
+    const quad = this.getVultureWallProjectionQuad(family);
+    const sizeMinusOne = Math.max(1, size - 1);
+    const face = this.resolveVultureWallProjectionFace(lookup, family);
+    const rotationDegrees = this.getVultureWallProjectionRotationDegrees(face);
+
+    for (let x = 0; x < size; x += 1) {
+      for (let y = 0; y < size; y += 1) {
+        const baseU = x / sizeMinusOne;
+        const baseV = y / sizeMinusOne;
+        const rotated = this.rotateVultureWallProjectionUv(
+          baseU,
+          baseV,
+          rotationDegrees,
+        );
+        const u = rotated.u;
+        const v = rotated.v;
+        const srcU =
+          (1 - u) * (1 - v) * quad.topLeft.x +
+          u * (1 - v) * quad.topRight.x +
+          u * v * quad.bottomRight.x +
+          (1 - u) * v * quad.bottomLeft.x;
+        const srcV =
+          (1 - u) * (1 - v) * quad.topLeft.y +
+          u * (1 - v) * quad.topRight.y +
+          u * v * quad.bottomRight.y +
+          (1 - u) * v * quad.bottomLeft.y;
+        const srcX = THREE.MathUtils.clamp(
+          Math.round(srcU * sizeMinusOne),
+          0,
+          sizeMinusOne,
+        );
+        const srcY = THREE.MathUtils.clamp(
+          Math.round(srcV * sizeMinusOne),
+          0,
+          sizeMinusOne,
+        );
+        const srcIndex = (srcY * size + srcX) * 4;
+        const destIndex = (y * size + x) * 4;
+        destPixels[destIndex] = sourcePixels[srcIndex];
+        destPixels[destIndex + 1] = sourcePixels[srcIndex + 1];
+        destPixels[destIndex + 2] = sourcePixels[srcIndex + 2];
+        destPixels[destIndex + 3] = sourcePixels[srcIndex + 3];
+      }
+    }
+
+    this.solidifyVultureWallTexturePixels(destPixels, size);
+
+    source.data.set(destPixels);
+    context.putImageData(source, 0, 0);
   }
 
   private parseSolidChromaKeyColorHex(
@@ -9442,10 +10831,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof solidColorHex === "string" ? solidColorHex : null;
 
     const useSolidColor = resolvedSolidColorHex !== null;
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.sourceGlyph)
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    const tileTextureSourceGlyph =
+      typeof mesh.userData?.tileTextureSourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.tileTextureSourceGlyph)
+        ? Math.trunc(mesh.userData.tileTextureSourceGlyph)
+        : sourceGlyph;
+    const tileTextureMaterialKind =
+      typeof mesh.userData?.materialKind === "string"
+        ? (mesh.userData.materialKind as TileMaterialKind)
+        : null;
+    const canUseTranslatedTileWithoutAtlas =
+      this.vultureTilesetTranslator !== null && tileTextureSourceGlyph !== null;
     const useTiles =
       !useSolidColor &&
       this.clientOptions.tilesetMode === "tiles" &&
-      tileIndex >= 0;
+      (tileIndex >= 0 || canUseTranslatedTileWithoutAtlas);
+    const tileTextureSourceGlyphKey =
+      tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
+    const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
     const solidWallMaterial =
       useSolidColor && resolvedSolidColorHex
         ? this.getInferredDarkWallSolidColorMaterial(
@@ -9459,7 +10867,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (useSolidColor) {
       textureKey = `solid:${resolvedSolidColorHex.toLowerCase()}`;
     } else if (useTiles) {
-      textureKey = `tile:${tileIndex}|${clampedDarken.toFixed(3)}`;
+      textureKey = `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`;
     } else {
       textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
     }
@@ -9482,7 +10890,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else if (useTiles) {
         overlay.texture = this.acquireGlyphTexture(
           textureKey,
-          () => this.createTileTexture(tileIndex, clampedDarken, false), // Pass false: map tiles are opaque
+          () =>
+            this.createTileTexture(
+              tileIndex,
+              clampedDarken,
+              false,
+              {
+                sourceGlyph: tileTextureSourceGlyph,
+                materialKind: tileTextureMaterialKind,
+              },
+            ), // Pass false: map tiles are opaque
         );
       } else {
         overlay.texture = this.acquireGlyphTexture(textureKey, () =>
@@ -9529,10 +10946,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const isDoorWall = mesh.userData?.materialKind === "door";
-    const sourceGlyph =
-      typeof mesh.userData?.sourceGlyph === "number"
-        ? Math.trunc(mesh.userData.sourceGlyph)
-        : null;
+    const shouldUseVultureWallFaceMaterials =
+      useTiles &&
+      this.shouldUseVultureWallFaceRendering() &&
+      isWall &&
+      !isDoorWall;
+    const supportsAtlasWallSideOverrides =
+      useTiles && this.vultureTilesetTranslator === null;
     const wallOrientationChar = this.resolveWallOrientationChar(
       glyphChar,
       sourceGlyph,
@@ -9540,23 +10960,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const cornerWallSideBaseTileIndex =
       this.resolveCornerWallSideBaseTileIndex(tileIndex);
     const shouldOverrideCornerWallSideTiles =
-      useTiles && isWall && !isDoorWall && cornerWallSideBaseTileIndex !== null;
+      supportsAtlasWallSideOverrides &&
+      isWall &&
+      !isDoorWall &&
+      cornerWallSideBaseTileIndex !== null;
     const shouldOverrideVerticalWallSideTiles =
-      useTiles &&
+      supportsAtlasWallSideOverrides &&
       isWall &&
       !isDoorWall &&
       !shouldOverrideCornerWallSideTiles &&
       wallOrientationChar === "|" &&
       tileIndex >= 0;
     const shouldRotateHorizontalWallSideTiles =
-      useTiles &&
+      supportsAtlasWallSideOverrides &&
       isWall &&
       !isDoorWall &&
       !shouldOverrideCornerWallSideTiles &&
       wallOrientationChar === "-" &&
       tileIndex >= 0;
     const shouldRotateVerticalDoorSideTiles =
-      useTiles &&
+      supportsAtlasWallSideOverrides &&
       isWall &&
       isDoorWall &&
       sourceGlyph !== null &&
@@ -9619,6 +11042,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
+      this.disposeVultureWallFaceOverlay(mesh);
       if (useTiles) {
         // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
         // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
@@ -9647,7 +11071,83 @@ class Nethack3DEngine implements Nethack3DEngineController {
         mesh.material = [overlay.material, baseMaterial, chamferMaterial];
       }
     } else if (isWall) {
-      if (isDoorWall && useTiles) {
+      if (shouldUseVultureWallFaceMaterials && useTiles) {
+        const wallX =
+          typeof mesh.userData?.tileX === "number" &&
+          Number.isFinite(mesh.userData.tileX)
+            ? Math.trunc(mesh.userData.tileX)
+            : null;
+        const wallY =
+          typeof mesh.userData?.tileY === "number" &&
+          Number.isFinite(mesh.userData.tileY)
+            ? Math.trunc(mesh.userData.tileY)
+            : null;
+        if (wallX === null || wallY === null) {
+          this.disposeVultureWallFaceOverlay(mesh);
+          mesh.material = [
+            overlay.material,
+            overlay.material,
+            overlay.material,
+            overlay.material,
+            overlay.material,
+            baseMaterial,
+          ];
+        } else {
+          const eastWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
+            mesh,
+            "east",
+            wallX,
+            wallY,
+            wallX + 1,
+            wallY,
+            clampedDarken,
+            overlay.material.opacity,
+            tileTextureMaterialKind,
+          );
+          const westWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
+            mesh,
+            "west",
+            wallX,
+            wallY,
+            wallX - 1,
+            wallY,
+            clampedDarken,
+            overlay.material.opacity,
+            tileTextureMaterialKind,
+          );
+          const northWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
+            mesh,
+            "north",
+            wallX,
+            wallY,
+            wallX,
+            wallY - 1,
+            clampedDarken,
+            overlay.material.opacity,
+            tileTextureMaterialKind,
+          );
+          const southWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
+            mesh,
+            "south",
+            wallX,
+            wallY,
+            wallX,
+            wallY + 1,
+            clampedDarken,
+            overlay.material.opacity,
+            tileTextureMaterialKind,
+          );
+          mesh.material = [
+            eastWallMaterial ?? baseMaterial,
+            westWallMaterial ?? baseMaterial,
+            northWallMaterial ?? baseMaterial,
+            southWallMaterial ?? baseMaterial,
+            baseMaterial,
+            baseMaterial,
+          ];
+        }
+      } else if (isDoorWall && useTiles) {
+        this.disposeVultureWallFaceOverlay(mesh);
         mesh.material = wallSideOverrideMaterial
           ? [
               wallSideOverrideMaterial, // right edge
@@ -9666,6 +11166,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               baseMaterial, // bottom edge
             ];
       } else if (useTiles) {
+        this.disposeVultureWallFaceOverlay(mesh);
         const leftRightWallMaterial =
           wallSideOverrideMaterial ?? overlay.material;
         const frontBackWallMaterial =
@@ -9691,6 +11192,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               baseMaterial,
             ];
       } else if (solidWallMaterial) {
+        this.disposeVultureWallFaceOverlay(mesh);
         mesh.material = [
           solidWallMaterial,
           solidWallMaterial,
@@ -9700,6 +11202,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           solidWallMaterial,
         ];
       } else {
+        this.disposeVultureWallFaceOverlay(mesh);
         mesh.material = [
           baseMaterial,
           baseMaterial,
@@ -9711,6 +11214,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     } else {
       this.disposeWallSideTileOverlay(mesh);
+      this.disposeVultureWallFaceOverlay(mesh);
       mesh.material = overlay.material;
     }
   }
@@ -10643,10 +12147,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private getFpsWallChamferFloorMaterial(
     materialKind: TileMaterialKind,
   ): THREE.MeshBasicMaterial {
-    const tileIndex = this.getFpsWallChamferFloorTileIndex(materialKind);
+    const { tileIndex, sourceGlyph } =
+      this.getFpsWallChamferFloorTileSource(materialKind);
+    const canUseTranslatedTileWithoutAtlas =
+      this.vultureTilesetTranslator !== null && sourceGlyph !== null;
     const useTiles =
-      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
-    const cacheKey = useTiles ? `tile:${tileIndex}` : `ascii:${materialKind}`;
+      this.clientOptions.tilesetMode === "tiles" &&
+      (tileIndex >= 0 || canUseTranslatedTileWithoutAtlas);
+    const sourceGlyphKey = sourceGlyph === null ? "none" : String(sourceGlyph);
+    const cacheKey = useTiles
+      ? `tile:${tileIndex}|sg:${sourceGlyphKey}|mk:${materialKind}`
+      : `ascii:${materialKind}`;
     const cached = this.fpsWallChamferFloorMaterialCache.get(cacheKey);
     if (cached) {
       return cached.material;
@@ -10657,6 +12168,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           tileIndex,
           1, // No artificial darkening for chamfer floors
           false,
+          {
+            sourceGlyph,
+            materialKind,
+          },
         )
       : this.createGlyphTexture(
           this.getMaterialByKind(materialKind).color.getHexString(),
@@ -10681,9 +12196,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return material;
   }
 
-  private getFpsWallChamferFloorTileIndex(
+  private getFpsWallChamferFloorTileSource(
     materialKind: TileMaterialKind,
-  ): number {
+  ): { tileIndex: number; sourceGlyph: number | null } {
     const floorGlyph = getDefaultFloorGlyph();
     let fallbackGlyph = floorGlyph;
     if (materialKind === "dark") {
@@ -10702,7 +12217,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       runtimeColor: null,
       priorTerrain: null,
     });
-    return behavior.effective.tileIndex;
+    return {
+      tileIndex: behavior.effective.tileIndex,
+      sourceGlyph: behavior.effective.glyph,
+    };
   }
 
   private clearFpsWallChamferMaterialCaches(): void {
@@ -11299,6 +12817,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Clear all tile meshes
     this.tileMap.forEach((mesh) => {
       this.disposeWallSideTileOverlay(mesh);
+      this.disposeVultureWallFaceOverlay(mesh);
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
@@ -12615,22 +14134,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileIndex: number = -1,
     entityType: "monster" | "loot" = "monster",
     isWall: boolean = false,
+    sourceGlyph: number | null = null,
+    materialKind: TileMaterialKind | null = null,
   ): void {
+    const normalizedSourceGlyph =
+      typeof sourceGlyph === "number" && Number.isFinite(sourceGlyph)
+        ? Math.trunc(sourceGlyph)
+        : null;
+    const normalizedMaterialKind =
+      typeof materialKind === "string" ? materialKind : null;
+    const canUseTranslatedTileWithoutAtlas =
+      this.vultureTilesetTranslator !== null && normalizedSourceGlyph !== null;
     const useTiles =
-      this.clientOptions.tilesetMode === "tiles" && tileIndex >= 0;
+      this.clientOptions.tilesetMode === "tiles" &&
+      (tileIndex >= 0 || canUseTranslatedTileWithoutAtlas);
     const backgroundRemovalTextureKey =
       this.clientOptions.tilesetBackgroundRemovalMode === "solid"
         ? `solid:${this.clientOptions.tilesetSolidChromaKeyColorHex}`
         : `tile:${this.clientOptions.tilesetBackgroundTileId}`;
+    const sourceGlyphKey =
+      normalizedSourceGlyph === null ? "none" : String(normalizedSourceGlyph);
+    const materialKindKey = normalizedMaterialKind ?? "none";
     const textureKey = useTiles
-      ? `tile-billboard:${tileIndex}|bg:${backgroundRemovalTextureKey}`
+      ? `tile-billboard:${tileIndex}|sg:${sourceGlyphKey}|mk:${materialKindKey}|bg:${backgroundRemovalTextureKey}`
       : `${this.getMonsterBillboardQualityKey()}|${glyphChar}|${textColor}`;
 
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
     if (!sprite) {
       const factory = useTiles
-        ? () => this.createTileTexture(tileIndex, 1, true) // Pass true: billboards use transparency
+        ? () =>
+            this.createTileTexture(tileIndex, 1, true, {
+              sourceGlyph: normalizedSourceGlyph,
+              materialKind: normalizedMaterialKind,
+            }) // Pass true: billboards use transparency
         : () => this.createMonsterBillboardTexture(glyphChar, textColor);
 
       const texture = this.acquireMonsterBillboardTexture(textureKey, factory);
@@ -12664,7 +14201,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
             material.map.dispose();
           }
           const factory = useTiles
-            ? () => this.createTileTexture(tileIndex, 1, true) // Pass true here as well
+            ? () =>
+                this.createTileTexture(tileIndex, 1, true, {
+                  sourceGlyph: normalizedSourceGlyph,
+                  materialKind: normalizedMaterialKind,
+                }) // Pass true here as well
             : () => this.createMonsterBillboardTexture(glyphChar, textColor);
 
           material.map = this.acquireMonsterBillboardTexture(
@@ -12801,6 +14342,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (isUndiscovered) {
       if (mesh) {
         this.disposeWallSideTileOverlay(mesh);
+        this.disposeVultureWallFaceOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
@@ -12816,6 +14358,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.queueMinimapTileUpdate(x, y, behavior, true);
       this.refreshFpsWallChamferGeometryNear(x, y);
       this.refreshFloorBlockAmbientOcclusionNear(x, y);
+      this.refreshVultureWallMaterialsNear(x, y);
       this.markLightingDirty();
       return;
     }
@@ -13055,6 +14598,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.isDamageFlashableBehavior(behavior);
     mesh.userData.glyphChar = behavior.glyphChar;
     mesh.userData.sourceGlyph = glyph;
+    mesh.userData.tileTextureSourceGlyph = renderBehavior.effective.glyph;
     mesh.userData.glyphTextColor = behavior.textColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
@@ -13120,6 +14664,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         behavior.effective.tileIndex,
         isLootLikeCharacter ? "loot" : "monster",
         renderBehavior.isWall,
+        behavior.effective.glyph,
+        behavior.materialKind,
       );
     } else {
       this.removeMonsterBillboard(key);
@@ -13138,6 +14684,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.queueMinimapTileUpdate(x, y, behavior, false);
     this.refreshFpsWallChamferGeometryNear(x, y);
     this.refreshFloorBlockAmbientOcclusionNear(x, y);
+    this.refreshVultureWallMaterialsNear(x, y);
     this.markLightingDirty();
   }
   private addGameMessage(message: string): void {
