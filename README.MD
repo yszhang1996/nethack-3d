@@ -27,7 +27,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 
 ## Current Features
 
-- Play NetHack in a 3D dungeon view while keeping core game rules and depth.
+- Play NetHack 3.6.7 in a 3D dungeon view while keeping core game rules and depth.
 - Two play styles: classic top-down and first-person (FPS) mode.
 - Combat feedback effects: Monsters dynamically shatter into bloody pieces, different every time.
 - Full sound support. Monsters die with a satisfying crunch.
