@@ -1,24 +1,24 @@
 {
   "formatVersion": 1,
-  "generatedAt": "2026-03-11T23:10:45.761Z",
+  "generatedAt": "2026-03-11T23:17:37.111Z",
   "tileSize": 112,
   "sourceConfigPath": "config/vulture_tiles.conf",
   "profile": {
     "ew": {
       "topLeft": {
-        "x": 0.2062,
-        "y": 0.2216
+        "x": 0.2165,
+        "y": 0.2268
       },
       "topRight": {
-        "x": 0.7887,
+        "x": 0.7835,
         "y": 0
       },
       "bottomRight": {
-        "x": 0.7938,
-        "y": 0.7629
+        "x": 0.7835,
+        "y": 0.7474
       },
       "bottomLeft": {
-        "x": 0.2113,
+        "x": 0.2165,
         "y": 1
       }
     },
@@ -66,7 +66,7 @@
       "floor": 270
     }
   },
-  "profileSignature": "{\"ew\":{\"topLeft\":{\"x\":0.2062,\"y\":0.2216},\"topRight\":{\"x\":0.7887,\"y\":0},\"bottomRight\":{\"x\":0.7938,\"y\":0.7629},\"bottomLeft\":{\"x\":0.2113,\"y\":1}},\"sn\":{\"topLeft\":{\"x\":0.2165,\"y\":0},\"topRight\":{\"x\":0.7732,\"y\":0.2216},\"bottomRight\":{\"x\":0.7835,\"y\":0.9897},\"bottomLeft\":{\"x\":0.2268,\"y\":0.7732}},\"floor\":{\"topLeft\":{\"x\":0,\"y\":0.4948},\"topRight\":{\"x\":0.5,\"y\":0.3093},\"bottomRight\":{\"x\":1,\"y\":0.4897},\"bottomLeft\":{\"x\":0.5,\"y\":0.6856}},\"rotation\":{\"north\":0,\"east\":0,\"south\":0,\"west\":0,\"floor\":270}}",
+  "profileSignature": "{\"ew\":{\"topLeft\":{\"x\":0.2165,\"y\":0.2268},\"topRight\":{\"x\":0.7835,\"y\":0},\"bottomRight\":{\"x\":0.7835,\"y\":0.7474},\"bottomLeft\":{\"x\":0.2165,\"y\":1}},\"sn\":{\"topLeft\":{\"x\":0.2165,\"y\":0},\"topRight\":{\"x\":0.7732,\"y\":0.2216},\"bottomRight\":{\"x\":0.7835,\"y\":0.9897},\"bottomLeft\":{\"x\":0.2268,\"y\":0.7732}},\"floor\":{\"topLeft\":{\"x\":0,\"y\":0.4948},\"topRight\":{\"x\":0.5,\"y\":0.3093},\"bottomRight\":{\"x\":1,\"y\":0.4897},\"bottomLeft\":{\"x\":0.5,\"y\":0.6856}},\"rotation\":{\"north\":0,\"east\":0,\"south\":0,\"west\":0,\"floor\":270}}",
   "entries": {
     "floor.FLOOR_AIR_0_0|family:floor|face:none": "prebaked/projection/floor/FLOOR_AIR_0_0__floor__none.png",
     "floor.FLOOR_AIR_0_1|family:floor|face:none": "prebaked/projection/floor/FLOOR_AIR_0_1__floor__none.png",

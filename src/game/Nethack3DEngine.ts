@@ -913,10 +913,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private tilesetTexture: THREE.Texture | null = null;
   private tileSourceSize = 32;
   private vultureWallProjectionQuadEW: VultureWallProjectionQuad = {
-    topLeft: { x: 0.2062, y: 0.2216 },
-    topRight: { x: 0.7887, y: 0 },
-    bottomRight: { x: 0.7938, y: 0.7629 },
-    bottomLeft: { x: 0.2113, y: 1 },
+    topLeft: { x: 0.2165, y: 0.2268 },
+    topRight: { x: 0.7835, y: 0 },
+    bottomRight: { x: 0.7835, y: 0.7474 },
+    bottomLeft: { x: 0.2165, y: 1 },
   };
   private vultureWallProjectionQuadSN: VultureWallProjectionQuad = {
     topLeft: { x: 0.2165, y: 0 },
@@ -947,7 +947,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     Record<VultureProjectionDebugFamily, HTMLDivElement>
   > = {};
   private vultureWallProjectionDebugSelectedFamily: VultureProjectionDebugFamily =
-    "sn";
+    "ew";
   private vultureWallProjectionRotationByFace: Record<
     VultureWallFaceSlot,
     number
@@ -5625,10 +5625,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): VultureWallProjectionQuad {
     if (family === "ew") {
       return {
-        topLeft: { x: 0.2062, y: 0.2216 },
-        topRight: { x: 0.7887, y: 0 },
-        bottomRight: { x: 0.7938, y: 0.7629 },
-        bottomLeft: { x: 0.2113, y: 1 },
+        topLeft: { x: 0.2165, y: 0.2268 },
+        topRight: { x: 0.7835, y: 0 },
+        bottomRight: { x: 0.7835, y: 0.7474 },
+        bottomLeft: { x: 0.2165, y: 1 },
       };
     }
     if (family === "sn") {

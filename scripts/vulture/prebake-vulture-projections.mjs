@@ -40,10 +40,10 @@ const floorProjectionQuad = {
 };
 
 const wallProjectionQuadEW = {
-  topLeft: { x: 0.2062, y: 0.2216 },
-  topRight: { x: 0.7887, y: 0 },
-  bottomRight: { x: 0.7938, y: 0.7629 },
-  bottomLeft: { x: 0.2113, y: 1 },
+  topLeft: { x: 0.2165, y: 0.2268 },
+  topRight: { x: 0.7835, y: 0 },
+  bottomRight: { x: 0.7835, y: 0.7474 },
+  bottomLeft: { x: 0.2165, y: 1 },
 };
 
 const wallProjectionQuadSN = {
