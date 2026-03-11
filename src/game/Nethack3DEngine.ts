@@ -6390,6 +6390,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "runtime_globals_snapshot":
         this.applyRuntimeGlobalsSnapshot(data.snapshot);
         break;
+      case "runtime_object_tile_map":
+        this.applyRuntimeObjectTileIndexByObjectId(
+          data.objectTileIndexByObjectId,
+        );
+        break;
 
       case "damage_event":
         if (
@@ -6420,14 +6425,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private applyRuntimeGlobalsSnapshot(snapshot: unknown): void {
     this.latestRuntimeGlobalsSnapshot = snapshot ?? null;
-    this.runtimeObjectTileIndexByObjectId =
-      this.extractRuntimeObjectTileIndexByObjectId(snapshot);
-    this.vultureTilesetTranslator?.setRuntimeObjectTileIndexByObjectId(
-      this.runtimeObjectTileIndexByObjectId,
+    this.applyRuntimeObjectTileIndexByObjectId(
+      this.extractRuntimeObjectTileIndexByObjectId(snapshot),
     );
     if (typeof window !== "undefined") {
       (window as any).nethackRuntimeGlobals = this.latestRuntimeGlobalsSnapshot;
     }
+  }
+
+  private applyRuntimeObjectTileIndexByObjectId(rawValue: unknown): void {
+    const normalized = this.extractRuntimeObjectTileIndexByObjectId({
+      objectTileIndexByObjectId: rawValue,
+    });
+    if (!normalized) {
+      return;
+    }
+    this.runtimeObjectTileIndexByObjectId = normalized;
+    this.vultureTilesetTranslator?.setRuntimeObjectTileIndexByObjectId(
+      this.runtimeObjectTileIndexByObjectId,
+    );
   }
 
   private extractRuntimeObjectTileIndexByObjectId(

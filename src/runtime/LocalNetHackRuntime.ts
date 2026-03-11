@@ -348,8 +348,20 @@ class LocalNetHackRuntime {
 
   async start() {
     await this.ready;
+    this.emitStartupObjectTileMap();
     this.sendReconnectSnapshot();
     this.requestRuntimeGlobalsSnapshot();
+  }
+
+  emitStartupObjectTileMap() {
+    const objectTileIndexByObjectId = this.buildObjectTileIndexByObjectIdSnapshot();
+    if (!Array.isArray(objectTileIndexByObjectId)) {
+      return;
+    }
+    this.emit({
+      type: "runtime_object_tile_map",
+      objectTileIndexByObjectId,
+    });
   }
 
   sendInput(input) {
