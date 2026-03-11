@@ -908,13 +908,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private vultureWallProjectionRotationByFace: Record<VultureWallFaceSlot, number> =
     {
       north: 0,
-      east: 90,
+      east: 0,
       south: 0,
-      west: 90,
+      west: 0,
     };
+  private vultureFloorProjectionRotationDegrees = 0;
   private vultureWallProjectionRotationButtons: Partial<
     Record<VultureWallFaceSlot, HTMLButtonElement>
   > = {};
+  private vultureFloorProjectionRotationButton: HTMLButtonElement | null = null;
   private vultureWallProjectionDebugStatusLabel: HTMLDivElement | null = null;
   private vultureWallProjectionWorkCanvas: HTMLCanvasElement | null = null;
   private vultureWallProjectionDebugDrag:
@@ -1044,6 +1046,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly monsterBillboardShardBoundaryRedChancePercent: number = 40;
   private readonly monsterBillboardShardBoundaryRedBleedChancePercent: number = 42;
   private readonly monsterBillboardShardBoundaryRed2x2ChancePercent: number = 30;
+  private readonly vultureFrontWallPlaneRenderOrder: number = 914;
+  private readonly vultureBillboardRenderOrder: number = 915;
+  private readonly vultureBackWallPlaneRenderOrder: number = 916;
+  private readonly vultureFlattenedBillboardRenderOrder: number = 914.5;
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -5061,6 +5067,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     createRotationButton("west");
     panel.appendChild(rotationRow);
 
+    const floorRotationRow = document.createElement("div");
+    floorRotationRow.style.display = "flex";
+    floorRotationRow.style.justifyContent = "space-between";
+    floorRotationRow.style.alignItems = "center";
+    floorRotationRow.style.marginBottom = "8px";
+
+    const floorRotationLabel = document.createElement("span");
+    floorRotationLabel.textContent = "Floor";
+    floorRotationRow.appendChild(floorRotationLabel);
+
+    const floorRotationButton = document.createElement("button");
+    floorRotationButton.type = "button";
+    floorRotationButton.style.font = "11px monospace";
+    floorRotationButton.style.padding = "1px 4px";
+    floorRotationButton.addEventListener("click", () => {
+      this.cycleVultureFloorProjectionRotation();
+    });
+    floorRotationRow.appendChild(floorRotationButton);
+    this.vultureFloorProjectionRotationButton = floorRotationButton;
+    panel.appendChild(floorRotationRow);
+
     const createSection = (
       family: VultureWallProjectionFamily,
       labelText: string,
@@ -5168,12 +5195,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const rotation = this.getVultureWallProjectionRotationDegrees(face);
       button.textContent = `${labelByFace[face]} ${rotation}deg`;
     }
+    if (this.vultureFloorProjectionRotationButton) {
+      const rotation = this.getVultureFloorProjectionRotationDegrees();
+      this.vultureFloorProjectionRotationButton.textContent = `${rotation}deg`;
+    }
   }
 
   private cycleVultureWallProjectionRotation(face: VultureWallFaceSlot): void {
     const current = this.getVultureWallProjectionRotationDegrees(face);
     const next = (current + 90) % 360;
     this.vultureWallProjectionRotationByFace[face] = next;
+    this.syncVultureWallProjectionRotationButtonLabels();
+    this.scheduleVultureWallProjectionRefresh();
+  }
+
+  private getVultureFloorProjectionRotationDegrees(): number {
+    const rawValue = this.vultureFloorProjectionRotationDegrees;
+    const normalized = ((Math.trunc(rawValue / 90) % 4) + 4) % 4;
+    return normalized * 90;
+  }
+
+  private cycleVultureFloorProjectionRotation(): void {
+    const current = this.getVultureFloorProjectionRotationDegrees();
+    const next = (current + 90) % 360;
+    this.vultureFloorProjectionRotationDegrees = next;
     this.syncVultureWallProjectionRotationButtonLabels();
     this.scheduleVultureWallProjectionRefresh();
   }
@@ -5199,6 +5244,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         east: this.getVultureWallProjectionRotationDegrees("east"),
         south: this.getVultureWallProjectionRotationDegrees("south"),
         west: this.getVultureWallProjectionRotationDegrees("west"),
+        floor: this.getVultureFloorProjectionRotationDegrees(),
       },
     };
     return JSON.stringify(payload, null, 2);
@@ -7957,8 +8003,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.vultureWallPlaneGeometry,
       this.vultureInvisibleSurfaceMaterial,
     );
-    frontMesh.renderOrder = 112;
-    backMesh.renderOrder = 112;
+    frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
+    backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
     this.applyVultureWallPlaneFaceTransform(frontMesh, direction);
     this.applyVultureWallPlaneFaceTransform(backMesh, direction);
     mesh.add(frontMesh);
@@ -8044,19 +8090,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
       transparent: true,
       opacity: 1,
       side: THREE.FrontSide,
+      depthWrite: false,
+      depthTest: true,
     });
     const backMaterial = new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
       opacity: 1,
       side: THREE.FrontSide,
+      depthWrite: false,
+      depthTest: true,
     });
     this.patchMaterialForVignette(frontMaterial);
     this.patchMaterialForVignette(backMaterial);
     const frontMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, frontMaterial);
     const backMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, backMaterial);
-    frontMesh.renderOrder = 112;
-    backMesh.renderOrder = 112;
+    frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
+    backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
     mesh.add(frontMesh);
     mesh.add(backMesh);
     const overlay: VultureDoorPlaneOverlay = {
@@ -8245,6 +8295,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     overlay.material.color.set("#ffffff");
     overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    overlay.material.depthWrite = false;
+    overlay.material.depthTest = true;
     return overlay.material;
   }
 
@@ -8924,6 +8976,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (translatedDrawSucceeded && !applyChromaKey) {
+      let resolvedLookupForRotation: VultureTileLookup | null = vultureLookup;
+      if (
+        resolvedLookupForRotation === null &&
+        this.vultureTilesetTranslator &&
+        (sourceGlyph !== null || normalizedTileIndex >= 0)
+      ) {
+        resolvedLookupForRotation = this.vultureTilesetTranslator.resolveLookupForTile(
+          {
+            glyph: sourceGlyph ?? -1,
+            tileIndex: normalizedTileIndex >= 0 ? normalizedTileIndex : null,
+            materialKind,
+            forBillboard: false,
+          },
+        );
+      }
+      const floorRotationDegrees = this.getVultureFloorProjectionRotationDegrees();
+      if (
+        floorRotationDegrees !== 0 &&
+        resolvedLookupForRotation?.projection === "iso_floor"
+      ) {
+        this.rotateSquareTextureCanvas(context, size, floorRotationDegrees);
+      }
+
       const projectionFamily =
         projectionFamilyOverride ??
         (vultureLookup?.category === "wall"
@@ -9051,6 +9126,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
       default:
         return { u, v };
     }
+  }
+
+  private rotateSquareTextureCanvas(
+    context: CanvasRenderingContext2D,
+    size: number,
+    rotationDegrees: number,
+  ): void {
+    const normalizedRotation = ((Math.trunc(rotationDegrees / 90) % 4) + 4) % 4;
+    if (normalizedRotation === 0) {
+      return;
+    }
+    const workCanvas = this.ensureVultureWallProjectionWorkCanvas(size);
+    const workContext = workCanvas.getContext("2d", { willReadFrequently: true });
+    if (!workContext) {
+      return;
+    }
+    workContext.clearRect(0, 0, size, size);
+    workContext.drawImage(context.canvas, 0, 0, size, size);
+
+    context.save();
+    context.clearRect(0, 0, size, size);
+    context.translate(size * 0.5, size * 0.5);
+    context.rotate(normalizedRotation * (Math.PI / 2));
+    context.translate(-size * 0.5, -size * 0.5);
+    context.imageSmoothingEnabled = false;
+    context.drawImage(workCanvas, 0, 0, size, size);
+    context.restore();
   }
 
   private dilateOpaqueVultureWallPixels(
@@ -11734,6 +11836,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
               planeSlice,
               sliceConfig.direction,
             );
+            planeSlice.frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
+            planeSlice.backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
             planeSlice.frontMesh.material = innerWallMaterial;
             planeSlice.backMesh.material = outerWallMaterial;
             usedTextureFaces.add(sliceConfig.innerTextureFace);
@@ -13789,6 +13893,74 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.entityBlobShadows.delete(key);
   }
 
+  private getMonsterBillboardFlattenedBackdropSprite(
+    sprite: THREE.Sprite,
+  ): THREE.Sprite | null {
+    const candidate = sprite.userData?.flattenedBackdropSprite;
+    return candidate instanceof THREE.Sprite ? candidate : null;
+  }
+
+  private disposeMonsterBillboardFlattenedBackdropSprite(
+    sprite: THREE.Sprite,
+  ): void {
+    const backdrop = this.getMonsterBillboardFlattenedBackdropSprite(sprite);
+    if (!backdrop) {
+      return;
+    }
+    sprite.remove(backdrop);
+    const material = backdrop.material;
+    if (material instanceof THREE.SpriteMaterial) {
+      material.dispose();
+    }
+    delete sprite.userData.flattenedBackdropSprite;
+  }
+
+  private ensureMonsterBillboardFlattenedBackdropSprite(
+    sprite: THREE.Sprite,
+    texture: THREE.Texture | null,
+    enabled: boolean,
+    depthTest: boolean,
+    alphaTest: number,
+  ): THREE.Sprite | null {
+    if (!enabled || !texture) {
+      this.disposeMonsterBillboardFlattenedBackdropSprite(sprite);
+      return null;
+    }
+
+    let backdrop = this.getMonsterBillboardFlattenedBackdropSprite(sprite);
+    if (!backdrop) {
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest,
+        alphaTest,
+        toneMapped: false,
+      });
+      this.patchMaterialForVignette(material);
+      backdrop = new THREE.Sprite(material);
+      backdrop.center.set(0.5, 0);
+      backdrop.renderOrder = this.vultureFlattenedBillboardRenderOrder;
+      backdrop.position.set(0, 0, 0);
+      sprite.add(backdrop);
+      sprite.userData.flattenedBackdropSprite = backdrop;
+      return backdrop;
+    }
+
+    const material = backdrop.material;
+    if (material instanceof THREE.SpriteMaterial) {
+      material.map = texture;
+      material.depthWrite = false;
+      material.depthTest = depthTest;
+      material.alphaTest = alphaTest;
+      material.needsUpdate = true;
+    }
+    backdrop.center.set(0.5, 0);
+    backdrop.renderOrder = this.vultureFlattenedBillboardRenderOrder;
+    backdrop.position.set(0, 0, 0);
+    return backdrop;
+  }
+
   private detachMonsterBillboard(key: string): THREE.Sprite | null {
     this.removeEntityBlobShadow(key);
     this.stopMonsterBillboardDamageFlash(key);
@@ -13806,6 +13978,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!sprite) {
       return;
     }
+    this.disposeMonsterBillboardFlattenedBackdropSprite(sprite);
     const material = sprite.material;
     if (material instanceof THREE.SpriteMaterial) {
       const textureKey =
@@ -14695,15 +14868,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getLowestPixelOffset(
     context: CanvasRenderingContext2D,
-    size: number,
+    width: number,
+    height: number,
   ): number {
-    const imageData = context.getImageData(0, 0, size, size);
+    const normalizedWidth = Math.max(1, Math.trunc(width));
+    const normalizedHeight = Math.max(1, Math.trunc(height));
+    const imageData = context.getImageData(
+      0,
+      0,
+      normalizedWidth,
+      normalizedHeight,
+    );
     const data = imageData.data;
     let lowestPixelY = -1;
 
-    for (let y = size - 1; y >= 0; y--) {
-      for (let x = 0; x < size; x++) {
-        const alphaIndex = (y * size + x) * 4 + 3;
+    for (let y = normalizedHeight - 1; y >= 0; y--) {
+      for (let x = 0; x < normalizedWidth; x++) {
+        const alphaIndex = (y * normalizedWidth + x) * 4 + 3;
         if (data[alphaIndex] > 0) {
           lowestPixelY = y;
           break;
@@ -14719,21 +14900,29 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     // Add 1 to get the row *after* the last pixel for alignment.
-    return (lowestPixelY + 1) / size;
+    return (lowestPixelY + 1) / normalizedHeight;
   }
 
   private getSpriteContentWidth(
     context: CanvasRenderingContext2D,
-    size: number,
+    width: number,
+    height: number,
   ): number {
-    const imageData = context.getImageData(0, 0, size, size);
+    const normalizedWidth = Math.max(1, Math.trunc(width));
+    const normalizedHeight = Math.max(1, Math.trunc(height));
+    const imageData = context.getImageData(
+      0,
+      0,
+      normalizedWidth,
+      normalizedHeight,
+    );
     const data = imageData.data;
-    let minX = size;
+    let minX = normalizedWidth;
     let maxX = -1;
 
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const alphaIndex = (y * size + x) * 4 + 3;
+    for (let y = 0; y < normalizedHeight; y++) {
+      for (let x = 0; x < normalizedWidth; x++) {
+        const alphaIndex = (y * normalizedWidth + x) * 4 + 3;
         if (data[alphaIndex] > 0) {
           if (x < minX) {
             minX = x;
@@ -14750,7 +14939,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const widthInPixels = maxX - minX + 1;
-    return widthInPixels / size;
+    return widthInPixels / normalizedWidth;
   }
 
   private ensureEntityBlobShadow(
@@ -14825,10 +15014,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
-    const useVultureWallTransparencySorting = this.shouldUseVultureWallFaceRendering();
-    const spriteDepthWrite = useVultureWallTransparencySorting;
-    const spriteAlphaTest = useVultureWallTransparencySorting ? 0.01 : 0;
-    const spriteRenderOrder = useVultureWallTransparencySorting ? 100 : 910;
+    const useVultureWallPlaneOverlay = this.shouldUseVultureWallFaceRendering();
+    const spriteDepthWrite = false;
+    const spriteDepthTest = !useVultureWallPlaneOverlay;
+    const spriteAlphaTest = useVultureWallPlaneOverlay ? 0.01 : 0;
+    const shouldRenderFlattenedBackdrop = useVultureWallPlaneOverlay && useTiles;
+    const spriteRenderOrder = useVultureWallPlaneOverlay
+      ? this.vultureBillboardRenderOrder
+      : 910;
     if (!sprite) {
       const factory = useTiles
         ? () =>
@@ -14843,7 +15036,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         map: texture,
         transparent: true,
         depthWrite: spriteDepthWrite,
-        depthTest: true,
+        depthTest: spriteDepthTest,
         alphaTest: spriteAlphaTest,
         toneMapped: false,
       });
@@ -14883,6 +15076,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             factory,
           );
           material.depthWrite = spriteDepthWrite;
+          material.depthTest = spriteDepthTest;
           material.alphaTest = spriteAlphaTest;
           material.needsUpdate = true;
           sprite.userData.textureKey = textureKey;
@@ -14891,11 +15085,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const material = sprite.material;
         if (material instanceof THREE.SpriteMaterial) {
           material.depthWrite = spriteDepthWrite;
+          material.depthTest = spriteDepthTest;
           material.alphaTest = spriteAlphaTest;
           material.needsUpdate = true;
         }
       }
     }
+    const mainSpriteMaterial = sprite.material;
+    const flattenedBackdropSprite =
+      mainSpriteMaterial instanceof THREE.SpriteMaterial
+        ? this.ensureMonsterBillboardFlattenedBackdropSprite(
+            sprite,
+            mainSpriteMaterial.map ?? null,
+            shouldRenderFlattenedBackdrop,
+            spriteDepthTest,
+            spriteAlphaTest,
+          )
+        : null;
 
     const isBoulderTileIndex = this.isBoulderTileIndex(tileIndex);
     const isBoulder =
@@ -14918,28 +15124,60 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (isBoulder) {
       scaleBase = overrideSize(1, 1);
     }
-    sprite.scale.set(scaleBase, scaleBase, 1);
-
-    const texture = sprite.material.map;
+    let scaleX = scaleBase;
+    let scaleY = scaleBase;
     let verticalOffset = 1.0;
     let contentWidth = 1.0;
-    if (texture && texture.image instanceof HTMLCanvasElement) {
-      const canvas = texture.image;
-      const context = canvas.getContext("2d");
-      if (context && useTiles) {
-        verticalOffset = this.getLowestPixelOffset(context, canvas.height);
-        contentWidth = this.getSpriteContentWidth(context, canvas.width);
+    const spriteMaterial = sprite.material;
+    const texture =
+      spriteMaterial instanceof THREE.SpriteMaterial ? spriteMaterial.map : null;
+    if (useTiles) {
+      const textureInfo = texture
+        ? this.resolveMonsterBillboardTextureSource(texture)
+        : null;
+      if (textureInfo) {
+        const worldUnitsPerTexturePixelX =
+          TILE_SIZE / Math.max(1, this.tileSourceSize);
+        const worldUnitsPerTexturePixelY =
+          WALL_HEIGHT / Math.max(1, this.tileSourceSize);
+        scaleX = textureInfo.width * worldUnitsPerTexturePixelX * scaleBase;
+        scaleY = textureInfo.height * worldUnitsPerTexturePixelY * scaleBase;
       }
+      if (texture?.image instanceof HTMLCanvasElement) {
+        const canvas = texture.image;
+        const context = canvas.getContext("2d");
+        if (context) {
+          verticalOffset = this.getLowestPixelOffset(
+            context,
+            canvas.width,
+            canvas.height,
+          );
+          contentWidth = this.getSpriteContentWidth(
+            context,
+            canvas.width,
+            canvas.height,
+          );
+        }
+      }
+    }
+    // Anchor billboards from bottom-center so they stand on the tile center.
+    sprite.center.set(0.5, 0);
+    sprite.scale.set(scaleX, scaleY, 1);
+    if (flattenedBackdropSprite) {
+      // Keep the historical flattened billboard behind the primary billboard.
+      flattenedBackdropSprite.scale.set(scaleBase, scaleBase, 1);
+      flattenedBackdropSprite.position.set(0, 0, 0);
     }
 
     const floorZ = isWall ? WALL_HEIGHT + 0.03 : 0.028;
-    const newZ = (verticalOffset - 0.5) * scaleBase + floorZ;
+    const bottomTransparentPadding = 1 - verticalOffset;
+    const newZ = floorZ - bottomTransparentPadding * scaleY;
     sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
     sprite.userData.elevatedZ = newZ;
     sprite.userData.tileX = x;
     sprite.userData.tileY = y;
 
-    const shadowScale = (scaleBase * contentWidth * 1.25) / (TILE_SIZE * 0.8);
+    const shadowScale = (scaleX * contentWidth * 1.25) / (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
   }
 

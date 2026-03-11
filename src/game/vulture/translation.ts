@@ -1479,12 +1479,9 @@ export class VultureTilesetTranslator {
     const hotspotY = -hsY;
     const sourceWidth = Math.max(1, image.width);
     const sourceHeight = Math.max(1, image.height);
-    const maxWidth = size * (forBillboard ? 0.86 : 1);
-    const maxHeight = size * (forBillboard ? 0.9 : 1);
-    const scale = Math.max(
-      0.001,
-      Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight),
-    );
+    const scale = forBillboard
+      ? Math.max(0.001, size / Math.max(1, this.nominalTileSize))
+      : Math.max(0.001, Math.min(size / sourceWidth, size / sourceHeight));
     const targetHotspotX = size * 0.5;
     const targetHotspotY = forBillboard ? size * 0.9 : size * 0.5;
     const drawX = targetHotspotX - hotspotX * scale;
