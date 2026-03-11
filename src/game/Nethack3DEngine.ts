@@ -7975,36 +7975,45 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private applyVultureWallPlaneFaceTransform(
     planeMesh: THREE.Object3D,
     face: VultureWallFaceSlot,
+    invertNormal: boolean = false,
   ): void {
     const epsilon = TILE_SIZE * 0.003;
     const half = TILE_SIZE / 2 - epsilon;
+    let rotationZ = 0;
+    let posX = 0;
+    let posY = 0;
     switch (face) {
       case "east":
-        planeMesh.rotation.set(0, 0, Math.PI / 2, "XYZ");
-        planeMesh.position.set(half, 0, 0);
-        return;
+        rotationZ = Math.PI / 2;
+        posX = half;
+        break;
       case "west":
-        planeMesh.rotation.set(0, 0, -Math.PI / 2, "XYZ");
-        planeMesh.position.set(-half, 0, 0);
-        return;
+        rotationZ = -Math.PI / 2;
+        posX = -half;
+        break;
       case "north":
-        planeMesh.rotation.set(0, 0, Math.PI, "XYZ");
-        planeMesh.position.set(0, half, 0);
-        return;
+        rotationZ = Math.PI;
+        posY = half;
+        break;
       case "south":
       default:
-        planeMesh.rotation.set(0, 0, 0, "XYZ");
-        planeMesh.position.set(0, -half, 0);
-        return;
+        rotationZ = 0;
+        posY = -half;
+        break;
     }
+    if (invertNormal) {
+      rotationZ += Math.PI;
+    }
+    planeMesh.rotation.set(0, 0, rotationZ, "XYZ");
+    planeMesh.position.set(posX, posY, 0);
   }
 
   private applyVultureWallPlaneSliceTransform(
     slice: VultureWallPlaneSlice,
     direction: VultureWallFaceSlot,
   ): void {
-    this.applyVultureWallPlaneFaceTransform(slice.frontMesh, direction);
-    this.applyVultureWallPlaneFaceTransform(slice.backMesh, direction);
+    this.applyVultureWallPlaneFaceTransform(slice.frontMesh, direction, false);
+    this.applyVultureWallPlaneFaceTransform(slice.backMesh, direction, true);
   }
 
   private disposeVultureDoorPlaneOverlay(mesh: THREE.Mesh): void {
@@ -9250,7 +9259,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    this.solidifyVultureWallTexturePixels(destPixels, size);
+    // W/N wall sprites in this tileset are dark mask-like passes.
+    // Preserving their original alpha avoids turning the entire plane into a
+    // solid black quad during reprojection.
+    if (face === "east" || face === "south") {
+      this.solidifyVultureWallTexturePixels(destPixels, size);
+    }
 
     source.data.set(destPixels);
     context.putImageData(source, 0, 0);
@@ -11710,7 +11724,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               clampedDarken,
               overlay.material.opacity,
             );
-            outerWallMaterial.side = THREE.BackSide;
+            outerWallMaterial.side = THREE.FrontSide;
             outerWallMaterial.transparent = true;
             const planeSlice = this.ensureVultureWallPlaneSlice(
               mesh,
