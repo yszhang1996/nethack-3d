@@ -920,6 +920,17 @@ export class VultureTilesetTranslator {
     };
   }
 
+  public resolveDoorwayFloorLookup(
+    floorX: number | null,
+    floorY: number | null,
+  ): VultureTileLookup {
+    return this.resolveFloorLookup(
+      "ROUGH",
+      normalizeMapCoordinate(floorX),
+      normalizeMapCoordinate(floorY),
+    );
+  }
+
   private resolveWallDecorStyle(params: {
     floorCmapIndex: number | null;
     wallMaterialKind: TileMaterialKind | null;
@@ -1025,11 +1036,8 @@ export class VultureTilesetTranslator {
       case 11:
         return this.resolveWallLookup(cmapIndex, materialKind);
       case 12:
-        return {
-          category: "misc",
-          name: "DOOR_WOOD_BROKEN",
-          projection: "sprite",
-        };
+        // Doorway openings sit on rough floor in Vulture mapdata.
+        return this.resolveFloorLookup("ROUGH", floorX, floorY);
       case 13:
         return {
           category: "misc",

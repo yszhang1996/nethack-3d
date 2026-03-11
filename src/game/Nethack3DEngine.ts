@@ -367,10 +367,13 @@ type VultureWallPlaneOverlay = Partial<
 type VultureDoorPlaneOverlay = {
   frontMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   backMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  floorMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
   frontTextureKey: string;
   backTextureKey: string;
+  floorTextureKey: string;
   frontMaterial: THREE.MeshBasicMaterial;
   backMaterial: THREE.MeshBasicMaterial;
+  floorMaterial: THREE.MeshBasicMaterial;
 };
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
@@ -6547,6 +6550,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
+  private shouldUseRaisedSpecialTileBillboardInTiles(
+    behavior: TileBehaviorResult,
+  ): boolean {
+    if (behavior.isPlayerGlyph) {
+      return false;
+    }
+    if (behavior.effective.kind === "statue") {
+      return true;
+    }
+    if (isSinkCmapGlyph(behavior.effective.glyph)) {
+      return true;
+    }
+    if (
+      behavior.materialKind === "stairs_up" ||
+      behavior.materialKind === "stairs_down" ||
+      behavior.materialKind === "fountain"
+    ) {
+      return true;
+    }
+    return this.isAltarOrTombstoneLikeBehavior(behavior);
+  }
+
+  private getPlayerUnderlayRaisedBillboardKey(tileKey: string): string {
+    return `${tileKey}|underlay-raised`;
+  }
+
   private isGoldLikeBehavior(behavior: TileBehaviorResult): boolean {
     if (behavior.effective.kind !== "obj") {
       return false;
@@ -8122,9 +8151,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     planeMesh: THREE.Object3D,
     face: VultureWallFaceSlot,
     invertNormal: boolean = false,
+    offsetFromCenter: number | null = null,
   ): void {
     const epsilon = TILE_SIZE * 0.003;
-    const half = TILE_SIZE / 2 - epsilon;
+    const half =
+      typeof offsetFromCenter === "number" && Number.isFinite(offsetFromCenter)
+        ? Math.max(0, offsetFromCenter)
+        : TILE_SIZE / 2 - epsilon;
     let rotationZ = 0;
     let posX = 0;
     let posY = 0;
@@ -8171,10 +8204,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.releaseGlyphTexture(overlay.frontTextureKey);
     this.releaseGlyphTexture(overlay.backTextureKey);
+    this.releaseGlyphTexture(overlay.floorTextureKey);
     mesh.remove(overlay.frontMesh);
     mesh.remove(overlay.backMesh);
+    mesh.remove(overlay.floorMesh);
     overlay.frontMaterial.dispose();
     overlay.backMaterial.dispose();
+    overlay.floorMaterial.dispose();
     delete mesh.userData.vultureDoorPlaneOverlay;
   }
 
@@ -8201,21 +8237,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
       depthWrite: false,
       depthTest: true,
     });
+    const floorMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      side: THREE.FrontSide,
+      depthWrite: false,
+      depthTest: true,
+    });
     this.patchMaterialForVignette(frontMaterial);
     this.patchMaterialForVignette(backMaterial);
+    this.patchMaterialForVignette(floorMaterial);
     const frontMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, frontMaterial);
     const backMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, backMaterial);
+    const floorMesh = new THREE.Mesh(this.floorGeometry, floorMaterial);
     frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
     backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
+    floorMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder - 1;
+    const floorPlaneZ = -WALL_HEIGHT / 2 + TILE_SIZE * 0.003;
+    floorMesh.position.set(0, 0, floorPlaneZ);
     mesh.add(frontMesh);
     mesh.add(backMesh);
+    mesh.add(floorMesh);
     const overlay: VultureDoorPlaneOverlay = {
       frontMesh,
       backMesh,
+      floorMesh,
       frontTextureKey: "",
       backTextureKey: "",
+      floorTextureKey: "",
       frontMaterial,
       backMaterial,
+      floorMaterial,
     };
     mesh.userData.vultureDoorPlaneOverlay = overlay;
     return overlay;
@@ -8279,10 +8332,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
     material.color.set("#ffffff");
   }
 
+  private applyVultureDoorFloorTexture(
+    overlay: VultureDoorPlaneOverlay,
+    lookup: VultureTileLookup,
+    darkenFactor: number,
+    opacity: number,
+  ): void {
+    const textureKey = `vdoorfloor:${lookup.category}.${lookup.name}|${darkenFactor.toFixed(3)}`;
+    const currentTextureKey = overlay.floorTextureKey;
+    if (currentTextureKey !== textureKey || !this.glyphTextureCache.has(textureKey)) {
+      if (currentTextureKey) {
+        this.releaseGlyphTexture(currentTextureKey);
+      }
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(-1, darkenFactor, false, {
+          sourceGlyph: null,
+          materialKind: "floor",
+          vultureLookup: lookup,
+        }),
+      );
+      overlay.floorTextureKey = textureKey;
+      overlay.floorMaterial.map = texture;
+      overlay.floorMaterial.needsUpdate = true;
+    }
+    overlay.floorMaterial.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    overlay.floorMaterial.color.set("#ffffff");
+  }
+
   private applyVultureDoorPlane(
     mesh: THREE.Mesh,
     sourceGlyph: number | null,
     tileIndex: number,
+    wallX: number | null,
+    wallY: number | null,
     darkenFactor: number,
     opacity: number,
     wallOrientationChar: "|" | "-" | null,
@@ -8317,6 +8399,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ...lookup,
       wallFace: backFace,
     };
+    const floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
     const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
     this.applyVultureDoorPlaneTransforms(overlay, family);
     this.applyVultureDoorPlaneTexture(
@@ -8332,6 +8415,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       "back",
       backLookup,
       family,
+      darkenFactor,
+      opacity,
+    );
+    this.applyVultureDoorFloorTexture(
+      overlay,
+      floorLookup,
       darkenFactor,
       opacity,
     );
@@ -12119,10 +12208,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
       } else if (shouldUseVultureDoorPlane && useTiles) {
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
+        const doorWallX =
+          typeof mesh.userData?.tileX === "number" &&
+          Number.isFinite(mesh.userData.tileX)
+            ? Math.trunc(mesh.userData.tileX)
+            : null;
+        const doorWallY =
+          typeof mesh.userData?.tileY === "number" &&
+          Number.isFinite(mesh.userData.tileY)
+            ? Math.trunc(mesh.userData.tileY)
+            : null;
         const doorwayPlaneApplied = this.applyVultureDoorPlane(
           mesh,
           tileTextureSourceGlyph,
           tileIndex,
+          doorWallX,
+          doorWallY,
           clampedDarken,
           overlay.material.opacity,
           wallOrientationChar,
@@ -14228,6 +14329,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private removeMonsterBillboard(key: string): void {
+    if (!key.includes("|")) {
+      const underlayKey = this.getPlayerUnderlayRaisedBillboardKey(key);
+      if (underlayKey !== key) {
+        this.removeMonsterBillboard(underlayKey);
+      }
+    }
     const sprite = this.detachMonsterBillboard(key);
     if (!sprite) {
       return;
@@ -15272,7 +15379,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const spriteDepthWrite = false;
     const spriteDepthTest = !useVultureWallPlaneOverlay;
     const spriteAlphaTest = useVultureWallPlaneOverlay ? 0.01 : 0;
-    const shouldRenderFlattenedBackdrop = useVultureWallPlaneOverlay && useTiles;
+    // Do not render the legacy flattened duplicate behind Vulture billboards.
+    // Keep only the standing billboard plus tile-floor underlay.
+    const shouldRenderFlattenedBackdrop = false;
     const spriteRenderOrder = useVultureWallPlaneOverlay
       ? this.vultureBillboardRenderOrder
       : 910;
@@ -15466,6 +15575,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isSink = isSinkCmapGlyph(behavior.effective.glyph);
     const isFountain = behavior.materialKind === "fountain";
     const isStairsUp = behavior.materialKind === "stairs_up";
+    const isStairsDown = behavior.materialKind === "stairs_down";
     const isAltarOrTombstone = this.isAltarOrTombstoneLikeBehavior(behavior);
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
@@ -15488,7 +15598,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       isLootLikeCharacter ||
       (this.isFpsMode() && isAltarOrTombstone) ||
       (useTiles &&
-        (isSink || isFountain || isStairsUp || isAltarOrTombstone || isStatue));
+        (
+          isSink ||
+          isFountain ||
+          isStairsUp ||
+          isStairsDown ||
+          isAltarOrTombstone ||
+          isStatue
+        ));
     const shouldUseElevatedBillboard =
       shouldElevateEntity && (useTiles || this.isFpsMode());
 
@@ -15634,9 +15751,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileGlyphChar = " ";
       tileTextColor = behavior.textColor;
     } else if (shouldUseElevatedBillboard) {
-      if (isStairsUp || isSink || isFountain || isAltarOrTombstone) {
+      const defaultBillboardUnderlayGlyph = this.isFpsMode()
+        ? getDefaultDarkFloorGlyph()
+        : getDefaultFloorGlyph();
+      if (
+        isStairsUp ||
+        isStairsDown ||
+        isSink ||
+        isFountain ||
+        isAltarOrTombstone
+      ) {
         renderBehavior = classifyTileBehavior({
-          glyph: getDefaultFloorGlyph(),
+          glyph: defaultBillboardUnderlayGlyph,
           runtimeChar: ".",
           runtimeColor: null,
           priorTerrain: null,
@@ -15657,7 +15783,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 : null,
             priorTerrain: floorSnapshot,
           });
-          if (
+          const shouldKeepBaseFloorUnderRaisedSpecialInVulture =
+            this.shouldUseVultureWallFaceRendering() &&
+            useTiles &&
+            this.shouldUseRaisedSpecialTileBillboardInTiles(floorBehavior);
+          if (shouldKeepBaseFloorUnderRaisedSpecialInVulture) {
+            // In Vulture mode, raised special tiles should remain billboards
+            // while the tile underlay stays a floor texture.
+            renderBehavior = classifyTileBehavior({
+              glyph: defaultBillboardUnderlayGlyph,
+              runtimeChar: ".",
+              runtimeColor: null,
+              priorTerrain: null,
+            });
+          } else if (
             isMonsterLikeCharacter &&
             floorBehavior.materialKind === "door" &&
             floorBehavior.isWall
@@ -15825,6 +15964,51 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.isFpsMode() &&
       this.hasSeenPlayerPosition &&
       shouldSuppressPlayerTileVisualInFps;
+    const shouldRenderPlayerUnderlayRaisedBillboard =
+      this.shouldUseVultureWallFaceRendering() &&
+      useTiles &&
+      !isFpsPlayerTile &&
+      this.hasSeenPlayerPosition &&
+      x === this.playerPos.x &&
+      y === this.playerPos.y;
+    let playerUnderlayRaisedBillboard:
+      | {
+          glyphChar: string;
+          textColor: string;
+          tileIndex: number;
+          sourceGlyph: number;
+          materialKind: TileMaterialKind;
+        }
+      | null = null;
+    if (shouldRenderPlayerUnderlayRaisedBillboard) {
+      const floorSnapshot = this.lastKnownTerrain.get(key) ?? null;
+      if (floorSnapshot) {
+        const floorBehavior = classifyTileBehavior({
+          glyph: floorSnapshot.glyph,
+          runtimeChar: floorSnapshot.char ?? null,
+          runtimeColor:
+            typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+          runtimeTileIndex:
+            typeof floorSnapshot.tileIndex === "number"
+              ? floorSnapshot.tileIndex
+              : null,
+          priorTerrain: floorSnapshot,
+        });
+        if (this.shouldUseRaisedSpecialTileBillboardInTiles(floorBehavior)) {
+          playerUnderlayRaisedBillboard = {
+            glyphChar: floorBehavior.glyphChar,
+            textColor: floorBehavior.textColor,
+            tileIndex:
+              typeof floorBehavior.effective.tileIndex === "number" &&
+              Number.isFinite(floorBehavior.effective.tileIndex)
+                ? Math.trunc(floorBehavior.effective.tileIndex)
+                : -1,
+            sourceGlyph: floorBehavior.effective.glyph,
+            materialKind: floorBehavior.materialKind,
+          };
+        }
+      }
+    }
 
     // Create or remove a billboard for any entity that should be elevated.
     if (shouldUseElevatedBillboard && !isFpsPlayerTile) {
@@ -15842,6 +16026,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
       );
     } else {
       this.removeMonsterBillboard(key);
+    }
+    const playerUnderlayRaisedBillboardKey =
+      this.getPlayerUnderlayRaisedBillboardKey(key);
+    if (playerUnderlayRaisedBillboard) {
+      this.ensureMonsterBillboard(
+        playerUnderlayRaisedBillboardKey,
+        x,
+        y,
+        playerUnderlayRaisedBillboard.glyphChar,
+        playerUnderlayRaisedBillboard.textColor,
+        playerUnderlayRaisedBillboard.tileIndex,
+        "monster",
+        false,
+        playerUnderlayRaisedBillboard.sourceGlyph,
+        playerUnderlayRaisedBillboard.materialKind,
+      );
+      const underlaySprite = this.monsterBillboards.get(
+        playerUnderlayRaisedBillboardKey,
+      );
+      if (underlaySprite) {
+        underlaySprite.renderOrder = this.vultureBillboardRenderOrder - 0.25;
+        underlaySprite.position.z -= TILE_SIZE * 0.005;
+      }
+      this.removeEntityBlobShadow(playerUnderlayRaisedBillboardKey);
+    } else {
+      this.removeMonsterBillboard(playerUnderlayRaisedBillboardKey);
     }
     if (behavior.effectKind) {
       this.activeEffectTileKeys.add(key);
