@@ -14825,6 +14825,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
+    const useVultureWallTransparencySorting = this.shouldUseVultureWallFaceRendering();
+    const spriteDepthWrite = useVultureWallTransparencySorting;
+    const spriteAlphaTest = useVultureWallTransparencySorting ? 0.01 : 0;
+    const spriteRenderOrder = useVultureWallTransparencySorting ? 100 : 910;
     if (!sprite) {
       const factory = useTiles
         ? () =>
@@ -14838,8 +14842,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
-        depthWrite: false,
+        depthWrite: spriteDepthWrite,
         depthTest: true,
+        alphaTest: spriteAlphaTest,
         toneMapped: false,
       });
 
@@ -14847,11 +14852,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.patchMaterialForVignette(material);
 
       sprite = new THREE.Sprite(material);
-      sprite.renderOrder = 910;
+      sprite.renderOrder = spriteRenderOrder;
       sprite.userData.textureKey = textureKey;
       this.monsterBillboards.set(spriteKey, sprite);
       this.scene.add(sprite);
     } else {
+      sprite.renderOrder = spriteRenderOrder;
       const existingTextureKey =
         typeof sprite.userData?.textureKey === "string"
           ? sprite.userData.textureKey
@@ -14876,8 +14882,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
             textureKey,
             factory,
           );
+          material.depthWrite = spriteDepthWrite;
+          material.alphaTest = spriteAlphaTest;
           material.needsUpdate = true;
           sprite.userData.textureKey = textureKey;
+        }
+      } else {
+        const material = sprite.material;
+        if (material instanceof THREE.SpriteMaterial) {
+          material.depthWrite = spriteDepthWrite;
+          material.alphaTest = spriteAlphaTest;
+          material.needsUpdate = true;
         }
       }
     }
