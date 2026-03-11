@@ -1,6 +1,7 @@
 import type { TileMaterialKind } from "../glyphs";
 import { getGlyphCatalogEntry, getGlyphCatalogRanges } from "../glyphs/registry";
 import { VULTURE_MONSTER_KEYS_367 } from "./vulture-monster-keys.367.generated";
+import { NETHACK_367_OBJECT_TOKENS } from "./nethack-object-tokens";
 
 export type VultureTileProjectionMode = "sprite" | "iso_floor";
 
@@ -209,6 +210,8 @@ export class VultureTilesetTranslator {
 
   private readonly cmapIndexByTileIndex = new Map<number, number>();
 
+  private readonly objectTokenByTileIndex = new Map<number, string>();
+
   private cmapTileLookupInitialized = false;
 
   private configLoadingStarted = false;
@@ -240,6 +243,7 @@ export class VultureTilesetTranslator {
     this.defaultTargetByCategory.clear();
     this.rangeStartByKind.clear();
     this.cmapIndexByTileIndex.clear();
+    this.objectTokenByTileIndex.clear();
     this.cmapTileLookupInitialized = false;
     this.configLoadingStarted = false;
     this.configLoaded = false;
@@ -309,12 +313,14 @@ export class VultureTilesetTranslator {
         ? this.resolveTileLookupForTileIndex(
             normalizedTileIndex,
             params.materialKind,
+            params.forBillboard,
             normalizedTileX,
             normalizedTileY,
           )
         : null) ??
       this.resolveTileLookupForGlyph(
         normalizedGlyph,
+        normalizedTileIndex,
         params.materialKind,
         params.forBillboard,
         normalizedTileX,
@@ -710,6 +716,32 @@ export class VultureTilesetTranslator {
     return typeof cmapIndex === "number" ? cmapIndex : null;
   }
 
+  public setRuntimeObjectTileIndexByObjectId(
+    tileIndexByObjectId: ReadonlyArray<number> | null | undefined,
+  ): void {
+    this.objectTokenByTileIndex.clear();
+    if (!Array.isArray(tileIndexByObjectId) || tileIndexByObjectId.length <= 0) {
+      return;
+    }
+
+    for (let objectId = 0; objectId < tileIndexByObjectId.length; objectId += 1) {
+      const rawTileIndex = tileIndexByObjectId[objectId];
+      if (typeof rawTileIndex !== "number" || !Number.isFinite(rawTileIndex)) {
+        continue;
+      }
+      const tileIndex = Math.trunc(rawTileIndex);
+      if (tileIndex < 0 || this.objectTokenByTileIndex.has(tileIndex)) {
+        continue;
+      }
+
+      const token = NETHACK_367_OBJECT_TOKENS[objectId];
+      if (!token) {
+        continue;
+      }
+      this.objectTokenByTileIndex.set(tileIndex, token);
+    }
+  }
+
   public resolveWallFaceLookup(
     params: ResolveWallFaceLookupParams,
   ): VultureTileLookup | null {
@@ -750,14 +782,26 @@ export class VultureTilesetTranslator {
   private resolveTileLookupForTileIndex(
     tileIndex: number,
     materialKind: TileMaterialKind | null,
+    forBillboard: boolean,
     floorX: number | null,
     floorY: number | null,
   ): VultureTileLookup | null {
     const cmapIndex = this.resolveCmapIndexForTileIndex(tileIndex);
-    if (typeof cmapIndex !== "number") {
+    if (typeof cmapIndex === "number") {
+      return this.resolveCmapLookup(cmapIndex, materialKind, floorX, floorY);
+    }
+
+    const objectToken = this.objectTokenByTileIndex.get(tileIndex);
+    if (!objectToken) {
       return null;
     }
-    return this.resolveCmapLookup(cmapIndex, materialKind, floorX, floorY);
+    return forBillboard
+      ? {
+          category: "object",
+          name: objectToken,
+          projection: "sprite",
+        }
+      : genericFloorLookup;
   }
 
   private resolveCmapIndexForGlyph(glyph: number): number | null {
@@ -1249,6 +1293,7 @@ export class VultureTilesetTranslator {
 
   private resolveTileLookupForGlyph(
     glyph: number,
+    tileIndex: number | null,
     materialKind: TileMaterialKind | null,
     forBillboard: boolean,
     floorX: number | null,
@@ -1335,7 +1380,34 @@ export class VultureTilesetTranslator {
         };
       }
       case "obj":
-      case "body":
+      case "body": {
+        if (
+          forBillboard &&
+          typeof tileIndex === "number" &&
+          Number.isFinite(tileIndex) &&
+          tileIndex >= 0 &&
+          entry.kind === "obj"
+        ) {
+          const rangeStart = this.getRangeStart("obj");
+          if (rangeStart !== null) {
+            const objectId = glyph - rangeStart;
+            if (
+              objectId >= 0 &&
+              objectId < NETHACK_367_OBJECT_TOKENS.length &&
+              Number.isInteger(objectId)
+            ) {
+              const objectToken = NETHACK_367_OBJECT_TOKENS[objectId];
+              if (objectToken) {
+                this.objectTokenByTileIndex.set(Math.trunc(tileIndex), objectToken);
+                return {
+                  category: "object",
+                  name: objectToken,
+                  projection: "sprite",
+                };
+              }
+            }
+          }
+        }
         return forBillboard
           ? {
               category: "object",
@@ -1343,6 +1415,7 @@ export class VultureTilesetTranslator {
               projection: "sprite",
             }
           : genericFloorLookup;
+      }
       default:
         return null;
     }

@@ -596,6 +596,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly statusConditionBlindMask: number = 0x00000020;
   private statusDebugHistory: any[] = [];
   private latestRuntimeGlobalsSnapshot: unknown = null;
+  private runtimeObjectTileIndexByObjectId: number[] | null = null;
   private currentInventory: any[] = []; // Store current inventory items
   private pendingInventoryDialog: boolean = false; // Flag to show inventory dialog after update
   private pendingInventoryDialogOptions: InventoryDialogOptions | null = null;
@@ -4024,6 +4025,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       dataRootUrl: normalizedDataRootUrl,
       onAssetReady: this.handleVultureTilesetAssetReady,
     });
+    this.vultureTilesetTranslator.setRuntimeObjectTileIndexByObjectId(
+      this.runtimeObjectTileIndexByObjectId,
+    );
     this.vultureTilesetDataRootUrl = normalizedDataRootUrl;
   }
 
@@ -6416,9 +6420,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private applyRuntimeGlobalsSnapshot(snapshot: unknown): void {
     this.latestRuntimeGlobalsSnapshot = snapshot ?? null;
+    this.runtimeObjectTileIndexByObjectId =
+      this.extractRuntimeObjectTileIndexByObjectId(snapshot);
+    this.vultureTilesetTranslator?.setRuntimeObjectTileIndexByObjectId(
+      this.runtimeObjectTileIndexByObjectId,
+    );
     if (typeof window !== "undefined") {
       (window as any).nethackRuntimeGlobals = this.latestRuntimeGlobalsSnapshot;
     }
+  }
+
+  private extractRuntimeObjectTileIndexByObjectId(
+    snapshot: unknown,
+  ): number[] | null {
+    if (!snapshot || typeof snapshot !== "object") {
+      return null;
+    }
+    const rawValue = (snapshot as { objectTileIndexByObjectId?: unknown })
+      .objectTileIndexByObjectId;
+    if (!Array.isArray(rawValue) || rawValue.length <= 0) {
+      return null;
+    }
+    const normalized = rawValue.map((entry) =>
+      typeof entry === "number" && Number.isFinite(entry) && entry >= 0
+        ? Math.trunc(entry)
+        : -1,
+    );
+    return normalized.length > 0 ? normalized : null;
   }
 
   private normalizeRuntimeExtendedCommands(rawCommands: unknown): string[] {

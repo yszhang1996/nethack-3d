@@ -3069,9 +3069,12 @@ class LocalNetHackRuntime {
         ? Object.keys(root.helpers).sort()
         : [];
 
+    const objectTileIndexByObjectId = this.buildObjectTileIndexByObjectIdSnapshot();
+
     return {
       capturedAtMs: Date.now(),
       runtimeVersion: this.runtimeVersion,
+      objectTileIndexByObjectId,
       nethackGlobal: {
         keys: Object.keys(root).sort(),
         globals: this.cloneRuntimeValueForSnapshot(root.globals),
@@ -3080,6 +3083,78 @@ class LocalNetHackRuntime {
         helperKeys,
       },
     };
+  }
+
+  buildObjectTileIndexByObjectIdSnapshot() {
+    const root =
+      globalThis.nethackGlobal && typeof globalThis.nethackGlobal === "object"
+        ? globalThis.nethackGlobal
+        : null;
+    if (!root) {
+      return null;
+    }
+
+    const constants =
+      root.constants && typeof root.constants === "object"
+        ? root.constants
+        : null;
+    const glyphConstants =
+      constants &&
+      constants.GLYPH &&
+      typeof constants.GLYPH === "object"
+        ? constants.GLYPH
+        : null;
+    if (!glyphConstants) {
+      return null;
+    }
+
+    const glyphObjOffset = this.normalizeNonNegativeInteger(
+      glyphConstants.GLYPH_OBJ_OFF,
+    );
+    const glyphCmapOffset = this.normalizeNonNegativeInteger(
+      glyphConstants.GLYPH_CMAP_OFF,
+    );
+    if (
+      glyphObjOffset === null ||
+      glyphCmapOffset === null ||
+      glyphCmapOffset <= glyphObjOffset
+    ) {
+      return null;
+    }
+
+    const objectCount = glyphCmapOffset - glyphObjOffset;
+    if (objectCount <= 0 || objectCount > 8192) {
+      return null;
+    }
+
+    const helpers =
+      root.helpers && typeof root.helpers === "object" ? root.helpers : null;
+    const tileIndexForGlyph =
+      helpers && typeof helpers.tileIndexForGlyph === "function"
+        ? helpers.tileIndexForGlyph
+        : null;
+    if (!tileIndexForGlyph) {
+      return null;
+    }
+
+    const tileIndexes = new Array(objectCount).fill(-1);
+    for (let objectId = 0; objectId < objectCount; objectId += 1) {
+      const glyph = glyphObjOffset + objectId;
+      try {
+        const rawTileIndex = tileIndexForGlyph(glyph);
+        if (
+          typeof rawTileIndex === "number" &&
+          Number.isFinite(rawTileIndex) &&
+          rawTileIndex >= 0
+        ) {
+          tileIndexes[objectId] = Math.trunc(rawTileIndex);
+        }
+      } catch {
+        tileIndexes[objectId] = -1;
+      }
+    }
+
+    return tileIndexes;
   }
 
   resolveDungeonByIndex(dungeons, dnum) {
