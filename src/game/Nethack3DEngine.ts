@@ -418,10 +418,24 @@ type VultureWallPlaneRenderConfig = {
     outerLookup: VultureWallProjectionLookup;
   }>;
 };
+type VultureProjectionTextureMode = "runtime" | "prebaked";
+type VulturePrebakedProjectionManifest = {
+  formatVersion: number;
+  tileSize: number;
+  profileSignature: string;
+  entries: Record<string, string>;
+};
+type VulturePrebakedProjectionImageState = HTMLImageElement | "loading" | null;
 
 const nh3dControllerActionIds = nh3dControllerActionSpecs.map(
   (spec) => spec.id,
 );
+// Internal-only dev toggle for Vulture projection textures.
+// Keep this out of user-facing options/UI.
+const NH3D_INTERNAL_VULTURE_PROJECTION_TEXTURE_MODE: VultureProjectionTextureMode =
+  "prebaked";
+const NH3D_VULTURE_PREBAKED_PROJECTION_MANIFEST_RELATIVE_PATH =
+  "prebaked/projection-manifest.json";
 
 function createControllerBooleanActionMap(
   initialValue: boolean,
@@ -509,6 +523,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // Fade-in animation state for newly discovered tiles.
   private tileRevealStartMs: Map<string, number> = new Map();
   private tileRevealDurationMs: number = 225;
+  private pendingTileFlushQueue: any[] = [];
+  private pendingTileFlushQueueIndex: number = 0;
+  private readonly tileFlushFrameBudgetMs: number = 5;
+  private readonly tileFlushMaxPerFrame: number = 72;
   private tileStateCache: Map<string, string> = new Map();
   private lastKnownTerrain: Map<string, TerrainSnapshot> = new Map();
   private fpsFlatFeatureUnderPlayerCache: Map<string, TerrainSnapshot> =
@@ -574,6 +592,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     new Map();
   private pendingTileUpdates: Map<string, any> = new Map();
   private tileFlushScheduled: boolean = false;
+  private pendingVultureWallMaterialRefreshKeys: Set<string> = new Set();
+  private vultureWallMaterialRefreshScheduled: boolean = false;
+  private readonly vultureWallMaterialRefreshMaxPerFrame: number = 48;
   private playerPos = { x: 0, y: 0 };
   private gameMessages: string[] = [];
   private hasSeenPlayerPosition: boolean = false;
@@ -948,6 +969,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private vultureWallProjectionRefreshScheduled = false;
   private vultureTilesetTranslator: VultureTilesetTranslator | null = null;
   private vultureTilesetDataRootUrl = "";
+  private vulturePrebakedProjectionManifest: VulturePrebakedProjectionManifest | null =
+    null;
+  private vulturePrebakedProjectionManifestUrl = "";
+  private vulturePrebakedProjectionManifestLoadPromise: Promise<void> | null =
+    null;
+  private readonly vulturePrebakedProjectionImageByUrl = new Map<
+    string,
+    VulturePrebakedProjectionImageState
+  >();
+  private readonly vulturePrebakedProjectionImageLoadPromiseByUrl = new Map<
+    string,
+    Promise<HTMLImageElement | null>
+  >();
   private readonly handleVultureTilesetAssetReady = (): void => {
     if (this.clientOptions.tilesetMode !== "tiles") {
       return;
@@ -2451,8 +2485,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private persistActiveLevelTerrainCache(): void {
-    if (this.pendingTileUpdates.size > 0) {
-      this.flushPendingTileUpdates();
+    let forceDrainPass = 0;
+    while (
+      forceDrainPass < 8 &&
+      (this.pendingTileUpdates.size > 0 ||
+        this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length)
+    ) {
+      this.flushPendingTileUpdates(true);
+      forceDrainPass += 1;
+    }
+    if (this.pendingVultureWallMaterialRefreshKeys.size > 0) {
+      this.flushPendingVultureWallMaterialRefreshes(true);
     }
 
     const activeLevelName =
@@ -4004,6 +4047,195 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureTilesetTranslator?.dispose();
     this.vultureTilesetTranslator = null;
     this.vultureTilesetDataRootUrl = "";
+    this.disposeVulturePrebakedProjectionManifest();
+  }
+
+  private disposeVulturePrebakedProjectionManifest(): void {
+    this.vulturePrebakedProjectionManifest = null;
+    this.vulturePrebakedProjectionManifestUrl = "";
+    this.vulturePrebakedProjectionManifestLoadPromise = null;
+    this.vulturePrebakedProjectionImageByUrl.clear();
+    this.vulturePrebakedProjectionImageLoadPromiseByUrl.clear();
+  }
+
+  private shouldUseVulturePrebakedProjectionTextures(): boolean {
+    return NH3D_INTERNAL_VULTURE_PROJECTION_TEXTURE_MODE === "prebaked";
+  }
+
+  private ensureVulturePrebakedProjectionManifest(dataRootUrl: string): void {
+    if (!this.shouldUseVulturePrebakedProjectionTextures()) {
+      this.disposeVulturePrebakedProjectionManifest();
+      return;
+    }
+    const manifestUrl =
+      `${dataRootUrl}/${NH3D_VULTURE_PREBAKED_PROJECTION_MANIFEST_RELATIVE_PATH}`;
+    if (
+      this.vulturePrebakedProjectionManifestUrl === manifestUrl &&
+      (this.vulturePrebakedProjectionManifest !== null ||
+        this.vulturePrebakedProjectionManifestLoadPromise !== null)
+    ) {
+      return;
+    }
+
+    this.vulturePrebakedProjectionManifest = null;
+    this.vulturePrebakedProjectionManifestUrl = manifestUrl;
+    this.vulturePrebakedProjectionManifestLoadPromise =
+      this.loadVulturePrebakedProjectionManifest(manifestUrl, dataRootUrl);
+  }
+
+  private async loadVulturePrebakedProjectionManifest(
+    manifestUrl: string,
+    dataRootUrl: string,
+  ): Promise<void> {
+    try {
+      const response = await fetch(manifestUrl);
+      if (this.vulturePrebakedProjectionManifestUrl !== manifestUrl) {
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const payload = await response.json();
+      if (this.vulturePrebakedProjectionManifestUrl !== manifestUrl) {
+        return;
+      }
+      const normalizedManifest =
+        this.normalizeVulturePrebakedProjectionManifest(payload);
+      if (!normalizedManifest) {
+        throw new Error("Invalid manifest payload");
+      }
+      this.vulturePrebakedProjectionManifest = normalizedManifest;
+
+      const preloadPaths = new Set<string>(
+        Object.values(normalizedManifest.entries),
+      );
+      const preloadUrls = Array.from(preloadPaths, (relativePath) =>
+        this.resolveVulturePrebakedProjectionAssetUrl(dataRootUrl, relativePath),
+      );
+      await Promise.allSettled(
+        preloadUrls.map((url) => this.loadVulturePrebakedProjectionImage(url)),
+      );
+      if (this.vulturePrebakedProjectionManifestUrl !== manifestUrl) {
+        return;
+      }
+      this.invalidateTilesetDependentCaches();
+      if (this.clientOptions.tilesetMode === "tiles") {
+        this.refreshTilesFromStateCache();
+      }
+    } catch (error) {
+      if (this.vulturePrebakedProjectionManifestUrl === manifestUrl) {
+        this.vulturePrebakedProjectionManifest = null;
+      }
+      console.warn(
+        `Failed to load Vulture prebaked projection manifest from '${manifestUrl}':`,
+        error,
+      );
+    } finally {
+      if (this.vulturePrebakedProjectionManifestUrl === manifestUrl) {
+        this.vulturePrebakedProjectionManifestLoadPromise = null;
+      }
+    }
+  }
+
+  private normalizeVulturePrebakedProjectionManifest(
+    payload: unknown,
+  ): VulturePrebakedProjectionManifest | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+    const manifest = payload as Partial<VulturePrebakedProjectionManifest>;
+    const rawEntries = manifest.entries;
+    if (!rawEntries || typeof rawEntries !== "object") {
+      return null;
+    }
+    const normalizedEntries: Record<string, string> = {};
+    for (const [key, value] of Object.entries(rawEntries)) {
+      if (typeof key !== "string" || typeof value !== "string") {
+        continue;
+      }
+      normalizedEntries[key] = value;
+    }
+    if (Object.keys(normalizedEntries).length <= 0) {
+      return null;
+    }
+    const tileSize =
+      typeof manifest.tileSize === "number" && Number.isFinite(manifest.tileSize)
+        ? Math.max(1, Math.trunc(manifest.tileSize))
+        : this.tileSourceSize;
+    const formatVersion =
+      typeof manifest.formatVersion === "number" &&
+      Number.isFinite(manifest.formatVersion)
+        ? Math.trunc(manifest.formatVersion)
+        : 1;
+    const profileSignature =
+      typeof manifest.profileSignature === "string"
+        ? manifest.profileSignature
+        : "";
+    if (!profileSignature) {
+      return null;
+    }
+    return {
+      formatVersion,
+      tileSize,
+      profileSignature,
+      entries: normalizedEntries,
+    };
+  }
+
+  private resolveVulturePrebakedProjectionAssetUrl(
+    dataRootUrl: string,
+    relativePath: string,
+  ): string {
+    const normalizedRelativePath = String(relativePath || "")
+      .replace(/\\/g, "/")
+      .replace(/^\.?\//, "");
+    return `${dataRootUrl}/${normalizedRelativePath}`;
+  }
+
+  private loadVulturePrebakedProjectionImage(
+    url: string,
+  ): Promise<HTMLImageElement | null> {
+    const cachedState = this.vulturePrebakedProjectionImageByUrl.get(url);
+    if (cachedState instanceof HTMLImageElement) {
+      return Promise.resolve(cachedState);
+    }
+    const pending =
+      this.vulturePrebakedProjectionImageLoadPromiseByUrl.get(url);
+    if (pending) {
+      return pending;
+    }
+
+    this.vulturePrebakedProjectionImageByUrl.set(url, "loading");
+    const loadPromise = new Promise<HTMLImageElement | null>((resolve) => {
+      const image = new Image();
+      image.onload = () => {
+        this.vulturePrebakedProjectionImageByUrl.set(url, image);
+        resolve(image);
+      };
+      image.onerror = () => {
+        this.vulturePrebakedProjectionImageByUrl.set(url, null);
+        resolve(null);
+      };
+      image.src = url;
+    }).finally(() => {
+      this.vulturePrebakedProjectionImageLoadPromiseByUrl.delete(url);
+    });
+    this.vulturePrebakedProjectionImageLoadPromiseByUrl.set(url, loadPromise);
+    return loadPromise;
+  }
+
+  private getLoadedVulturePrebakedProjectionImage(
+    url: string,
+  ): HTMLImageElement | null {
+    const cached = this.vulturePrebakedProjectionImageByUrl.get(url);
+    if (cached instanceof HTMLImageElement) {
+      return cached;
+    }
+    if (cached === "loading") {
+      return null;
+    }
+    void this.loadVulturePrebakedProjectionImage(url);
+    return null;
   }
 
   private ensureVultureTilesetTranslator(dataRootUrl: string): void {
@@ -4029,6 +4261,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.runtimeObjectTileIndexByObjectId,
     );
     this.vultureTilesetDataRootUrl = normalizedDataRootUrl;
+    this.ensureVulturePrebakedProjectionManifest(normalizedDataRootUrl);
   }
 
   private loadTilesetTexture(options: Nh3dClientOptions): void {
@@ -5469,6 +5702,111 @@ class Nethack3DEngine implements Nethack3DEngineController {
       canvas.height = size;
     }
     return canvas;
+  }
+
+  private roundVultureProjectionValue(value: number): number {
+    return Number(value.toFixed(4));
+  }
+
+  private buildVultureProjectionProfileSignature(): string {
+    const roundPoint = (
+      point: VultureWallProjectionPoint,
+    ): VultureWallProjectionPoint => ({
+      x: this.roundVultureProjectionValue(point.x),
+      y: this.roundVultureProjectionValue(point.y),
+    });
+    const roundQuad = (quad: VultureWallProjectionQuad): VultureWallProjectionQuad => ({
+      topLeft: roundPoint(quad.topLeft),
+      topRight: roundPoint(quad.topRight),
+      bottomRight: roundPoint(quad.bottomRight),
+      bottomLeft: roundPoint(quad.bottomLeft),
+    });
+    return JSON.stringify({
+      ew: roundQuad(this.vultureWallProjectionQuadEW),
+      sn: roundQuad(this.vultureWallProjectionQuadSN),
+      floor: roundQuad(this.vultureFloorProjectionQuad),
+      rotation: {
+        north: this.getVultureWallProjectionRotationDegrees("north"),
+        east: this.getVultureWallProjectionRotationDegrees("east"),
+        south: this.getVultureWallProjectionRotationDegrees("south"),
+        west: this.getVultureWallProjectionRotationDegrees("west"),
+        floor: this.getVultureFloorProjectionRotationDegrees(),
+      },
+    });
+  }
+
+  private resolveVulturePrebakedProjectionLookupKey(
+    lookup: VultureTileLookup,
+    projectionFamilyOverride: VultureWallProjectionFamily | null,
+  ): string | null {
+    if (lookup.projection === "iso_floor") {
+      return `${lookup.category}.${lookup.name}|family:floor|face:none`;
+    }
+    const wallLookup = lookup as VultureWallProjectionLookup;
+    const family =
+      projectionFamilyOverride ??
+      (lookup.category === "wall"
+        ? this.resolveVultureWallProjectionFamily(wallLookup)
+        : null);
+    if (!family) {
+      return null;
+    }
+    const face = this.resolveVultureWallProjectionFace(wallLookup, family);
+    return `${lookup.category}.${lookup.name}|family:${family}|face:${face}`;
+  }
+
+  private tryDrawVulturePrebakedProjectionTexture(params: {
+    context: CanvasRenderingContext2D;
+    size: number;
+    lookup: VultureTileLookup;
+    projectionFamilyOverride: VultureWallProjectionFamily | null;
+  }): boolean {
+    if (!this.shouldUseVulturePrebakedProjectionTextures()) {
+      return false;
+    }
+    const manifest = this.vulturePrebakedProjectionManifest;
+    if (!manifest) {
+      return false;
+    }
+    if (
+      manifest.profileSignature !== this.buildVultureProjectionProfileSignature()
+    ) {
+      return false;
+    }
+    const manifestKey = this.resolveVulturePrebakedProjectionLookupKey(
+      params.lookup,
+      params.projectionFamilyOverride,
+    );
+    if (!manifestKey) {
+      return false;
+    }
+    const relativePath = manifest.entries[manifestKey];
+    if (!relativePath || !this.vultureTilesetDataRootUrl) {
+      return false;
+    }
+    const imageUrl = this.resolveVulturePrebakedProjectionAssetUrl(
+      this.vultureTilesetDataRootUrl,
+      relativePath,
+    );
+    const image = this.getLoadedVulturePrebakedProjectionImage(imageUrl);
+    if (!image) {
+      return false;
+    }
+
+    params.context.clearRect(0, 0, params.size, params.size);
+    params.context.imageSmoothingEnabled = false;
+    params.context.drawImage(
+      image,
+      0,
+      0,
+      Math.max(1, image.width),
+      Math.max(1, image.height),
+      0,
+      0,
+      params.size,
+      params.size,
+    );
+    return true;
   }
 
   private syncVultureWallProjectionDebugPanelVisibility(): void {
@@ -7366,65 +7704,103 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     this.tileFlushScheduled = true;
-    requestAnimationFrame(() => this.flushPendingTileUpdates());
+    requestAnimationFrame(() => this.flushPendingTileUpdates(false));
   }
 
-  private flushPendingTileUpdates(): void {
-    this.tileFlushScheduled = false;
-    if (!this.pendingTileUpdates.size) {
+  private processPendingTileUpdate(tile: any): void {
+    const key = `${tile.x},${tile.y}`;
+    this.recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile);
+    const behavior = this.classifyTilePayload(tile);
+    if (
+      this.isFpsMode() &&
+      this.fpsStepCameraActive &&
+      behavior &&
+      !behavior.isPlayerGlyph &&
+      (this.isMonsterLikeBehavior(behavior) || this.isLootLikeBehavior(behavior))
+    ) {
+      this.pendingTileUpdates.set(key, tile);
       return;
     }
 
-    const updates = Array.from(this.pendingTileUpdates.values());
-    this.pendingTileUpdates.clear();
-
-    for (const tile of updates) {
-      const key = `${tile.x},${tile.y}`;
-      this.recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile);
-      const behavior = this.classifyTilePayload(tile);
-      if (
-        this.isFpsMode() &&
-        this.fpsStepCameraActive &&
-        behavior &&
-        !behavior.isPlayerGlyph &&
+    const signature = this.buildTileStateSignatureFromPayload(tile);
+    if (this.tileStateCache.get(key) === signature) {
+      const shouldHaveMonsterBillboard =
+        behavior !== null &&
         (this.isMonsterLikeBehavior(behavior) ||
-          this.isLootLikeBehavior(behavior))
-      ) {
-        this.pendingTileUpdates.set(key, tile);
-        continue;
+          this.isLootLikeBehavior(behavior)) &&
+        (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
+        !(tile.x === this.playerPos.x && tile.y === this.playerPos.y);
+      if (shouldHaveMonsterBillboard && !this.monsterBillboards.has(key)) {
+        this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
+          runtimeTileIndex:
+            typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
+        });
       }
+      return;
+    }
 
-      const signature = this.buildTileStateSignatureFromPayload(tile);
-      if (this.tileStateCache.get(key) === signature) {
-        const shouldHaveMonsterBillboard =
-          behavior !== null &&
-          (this.isMonsterLikeBehavior(behavior) ||
-            this.isLootLikeBehavior(behavior)) &&
-          (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
-          !(tile.x === this.playerPos.x && tile.y === this.playerPos.y);
-        if (shouldHaveMonsterBillboard && !this.monsterBillboards.has(key)) {
-          this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
-            runtimeTileIndex:
-              typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
-          });
+    this.tileStateCache.set(key, signature);
+    this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
+      runtimeTileIndex:
+        typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
+    });
+  }
+
+  private flushPendingTileUpdates(forceFullBatch: boolean = false): void {
+    this.tileFlushScheduled = false;
+
+    if (
+      this.pendingTileFlushQueueIndex >= this.pendingTileFlushQueue.length &&
+      this.pendingTileUpdates.size > 0
+    ) {
+      this.pendingTileFlushQueue = Array.from(this.pendingTileUpdates.values());
+      this.pendingTileFlushQueueIndex = 0;
+      this.pendingTileUpdates.clear();
+    }
+
+    if (this.pendingTileFlushQueueIndex >= this.pendingTileFlushQueue.length) {
+      this.pendingTileFlushQueue = [];
+      this.pendingTileFlushQueueIndex = 0;
+      return;
+    }
+
+    const frameStartMs = performance.now();
+    let processedCount = 0;
+    while (this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length) {
+      if (!forceFullBatch) {
+        if (processedCount >= this.tileFlushMaxPerFrame) {
+          break;
         }
-        continue;
+        if (
+          processedCount > 0 &&
+          performance.now() - frameStartMs >= this.tileFlushFrameBudgetMs
+        ) {
+          break;
+        }
       }
+      const tile = this.pendingTileFlushQueue[this.pendingTileFlushQueueIndex];
+      this.pendingTileFlushQueueIndex += 1;
+      this.processPendingTileUpdate(tile);
+      processedCount += 1;
+    }
 
-      this.tileStateCache.set(key, signature);
-      this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
-        runtimeTileIndex:
-          typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
-      });
+    if (this.pendingTileFlushQueueIndex >= this.pendingTileFlushQueue.length) {
+      this.pendingTileFlushQueue = [];
+      this.pendingTileFlushQueueIndex = 0;
     }
     // Inferred dark-corridor walls intentionally reconcile from player_position
     // updates, not tile flushes, to avoid transient wall flashes mid-move.
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
+    this.flushPendingVultureWallMaterialRefreshes();
 
-    if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+    if (
+      (this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length ||
+        this.pendingTileUpdates.size > 0) &&
+      !this.tileFlushScheduled
+    ) {
       this.tileFlushScheduled = true;
-      requestAnimationFrame(() => this.flushPendingTileUpdates());
+      requestAnimationFrame(() => this.flushPendingTileUpdates(false));
     }
   }
 
@@ -7448,12 +7824,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private flushPendingTileUpdatesForPlayerPositionReconcile(): void {
-    if (!this.pendingTileUpdates.size) {
+    if (
+      !this.pendingTileUpdates.size &&
+      this.pendingTileFlushQueueIndex >= this.pendingTileFlushQueue.length
+    ) {
       return;
     }
     // Drain queued map updates before dark-corridor wall inference runs for
     // this movement step, preventing temporary front-wall flashes.
-    this.flushPendingTileUpdates();
+    this.flushPendingTileUpdates(true);
   }
 
   /**
@@ -8085,6 +8464,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return results;
   }
 
+  private applyRevealOpacityToAuxiliaryOverlays(
+    mesh: THREE.Mesh,
+    opacity: number,
+  ): void {
+    const clampedOpacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    for (const sideOverlay of this.getAllWallSideTileOverlays(mesh)) {
+      sideOverlay.material.opacity = clampedOpacity;
+    }
+    for (const faceOverlay of this.getAllVultureWallFaceOverlays(mesh)) {
+      faceOverlay.material.opacity = clampedOpacity;
+    }
+    const doorOverlay = mesh.userData?.vultureDoorPlaneOverlay as
+      | VultureDoorPlaneOverlay
+      | undefined;
+    if (doorOverlay) {
+      doorOverlay.frontMaterial.opacity = clampedOpacity;
+      doorOverlay.backMaterial.opacity = clampedOpacity;
+      doorOverlay.floorMaterial.opacity = clampedOpacity;
+    }
+  }
+
   private disposeVultureWallFaceOverlay(
     mesh: THREE.Mesh,
     face?: VultureWallFaceSlot,
@@ -8475,7 +8875,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (floorSnapshot && Number.isFinite(floorSnapshot.glyph)) {
         floorLookupGlyph = Math.trunc(floorSnapshot.glyph);
       }
-      if (floorSnapshot && Number.isFinite(floorSnapshot.tileIndex)) {
+      if (
+        floorSnapshot &&
+        typeof floorSnapshot.tileIndex === "number" &&
+        Number.isFinite(floorSnapshot.tileIndex)
+      ) {
         floorLookupTileIndex = Math.trunc(floorSnapshot.tileIndex);
       }
     }
@@ -9170,11 +9574,64 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.shouldUseVultureWallFaceRendering()) {
       return;
     }
-    this.refreshVultureWallMaterialAt(tileX, tileY);
-    this.refreshVultureWallMaterialAt(tileX - 1, tileY);
-    this.refreshVultureWallMaterialAt(tileX + 1, tileY);
-    this.refreshVultureWallMaterialAt(tileX, tileY - 1);
-    this.refreshVultureWallMaterialAt(tileX, tileY + 1);
+    const queueCell = (x: number, y: number): void => {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return;
+      }
+      this.pendingVultureWallMaterialRefreshKeys.add(
+        `${Math.trunc(x)},${Math.trunc(y)}`,
+      );
+    };
+    queueCell(tileX, tileY);
+    queueCell(tileX - 1, tileY);
+    queueCell(tileX + 1, tileY);
+    queueCell(tileX, tileY - 1);
+    queueCell(tileX, tileY + 1);
+    this.scheduleVultureWallMaterialRefresh();
+  }
+
+  private flushPendingVultureWallMaterialRefreshes(
+    forceAll: boolean = false,
+  ): void {
+    if (!this.shouldUseVultureWallFaceRendering()) {
+      this.pendingVultureWallMaterialRefreshKeys.clear();
+      return;
+    }
+    if (this.pendingVultureWallMaterialRefreshKeys.size <= 0) {
+      return;
+    }
+    const maxPerFrame = forceAll
+      ? this.pendingVultureWallMaterialRefreshKeys.size
+      : this.vultureWallMaterialRefreshMaxPerFrame;
+    let processed = 0;
+    for (const key of Array.from(this.pendingVultureWallMaterialRefreshKeys)) {
+      this.pendingVultureWallMaterialRefreshKeys.delete(key);
+      const [rawX, rawY] = key.split(",");
+      const x = Number(rawX);
+      const y = Number(rawY);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      this.refreshVultureWallMaterialAt(Math.trunc(x), Math.trunc(y));
+      processed += 1;
+      if (processed >= maxPerFrame) {
+        break;
+      }
+    }
+  }
+
+  private scheduleVultureWallMaterialRefresh(): void {
+    if (this.vultureWallMaterialRefreshScheduled) {
+      return;
+    }
+    this.vultureWallMaterialRefreshScheduled = true;
+    requestAnimationFrame(() => {
+      this.vultureWallMaterialRefreshScheduled = false;
+      this.flushPendingVultureWallMaterialRefreshes();
+      if (this.pendingVultureWallMaterialRefreshKeys.size > 0) {
+        this.scheduleVultureWallMaterialRefresh();
+      }
+    });
   }
 
   private resolveWallOrientationChar(
@@ -9375,16 +9832,58 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     const normalizedTileIndex =
       Number.isFinite(tileIndex) && tileIndex >= 0 ? Math.trunc(tileIndex) : -1;
+    let resolvedLookup: VultureTileLookup | null = vultureLookup;
+    if (
+      !applyChromaKey &&
+      resolvedLookup === null &&
+      this.vultureTilesetTranslator &&
+      (sourceGlyph !== null || normalizedTileIndex >= 0)
+    ) {
+      resolvedLookup = this.vultureTilesetTranslator.resolveLookupForTile({
+        glyph: sourceGlyph ?? -1,
+        tileIndex: normalizedTileIndex >= 0 ? normalizedTileIndex : null,
+        tileX,
+        tileY,
+        materialKind,
+        forBillboard: false,
+      });
+    }
     let translatedDrawSucceeded = false;
+    let usedPrebakedProjectionTexture = false;
+    if (!applyChromaKey && resolvedLookup) {
+      usedPrebakedProjectionTexture = this.tryDrawVulturePrebakedProjectionTexture(
+        {
+          context,
+          size,
+          lookup: resolvedLookup,
+          projectionFamilyOverride,
+        },
+      );
+      translatedDrawSucceeded = usedPrebakedProjectionTexture;
+    }
     if (this.vultureTilesetTranslator) {
-      if (vultureLookup) {
+      if (!translatedDrawSucceeded && vultureLookup) {
         translatedDrawSucceeded = this.vultureTilesetTranslator.drawLookupTile({
           context,
           size,
           lookup: vultureLookup,
           forBillboard: applyChromaKey,
         });
-      } else if (sourceGlyph !== null || normalizedTileIndex >= 0) {
+      } else if (
+        !translatedDrawSucceeded &&
+        !applyChromaKey &&
+        resolvedLookup
+      ) {
+        translatedDrawSucceeded = this.vultureTilesetTranslator.drawLookupTile({
+          context,
+          size,
+          lookup: resolvedLookup,
+          forBillboard: false,
+        });
+      } else if (
+        !translatedDrawSucceeded &&
+        (sourceGlyph !== null || normalizedTileIndex >= 0)
+      ) {
         translatedDrawSucceeded =
           this.vultureTilesetTranslator.drawTranslatedTile({
             context,
@@ -9407,8 +9906,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    if (translatedDrawSucceeded && !applyChromaKey) {
-      let resolvedLookup: VultureTileLookup | null = vultureLookup;
+    if (translatedDrawSucceeded && !applyChromaKey && !usedPrebakedProjectionTexture) {
       if (
         resolvedLookup === null &&
         this.vultureTilesetTranslator &&
@@ -9437,23 +9935,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const projectionFamily =
         projectionFamilyOverride ??
-        (vultureLookup?.category === "wall"
-          ? this.resolveVultureWallProjectionFamily(vultureLookup)
+        (resolvedLookup?.category === "wall"
+          ? this.resolveVultureWallProjectionFamily(
+              resolvedLookup as VultureWallProjectionLookup,
+            )
           : null);
       if (projectionFamily) {
-        if (vultureLookup) {
+        if (resolvedLookup) {
           this.captureVultureWallProjectionSourcePreview(
             context,
             size,
             projectionFamily,
-            vultureLookup,
+            resolvedLookup,
           );
         }
         this.reprojectVultureWallTexture(
           context,
           size,
           projectionFamily,
-          vultureLookup,
+          resolvedLookup,
         );
       }
     }
@@ -9712,7 +10212,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let sourcePixels: Uint8ClampedArray = source.data;
     if (this.vultureTilesetTranslator && lookup) {
       const workCanvas = this.ensureVultureWallProjectionWorkCanvas(size);
-      const workContext = workCanvas.getContext("2d");
+      const workContext = workCanvas.getContext("2d", {
+        willReadFrequently: true,
+      });
       if (workContext) {
         const drewRawSource = this.vultureTilesetTranslator.drawLookupSourcePreview({
           context: workContext,
@@ -11958,6 +12460,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     const canUseTranslatedTileWithoutAtlas =
       this.shouldUseVultureTiles() && tileTextureSourceGlyph !== null;
+    const vultureTranslator = this.vultureTilesetTranslator;
+    const resolvedVultureLookup =
+      this.shouldUseVultureTiles() &&
+      !useSolidColor &&
+      vultureTranslator &&
+      (tileTextureSourceGlyph !== null || tileIndex >= 0)
+        ? vultureTranslator.resolveLookupForTile({
+            glyph: tileTextureSourceGlyph ?? sourceGlyph ?? -1,
+            tileIndex: tileIndex >= 0 ? tileIndex : null,
+            tileX: tileTextureX,
+            tileY: tileTextureY,
+            materialKind: tileTextureMaterialKind,
+            forBillboard: false,
+          })
+        : null;
+    const resolvedVultureLookupKey = resolvedVultureLookup
+      ? `${resolvedVultureLookup.category}.${resolvedVultureLookup.name}|proj:${resolvedVultureLookup.projection}`
+      : "";
     const useTiles =
       !useSolidColor &&
       this.clientOptions.tilesetMode === "tiles" &&
@@ -11965,14 +12485,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileTextureSourceGlyphKey =
       tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
     const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
-    const shouldIncludeTileCoordinatesInTextureKey =
-      this.shouldUseVultureTiles() && !isWall;
-    const tileTextureCoordinateKey =
-      shouldIncludeTileCoordinatesInTextureKey &&
-      tileTextureX !== null &&
-      tileTextureY !== null
-        ? `|xy:${tileTextureX},${tileTextureY}`
-        : "";
     const solidWallMaterial =
       useSolidColor && resolvedSolidColorHex
         ? this.getInferredDarkWallSolidColorMaterial(
@@ -11986,7 +12498,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (useSolidColor) {
       textureKey = `solid:${resolvedSolidColorHex.toLowerCase()}`;
     } else if (useTiles) {
-      textureKey = `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}${tileTextureCoordinateKey}|${clampedDarken.toFixed(3)}`;
+      textureKey = resolvedVultureLookupKey
+        ? `vtile:${resolvedVultureLookupKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`
+        : `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`;
     } else {
       textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
     }
@@ -12019,6 +12533,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 materialKind: tileTextureMaterialKind,
                 tileX: tileTextureX,
                 tileY: tileTextureY,
+                vultureLookup:
+                  resolvedVultureLookup as VultureWallProjectionLookup | null,
               },
             ), // Pass false: map tiles are opaque
         );
@@ -14151,7 +14667,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.newlyDiscoveredDarkCorridorTilesForCurrentInput.clear();
     this.activeEffectTileKeys.clear();
     this.pendingTileUpdates.clear();
+    this.pendingTileFlushQueue = [];
+    this.pendingTileFlushQueueIndex = 0;
     this.tileFlushScheduled = false;
+    this.pendingVultureWallMaterialRefreshKeys.clear();
+    this.vultureWallMaterialRefreshScheduled = false;
     this.resetMinimap();
     this.markLightingDirty();
 
@@ -14953,7 +15473,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const canvas = document.createElement("canvas");
       canvas.width = shardWidth;
       canvas.height = shardHeight;
-      const context = canvas.getContext("2d");
+      const context = canvas.getContext("2d", { willReadFrequently: true });
       if (!context) {
         continue;
       }
@@ -15638,7 +16158,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (useTiles && texture?.image instanceof HTMLCanvasElement) {
       const canvas = texture.image;
-      const context = canvas.getContext("2d");
+      const context = canvas.getContext("2d", { willReadFrequently: true });
       if (context) {
         verticalOffset = this.getLowestPixelOffset(
           context,
@@ -16093,11 +16613,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       inferredDarkWallSolidColorGridEnabled,
       inferredDarkWallSolidColorGridDarknessPercent,
     );
-    if (isInferredDarkCorridorWall && (createdMesh || restartRevealFade)) {
+    if (createdMesh || restartRevealFade) {
       const overlay = this.glyphOverlayMap.get(key);
       if (overlay) {
         overlay.material.opacity = 0;
       }
+      this.applyRevealOpacityToAuxiliaryOverlays(mesh, 0);
     }
 
     const isFpsPlayerTile =
@@ -20912,7 +21433,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const canvas = document.createElement("canvas");
     canvas.width = size;
     canvas.height = size;
-    const context = canvas.getContext("2d");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
     if (!context) {
       throw new Error("Failed to create FPS forward highlight texture context");
     }
@@ -25739,15 +26260,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       overlay.material.opacity = eased;
       const mesh = this.tileMap.get(key);
-      const sideOverlays = mesh ? this.getAllWallSideTileOverlays(mesh) : [];
-      for (const sideOverlay of sideOverlays) {
-        sideOverlay.material.opacity = eased;
+      if (mesh) {
+        this.applyRevealOpacityToAuxiliaryOverlays(mesh, eased);
       }
 
       if (t >= 1) {
         overlay.material.opacity = 1;
-        for (const sideOverlay of sideOverlays) {
-          sideOverlay.material.opacity = 1;
+        if (mesh) {
+          this.applyRevealOpacityToAuxiliaryOverlays(mesh, 1);
         }
         staleKeys.push(key);
       }

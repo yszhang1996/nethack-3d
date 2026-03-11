@@ -20,6 +20,7 @@
     "electron:dist:win:portable": "npm run build:electron && electron-builder --win portable --x64",
     "glyphs:generate": "node scripts/glyphs/generate-glyph-catalog.mjs",
     "glyphs:check": "node scripts/glyphs/check-glyph-catalog.mjs",
+    "vulture:prebake": "node scripts/vulture/prebake-vulture-projections.mjs",
     "copy-wasm": "node scripts/wasm/copy-wasm.mjs",
     "start": "vite",
     "start:preview": "vite preview",
@@ -87,6 +88,7 @@
     "cross-env": "^10.1.0",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",
+    "pngjs": "^7.0.0",
     "typescript": "^5.8.3",
     "vite": "^5.4.10",
     "wait-on": "^9.0.4"

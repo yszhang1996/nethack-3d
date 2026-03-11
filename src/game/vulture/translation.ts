@@ -156,6 +156,85 @@ const floorDecorPatternByStyle: Readonly<
   DARK: { width: 1, height: 1 },
 };
 
+const allWallDecorStyles: ReadonlyArray<VultureWallDecorStyle> = [
+  "BRICK",
+  "BRICK_BANNER",
+  "BRICK_PAINTING",
+  "BRICK_POCKET",
+  "BRICK_PILLAR",
+  "MARBLE",
+  "VINE_COVERED",
+  "STUCCO",
+  "ROUGH",
+  "DARK",
+  "LIGHT",
+];
+
+const fixedFloorDecorStyleByCmap = new Map<number, VultureFloorDecorStyle>([
+  [20, "DARK"],
+  [21, "ROUGH"],
+  [22, "ROUGH_LIT"],
+  [32, "WATER"],
+  [33, "ICE"],
+  [34, "LAVA"],
+  [39, "AIR"],
+  [41, "WATER"],
+]);
+
+function createLookup(
+  category: string,
+  name: string,
+  projection: VultureTileProjectionMode,
+): VultureTileLookup {
+  return { category, name, projection };
+}
+
+const staticCmapLookupByIndex = new Map<number, VultureTileLookup>([
+  [13, createLookup("misc", "VDOOR_WOOD_OPEN", "sprite")],
+  [14, createLookup("misc", "HDOOR_WOOD_OPEN", "sprite")],
+  [15, createLookup("misc", "VDOOR_WOOD_CLOSED", "sprite")],
+  [16, createLookup("misc", "HDOOR_WOOD_CLOSED", "sprite")],
+  [17, createLookup("misc", "BARS", "sprite")],
+  [18, createLookup("misc", "TREE", "sprite")],
+  [23, createLookup("misc", "STAIRS_UP", "sprite")],
+  [24, createLookup("misc", "STAIRS_DOWN", "sprite")],
+  [25, createLookup("misc", "LADDER_UP", "sprite")],
+  [26, createLookup("misc", "LADDER_DOWN", "sprite")],
+  [27, createLookup("misc", "ALTAR", "sprite")],
+  [28, createLookup("misc", "GRAVE", "sprite")],
+  [29, createLookup("misc", "THRONE", "sprite")],
+  [30, createLookup("misc", "SINK", "sprite")],
+  [31, createLookup("misc", "FOUNTAIN", "sprite")],
+  [35, createLookup("misc", "VODBRIDGE", "sprite")],
+  [36, createLookup("misc", "HODBRIDGE", "sprite")],
+  [37, createLookup("misc", "VCDBRIDGE", "sprite")],
+  [38, createLookup("misc", "HCDBRIDGE", "sprite")],
+  [40, createLookup("misc", "CLOUD", "sprite")],
+  [42, createLookup("misc", "TRAP_ARROW", "sprite")],
+  [43, createLookup("misc", "DART_TRAP", "sprite")],
+  [44, createLookup("misc", "FALLING_ROCK_TRAP", "sprite")],
+  [45, createLookup("misc", "SQUEAKY_BOARD", "sprite")],
+  [46, createLookup("misc", "TRAP_BEAR", "sprite")],
+  [47, createLookup("misc", "LAND_MINE", "sprite")],
+  [48, createLookup("misc", "ROLLING_BOULDER_TRAP", "sprite")],
+  [49, createLookup("misc", "GAS_TRAP", "sprite")],
+  [50, createLookup("misc", "TRAP_WATER", "sprite")],
+  [51, createLookup("misc", "TRAP_FIRE", "sprite")],
+  [52, createLookup("misc", "TRAP_PIT", "sprite")],
+  [53, createLookup("misc", "SPIKED_PIT", "sprite")],
+  [54, createLookup("misc", "HOLE", "sprite")],
+  [55, createLookup("misc", "TRAP_DOOR", "sprite")],
+  [56, createLookup("misc", "TRAP_TELEPORTER", "sprite")],
+  [57, createLookup("misc", "LEVEL_TELEPORTER", "sprite")],
+  [58, createLookup("misc", "MAGIC_PORTAL", "sprite")],
+  [59, createLookup("misc", "WEB_TRAP", "sprite")],
+  [60, createLookup("object", "STATUE", "sprite")],
+  [61, createLookup("misc", "MAGIC_TRAP", "sprite")],
+  [62, createLookup("misc", "TRAP_ANTI_MAGIC", "sprite")],
+  [63, createLookup("misc", "TRAP_POLYMORPH", "sprite")],
+  [64, createLookup("misc", "MAGIC_TRAP", "sprite")],
+]);
+
 function trimSlashes(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -212,6 +291,31 @@ export class VultureTilesetTranslator {
 
   private readonly objectTokenByTileIndex = new Map<number, string>();
 
+  private readonly floorLookupByStylePattern = new Map<string, VultureTileLookup>();
+
+  private readonly wallLookupByVariantAndFace = new Map<string, VultureTileLookup>();
+
+  private readonly wallFaceLookupByStyleHeightFace = new Map<
+    string,
+    VultureTileLookup
+  >();
+
+  private readonly pseudoRoomSelectorByRoomCell = new Map<string, number>();
+
+  private readonly tileLookupDecisionCache = new Map<
+    string,
+    VultureTileLookup | null
+  >();
+
+  private readonly wallFaceLookupDecisionCache = new Map<
+    string,
+    VultureTileLookup | null
+  >();
+
+  private readonly tileLookupDecisionCacheMaxEntries = 8192;
+
+  private readonly wallFaceLookupDecisionCacheMaxEntries = 4096;
+
   private cmapTileLookupInitialized = false;
 
   private configLoadingStarted = false;
@@ -233,6 +337,82 @@ export class VultureTilesetTranslator {
     this.configUrl = `${normalizedDataRootUrl}/config/vulture_tiles.conf`;
     this.onAssetReady =
       typeof options.onAssetReady === "function" ? options.onAssetReady : null;
+    this.initializeLookupTables();
+  }
+
+  private initializeLookupTables(): void {
+    this.floorLookupByStylePattern.clear();
+    for (const [rawStyle, pattern] of Object.entries(
+      floorDecorPatternByStyle,
+    ) as Array<[VultureFloorDecorStyle, { width: number; height: number }]>) {
+      for (let x = 0; x < pattern.width; x += 1) {
+        for (let y = 0; y < pattern.height; y += 1) {
+          const key = `${rawStyle}:${x}:${y}`;
+          this.floorLookupByStylePattern.set(
+            key,
+            createLookup("floor", `FLOOR_${rawStyle}_${x}_${y}`, "iso_floor"),
+          );
+        }
+      }
+    }
+
+    this.wallLookupByVariantAndFace.clear();
+    for (const variant of ["DARK", "ROUGH"] as const) {
+      for (const faceToken of ["E", "S"] as const) {
+        const key = `${variant}:${faceToken}`;
+        this.wallLookupByVariantAndFace.set(
+          key,
+          createLookup("wall", `WALL_${variant}_F_${faceToken}`, "sprite"),
+        );
+      }
+    }
+
+    this.wallFaceLookupByStyleHeightFace.clear();
+    for (const style of allWallDecorStyles) {
+      for (const heightToken of ["F", "H"] as const) {
+        for (const faceToken of ["W", "N", "E", "S"] as const) {
+          const key = `${style}:${heightToken}:${faceToken}`;
+          this.wallFaceLookupByStyleHeightFace.set(
+            key,
+            createLookup(
+              "wall",
+              `WALL_${style}_${heightToken}_${faceToken}`,
+              "sprite",
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  private clearLookupDecisionCaches(): void {
+    this.tileLookupDecisionCache.clear();
+    this.wallFaceLookupDecisionCache.clear();
+  }
+
+  private cacheTileLookupDecision(
+    key: string,
+    lookup: VultureTileLookup | null,
+  ): VultureTileLookup | null {
+    if (this.tileLookupDecisionCache.size >= this.tileLookupDecisionCacheMaxEntries) {
+      this.tileLookupDecisionCache.clear();
+    }
+    this.tileLookupDecisionCache.set(key, lookup);
+    return lookup;
+  }
+
+  private cacheWallFaceLookupDecision(
+    key: string,
+    lookup: VultureTileLookup | null,
+  ): VultureTileLookup | null {
+    if (
+      this.wallFaceLookupDecisionCache.size >=
+      this.wallFaceLookupDecisionCacheMaxEntries
+    ) {
+      this.wallFaceLookupDecisionCache.clear();
+    }
+    this.wallFaceLookupDecisionCache.set(key, lookup);
+    return lookup;
   }
 
   public dispose(): void {
@@ -244,6 +424,11 @@ export class VultureTilesetTranslator {
     this.rangeStartByKind.clear();
     this.cmapIndexByTileIndex.clear();
     this.objectTokenByTileIndex.clear();
+    this.floorLookupByStylePattern.clear();
+    this.wallLookupByVariantAndFace.clear();
+    this.wallFaceLookupByStyleHeightFace.clear();
+    this.pseudoRoomSelectorByRoomCell.clear();
+    this.clearLookupDecisionCaches();
     this.cmapTileLookupInitialized = false;
     this.configLoadingStarted = false;
     this.configLoaded = false;
@@ -308,7 +493,15 @@ export class VultureTilesetTranslator {
         : null;
     const normalizedTileX = normalizeMapCoordinate(params.tileX);
     const normalizedTileY = normalizeMapCoordinate(params.tileY);
-    return (
+    const lookupCacheKey = `${normalizedGlyph}|${
+      normalizedTileIndex === null ? "n" : normalizedTileIndex
+    }|${params.materialKind ?? "none"}|${params.forBillboard ? 1 : 0}|${
+      normalizedTileX === null ? "n" : normalizedTileX
+    },${normalizedTileY === null ? "n" : normalizedTileY}`;
+    if (this.tileLookupDecisionCache.has(lookupCacheKey)) {
+      return this.tileLookupDecisionCache.get(lookupCacheKey) ?? null;
+    }
+    const resolvedLookup =
       (normalizedTileIndex !== null && normalizedTileIndex >= 0
         ? this.resolveTileLookupForTileIndex(
             normalizedTileIndex,
@@ -325,8 +518,8 @@ export class VultureTilesetTranslator {
         params.forBillboard,
         normalizedTileX,
         normalizedTileY,
-      )
-    );
+      );
+    return this.cacheTileLookupDecision(lookupCacheKey, resolvedLookup);
   }
 
   public drawLookupTile(params: DrawLookupTileParams): boolean {
@@ -541,6 +734,7 @@ export class VultureTilesetTranslator {
     this.rawEntryByToken.clear();
     this.resolvedEntryByToken.clear();
     this.defaultTargetByCategory.clear();
+    this.clearLookupDecisionCaches();
 
     const lines = String(configText || "").split(/\r?\n/g);
     const assetPattern =
@@ -719,6 +913,7 @@ export class VultureTilesetTranslator {
   public setRuntimeObjectTileIndexByObjectId(
     tileIndexByObjectId: ReadonlyArray<number> | null | undefined,
   ): void {
+    this.clearLookupDecisionCaches();
     this.objectTokenByTileIndex.clear();
     if (!Array.isArray(tileIndexByObjectId) || tileIndexByObjectId.length <= 0) {
       return;
@@ -745,25 +940,36 @@ export class VultureTilesetTranslator {
   public resolveWallFaceLookup(
     params: ResolveWallFaceLookupParams,
   ): VultureTileLookup | null {
+    const wallX = Math.trunc(params.wallX);
+    const wallY = Math.trunc(params.wallY);
+    const floorX = Math.trunc(params.floorX);
+    const floorY = Math.trunc(params.floorY);
+    const wallMaterialKind = params.wallMaterialKind ?? null;
+    const heightToken: VultureWallHeightToken =
+      params.halfHeight === true ? "H" : "F";
     const floorCmapIndex = this.resolveCmapIndexFromContext(
       params.floorTileIndex ?? null,
       params.floorGlyph ?? null,
       params.floorMaterialKind ?? null,
     );
+    const wallFaceLookupCacheKey = `${floorCmapIndex ?? "null"}|${
+      wallMaterialKind ?? "none"
+    }|${wallX},${wallY}|${floorX},${floorY}|${params.face}|${heightToken}`;
+    if (this.wallFaceLookupDecisionCache.has(wallFaceLookupCacheKey)) {
+      return this.wallFaceLookupDecisionCache.get(wallFaceLookupCacheKey) ?? null;
+    }
     if (this.isWallOrUnmappedCmapIndex(floorCmapIndex)) {
-      return null;
+      return this.cacheWallFaceLookupDecision(wallFaceLookupCacheKey, null);
     }
 
     const wallStyle = this.resolveWallDecorStyle({
       floorCmapIndex,
-      wallMaterialKind: params.wallMaterialKind ?? null,
-      wallX: params.wallX,
-      wallY: params.wallY,
-      floorX: params.floorX,
-      floorY: params.floorY,
+      wallMaterialKind,
+      wallX,
+      wallY,
+      floorX,
+      floorY,
     });
-    const heightToken: VultureWallHeightToken =
-      params.halfHeight === true ? "H" : "F";
     const faceToken =
       params.face === "west"
         ? "W"
@@ -772,11 +978,15 @@ export class VultureTilesetTranslator {
           : params.face === "east"
             ? "E"
             : "S";
-    return {
-      category: "wall",
-      name: `WALL_${wallStyle}_${heightToken}_${faceToken}`,
-      projection: "sprite",
-    };
+    const lookupKey = `${wallStyle}:${heightToken}:${faceToken}`;
+    const lookup =
+      this.wallFaceLookupByStyleHeightFace.get(lookupKey) ??
+      createLookup(
+        "wall",
+        `WALL_${wallStyle}_${heightToken}_${faceToken}`,
+        "sprite",
+      );
+    return this.cacheWallFaceLookupDecision(wallFaceLookupCacheKey, lookup);
   }
 
   private resolveTileLookupForTileIndex(
@@ -886,10 +1096,17 @@ export class VultureTilesetTranslator {
     }
     const roomCellX = Math.floor(floorX / 8);
     const roomCellY = Math.floor(floorY / 8);
+    const roomCellKey = `${roomCellX},${roomCellY}`;
+    const cachedSelector = this.pseudoRoomSelectorByRoomCell.get(roomCellKey);
+    if (typeof cachedSelector === "number") {
+      return cachedSelector;
+    }
     const roomSeed =
       Math.imul(roomCellX + 17, 73856093) ^
       Math.imul(roomCellY + 31, 19349663);
-    return Math.abs(roomSeed) % 4;
+    const selector = positiveModulo(roomSeed, 4);
+    this.pseudoRoomSelectorByRoomCell.set(roomCellKey, selector);
+    return selector;
   }
 
   private resolveFloorDecorStyleForCmap(
@@ -900,40 +1117,22 @@ export class VultureTilesetTranslator {
     // Ported from Vulture floor decor selection (vultures_map.c):
     // floor type -> decor style, with cobblestone rooms split across
     // ceramic/cobblestone/moss/marble themes.
-    switch (cmapIndex) {
-      case 19: {
-        const roomSelector = this.resolvePseudoRoomSelector(floorX, floorY);
-        switch (roomSelector) {
-          case 0:
-            return "CERAMIC";
-          case 1:
-            return "COBBLESTONE";
-          case 2:
-            return "MOSS_COVERED";
-          case 3:
-            return "MARBLE";
-          default:
-            return "COBBLESTONE";
-        }
+    if (cmapIndex === 19) {
+      const roomSelector = this.resolvePseudoRoomSelector(floorX, floorY);
+      switch (roomSelector) {
+        case 0:
+          return "CERAMIC";
+        case 1:
+          return "COBBLESTONE";
+        case 2:
+          return "MOSS_COVERED";
+        case 3:
+          return "MARBLE";
+        default:
+          return "COBBLESTONE";
       }
-      case 20:
-        return "DARK";
-      case 21:
-        return "ROUGH";
-      case 22:
-        return "ROUGH_LIT";
-      case 32:
-      case 41:
-        return "WATER";
-      case 33:
-        return "ICE";
-      case 34:
-        return "LAVA";
-      case 39:
-        return "AIR";
-      default:
-        return null;
     }
+    return fixedFloorDecorStyleByCmap.get(cmapIndex) ?? null;
   }
 
   private resolveFloorPatternCoordinate(
@@ -957,11 +1156,18 @@ export class VultureTilesetTranslator {
       floorDecorPatternByStyle[floorStyle] ?? floorDecorPatternByStyle.COBBLESTONE;
     const patternX = this.resolveFloorPatternCoordinate(floorX, pattern.width);
     const patternY = this.resolveFloorPatternCoordinate(floorY, pattern.height);
-    return {
-      category: "floor",
-      name: `FLOOR_${floorStyle}_${patternX}_${patternY}`,
-      projection: "iso_floor",
-    };
+    const lookupKey = `${floorStyle}:${patternX}:${patternY}`;
+    const cachedLookup = this.floorLookupByStylePattern.get(lookupKey);
+    if (cachedLookup) {
+      return cachedLookup;
+    }
+    const fallbackLookup = createLookup(
+      "floor",
+      `FLOOR_${floorStyle}_${patternX}_${patternY}`,
+      "iso_floor",
+    );
+    this.floorLookupByStylePattern.set(lookupKey, fallbackLookup);
+    return fallbackLookup;
   }
 
   public resolveDoorwayFloorLookup(
@@ -1014,9 +1220,11 @@ export class VultureTilesetTranslator {
           return "STUCCO";
         case 1: {
           const brickVariantSeed =
-            params.wallY * params.wallX + params.wallY + params.wallX;
-          const brickVariantIndex =
-            Math.abs(brickVariantSeed) % brickWallDecorVariants.length;
+            Math.imul(params.wallY + 1, params.wallX + 1) - 1;
+          const brickVariantIndex = positiveModulo(
+            brickVariantSeed,
+            brickWallDecorVariants.length,
+          );
           return brickWallDecorVariants[brickVariantIndex];
         }
         case 2:
@@ -1034,20 +1242,27 @@ export class VultureTilesetTranslator {
     cmapIndex: number,
     materialKind: TileMaterialKind | null,
   ): VultureTileLookup {
-    const wallPrefix =
+    const wallVariant =
       materialKind === "dark_wall" || cmapIndex === 0
-        ? "WALL_DARK_F"
-        : "WALL_ROUGH_F";
+        ? "DARK"
+        : "ROUGH";
     // Vulture resolves wall faces from neighboring floor cells (mapdata.cpp +
     // levelwin.cpp). For our cube model, pick an orientation proxy from the
     // cmap symbol to keep wall UVs deterministic.
-    const faceSuffix =
+    const faceToken =
       cmapIndex === 1 || cmapIndex === 10 || cmapIndex === 11 ? "E" : "S";
-    return {
-      category: "wall",
-      name: `${wallPrefix}_${faceSuffix}`,
-      projection: "sprite",
-    };
+    const lookupKey = `${wallVariant}:${faceToken}`;
+    const cachedLookup = this.wallLookupByVariantAndFace.get(lookupKey);
+    if (cachedLookup) {
+      return cachedLookup;
+    }
+    const fallbackLookup = createLookup(
+      "wall",
+      `WALL_${wallVariant}_F_${faceToken}`,
+      "sprite",
+    );
+    this.wallLookupByVariantAndFace.set(lookupKey, fallbackLookup);
+    return fallbackLookup;
   }
 
   private resolveCmapLookup(
@@ -1065,230 +1280,24 @@ export class VultureTilesetTranslator {
       return this.resolveFloorLookup(floorDecorStyle, floorX, floorY);
     }
 
-    switch (cmapIndex) {
-      case 0:
-      case 1:
-      case 2:
-      case 3:
-      case 4:
-      case 5:
-      case 6:
-      case 7:
-      case 8:
-      case 9:
-      case 10:
-      case 11:
-        return this.resolveWallLookup(cmapIndex, materialKind);
-      case 12:
-        // Doorway openings sit on rough floor in Vulture mapdata.
-        return this.resolveFloorLookup("ROUGH", floorX, floorY);
-      case 13:
-        return {
-          category: "misc",
-          name: "VDOOR_WOOD_OPEN",
-          projection: "sprite",
-        };
-      case 14:
-        return {
-          category: "misc",
-          name: "HDOOR_WOOD_OPEN",
-          projection: "sprite",
-        };
-      case 15:
-        return {
-          category: "misc",
-          name: "VDOOR_WOOD_CLOSED",
-          projection: "sprite",
-        };
-      case 16:
-        return {
-          category: "misc",
-          name: "HDOOR_WOOD_CLOSED",
-          projection: "sprite",
-        };
-      case 17:
-        return {
-          category: "misc",
-          name: "BARS",
-          projection: "sprite",
-        };
-      case 18:
-        return {
-          category: "misc",
-          name: "TREE",
-          projection: "sprite",
-        };
-      case 23:
-        return {
-          category: "misc",
-          name: "STAIRS_UP",
-          projection: "sprite",
-        };
-      case 24:
-        return {
-          category: "misc",
-          name: "STAIRS_DOWN",
-          projection: "sprite",
-        };
-      case 25:
-        return {
-          category: "misc",
-          name: "LADDER_UP",
-          projection: "sprite",
-        };
-      case 26:
-        return {
-          category: "misc",
-          name: "LADDER_DOWN",
-          projection: "sprite",
-        };
-      case 27:
-        return {
-          category: "misc",
-          name: "ALTAR",
-          projection: "sprite",
-        };
-      case 28:
-        return {
-          category: "misc",
-          name: "GRAVE",
-          projection: "sprite",
-        };
-      case 29:
-        return {
-          category: "misc",
-          name: "THRONE",
-          projection: "sprite",
-        };
-      case 30:
-        return {
-          category: "misc",
-          name: "SINK",
-          projection: "sprite",
-        };
-      case 31:
-        return {
-          category: "misc",
-          name: "FOUNTAIN",
-          projection: "sprite",
-        };
-      case 37:
-        return {
-          category: "misc",
-          name: "VCDBRIDGE",
-          projection: "sprite",
-        };
-      case 38:
-        return {
-          category: "misc",
-          name: "HCDBRIDGE",
-          projection: "sprite",
-        };
-      case 35:
-        return {
-          category: "misc",
-          name: "VODBRIDGE",
-          projection: "sprite",
-        };
-      case 36:
-        return {
-          category: "misc",
-          name: "HODBRIDGE",
-          projection: "sprite",
-        };
-      case 40:
-        return {
-          category: "misc",
-          name: "CLOUD",
-          projection: "sprite",
-        };
-      case 42:
-        return { category: "misc", name: "TRAP_ARROW", projection: "sprite" };
-      case 43:
-        return { category: "misc", name: "DART_TRAP", projection: "sprite" };
-      case 44:
-        return {
-          category: "misc",
-          name: "FALLING_ROCK_TRAP",
-          projection: "sprite",
-        };
-      case 45:
-        return {
-          category: "misc",
-          name: "SQUEAKY_BOARD",
-          projection: "sprite",
-        };
-      case 46:
-        return { category: "misc", name: "TRAP_BEAR", projection: "sprite" };
-      case 47:
-        return { category: "misc", name: "LAND_MINE", projection: "sprite" };
-      case 48:
-        return {
-          category: "misc",
-          name: "ROLLING_BOULDER_TRAP",
-          projection: "sprite",
-        };
-      case 49:
-        return { category: "misc", name: "GAS_TRAP", projection: "sprite" };
-      case 50:
-        return { category: "misc", name: "TRAP_WATER", projection: "sprite" };
-      case 51:
-        return { category: "misc", name: "TRAP_FIRE", projection: "sprite" };
-      case 52:
-        return { category: "misc", name: "TRAP_PIT", projection: "sprite" };
-      case 53:
-        return { category: "misc", name: "SPIKED_PIT", projection: "sprite" };
-      case 54:
-        return { category: "misc", name: "HOLE", projection: "sprite" };
-      case 55:
-        return { category: "misc", name: "TRAP_DOOR", projection: "sprite" };
-      case 56:
-        return {
-          category: "misc",
-          name: "TRAP_TELEPORTER",
-          projection: "sprite",
-        };
-      case 57:
-        return {
-          category: "misc",
-          name: "LEVEL_TELEPORTER",
-          projection: "sprite",
-        };
-      case 58:
-        return {
-          category: "misc",
-          name: "MAGIC_PORTAL",
-          projection: "sprite",
-        };
-      case 59:
-        return { category: "misc", name: "WEB_TRAP", projection: "sprite" };
-      case 60:
-        return { category: "object", name: "STATUE", projection: "sprite" };
-      case 61:
-        return { category: "misc", name: "MAGIC_TRAP", projection: "sprite" };
-      case 62:
-        return {
-          category: "misc",
-          name: "TRAP_ANTI_MAGIC",
-          projection: "sprite",
-        };
-      case 63:
-        return {
-          category: "misc",
-          name: "TRAP_POLYMORPH",
-          projection: "sprite",
-        };
-      case 64:
-        return { category: "misc", name: "MAGIC_TRAP", projection: "sprite" };
-      default:
-        if (materialKind === "dark_wall" || materialKind === "wall") {
-          return this.resolveWallLookup(cmapIndex, materialKind);
-        }
-        if (materialKind === "dark") {
-          return this.resolveFloorLookup("DARK", floorX, floorY);
-        }
-        return genericFloorLookup;
+    if (cmapIndex >= 0 && cmapIndex <= 11) {
+      return this.resolveWallLookup(cmapIndex, materialKind);
     }
+    if (cmapIndex === 12) {
+      // Doorway openings sit on rough floor in Vulture mapdata.
+      return this.resolveFloorLookup("ROUGH", floorX, floorY);
+    }
+    const staticLookup = staticCmapLookupByIndex.get(cmapIndex);
+    if (staticLookup) {
+      return staticLookup;
+    }
+    if (materialKind === "dark_wall" || materialKind === "wall") {
+      return this.resolveWallLookup(cmapIndex, materialKind);
+    }
+    if (materialKind === "dark") {
+      return this.resolveFloorLookup("DARK", floorX, floorY);
+    }
+    return genericFloorLookup;
   }
 
   private resolveTileLookupForGlyph(
