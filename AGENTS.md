@@ -54,6 +54,13 @@ Start here before making changes.
 - Never modify the NetHack source code. In all cases, we need to work with what NetHack gives us. If changes are not avoidable, let the user know.
 - Do not make changes or patches for the WASM's shims, only our runtime's interactions with them. If changes are needed to the WASM shims, inform the user so they can be updated by the WASM package's author.
 
+## Vulture source code
+
+- Vulture source code can be found at `third_party/vulture`.
+- Do not modify vulture source code.
+- If any references or files are needed to run NetHack 3D, place them under `imported/vulture`. Otherwise, prefer porting logic into bespoke vulture handlers in our codebase.
+- This version of the vulture source code is an in-progress port taking vulture support from 3.60 to 3.6.7
+
 ## Current WASM Shim Caveats (3.6.7)
 
 - `shim_getmsghistory` and `shim_get_color_string` are declared as string-return callbacks in the shim layer. The current WASM bridge marshalling writes string return data directly into `ret_ptr`, which is not a reliable `char*` return pathway for these callbacks.

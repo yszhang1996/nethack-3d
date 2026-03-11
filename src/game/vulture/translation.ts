@@ -50,11 +50,29 @@ type VultureWallDecorStyle =
   | "DARK"
   | "LIGHT";
 
+type VultureFloorDecorStyle =
+  | "COBBLESTONE"
+  | "ROUGH"
+  | "CERAMIC"
+  | "LAVA"
+  | "WATER"
+  | "ICE"
+  | "MURAL"
+  | "MURAL2"
+  | "CARPET"
+  | "MOSS_COVERED"
+  | "MARBLE"
+  | "ROUGH_LIT"
+  | "AIR"
+  | "DARK";
+
 type DrawTranslatedTileParams = {
   context: CanvasRenderingContext2D;
   size: number;
   glyph: number;
   tileIndex?: number | null;
+  tileX?: number | null;
+  tileY?: number | null;
   materialKind: TileMaterialKind | null;
   forBillboard: boolean;
 };
@@ -118,6 +136,25 @@ const brickWallDecorVariants = [
   "BRICK_PILLAR",
 ] as const;
 
+const floorDecorPatternByStyle: Readonly<
+  Record<VultureFloorDecorStyle, { width: number; height: number }>
+> = {
+  COBBLESTONE: { width: 3, height: 3 },
+  ROUGH: { width: 3, height: 3 },
+  CERAMIC: { width: 3, height: 3 },
+  LAVA: { width: 3, height: 3 },
+  WATER: { width: 3, height: 3 },
+  ICE: { width: 3, height: 3 },
+  MURAL: { width: 3, height: 2 },
+  MURAL2: { width: 3, height: 2 },
+  CARPET: { width: 3, height: 2 },
+  MOSS_COVERED: { width: 3, height: 3 },
+  MARBLE: { width: 3, height: 3 },
+  ROUGH_LIT: { width: 3, height: 3 },
+  AIR: { width: 3, height: 3 },
+  DARK: { width: 1, height: 1 },
+};
+
 function trimSlashes(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -134,6 +171,17 @@ function normalizeTileNameToken(raw: string): string {
     .trim()
     .replace(/[a-z]/g, (char) => char.toUpperCase())
     .replace(/[^A-Z0-9_]/g, "_");
+}
+
+function normalizeMapCoordinate(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.trunc(value)
+    : null;
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  const normalizedDivisor = Math.max(1, Math.trunc(divisor));
+  return ((Math.trunc(value) % normalizedDivisor) + normalizedDivisor) % normalizedDivisor;
 }
 
 export class VultureTilesetTranslator {
@@ -212,9 +260,13 @@ export class VultureTilesetTranslator {
       typeof params.tileIndex === "number" && Number.isFinite(params.tileIndex)
         ? Math.trunc(params.tileIndex)
         : null;
+    const normalizedTileX = normalizeMapCoordinate(params.tileX);
+    const normalizedTileY = normalizeMapCoordinate(params.tileY);
     const lookup = this.resolveLookupForTile({
       glyph: normalizedGlyph,
       tileIndex: normalizedTileIndex,
+      tileX: normalizedTileX,
+      tileY: normalizedTileY,
       materialKind: params.materialKind,
       forBillboard: params.forBillboard,
     });
@@ -233,6 +285,8 @@ export class VultureTilesetTranslator {
   public resolveLookupForTile(params: {
     glyph: number;
     tileIndex?: number | null;
+    tileX?: number | null;
+    tileY?: number | null;
     materialKind: TileMaterialKind | null;
     forBillboard: boolean;
   }): VultureTileLookup | null {
@@ -248,17 +302,23 @@ export class VultureTilesetTranslator {
       typeof params.tileIndex === "number" && Number.isFinite(params.tileIndex)
         ? Math.trunc(params.tileIndex)
         : null;
+    const normalizedTileX = normalizeMapCoordinate(params.tileX);
+    const normalizedTileY = normalizeMapCoordinate(params.tileY);
     return (
       (normalizedTileIndex !== null && normalizedTileIndex >= 0
         ? this.resolveTileLookupForTileIndex(
             normalizedTileIndex,
             params.materialKind,
+            normalizedTileX,
+            normalizedTileY,
           )
         : null) ??
       this.resolveTileLookupForGlyph(
         normalizedGlyph,
         params.materialKind,
         params.forBillboard,
+        normalizedTileX,
+        normalizedTileY,
       )
     );
   }
@@ -690,12 +750,14 @@ export class VultureTilesetTranslator {
   private resolveTileLookupForTileIndex(
     tileIndex: number,
     materialKind: TileMaterialKind | null,
+    floorX: number | null,
+    floorY: number | null,
   ): VultureTileLookup | null {
     const cmapIndex = this.resolveCmapIndexForTileIndex(tileIndex);
     if (typeof cmapIndex !== "number") {
       return null;
     }
-    return this.resolveCmapLookup(cmapIndex, materialKind);
+    return this.resolveCmapLookup(cmapIndex, materialKind, floorX, floorY);
   }
 
   private resolveCmapIndexForGlyph(glyph: number): number | null {
@@ -769,6 +831,95 @@ export class VultureTilesetTranslator {
     return cmapIndex >= 0 && cmapIndex <= 11;
   }
 
+  private resolvePseudoRoomSelector(
+    floorX: number | null,
+    floorY: number | null,
+  ): number {
+    // Vulture uses room indices from map state; we approximate that with stable
+    // room-cell hashing so floor and wall decor stay deterministic.
+    if (floorX === null || floorY === null) {
+      return 1;
+    }
+    const roomCellX = Math.floor(floorX / 8);
+    const roomCellY = Math.floor(floorY / 8);
+    const roomSeed =
+      Math.imul(roomCellX + 17, 73856093) ^
+      Math.imul(roomCellY + 31, 19349663);
+    return Math.abs(roomSeed) % 4;
+  }
+
+  private resolveFloorDecorStyleForCmap(
+    cmapIndex: number,
+    floorX: number | null,
+    floorY: number | null,
+  ): VultureFloorDecorStyle | null {
+    // Ported from Vulture floor decor selection (vultures_map.c):
+    // floor type -> decor style, with cobblestone rooms split across
+    // ceramic/cobblestone/moss/marble themes.
+    switch (cmapIndex) {
+      case 19: {
+        const roomSelector = this.resolvePseudoRoomSelector(floorX, floorY);
+        switch (roomSelector) {
+          case 0:
+            return "CERAMIC";
+          case 1:
+            return "COBBLESTONE";
+          case 2:
+            return "MOSS_COVERED";
+          case 3:
+            return "MARBLE";
+          default:
+            return "COBBLESTONE";
+        }
+      }
+      case 20:
+        return "DARK";
+      case 21:
+        return "ROUGH";
+      case 22:
+        return "ROUGH_LIT";
+      case 32:
+      case 41:
+        return "WATER";
+      case 33:
+        return "ICE";
+      case 34:
+        return "LAVA";
+      case 39:
+        return "AIR";
+      default:
+        return null;
+    }
+  }
+
+  private resolveFloorPatternCoordinate(
+    coordinate: number | null,
+    size: number,
+  ): number {
+    const normalizedSize = Math.max(1, Math.trunc(size));
+    if (coordinate === null) {
+      return Math.min(1, normalizedSize - 1);
+    }
+    return positiveModulo(coordinate, normalizedSize);
+  }
+
+  private resolveFloorLookup(
+    floorStyle: VultureFloorDecorStyle,
+    floorX: number | null,
+    floorY: number | null,
+  ): VultureTileLookup {
+    // Vulture picks floor tile variants by coordinate modulo style dimensions.
+    const pattern =
+      floorDecorPatternByStyle[floorStyle] ?? floorDecorPatternByStyle.COBBLESTONE;
+    const patternX = this.resolveFloorPatternCoordinate(floorX, pattern.width);
+    const patternY = this.resolveFloorPatternCoordinate(floorY, pattern.height);
+    return {
+      category: "floor",
+      name: `FLOOR_${floorStyle}_${patternX}_${patternY}`,
+      projection: "iso_floor",
+    };
+  }
+
   private resolveWallDecorStyle(params: {
     floorCmapIndex: number | null;
     wallMaterialKind: TileMaterialKind | null;
@@ -798,13 +949,11 @@ export class VultureTilesetTranslator {
     ) {
       return "ROUGH";
     }
-    if (floorCmapIndex === 19 || floorCmapIndex === 20) {
-      const roomCellX = Math.floor(params.floorX / 8);
-      const roomCellY = Math.floor(params.floorY / 8);
-      const roomSeed =
-        Math.imul(roomCellX + 17, 73856093) ^
-        Math.imul(roomCellY + 31, 19349663);
-      const roomSelector = Math.abs(roomSeed) % 4;
+    if (floorCmapIndex === 19) {
+      const roomSelector = this.resolvePseudoRoomSelector(
+        params.floorX,
+        params.floorY,
+      );
       switch (roomSelector) {
         case 0:
           return "STUCCO";
@@ -849,7 +998,18 @@ export class VultureTilesetTranslator {
   private resolveCmapLookup(
     cmapIndex: number,
     materialKind: TileMaterialKind | null,
+    floorX: number | null,
+    floorY: number | null,
   ): VultureTileLookup {
+    const floorDecorStyle = this.resolveFloorDecorStyleForCmap(
+      cmapIndex,
+      floorX,
+      floorY,
+    );
+    if (floorDecorStyle) {
+      return this.resolveFloorLookup(floorDecorStyle, floorX, floorY);
+    }
+
     switch (cmapIndex) {
       case 0:
       case 1:
@@ -906,30 +1066,6 @@ export class VultureTilesetTranslator {
           name: "TREE",
           projection: "sprite",
         };
-      case 19:
-        return {
-          category: "floor",
-          name: "FLOOR_COBBLESTONE_1_1",
-          projection: "iso_floor",
-        };
-      case 20:
-        return {
-          category: "floor",
-          name: "FLOOR_DARK_0_0",
-          projection: "iso_floor",
-        };
-      case 21:
-        return {
-          category: "floor",
-          name: "FLOOR_ROUGH_1_1",
-          projection: "iso_floor",
-        };
-      case 22:
-        return {
-          category: "floor",
-          name: "FLOOR_ROUGH_LIT_1_1",
-          projection: "iso_floor",
-        };
       case 23:
         return {
           category: "misc",
@@ -984,24 +1120,6 @@ export class VultureTilesetTranslator {
           name: "FOUNTAIN",
           projection: "sprite",
         };
-      case 32:
-        return {
-          category: "floor",
-          name: "FLOOR_WATER_1_1",
-          projection: "iso_floor",
-        };
-      case 33:
-        return {
-          category: "floor",
-          name: "FLOOR_ICE_1_1",
-          projection: "iso_floor",
-        };
-      case 34:
-        return {
-          category: "floor",
-          name: "FLOOR_LAVA_1_1",
-          projection: "iso_floor",
-        };
       case 37:
         return {
           category: "misc",
@@ -1026,23 +1144,11 @@ export class VultureTilesetTranslator {
           name: "HODBRIDGE",
           projection: "sprite",
         };
-      case 39:
-        return {
-          category: "floor",
-          name: "FLOOR_AIR_1_1",
-          projection: "iso_floor",
-        };
       case 40:
         return {
           category: "misc",
           name: "CLOUD",
           projection: "sprite",
-        };
-      case 41:
-        return {
-          category: "floor",
-          name: "FLOOR_WATER_1_1",
-          projection: "iso_floor",
         };
       case 42:
         return { category: "misc", name: "TRAP_ARROW", projection: "sprite" };
@@ -1127,11 +1233,7 @@ export class VultureTilesetTranslator {
           return this.resolveWallLookup(cmapIndex, materialKind);
         }
         if (materialKind === "dark") {
-          return {
-            category: "floor",
-            name: "FLOOR_DARK_0_0",
-            projection: "iso_floor",
-          };
+          return this.resolveFloorLookup("DARK", floorX, floorY);
         }
         return genericFloorLookup;
     }
@@ -1141,6 +1243,8 @@ export class VultureTilesetTranslator {
     glyph: number,
     materialKind: TileMaterialKind | null,
     forBillboard: boolean,
+    floorX: number | null,
+    floorY: number | null,
   ): VultureTileLookup | null {
     const entry = getGlyphCatalogEntry(glyph);
     if (!entry) {
@@ -1179,7 +1283,7 @@ export class VultureTilesetTranslator {
           return null;
         }
         const cmapIndex = glyph - rangeStart;
-        return this.resolveCmapLookup(cmapIndex, materialKind);
+        return this.resolveCmapLookup(cmapIndex, materialKind, floorX, floorY);
       }
       case "warning": {
         const rangeStart = this.getRangeStart("warning");
