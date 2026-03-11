@@ -266,6 +266,7 @@ export class VultureTilesetTranslator {
         image,
         resolvedTile.hsX,
         resolvedTile.hsY,
+        params.lookup.category === "floor",
       );
       return true;
     }
@@ -1212,6 +1213,7 @@ export class VultureTilesetTranslator {
     image: HTMLImageElement,
     hsX: number,
     hsY: number,
+    solidifyOpaqueEdges: boolean = false,
   ): void {
     const hotspotX = -hsX;
     const hotspotY = -hsY;
@@ -1233,6 +1235,149 @@ export class VultureTilesetTranslator {
     context.drawImage(image, 0, 0);
     context.restore();
     this.dilateTransparentPixels(context, size, 2);
+    if (solidifyOpaqueEdges) {
+      this.solidifyOpaqueTileToBorders(context, size);
+    }
+  }
+
+  private dilateOpaquePixels(
+    data: Uint8ClampedArray,
+    size: number,
+    iterations: number,
+  ): void {
+    if (iterations <= 0 || size <= 1) {
+      return;
+    }
+    const directions: ReadonlyArray<readonly [number, number]> = [
+      [-1, 0],
+      [1, 0],
+      [0, -1],
+      [0, 1],
+    ];
+    for (let pass = 0; pass < iterations; pass += 1) {
+      const source = new Uint8ClampedArray(data);
+      for (let y = 0; y < size; y += 1) {
+        for (let x = 0; x < size; x += 1) {
+          const index = (y * size + x) * 4;
+          if (source[index + 3] > 0) {
+            continue;
+          }
+          let bestNeighborIndex = -1;
+          let bestNeighborAlpha = 0;
+          for (const [dx, dy] of directions) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= size || ny >= size) {
+              continue;
+            }
+            const neighborIndex = (ny * size + nx) * 4;
+            const neighborAlpha = source[neighborIndex + 3];
+            if (neighborAlpha <= bestNeighborAlpha) {
+              continue;
+            }
+            bestNeighborAlpha = neighborAlpha;
+            bestNeighborIndex = neighborIndex;
+          }
+          if (bestNeighborIndex < 0) {
+            continue;
+          }
+          data[index] = source[bestNeighborIndex];
+          data[index + 1] = source[bestNeighborIndex + 1];
+          data[index + 2] = source[bestNeighborIndex + 2];
+          data[index + 3] = source[bestNeighborIndex + 3];
+        }
+      }
+    }
+  }
+
+  private extendOpaqueRunsToBorders(
+    data: Uint8ClampedArray,
+    size: number,
+  ): void {
+    const rowHasOpaque = new Array<boolean>(size).fill(false);
+    for (let y = 0; y < size; y += 1) {
+      let firstOpaqueX = -1;
+      let lastOpaqueX = -1;
+      for (let x = 0; x < size; x += 1) {
+        const alpha = data[(y * size + x) * 4 + 3];
+        if (alpha <= 0) {
+          continue;
+        }
+        if (firstOpaqueX < 0) {
+          firstOpaqueX = x;
+        }
+        lastOpaqueX = x;
+      }
+      if (firstOpaqueX < 0 || lastOpaqueX < 0) {
+        continue;
+      }
+      rowHasOpaque[y] = true;
+      const firstIndex = (y * size + firstOpaqueX) * 4;
+      const lastIndex = (y * size + lastOpaqueX) * 4;
+      for (let x = 0; x < firstOpaqueX; x += 1) {
+        const index = (y * size + x) * 4;
+        data[index] = data[firstIndex];
+        data[index + 1] = data[firstIndex + 1];
+        data[index + 2] = data[firstIndex + 2];
+        data[index + 3] = data[firstIndex + 3];
+      }
+      for (let x = lastOpaqueX + 1; x < size; x += 1) {
+        const index = (y * size + x) * 4;
+        data[index] = data[lastIndex];
+        data[index + 1] = data[lastIndex + 1];
+        data[index + 2] = data[lastIndex + 2];
+        data[index + 3] = data[lastIndex + 3];
+      }
+    }
+    for (let y = 0; y < size; y += 1) {
+      if (rowHasOpaque[y]) {
+        continue;
+      }
+      let sourceRow = -1;
+      for (let search = y - 1; search >= 0; search -= 1) {
+        if (rowHasOpaque[search]) {
+          sourceRow = search;
+          break;
+        }
+      }
+      if (sourceRow < 0) {
+        for (let search = y + 1; search < size; search += 1) {
+          if (rowHasOpaque[search]) {
+            sourceRow = search;
+            break;
+          }
+        }
+      }
+      if (sourceRow < 0) {
+        continue;
+      }
+      for (let x = 0; x < size; x += 1) {
+        const srcIndex = (sourceRow * size + x) * 4;
+        const destIndex = (y * size + x) * 4;
+        data[destIndex] = data[srcIndex];
+        data[destIndex + 1] = data[srcIndex + 1];
+        data[destIndex + 2] = data[srcIndex + 2];
+        data[destIndex + 3] = data[srcIndex + 3];
+      }
+      rowHasOpaque[y] = true;
+    }
+  }
+
+  private solidifyOpaqueTileToBorders(
+    context: CanvasRenderingContext2D,
+    size: number,
+  ): void {
+    const imageData = context.getImageData(0, 0, size, size);
+    const data = imageData.data;
+    this.dilateOpaquePixels(data, size, 3);
+    this.extendOpaqueRunsToBorders(data, size);
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] <= 0) {
+        continue;
+      }
+      data[i + 3] = 255;
+    }
+    context.putImageData(imageData, 0, 0);
   }
 
   private dilateTransparentPixels(
