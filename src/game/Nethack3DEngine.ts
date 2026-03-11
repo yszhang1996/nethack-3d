@@ -8418,7 +8418,36 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ...lookup,
       wallFace: backFace,
     };
-    const floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
+    let floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
+    let floorLookupGlyph: number | null = sourceGlyph;
+    let floorLookupTileIndex: number | null = tileIndex >= 0 ? tileIndex : null;
+    if (
+      wallX !== null &&
+      Number.isFinite(wallX) &&
+      wallY !== null &&
+      Number.isFinite(wallY)
+    ) {
+      const floorSnapshot = this.getKnownTerrainSnapshotForInferenceAtKey(
+        `${Math.trunc(wallX)},${Math.trunc(wallY)}`,
+      );
+      if (floorSnapshot && Number.isFinite(floorSnapshot.glyph)) {
+        floorLookupGlyph = Math.trunc(floorSnapshot.glyph);
+      }
+      if (floorSnapshot && Number.isFinite(floorSnapshot.tileIndex)) {
+        floorLookupTileIndex = Math.trunc(floorSnapshot.tileIndex);
+      }
+    }
+    const glyphFloorLookup = translator.resolveLookupForTile({
+      glyph: floorLookupGlyph ?? -1,
+      tileIndex: floorLookupTileIndex,
+      tileX: wallX,
+      tileY: wallY,
+      materialKind: "floor",
+      forBillboard: false,
+    });
+    if (glyphFloorLookup?.projection === "iso_floor") {
+      floorLookup = glyphFloorLookup;
+    }
     const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
     const floorPlaneZ = anchorFloorToWall
       ? -WALL_HEIGHT / 2 + TILE_SIZE * 0.003
