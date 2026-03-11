@@ -34,9 +34,9 @@ const PREBAKED_MANIFEST_PATH = path.join(
 
 const floorProjectionQuad = {
   topLeft: { x: 0, y: 0.4948 },
-  topRight: { x: 0.4845, y: 0.3196 },
+  topRight: { x: 0.5, y: 0.3093 },
   bottomRight: { x: 1, y: 0.4897 },
-  bottomLeft: { x: 0.5052, y: 0.6907 },
+  bottomLeft: { x: 0.5, y: 0.6856 },
 };
 
 const wallProjectionQuadEW = {
@@ -48,8 +48,8 @@ const wallProjectionQuadEW = {
 
 const wallProjectionQuadSN = {
   topLeft: { x: 0.2165, y: 0 },
-  topRight: { x: 0.7938, y: 0.2268 },
-  bottomRight: { x: 0.8041, y: 1 },
+  topRight: { x: 0.7732, y: 0.2216 },
+  bottomRight: { x: 0.7835, y: 0.9897 },
   bottomLeft: { x: 0.2268, y: 0.7732 },
 };
 
@@ -58,7 +58,7 @@ const defaultProjectionRotationByFace = {
   east: 0,
   south: 0,
   west: 0,
-  floor: 0,
+  floor: 270,
 };
 
 function normalizeTileNameToken(rawValue) {

@@ -433,7 +433,7 @@ const nh3dControllerActionIds = nh3dControllerActionSpecs.map(
 // Internal-only dev toggle for Vulture projection textures.
 // Keep this out of user-facing options/UI.
 const NH3D_INTERNAL_VULTURE_PROJECTION_TEXTURE_MODE: VultureProjectionTextureMode =
-  "prebaked";
+  "prebaked"; // prebaked or runtime
 const NH3D_VULTURE_PREBAKED_PROJECTION_MANIFEST_RELATIVE_PATH =
   "prebaked/projection-manifest.json";
 
@@ -920,52 +920,54 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
   private vultureWallProjectionQuadSN: VultureWallProjectionQuad = {
     topLeft: { x: 0.2165, y: 0 },
-    topRight: { x: 0.7938, y: 0.2268 },
-    bottomRight: { x: 0.8041, y: 1 },
+    topRight: { x: 0.7732, y: 0.2216 },
+    bottomRight: { x: 0.7835, y: 0.9897 },
     bottomLeft: { x: 0.2268, y: 0.7732 },
   };
   private vultureFloorProjectionQuad: VultureWallProjectionQuad = {
     topLeft: { x: 0, y: 0.4948 },
-    topRight: { x: 0.4845, y: 0.3196 },
+    topRight: { x: 0.5, y: 0.3093 },
     bottomRight: { x: 1, y: 0.4897 },
-    bottomLeft: { x: 0.5052, y: 0.6907 },
+    bottomLeft: { x: 0.5, y: 0.6856 },
   };
   private vultureWallProjectionDebugPanel: HTMLDivElement | null = null;
   private vultureWallProjectionDebugCanvasEW: HTMLCanvasElement | null = null;
   private vultureWallProjectionDebugCanvasSN: HTMLCanvasElement | null = null;
-  private vultureWallProjectionDebugCanvasFloor: HTMLCanvasElement | null = null;
+  private vultureWallProjectionDebugCanvasFloor: HTMLCanvasElement | null =
+    null;
   private vultureWallProjectionDebugSourceCanvasEW: HTMLCanvasElement | null =
     null;
   private vultureWallProjectionDebugSourceCanvasSN: HTMLCanvasElement | null =
     null;
   private vultureWallProjectionDebugSourceCanvasFloor: HTMLCanvasElement | null =
     null;
-  private vultureWallProjectionDebugFamilySelect: HTMLSelectElement | null = null;
+  private vultureWallProjectionDebugFamilySelect: HTMLSelectElement | null =
+    null;
   private vultureWallProjectionDebugFamilySections: Partial<
     Record<VultureProjectionDebugFamily, HTMLDivElement>
   > = {};
   private vultureWallProjectionDebugSelectedFamily: VultureProjectionDebugFamily =
-    "floor";
-  private vultureWallProjectionRotationByFace: Record<VultureWallFaceSlot, number> =
-    {
-      north: 0,
-      east: 0,
-      south: 0,
-      west: 0,
-    };
-  private vultureFloorProjectionRotationDegrees = 0;
+    "sn";
+  private vultureWallProjectionRotationByFace: Record<
+    VultureWallFaceSlot,
+    number
+  > = {
+    north: 0,
+    east: 0,
+    south: 0,
+    west: 0,
+  };
+  private vultureFloorProjectionRotationDegrees = 270;
   private vultureWallProjectionRotationButtons: Partial<
     Record<VultureWallFaceSlot, HTMLButtonElement>
   > = {};
   private vultureFloorProjectionRotationButton: HTMLButtonElement | null = null;
   private vultureWallProjectionDebugStatusLabel: HTMLDivElement | null = null;
   private vultureWallProjectionWorkCanvas: HTMLCanvasElement | null = null;
-  private vultureWallProjectionDebugDrag:
-    | {
-        family: VultureProjectionDebugFamily;
-        cornerId: VultureWallProjectionCornerId;
-      }
-    | null = null;
+  private vultureWallProjectionDebugDrag: {
+    family: VultureProjectionDebugFamily;
+    cornerId: VultureWallProjectionCornerId;
+  } | null = null;
   private vultureWallProjectionRefreshScheduled = false;
   private vultureTilesetTranslator: VultureTilesetTranslator | null = null;
   private vultureTilesetDataRootUrl = "";
@@ -1166,12 +1168,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     TILE_SIZE,
     WALL_HEIGHT,
   );
-  private readonly vultureInvisibleSurfaceMaterial = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-  });
+  private readonly vultureInvisibleSurfaceMaterial =
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    });
 
   // Materials for different glyph types
   private materials = {
@@ -4067,8 +4070,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVulturePrebakedProjectionManifest();
       return;
     }
-    const manifestUrl =
-      `${dataRootUrl}/${NH3D_VULTURE_PREBAKED_PROJECTION_MANIFEST_RELATIVE_PATH}`;
+    const manifestUrl = `${dataRootUrl}/${NH3D_VULTURE_PREBAKED_PROJECTION_MANIFEST_RELATIVE_PATH}`;
     if (
       this.vulturePrebakedProjectionManifestUrl === manifestUrl &&
       (this.vulturePrebakedProjectionManifest !== null ||
@@ -4110,7 +4112,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         Object.values(normalizedManifest.entries),
       );
       const preloadUrls = Array.from(preloadPaths, (relativePath) =>
-        this.resolveVulturePrebakedProjectionAssetUrl(dataRootUrl, relativePath),
+        this.resolveVulturePrebakedProjectionAssetUrl(
+          dataRootUrl,
+          relativePath,
+        ),
       );
       await Promise.allSettled(
         preloadUrls.map((url) => this.loadVulturePrebakedProjectionImage(url)),
@@ -4159,7 +4164,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
     const tileSize =
-      typeof manifest.tileSize === "number" && Number.isFinite(manifest.tileSize)
+      typeof manifest.tileSize === "number" &&
+      Number.isFinite(manifest.tileSize)
         ? Math.max(1, Math.trunc(manifest.tileSize))
         : this.tileSourceSize;
     const formatVersion =
@@ -4284,7 +4290,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.tilesetTexture?.dispose();
       this.tilesetTexture = null;
       this.ensureVultureTilesetTranslator(tilesetAssetUrl || "");
-      this.tileSourceSize = this.vultureTilesetTranslator?.nominalTileSize ?? 112;
+      this.tileSourceSize =
+        this.vultureTilesetTranslator?.nominalTileSize ?? 112;
       this.invalidateTilesetDependentCaches();
       if (this.clientOptions.tilesetMode === "tiles") {
         this.refreshTilesFromStateCache();
@@ -5305,7 +5312,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     rotationRow.style.gridTemplateColumns = "repeat(4, minmax(0, 1fr))";
     rotationRow.style.columnGap = "4px";
     rotationRow.style.marginBottom = "8px";
-    const createRotationButton = (face: VultureWallFaceSlot): HTMLButtonElement => {
+    const createRotationButton = (
+      face: VultureWallFaceSlot,
+    ): HTMLButtonElement => {
       const button = document.createElement("button");
       button.type = "button";
       button.style.font = "11px monospace";
@@ -5438,7 +5447,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.vultureWallProjectionDebugCanvasEW = createSection("ew", "E/W");
     this.vultureWallProjectionDebugCanvasSN = createSection("sn", "S/N");
-    this.vultureWallProjectionDebugCanvasFloor = createSection("floor", "Floor");
+    this.vultureWallProjectionDebugCanvasFloor = createSection(
+      "floor",
+      "Floor",
+    );
 
     const note = document.createElement("div");
     note.textContent = "Drag corners to remap";
@@ -5542,7 +5554,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       x: Number(point.x.toFixed(4)),
       y: Number(point.y.toFixed(4)),
     });
-    const roundQuad = (quad: VultureWallProjectionQuad): VultureWallProjectionQuad => ({
+    const roundQuad = (
+      quad: VultureWallProjectionQuad,
+    ): VultureWallProjectionQuad => ({
       topLeft: roundPoint(quad.topLeft),
       topRight: roundPoint(quad.topRight),
       bottomRight: roundPoint(quad.bottomRight),
@@ -5620,16 +5634,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (family === "sn") {
       return {
         topLeft: { x: 0.2165, y: 0 },
-        topRight: { x: 0.7938, y: 0.2268 },
-        bottomRight: { x: 0.8041, y: 1 },
+        topRight: { x: 0.7732, y: 0.2216 },
+        bottomRight: { x: 0.7835, y: 0.9897 },
         bottomLeft: { x: 0.2268, y: 0.7732 },
       };
     }
     return {
       topLeft: { x: 0, y: 0.4948 },
-      topRight: { x: 0.4845, y: 0.3196 },
+      topRight: { x: 0.5, y: 0.3093 },
       bottomRight: { x: 1, y: 0.4897 },
-      bottomLeft: { x: 0.5052, y: 0.6907 },
+      bottomLeft: { x: 0.5, y: 0.6856 },
     };
   }
 
@@ -5691,7 +5705,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return canvas;
   }
 
-  private ensureVultureWallProjectionWorkCanvas(size: number): HTMLCanvasElement {
+  private ensureVultureWallProjectionWorkCanvas(
+    size: number,
+  ): HTMLCanvasElement {
     let canvas = this.vultureWallProjectionWorkCanvas;
     if (!canvas) {
       canvas = document.createElement("canvas");
@@ -5715,7 +5731,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       x: this.roundVultureProjectionValue(point.x),
       y: this.roundVultureProjectionValue(point.y),
     });
-    const roundQuad = (quad: VultureWallProjectionQuad): VultureWallProjectionQuad => ({
+    const roundQuad = (
+      quad: VultureWallProjectionQuad,
+    ): VultureWallProjectionQuad => ({
       topLeft: roundPoint(quad.topLeft),
       topRight: roundPoint(quad.topRight),
       bottomRight: roundPoint(quad.bottomRight),
@@ -5769,7 +5787,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
     if (
-      manifest.profileSignature !== this.buildVultureProjectionProfileSignature()
+      manifest.profileSignature !==
+      this.buildVultureProjectionProfileSignature()
     ) {
       return false;
     }
@@ -5814,9 +5833,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.syncVultureWallProjectionRotationButtonLabels();
-    const wasVisible = this.vultureWallProjectionDebugPanel.style.display === "block";
+    const wasVisible =
+      this.vultureWallProjectionDebugPanel.style.display === "block";
     const visible = this.shouldUseVultureTiles();
-    this.vultureWallProjectionDebugPanel.style.display = visible ? "block" : "none";
+    this.vultureWallProjectionDebugPanel.style.display = visible
+      ? "block"
+      : "none";
     if (visible) {
       if (!wasVisible) {
         this.scheduleVultureWallProjectionRefresh();
@@ -5843,13 +5865,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!pointer) {
       return;
     }
-    const cornerId = this.findNearestVultureWallProjectionCorner(family, pointer);
+    const cornerId = this.findNearestVultureWallProjectionCorner(
+      family,
+      pointer,
+    );
     if (!cornerId) {
       return;
     }
     this.vultureWallProjectionDebugDrag = { family, cornerId };
     canvas.setPointerCapture(event.pointerId);
-    this.updateVultureWallProjectionCorner(family, cornerId, pointer.x, pointer.y);
+    this.updateVultureWallProjectionCorner(
+      family,
+      cornerId,
+      pointer.x,
+      pointer.y,
+    );
     event.preventDefault();
   }
 
@@ -5909,9 +5939,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
     const xPx =
-      ((event.clientX - rect.left) / rect.width) * Math.max(1, canvas.width - 1);
+      ((event.clientX - rect.left) / rect.width) *
+      Math.max(1, canvas.width - 1);
     const yPx =
-      ((event.clientY - rect.top) / rect.height) * Math.max(1, canvas.height - 1);
+      ((event.clientY - rect.top) / rect.height) *
+      Math.max(1, canvas.height - 1);
     return {
       x: THREE.MathUtils.clamp(xPx / Math.max(1, canvas.width - 1), 0, 1),
       y: THREE.MathUtils.clamp(yPx / Math.max(1, canvas.height - 1), 0, 1),
@@ -5964,7 +5996,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const corner = quad[cornerId];
     const nextX = THREE.MathUtils.clamp(x, 0, 1);
     const nextY = THREE.MathUtils.clamp(y, 0, 1);
-    if (Math.abs(corner.x - nextX) < 0.0001 && Math.abs(corner.y - nextY) < 0.0001) {
+    if (
+      Math.abs(corner.x - nextX) < 0.0001 &&
+      Math.abs(corner.y - nextY) < 0.0001
+    ) {
       return;
     }
     corner.x = nextX;
@@ -6131,7 +6166,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (!drewRawPreview) {
       sourceContext.clearRect(0, 0, size, size);
-      sourceContext.drawImage(context.canvas, 0, 0, size, size, 0, 0, size, size);
+      sourceContext.drawImage(
+        context.canvas,
+        0,
+        0,
+        size,
+        size,
+        0,
+        0,
+        size,
+        size,
+      );
     }
     this.renderVultureWallProjectionDebugCanvas(family);
   }
@@ -7716,7 +7761,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsStepCameraActive &&
       behavior &&
       !behavior.isPlayerGlyph &&
-      (this.isMonsterLikeBehavior(behavior) || this.isLootLikeBehavior(behavior))
+      (this.isMonsterLikeBehavior(behavior) ||
+        this.isLootLikeBehavior(behavior))
     ) {
       this.pendingTileUpdates.set(key, tile);
       return;
@@ -7766,7 +7812,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const frameStartMs = performance.now();
     let processedCount = 0;
-    while (this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length) {
+    while (
+      this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length
+    ) {
       if (!forceFullBatch) {
         if (processedCount >= this.tileFlushMaxPerFrame) {
           break;
@@ -8499,7 +8547,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         overlay.material.dispose();
         if (overlays) {
           delete overlays[face];
-          if (!overlays.west && !overlays.north && !overlays.east && !overlays.south) {
+          if (
+            !overlays.west &&
+            !overlays.north &&
+            !overlays.east &&
+            !overlays.south
+          ) {
             delete mesh.userData.vultureWallFaceOverlays;
           }
         }
@@ -8635,6 +8688,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     this.applyVultureWallPlaneFaceTransform(slice.frontMesh, direction, false);
     this.applyVultureWallPlaneFaceTransform(slice.backMesh, direction, true);
+    slice.frontMesh.scale.set(1, 1, 1);
+    slice.backMesh.scale.set(1, 1, 1);
   }
 
   private disposeVultureDoorPlaneOverlay(mesh: THREE.Mesh): void {
@@ -8656,7 +8711,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     delete mesh.userData.vultureDoorPlaneOverlay;
   }
 
-  private ensureVultureDoorPlaneOverlay(mesh: THREE.Mesh): VultureDoorPlaneOverlay {
+  private ensureVultureDoorPlaneOverlay(
+    mesh: THREE.Mesh,
+  ): VultureDoorPlaneOverlay {
     const existing = mesh.userData?.vultureDoorPlaneOverlay as
       | VultureDoorPlaneOverlay
       | undefined;
@@ -8690,8 +8747,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.patchMaterialForVignette(frontMaterial);
     this.patchMaterialForVignette(backMaterial);
     this.patchMaterialForVignette(floorMaterial);
-    const frontMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, frontMaterial);
-    const backMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, backMaterial);
+    const frontMesh = new THREE.Mesh(
+      this.vultureDoorPlaneGeometry,
+      frontMaterial,
+    );
+    const backMesh = new THREE.Mesh(
+      this.vultureDoorPlaneGeometry,
+      backMaterial,
+    );
     const floorMesh = new THREE.Mesh(this.floorGeometry, floorMaterial);
     frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
     backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
@@ -8761,7 +8824,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const textureKey = `vdoor:${lookup.category}.${lookup.name}|face:${face}|rot:${rotation}|${darkenFactor.toFixed(3)}`;
     const currentTextureKey =
       side === "front" ? overlay.frontTextureKey : overlay.backTextureKey;
-    if (currentTextureKey !== textureKey || !this.glyphTextureCache.has(textureKey)) {
+    if (
+      currentTextureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey)
+    ) {
       if (currentTextureKey) {
         this.releaseGlyphTexture(currentTextureKey);
       }
@@ -8783,7 +8849,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         overlay.backMaterial.needsUpdate = true;
       }
     }
-    const material = side === "front" ? overlay.frontMaterial : overlay.backMaterial;
+    const material =
+      side === "front" ? overlay.frontMaterial : overlay.backMaterial;
     material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
     material.color.set("#ffffff");
   }
@@ -8796,7 +8863,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   ): void {
     const textureKey = `vdoorfloor:${lookup.category}.${lookup.name}|${darkenFactor.toFixed(3)}`;
     const currentTextureKey = overlay.floorTextureKey;
-    if (currentTextureKey !== textureKey || !this.glyphTextureCache.has(textureKey)) {
+    if (
+      currentTextureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey)
+    ) {
       if (currentTextureKey) {
         this.releaseGlyphTexture(currentTextureKey);
       }
@@ -9204,7 +9274,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (floorTileIndex === null) {
       return false;
     }
-    const floorCmapIndex = translator.resolveCmapIndexForTileIndex(floorTileIndex);
+    const floorCmapIndex =
+      translator.resolveCmapIndexForTileIndex(floorTileIndex);
     return (
       floorCmapIndex !== null &&
       ((floorCmapIndex >= 12 && floorCmapIndex <= 18) ||
@@ -9308,22 +9379,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
       fallbackLookup: VultureWallProjectionLookup | null,
       innerTextureFace: VultureWallFaceSlot,
       outerTextureFace: VultureWallFaceSlot,
-    ):
-      | {
-          direction: VultureWallFaceSlot;
-          innerTextureFace: VultureWallFaceSlot;
-          outerTextureFace: VultureWallFaceSlot;
-          innerLookup: VultureWallProjectionLookup;
-          outerLookup: VultureWallProjectionLookup;
-        }
-      | null => {
+    ): {
+      direction: VultureWallFaceSlot;
+      innerTextureFace: VultureWallFaceSlot;
+      outerTextureFace: VultureWallFaceSlot;
+      innerLookup: VultureWallProjectionLookup;
+      outerLookup: VultureWallProjectionLookup;
+    } | null => {
       let innerLookup = remapLookup(
         preferredLookup,
         fallbackLookup,
         innerTextureFace,
       );
       let outerLookup = innerLookup
-        ? this.resolveVultureLookupWithOppositeFace(innerLookup, outerTextureFace)
+        ? this.resolveVultureLookupWithOppositeFace(
+            innerLookup,
+            outerTextureFace,
+          )
         : remapLookup(fallbackLookup, preferredLookup, outerTextureFace);
       if (!innerLookup && outerLookup) {
         innerLookup = this.resolveVultureLookupWithOppositeFace(
@@ -9353,15 +9425,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       preferredLookup: VultureWallProjectionLookup | null,
       innerTextureFace: VultureWallFaceSlot,
       outerTextureFace: VultureWallFaceSlot,
-    ):
-      | {
-          direction: VultureWallFaceSlot;
-          innerTextureFace: VultureWallFaceSlot;
-          outerTextureFace: VultureWallFaceSlot;
-          innerLookup: VultureWallProjectionLookup;
-          outerLookup: VultureWallProjectionLookup;
-        }
-      | null => {
+    ): {
+      direction: VultureWallFaceSlot;
+      innerTextureFace: VultureWallFaceSlot;
+      outerTextureFace: VultureWallFaceSlot;
+      innerLookup: VultureWallProjectionLookup;
+      outerLookup: VultureWallProjectionLookup;
+    } | null => {
       if (!preferredLookup) {
         return null;
       }
@@ -9529,7 +9599,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const baseMaterial = this.getMaterialByKind(materialKind);
     const glyphChar =
-      typeof mesh.userData?.glyphChar === "string" ? mesh.userData.glyphChar : " ";
+      typeof mesh.userData?.glyphChar === "string"
+        ? mesh.userData.glyphChar
+        : " ";
     const textColor =
       typeof mesh.userData?.glyphTextColor === "string"
         ? mesh.userData.glyphTextColor
@@ -9851,14 +9923,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let translatedDrawSucceeded = false;
     let usedPrebakedProjectionTexture = false;
     if (!applyChromaKey && resolvedLookup) {
-      usedPrebakedProjectionTexture = this.tryDrawVulturePrebakedProjectionTexture(
-        {
+      usedPrebakedProjectionTexture =
+        this.tryDrawVulturePrebakedProjectionTexture({
           context,
           size,
           lookup: resolvedLookup,
           projectionFamilyOverride,
-        },
-      );
+        });
       translatedDrawSucceeded = usedPrebakedProjectionTexture;
     }
     if (this.vultureTilesetTranslator) {
@@ -9906,22 +9977,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    if (translatedDrawSucceeded && !applyChromaKey && !usedPrebakedProjectionTexture) {
+    if (
+      translatedDrawSucceeded &&
+      !applyChromaKey &&
+      !usedPrebakedProjectionTexture
+    ) {
       if (
         resolvedLookup === null &&
         this.vultureTilesetTranslator &&
         (sourceGlyph !== null || normalizedTileIndex >= 0)
       ) {
-        resolvedLookup = this.vultureTilesetTranslator.resolveLookupForTile(
-          {
-            glyph: sourceGlyph ?? -1,
-            tileIndex: normalizedTileIndex >= 0 ? normalizedTileIndex : null,
-            tileX,
-            tileY,
-            materialKind,
-            forBillboard: false,
-          },
-        );
+        resolvedLookup = this.vultureTilesetTranslator.resolveLookupForTile({
+          glyph: sourceGlyph ?? -1,
+          tileIndex: normalizedTileIndex >= 0 ? normalizedTileIndex : null,
+          tileX,
+          tileY,
+          materialKind,
+          forBillboard: false,
+        });
       }
       if (resolvedLookup?.projection === "iso_floor") {
         this.captureVultureWallProjectionSourcePreview(
@@ -9930,7 +10003,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           "floor",
           resolvedLookup,
         );
-        this.reprojectVultureWallTexture(context, size, "floor", resolvedLookup);
+        this.reprojectVultureWallTexture(
+          context,
+          size,
+          "floor",
+          resolvedLookup,
+        );
       }
 
       const projectionFamily =
@@ -10216,11 +10294,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         willReadFrequently: true,
       });
       if (workContext) {
-        const drewRawSource = this.vultureTilesetTranslator.drawLookupSourcePreview({
-          context: workContext,
-          size,
-          lookup,
-        });
+        const drewRawSource =
+          this.vultureTilesetTranslator.drawLookupSourcePreview({
+            context: workContext,
+            size,
+            lookup,
+          });
         if (drewRawSource) {
           sourcePixels = workContext.getImageData(0, 0, size, size).data;
         }
@@ -12524,19 +12603,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         overlay.texture = this.acquireGlyphTexture(
           textureKey,
           () =>
-            this.createTileTexture(
-              tileIndex,
-              clampedDarken,
-              false,
-              {
-                sourceGlyph: tileTextureSourceGlyph,
-                materialKind: tileTextureMaterialKind,
-                tileX: tileTextureX,
-                tileY: tileTextureY,
-                vultureLookup:
-                  resolvedVultureLookup as VultureWallProjectionLookup | null,
-              },
-            ), // Pass false: map tiles are opaque
+            this.createTileTexture(tileIndex, clampedDarken, false, {
+              sourceGlyph: tileTextureSourceGlyph,
+              materialKind: tileTextureMaterialKind,
+              tileX: tileTextureX,
+              tileY: tileTextureY,
+              vultureLookup:
+                resolvedVultureLookup as VultureWallProjectionLookup | null,
+            }), // Pass false: map tiles are opaque
         );
       } else {
         overlay.texture = this.acquireGlyphTexture(textureKey, () =>
@@ -12599,7 +12673,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const wallOrientationChar =
       tileTextureMaterialKind === "door"
         ? this.resolveWallOrientationChar(" ", wallOrientationSourceGlyph)
-        : this.resolveWallOrientationChar(glyphChar, wallOrientationSourceGlyph);
+        : this.resolveWallOrientationChar(
+            glyphChar,
+            wallOrientationSourceGlyph,
+          );
     const cornerWallSideBaseTileIndex =
       this.resolveCornerWallSideBaseTileIndex(tileIndex);
     const shouldOverrideCornerWallSideTiles =
@@ -12789,8 +12866,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
               planeSlice,
               sliceConfig.direction,
             );
-            planeSlice.frontMesh.renderOrder = this.vultureFrontWallPlaneRenderOrder;
-            planeSlice.backMesh.renderOrder = this.vultureBackWallPlaneRenderOrder;
+            planeSlice.frontMesh.renderOrder =
+              this.vultureFrontWallPlaneRenderOrder;
+            planeSlice.backMesh.renderOrder =
+              this.vultureBackWallPlaneRenderOrder;
             planeSlice.frontMesh.material = innerWallMaterial;
             planeSlice.backMesh.material = outerWallMaterial;
             usedTextureFaces.add(sliceConfig.innerTextureFace);
@@ -12865,7 +12944,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
                 overlay.material, // back
                 overlay.material, // top edge
                 baseMaterial, // bottom edge
-            ];
+              ];
         }
       } else if (isDoorWall && useTiles) {
         this.disposeVultureWallFaceOverlay(mesh);
@@ -13961,9 +14040,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return material;
   }
 
-  private getFpsWallChamferFloorTileSource(
-    materialKind: TileMaterialKind,
-  ): { tileIndex: number; sourceGlyph: number | null } {
+  private getFpsWallChamferFloorTileSource(materialKind: TileMaterialKind): {
+    tileIndex: number;
+    sourceGlyph: number | null;
+  } {
     const floorGlyph = getDefaultFloorGlyph();
     let fallbackGlyph = floorGlyph;
     if (materialKind === "dark") {
@@ -16142,7 +16222,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let contentWidth = 1.0;
     const spriteMaterial = sprite.material;
     const texture =
-      spriteMaterial instanceof THREE.SpriteMaterial ? spriteMaterial.map : null;
+      spriteMaterial instanceof THREE.SpriteMaterial
+        ? spriteMaterial.map
+        : null;
     if (useVultureBillboardGrounding) {
       const textureInfo = texture
         ? this.resolveMonsterBillboardTextureSource(texture)
@@ -16258,14 +16340,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       isLootLikeCharacter ||
       (this.isFpsMode() && isAltarOrTombstone) ||
       (useTiles &&
-        (
-          isSink ||
+        (isSink ||
           isFountain ||
           isStairsUp ||
           isStairsDown ||
           isAltarOrTombstone ||
-          isStatue
-        ));
+          isStatue));
     const shouldUseElevatedBillboard =
       shouldElevateEntity && (useTiles || this.isFpsMode());
 
@@ -16632,15 +16712,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.hasSeenPlayerPosition &&
       x === this.playerPos.x &&
       y === this.playerPos.y;
-    let playerUnderlayRaisedBillboard:
-      | {
-          glyphChar: string;
-          textColor: string;
-          tileIndex: number;
-          sourceGlyph: number;
-          materialKind: TileMaterialKind;
-        }
-      | null = null;
+    let playerUnderlayRaisedBillboard: {
+      glyphChar: string;
+      textColor: string;
+      tileIndex: number;
+      sourceGlyph: number;
+      materialKind: TileMaterialKind;
+    } | null = null;
     if (shouldRenderPlayerUnderlayRaisedBillboard) {
       const floorSnapshot = this.lastKnownTerrain.get(key) ?? null;
       if (floorSnapshot) {
@@ -16648,7 +16726,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
           glyph: floorSnapshot.glyph,
           runtimeChar: floorSnapshot.char ?? null,
           runtimeColor:
-            typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+            typeof floorSnapshot.color === "number"
+              ? floorSnapshot.color
+              : null,
           runtimeTileIndex:
             typeof floorSnapshot.tileIndex === "number"
               ? floorSnapshot.tileIndex
