@@ -8277,19 +8277,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private applyVultureDoorPlaneTransforms(
     overlay: VultureDoorPlaneOverlay,
     family: VultureWallProjectionFamily,
+    centerPlane: boolean = false,
   ): void {
     const epsilon = TILE_SIZE * 0.003;
     if (family === "ew") {
-      overlay.frontMesh.rotation.set(Math.PI / 2, Math.PI / 2, 0, "XYZ");
-      overlay.backMesh.rotation.set(Math.PI / 2, -Math.PI / 2, 0, "XYZ");
-      overlay.frontMesh.position.set(epsilon, 0, 0);
-      overlay.backMesh.position.set(-epsilon, 0, 0);
+      if (centerPlane) {
+        // Keep the same orientation as closed-door planes, just centered.
+        overlay.frontMesh.rotation.set(Math.PI / 2, Math.PI / 2, 0, "XYZ");
+        overlay.backMesh.rotation.set(Math.PI / 2, -Math.PI / 2, 0, "XYZ");
+        overlay.frontMesh.position.set(0, 0, 0);
+        overlay.backMesh.position.set(0, 0, 0);
+      } else {
+        overlay.frontMesh.rotation.set(Math.PI / 2, Math.PI / 2, 0, "XYZ");
+        overlay.backMesh.rotation.set(Math.PI / 2, -Math.PI / 2, 0, "XYZ");
+        overlay.frontMesh.position.set(epsilon, 0, 0);
+        overlay.backMesh.position.set(-epsilon, 0, 0);
+      }
       return;
     }
     overlay.frontMesh.rotation.set(-Math.PI / 2, 0, 0, "XYZ");
     overlay.backMesh.rotation.set(Math.PI / 2, 0, 0, "XYZ");
-    overlay.frontMesh.position.set(0, -epsilon, 0);
-    overlay.backMesh.position.set(0, epsilon, 0);
+    if (centerPlane) {
+      overlay.frontMesh.position.set(0, 0, 0);
+      overlay.backMesh.position.set(0, 0, 0);
+    } else {
+      overlay.frontMesh.position.set(0, -epsilon, 0);
+      overlay.backMesh.position.set(0, epsilon, 0);
+    }
   }
 
   private applyVultureDoorPlaneTexture(
@@ -8368,6 +8382,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     darkenFactor: number,
     opacity: number,
     wallOrientationChar: "|" | "-" | null,
+    centerPlane: boolean = false,
+    anchorFloorToWall: boolean = true,
   ): boolean {
     const translator = this.vultureTilesetTranslator;
     if (!translator) {
@@ -8375,10 +8391,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return false;
     }
     const family: VultureWallProjectionFamily =
-      wallOrientationChar === "|" ||
-      (sourceGlyph !== null && isVerticalDoorCmapGlyph(sourceGlyph))
-        ? "ew"
-        : "sn";
+      sourceGlyph !== null
+        ? isVerticalDoorCmapGlyph(sourceGlyph)
+          ? "ew"
+          : "sn"
+        : wallOrientationChar === "|"
+          ? "ew"
+          : "sn";
     const lookup = translator.resolveLookupForTile({
       glyph: sourceGlyph ?? -1,
       tileIndex: tileIndex >= 0 ? tileIndex : null,
@@ -8401,7 +8420,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
     const floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
     const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
-    this.applyVultureDoorPlaneTransforms(overlay, family);
+    const floorPlaneZ = anchorFloorToWall
+      ? -WALL_HEIGHT / 2 + TILE_SIZE * 0.003
+      : TILE_SIZE * 0.003;
+    overlay.floorMesh.position.set(0, 0, floorPlaneZ);
+    this.applyVultureDoorPlaneTransforms(overlay, family, centerPlane);
+    const doorwayPlaneZ = anchorFloorToWall ? 0 : WALL_HEIGHT / 2;
+    overlay.frontMesh.position.z = doorwayPlaneZ;
+    overlay.backMesh.position.z = doorwayPlaneZ;
     this.applyVultureDoorPlaneTexture(
       overlay,
       "front",
@@ -8797,20 +8823,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? this.resolveVultureLookupWithOppositeFace(source, textureFace)
         : null;
     };
-    const oppositeFace = (face: VultureWallFaceSlot): VultureWallFaceSlot => {
-      switch (face) {
-        case "east":
-          return "west";
-        case "west":
-          return "east";
-        case "north":
-          return "south";
-        case "south":
-        default:
-          return "north";
-      }
-    };
-
     const buildSlice = (
       direction: VultureWallFaceSlot,
       preferredLookup: VultureWallProjectionLookup | null,
@@ -8860,6 +8872,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const buildDoorwaySlice = (
       direction: VultureWallFaceSlot,
       preferredLookup: VultureWallProjectionLookup | null,
+      innerTextureFace: VultureWallFaceSlot,
+      outerTextureFace: VultureWallFaceSlot,
     ):
       | {
           direction: VultureWallFaceSlot;
@@ -8872,8 +8886,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!preferredLookup) {
         return null;
       }
-      const outerTextureFace = direction;
-      const innerTextureFace = oppositeFace(direction);
       const outerLookup = this.resolveVultureLookupWithOppositeFace(
         preferredLookup,
         outerTextureFace,
@@ -8896,6 +8908,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ): void => {
       // Keep legacy wall-family mapping, but add doorway cross-axis faces so
       // interior doorway wall planes are still rendered.
+      const doorwayInnerTextureFace: VultureWallFaceSlot =
+        familyForSlices === "ew" ? "east" : "south";
+      const doorwayOuterTextureFace: VultureWallFaceSlot =
+        familyForSlices === "ew" ? "west" : "north";
       const doorwayDirections =
         familyForSlices === "ew"
           ? (["north", "south"] as const)
@@ -8910,6 +8926,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const doorwaySlice = buildDoorwaySlice(
           direction,
           lookupByDirection[direction],
+          doorwayInnerTextureFace,
+          doorwayOuterTextureFace,
         );
         if (doorwaySlice) {
           slices.push(doorwaySlice);
@@ -11974,6 +11992,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const isDoorWall = mesh.userData?.materialKind === "door";
+    const isOpenDoorGlyph =
+      tileTextureSourceGlyph !== null &&
+      getOpenDoorGlyphFrom(tileTextureSourceGlyph) === tileTextureSourceGlyph;
+    const shouldUseVultureOpenDoorPlane =
+      useTiles &&
+      this.shouldUseVultureWallFaceRendering() &&
+      !isWall &&
+      isDoorWall &&
+      isOpenDoorGlyph;
     const shouldUseVultureWallFaceMaterials =
       useTiles &&
       this.shouldUseVultureWallFaceRendering() &&
@@ -11986,10 +12013,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       isDoorWall;
     const supportsAtlasWallSideOverrides =
       useTiles && this.vultureTilesetTranslator === null;
-    const wallOrientationChar = this.resolveWallOrientationChar(
-      glyphChar,
-      sourceGlyph,
-    );
+    const wallOrientationSourceGlyph =
+      tileTextureMaterialKind === "door" ? tileTextureSourceGlyph : sourceGlyph;
+    const wallOrientationChar =
+      tileTextureMaterialKind === "door"
+        ? this.resolveWallOrientationChar(" ", wallOrientationSourceGlyph)
+        : this.resolveWallOrientationChar(glyphChar, wallOrientationSourceGlyph);
     const cornerWallSideBaseTileIndex =
       this.resolveCornerWallSideBaseTileIndex(tileIndex);
     const shouldOverrideCornerWallSideTiles =
@@ -12330,6 +12359,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
           overlay.material,
           baseMaterial,
         ];
+      }
+    } else if (shouldUseVultureOpenDoorPlane && useTiles) {
+      this.disposeWallSideTileOverlay(mesh);
+      this.disposeVultureWallFaceOverlay(mesh);
+      this.disposeVultureWallPlaneOverlay(mesh);
+      const doorX =
+        typeof mesh.userData?.tileX === "number" &&
+        Number.isFinite(mesh.userData.tileX)
+          ? Math.trunc(mesh.userData.tileX)
+          : null;
+      const doorY =
+        typeof mesh.userData?.tileY === "number" &&
+        Number.isFinite(mesh.userData.tileY)
+          ? Math.trunc(mesh.userData.tileY)
+          : null;
+      const openDoorPlaneApplied = this.applyVultureDoorPlane(
+        mesh,
+        tileTextureSourceGlyph,
+        tileIndex,
+        doorX,
+        doorY,
+        clampedDarken,
+        overlay.material.opacity,
+        wallOrientationChar,
+        true,
+        false,
+      );
+      if (openDoorPlaneApplied) {
+        // Prevent floor-projected sprite flattening; draw doorway sprite on a
+        // centered transparent plane instead.
+        mesh.material = this.vultureInvisibleSurfaceMaterial;
+      } else {
+        this.disposeVultureDoorPlaneOverlay(mesh);
+        mesh.material = overlay.material;
       }
     } else {
       this.disposeWallSideTileOverlay(mesh);
