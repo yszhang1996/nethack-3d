@@ -357,6 +357,21 @@ type VultureWallFaceOverlay = {
   textureKey: string;
   material: THREE.MeshBasicMaterial;
 };
+type VultureWallPlaneSlice = {
+  frontMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.Material | THREE.Material[]>;
+  backMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.Material | THREE.Material[]>;
+};
+type VultureWallPlaneOverlay = Partial<
+  Record<VultureWallFaceSlot, VultureWallPlaneSlice>
+>;
+type VultureDoorPlaneOverlay = {
+  frontMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  backMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  frontTextureKey: string;
+  backTextureKey: string;
+  frontMaterial: THREE.MeshBasicMaterial;
+  backMaterial: THREE.MeshBasicMaterial;
+};
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
 type ControllerActionSnapshot = {
@@ -388,6 +403,16 @@ type VultureWallProjectionQuad = Record<
 >;
 type VultureWallProjectionLookup = VultureTileLookup & {
   wallFace?: VultureWallFaceSlot | null;
+};
+type VultureWallPlaneRenderConfig = {
+  family: VultureWallProjectionFamily;
+  slices: Array<{
+    direction: VultureWallFaceSlot;
+    innerTextureFace: VultureWallFaceSlot;
+    outerTextureFace: VultureWallFaceSlot;
+    innerLookup: VultureWallProjectionLookup;
+    outerLookup: VultureWallProjectionLookup;
+  }>;
 };
 
 const nh3dControllerActionIds = nh3dControllerActionSpecs.map(
@@ -1071,6 +1096,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
   // Pre-create geometries and materials
   private floorGeometry = new THREE.PlaneGeometry(TILE_SIZE, TILE_SIZE);
   private wallGeometry = this.createUprightWallBlockGeometry();
+  private readonly vultureWallPlaneGeometry = (() => {
+    const geometry = new THREE.PlaneGeometry(TILE_SIZE, WALL_HEIGHT);
+    // Make walls vertical with height mapped to world Z.
+    geometry.rotateX(Math.PI / 2);
+    return geometry;
+  })();
+  private readonly vultureDoorPlaneGeometry = new THREE.PlaneGeometry(
+    TILE_SIZE,
+    WALL_HEIGHT,
+  );
+  private readonly vultureInvisibleSurfaceMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+  });
 
   // Materials for different glyph types
   private materials = {
@@ -3478,6 +3519,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.disposeWallSideTileOverlay(mesh);
     this.disposeVultureWallFaceOverlay(mesh);
+    this.disposeVultureWallPlaneOverlay(mesh);
+    this.disposeVultureDoorPlaneOverlay(mesh);
     this.scene.remove(mesh);
     this.tileMap.delete(key);
     this.tileRevealStartMs.delete(key);
@@ -7854,10 +7897,292 @@ class Nethack3DEngine implements Nethack3DEngineController {
     delete mesh.userData.vultureWallFaceOverlays;
   }
 
+  private disposeVultureWallPlaneOverlay(
+    mesh: THREE.Mesh,
+    direction?: VultureWallFaceSlot,
+  ): void {
+    const overlay = mesh.userData?.vultureWallPlaneOverlay as
+      | VultureWallPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+
+    const disposeDirection = (face: VultureWallFaceSlot): void => {
+      const slice = overlay[face];
+      if (!slice) {
+        return;
+      }
+      mesh.remove(slice.frontMesh);
+      mesh.remove(slice.backMesh);
+      delete overlay[face];
+    };
+
+    if (direction) {
+      disposeDirection(direction);
+      if (!overlay.west && !overlay.north && !overlay.east && !overlay.south) {
+        delete mesh.userData.vultureWallPlaneOverlay;
+      }
+      return;
+    }
+
+    for (const face of ["west", "north", "east", "south"] as const) {
+      disposeDirection(face);
+    }
+    delete mesh.userData.vultureWallPlaneOverlay;
+  }
+
+  private ensureVultureWallPlaneSlice(
+    mesh: THREE.Mesh,
+    direction: VultureWallFaceSlot,
+  ): VultureWallPlaneSlice {
+    let overlay = mesh.userData?.vultureWallPlaneOverlay as
+      | VultureWallPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      overlay = {};
+      mesh.userData.vultureWallPlaneOverlay = overlay;
+    }
+
+    const existingSlice = overlay[direction];
+    if (existingSlice) {
+      return existingSlice;
+    }
+
+    const frontMesh = new THREE.Mesh(
+      this.vultureWallPlaneGeometry,
+      this.vultureInvisibleSurfaceMaterial,
+    );
+    const backMesh = new THREE.Mesh(
+      this.vultureWallPlaneGeometry,
+      this.vultureInvisibleSurfaceMaterial,
+    );
+    frontMesh.renderOrder = 112;
+    backMesh.renderOrder = 112;
+    this.applyVultureWallPlaneFaceTransform(frontMesh, direction);
+    this.applyVultureWallPlaneFaceTransform(backMesh, direction);
+    mesh.add(frontMesh);
+    mesh.add(backMesh);
+
+    const slice: VultureWallPlaneSlice = {
+      frontMesh,
+      backMesh,
+    };
+    overlay[direction] = slice;
+    return slice;
+  }
+
+  private applyVultureWallPlaneFaceTransform(
+    planeMesh: THREE.Object3D,
+    face: VultureWallFaceSlot,
+  ): void {
+    const epsilon = TILE_SIZE * 0.003;
+    const half = TILE_SIZE / 2 - epsilon;
+    switch (face) {
+      case "east":
+        planeMesh.rotation.set(0, 0, Math.PI / 2, "XYZ");
+        planeMesh.position.set(half, 0, 0);
+        return;
+      case "west":
+        planeMesh.rotation.set(0, 0, -Math.PI / 2, "XYZ");
+        planeMesh.position.set(-half, 0, 0);
+        return;
+      case "north":
+        planeMesh.rotation.set(0, 0, Math.PI, "XYZ");
+        planeMesh.position.set(0, half, 0);
+        return;
+      case "south":
+      default:
+        planeMesh.rotation.set(0, 0, 0, "XYZ");
+        planeMesh.position.set(0, -half, 0);
+        return;
+    }
+  }
+
+  private applyVultureWallPlaneSliceTransform(
+    slice: VultureWallPlaneSlice,
+    direction: VultureWallFaceSlot,
+  ): void {
+    this.applyVultureWallPlaneFaceTransform(slice.frontMesh, direction);
+    this.applyVultureWallPlaneFaceTransform(slice.backMesh, direction);
+  }
+
+  private disposeVultureDoorPlaneOverlay(mesh: THREE.Mesh): void {
+    const overlay = mesh.userData?.vultureDoorPlaneOverlay as
+      | VultureDoorPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+    this.releaseGlyphTexture(overlay.frontTextureKey);
+    this.releaseGlyphTexture(overlay.backTextureKey);
+    mesh.remove(overlay.frontMesh);
+    mesh.remove(overlay.backMesh);
+    overlay.frontMaterial.dispose();
+    overlay.backMaterial.dispose();
+    delete mesh.userData.vultureDoorPlaneOverlay;
+  }
+
+  private ensureVultureDoorPlaneOverlay(mesh: THREE.Mesh): VultureDoorPlaneOverlay {
+    const existing = mesh.userData?.vultureDoorPlaneOverlay as
+      | VultureDoorPlaneOverlay
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+    const frontMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      side: THREE.FrontSide,
+    });
+    const backMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      side: THREE.FrontSide,
+    });
+    this.patchMaterialForVignette(frontMaterial);
+    this.patchMaterialForVignette(backMaterial);
+    const frontMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, frontMaterial);
+    const backMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, backMaterial);
+    frontMesh.renderOrder = 112;
+    backMesh.renderOrder = 112;
+    mesh.add(frontMesh);
+    mesh.add(backMesh);
+    const overlay: VultureDoorPlaneOverlay = {
+      frontMesh,
+      backMesh,
+      frontTextureKey: "",
+      backTextureKey: "",
+      frontMaterial,
+      backMaterial,
+    };
+    mesh.userData.vultureDoorPlaneOverlay = overlay;
+    return overlay;
+  }
+
+  private applyVultureDoorPlaneTransforms(
+    overlay: VultureDoorPlaneOverlay,
+    family: VultureWallProjectionFamily,
+  ): void {
+    const epsilon = TILE_SIZE * 0.003;
+    if (family === "ew") {
+      overlay.frontMesh.rotation.set(Math.PI / 2, Math.PI / 2, 0, "XYZ");
+      overlay.backMesh.rotation.set(Math.PI / 2, -Math.PI / 2, 0, "XYZ");
+      overlay.frontMesh.position.set(epsilon, 0, 0);
+      overlay.backMesh.position.set(-epsilon, 0, 0);
+      return;
+    }
+    overlay.frontMesh.rotation.set(-Math.PI / 2, 0, 0, "XYZ");
+    overlay.backMesh.rotation.set(Math.PI / 2, 0, 0, "XYZ");
+    overlay.frontMesh.position.set(0, -epsilon, 0);
+    overlay.backMesh.position.set(0, epsilon, 0);
+  }
+
+  private applyVultureDoorPlaneTexture(
+    overlay: VultureDoorPlaneOverlay,
+    side: "front" | "back",
+    lookup: VultureWallProjectionLookup,
+    family: VultureWallProjectionFamily,
+    darkenFactor: number,
+    opacity: number,
+  ): void {
+    const face = lookup.wallFace ?? (family === "ew" ? "east" : "south");
+    const rotation = this.getVultureWallProjectionRotationDegrees(face);
+    const textureKey = `vdoor:${lookup.category}.${lookup.name}|face:${face}|rot:${rotation}|${darkenFactor.toFixed(3)}`;
+    const currentTextureKey =
+      side === "front" ? overlay.frontTextureKey : overlay.backTextureKey;
+    if (currentTextureKey !== textureKey || !this.glyphTextureCache.has(textureKey)) {
+      if (currentTextureKey) {
+        this.releaseGlyphTexture(currentTextureKey);
+      }
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(-1, darkenFactor, false, {
+          sourceGlyph: null,
+          materialKind: "door",
+          vultureLookup: lookup,
+          projectionFamilyOverride: family,
+        }),
+      );
+      if (side === "front") {
+        overlay.frontTextureKey = textureKey;
+        overlay.frontMaterial.map = texture;
+        overlay.frontMaterial.needsUpdate = true;
+      } else {
+        overlay.backTextureKey = textureKey;
+        overlay.backMaterial.map = texture;
+        overlay.backMaterial.needsUpdate = true;
+      }
+    }
+    const material = side === "front" ? overlay.frontMaterial : overlay.backMaterial;
+    material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    material.color.set("#ffffff");
+  }
+
+  private applyVultureDoorPlane(
+    mesh: THREE.Mesh,
+    sourceGlyph: number | null,
+    tileIndex: number,
+    darkenFactor: number,
+    opacity: number,
+    wallOrientationChar: "|" | "-" | null,
+  ): boolean {
+    const translator = this.vultureTilesetTranslator;
+    if (!translator) {
+      this.disposeVultureDoorPlaneOverlay(mesh);
+      return false;
+    }
+    const family: VultureWallProjectionFamily =
+      wallOrientationChar === "|" ||
+      (sourceGlyph !== null && isVerticalDoorCmapGlyph(sourceGlyph))
+        ? "ew"
+        : "sn";
+    const lookup = translator.resolveLookupForTile({
+      glyph: sourceGlyph ?? -1,
+      tileIndex: tileIndex >= 0 ? tileIndex : null,
+      materialKind: "door",
+      forBillboard: false,
+    });
+    if (!lookup) {
+      this.disposeVultureDoorPlaneOverlay(mesh);
+      return false;
+    }
+    const frontFace: VultureWallFaceSlot = family === "ew" ? "east" : "south";
+    const backFace: VultureWallFaceSlot = family === "ew" ? "west" : "north";
+    const frontLookup: VultureWallProjectionLookup = {
+      ...lookup,
+      wallFace: frontFace,
+    };
+    const backLookup: VultureWallProjectionLookup = {
+      ...lookup,
+      wallFace: backFace,
+    };
+    const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
+    this.applyVultureDoorPlaneTransforms(overlay, family);
+    this.applyVultureDoorPlaneTexture(
+      overlay,
+      "front",
+      frontLookup,
+      family,
+      darkenFactor,
+      opacity,
+    );
+    this.applyVultureDoorPlaneTexture(
+      overlay,
+      "back",
+      backLookup,
+      family,
+      darkenFactor,
+      opacity,
+    );
+    return true;
+  }
+
   private ensureVultureWallFaceOverlayMaterial(
     mesh: THREE.Mesh,
     face: VultureWallFaceSlot,
-    lookup: VultureTileLookup,
+    lookup: VultureWallProjectionLookup,
     darkenFactor: number,
     opacity: number,
   ): THREE.MeshBasicMaterial {
@@ -7992,6 +8317,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.tileMap.forEach((mesh) => {
       this.disposeWallSideTileOverlay(mesh);
       this.disposeVultureWallFaceOverlay(mesh);
+      this.disposeVultureWallPlaneOverlay(mesh);
+      this.disposeVultureDoorPlaneOverlay(mesh);
     });
   }
 
@@ -8002,25 +8329,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private resolveVultureWallNeighborFaceMaterial(
-    mesh: THREE.Mesh,
+  private resolveVultureWallNeighborFaceLookup(
     face: VultureWallFaceSlot,
     wallX: number,
     wallY: number,
     floorX: number,
     floorY: number,
-    darkenFactor: number,
-    opacity: number,
     wallMaterialKind: TileMaterialKind | null,
-  ): THREE.MeshBasicMaterial | null {
+  ): VultureWallProjectionLookup | null {
     const translator = this.vultureTilesetTranslator;
     if (!translator) {
-      this.disposeVultureWallFaceOverlay(mesh, face);
       return null;
     }
     const floorMesh = this.tileMap.get(`${floorX},${floorY}`);
     if (!floorMesh) {
-      this.disposeVultureWallFaceOverlay(mesh, face);
       return null;
     }
     const floorTileIndex =
@@ -8054,16 +8376,256 @@ class Nethack3DEngine implements Nethack3DEngineController {
       halfHeight: false,
     });
     if (!lookup) {
-      this.disposeVultureWallFaceOverlay(mesh, face);
       return null;
     }
-    return this.ensureVultureWallFaceOverlayMaterial(
-      mesh,
-      face,
-      lookup,
-      darkenFactor,
-      opacity,
+    return {
+      ...lookup,
+      wallFace: face,
+    };
+  }
+
+  private resolveVultureLookupWithOppositeFace(
+    lookup: VultureWallProjectionLookup,
+    targetFace: VultureWallFaceSlot,
+  ): VultureWallProjectionLookup {
+    const normalizedName = String(lookup.name || "").toUpperCase();
+    const nextSuffix =
+      targetFace === "east"
+        ? "_E"
+        : targetFace === "west"
+          ? "_W"
+          : targetFace === "north"
+            ? "_N"
+            : "_S";
+    let remappedName = normalizedName;
+    if (normalizedName.endsWith("_E")) {
+      remappedName = `${normalizedName.slice(0, -2)}${nextSuffix}`;
+    } else if (normalizedName.endsWith("_W")) {
+      remappedName = `${normalizedName.slice(0, -2)}${nextSuffix}`;
+    } else if (normalizedName.endsWith("_N")) {
+      remappedName = `${normalizedName.slice(0, -2)}${nextSuffix}`;
+    } else if (normalizedName.endsWith("_S")) {
+      remappedName = `${normalizedName.slice(0, -2)}${nextSuffix}`;
+    }
+    return {
+      ...lookup,
+      name: remappedName,
+      wallFace: targetFace,
+    };
+  }
+
+  private resolveVultureWallPlaneRenderConfig(
+    wallX: number,
+    wallY: number,
+    wallMaterialKind: TileMaterialKind | null,
+    wallOrientationChar: "|" | "-" | null,
+  ): VultureWallPlaneRenderConfig | null {
+    const eastNeighborLookup = this.resolveVultureWallNeighborFaceLookup(
+      "east",
+      wallX,
+      wallY,
+      wallX + 1,
+      wallY,
+      wallMaterialKind,
     );
+    const westNeighborLookup = this.resolveVultureWallNeighborFaceLookup(
+      "west",
+      wallX,
+      wallY,
+      wallX - 1,
+      wallY,
+      wallMaterialKind,
+    );
+    const northNeighborLookup = this.resolveVultureWallNeighborFaceLookup(
+      "north",
+      wallX,
+      wallY,
+      wallX,
+      wallY - 1,
+      wallMaterialKind,
+    );
+    const southNeighborLookup = this.resolveVultureWallNeighborFaceLookup(
+      "south",
+      wallX,
+      wallY,
+      wallX,
+      wallY + 1,
+      wallMaterialKind,
+    );
+
+    const ewNeighborCount =
+      (eastNeighborLookup ? 1 : 0) + (westNeighborLookup ? 1 : 0);
+    const snNeighborCount =
+      (northNeighborLookup ? 1 : 0) + (southNeighborLookup ? 1 : 0);
+    let family: VultureWallProjectionFamily | null = null;
+    if (wallOrientationChar === "|") {
+      family = "ew";
+    } else if (wallOrientationChar === "-") {
+      family = "sn";
+    } else if (ewNeighborCount > snNeighborCount) {
+      family = "ew";
+    } else if (snNeighborCount > ewNeighborCount) {
+      family = "sn";
+    } else if (ewNeighborCount > 0) {
+      family = "ew";
+    } else if (snNeighborCount > 0) {
+      family = "sn";
+    }
+    if (!family) {
+      return null;
+    }
+
+    const remapLookup = (
+      preferred: VultureWallProjectionLookup | null,
+      fallback: VultureWallProjectionLookup | null,
+      textureFace: VultureWallFaceSlot,
+    ): VultureWallProjectionLookup | null => {
+      const source = preferred ?? fallback;
+      return source
+        ? this.resolveVultureLookupWithOppositeFace(source, textureFace)
+        : null;
+    };
+
+    const buildSlice = (
+      direction: VultureWallFaceSlot,
+      preferredLookup: VultureWallProjectionLookup | null,
+      fallbackLookup: VultureWallProjectionLookup | null,
+      innerTextureFace: VultureWallFaceSlot,
+      outerTextureFace: VultureWallFaceSlot,
+    ):
+      | {
+          direction: VultureWallFaceSlot;
+          innerTextureFace: VultureWallFaceSlot;
+          outerTextureFace: VultureWallFaceSlot;
+          innerLookup: VultureWallProjectionLookup;
+          outerLookup: VultureWallProjectionLookup;
+        }
+      | null => {
+      let innerLookup = remapLookup(
+        preferredLookup,
+        fallbackLookup,
+        innerTextureFace,
+      );
+      let outerLookup = innerLookup
+        ? this.resolveVultureLookupWithOppositeFace(innerLookup, outerTextureFace)
+        : remapLookup(fallbackLookup, preferredLookup, outerTextureFace);
+      if (!innerLookup && outerLookup) {
+        innerLookup = this.resolveVultureLookupWithOppositeFace(
+          outerLookup,
+          innerTextureFace,
+        );
+      }
+      if (!outerLookup && innerLookup) {
+        outerLookup = this.resolveVultureLookupWithOppositeFace(
+          innerLookup,
+          outerTextureFace,
+        );
+      }
+      if (!innerLookup || !outerLookup) {
+        return null;
+      }
+      return {
+        direction,
+        innerTextureFace,
+        outerTextureFace,
+        innerLookup,
+        outerLookup,
+      };
+    };
+
+    if (family === "ew") {
+      const innerTextureFace: VultureWallFaceSlot = "east";
+      const outerTextureFace: VultureWallFaceSlot = "west";
+      const slices: VultureWallPlaneRenderConfig["slices"] = [];
+      if (eastNeighborLookup) {
+        const eastSlice = buildSlice(
+          "east",
+          eastNeighborLookup,
+          westNeighborLookup,
+          innerTextureFace,
+          outerTextureFace,
+        );
+        if (eastSlice) {
+          slices.push(eastSlice);
+        }
+      }
+      if (westNeighborLookup) {
+        const westSlice = buildSlice(
+          "west",
+          westNeighborLookup,
+          eastNeighborLookup,
+          innerTextureFace,
+          outerTextureFace,
+        );
+        if (westSlice) {
+          slices.push(westSlice);
+        }
+      }
+      if (slices.length === 0) {
+        const fallbackSlice = buildSlice(
+          "east",
+          eastNeighborLookup,
+          westNeighborLookup,
+          innerTextureFace,
+          outerTextureFace,
+        );
+        if (fallbackSlice) {
+          slices.push(fallbackSlice);
+        }
+      }
+      return slices.length > 0
+        ? {
+            family,
+            slices,
+          }
+        : null;
+    }
+
+    const innerTextureFace: VultureWallFaceSlot = "south";
+    const outerTextureFace: VultureWallFaceSlot = "north";
+    const slices: VultureWallPlaneRenderConfig["slices"] = [];
+    if (southNeighborLookup) {
+      const southSlice = buildSlice(
+        "south",
+        southNeighborLookup,
+        northNeighborLookup,
+        innerTextureFace,
+        outerTextureFace,
+      );
+      if (southSlice) {
+        slices.push(southSlice);
+      }
+    }
+    if (northNeighborLookup) {
+      const northSlice = buildSlice(
+        "north",
+        northNeighborLookup,
+        southNeighborLookup,
+        innerTextureFace,
+        outerTextureFace,
+      );
+      if (northSlice) {
+        slices.push(northSlice);
+      }
+    }
+    if (slices.length === 0) {
+      const fallbackSlice = buildSlice(
+        "south",
+        southNeighborLookup,
+        northNeighborLookup,
+        innerTextureFace,
+        outerTextureFace,
+      );
+      if (fallbackSlice) {
+        slices.push(fallbackSlice);
+      }
+    }
+    return slices.length > 0
+      ? {
+          family,
+          slices,
+        }
+      : null;
   }
 
   private refreshVultureWallMaterialAt(tileX: number, tileY: number): void {
@@ -8284,6 +8846,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       sourceGlyph?: number | null;
       materialKind?: TileMaterialKind | null;
       vultureLookup?: VultureWallProjectionLookup | null;
+      projectionFamilyOverride?: VultureWallProjectionFamily | null;
     } = {},
   ): THREE.CanvasTexture {
     const size = this.tileSourceSize;
@@ -8313,6 +8876,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       (sourceContext.vultureLookup.projection === "sprite" ||
         sourceContext.vultureLookup.projection === "iso_floor")
         ? (sourceContext.vultureLookup as VultureWallProjectionLookup)
+        : null;
+    const projectionFamilyOverride =
+      sourceContext.projectionFamilyOverride === "ew" ||
+      sourceContext.projectionFamilyOverride === "sn"
+        ? sourceContext.projectionFamilyOverride
         : null;
     const normalizedTileIndex =
       Number.isFinite(tileIndex) && tileIndex >= 0 ? Math.trunc(tileIndex) : -1;
@@ -8346,20 +8914,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     }
 
-    if (
-      translatedDrawSucceeded &&
-      !applyChromaKey &&
-      vultureLookup?.category === "wall"
-    ) {
+    if (translatedDrawSucceeded && !applyChromaKey) {
       const projectionFamily =
-        this.resolveVultureWallProjectionFamily(vultureLookup);
+        projectionFamilyOverride ??
+        (vultureLookup?.category === "wall"
+          ? this.resolveVultureWallProjectionFamily(vultureLookup)
+          : null);
       if (projectionFamily) {
-        this.captureVultureWallProjectionSourcePreview(
-          context,
-          size,
-          projectionFamily,
-          vultureLookup,
-        );
+        if (vultureLookup) {
+          this.captureVultureWallProjectionSourcePreview(
+            context,
+            size,
+            projectionFamily,
+            vultureLookup,
+          );
+        }
         this.reprojectVultureWallTexture(
           context,
           size,
@@ -8441,10 +9010,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private resolveVultureWallProjectionFace(
-    lookup: VultureWallProjectionLookup,
+    lookup: VultureWallProjectionLookup | null,
     family: VultureWallProjectionFamily,
   ): VultureWallFaceSlot {
-    const explicitFace = lookup.wallFace;
+    const explicitFace = lookup?.wallFace ?? null;
     if (
       explicitFace === "north" ||
       explicitFace === "east" ||
@@ -8617,11 +9186,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     context: CanvasRenderingContext2D,
     size: number,
     family: VultureWallProjectionFamily,
-    lookup: VultureWallProjectionLookup,
+    lookup: VultureWallProjectionLookup | null,
   ): void {
     const source = context.getImageData(0, 0, size, size);
     let sourcePixels: Uint8ClampedArray = source.data;
-    if (this.vultureTilesetTranslator) {
+    if (this.vultureTilesetTranslator && lookup) {
       const workCanvas = this.ensureVultureWallProjectionWorkCanvas(size);
       const workContext = workCanvas.getContext("2d");
       if (workContext) {
@@ -10951,6 +11520,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.shouldUseVultureWallFaceRendering() &&
       isWall &&
       !isDoorWall;
+    const shouldUseVultureDoorPlane =
+      useTiles &&
+      this.shouldUseVultureWallFaceRendering() &&
+      isWall &&
+      isDoorWall;
     const supportsAtlasWallSideOverrides =
       useTiles && this.vultureTilesetTranslator === null;
     const wallOrientationChar = this.resolveWallOrientationChar(
@@ -11043,6 +11617,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
       this.disposeVultureWallFaceOverlay(mesh);
+      this.disposeVultureWallPlaneOverlay(mesh);
+      this.disposeVultureDoorPlaneOverlay(mesh);
       if (useTiles) {
         // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
         // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
@@ -11084,70 +11660,134 @@ class Nethack3DEngine implements Nethack3DEngineController {
             : null;
         if (wallX === null || wallY === null) {
           this.disposeVultureWallFaceOverlay(mesh);
+          this.disposeVultureWallPlaneOverlay(mesh);
+          this.disposeVultureDoorPlaneOverlay(mesh);
           mesh.material = [
-            overlay.material,
-            overlay.material,
-            overlay.material,
-            overlay.material,
-            overlay.material,
-            baseMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
           ];
         } else {
-          const eastWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
-            mesh,
-            "east",
+          const wallPlaneConfig = this.resolveVultureWallPlaneRenderConfig(
             wallX,
             wallY,
-            wallX + 1,
-            wallY,
-            clampedDarken,
-            overlay.material.opacity,
             tileTextureMaterialKind,
+            wallOrientationChar,
           );
-          const westWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
-            mesh,
-            "west",
-            wallX,
-            wallY,
-            wallX - 1,
-            wallY,
-            clampedDarken,
-            overlay.material.opacity,
-            tileTextureMaterialKind,
-          );
-          const northWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
-            mesh,
-            "north",
-            wallX,
-            wallY,
-            wallX,
-            wallY - 1,
-            clampedDarken,
-            overlay.material.opacity,
-            tileTextureMaterialKind,
-          );
-          const southWallMaterial = this.resolveVultureWallNeighborFaceMaterial(
-            mesh,
-            "south",
-            wallX,
-            wallY,
-            wallX,
-            wallY + 1,
-            clampedDarken,
-            overlay.material.opacity,
-            tileTextureMaterialKind,
-          );
+          if (!wallPlaneConfig) {
+            this.disposeVultureWallFaceOverlay(mesh);
+            this.disposeVultureWallPlaneOverlay(mesh);
+            this.disposeVultureDoorPlaneOverlay(mesh);
+            mesh.material = [
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+            ];
+            return;
+          }
+          const usedTextureFaces = new Set<VultureWallFaceSlot>();
+          const activePlaneDirections = new Set<VultureWallFaceSlot>();
+          for (const sliceConfig of wallPlaneConfig.slices) {
+            const innerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
+              mesh,
+              sliceConfig.innerTextureFace,
+              sliceConfig.innerLookup,
+              clampedDarken,
+              overlay.material.opacity,
+            );
+            innerWallMaterial.side = THREE.FrontSide;
+            innerWallMaterial.transparent = true;
+            const outerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
+              mesh,
+              sliceConfig.outerTextureFace,
+              sliceConfig.outerLookup,
+              clampedDarken,
+              overlay.material.opacity,
+            );
+            outerWallMaterial.side = THREE.BackSide;
+            outerWallMaterial.transparent = true;
+            const planeSlice = this.ensureVultureWallPlaneSlice(
+              mesh,
+              sliceConfig.direction,
+            );
+            this.applyVultureWallPlaneSliceTransform(
+              planeSlice,
+              sliceConfig.direction,
+            );
+            planeSlice.frontMesh.material = innerWallMaterial;
+            planeSlice.backMesh.material = outerWallMaterial;
+            usedTextureFaces.add(sliceConfig.innerTextureFace);
+            usedTextureFaces.add(sliceConfig.outerTextureFace);
+            activePlaneDirections.add(sliceConfig.direction);
+          }
+          for (const face of ["west", "north", "east", "south"] as const) {
+            if (!usedTextureFaces.has(face)) {
+              this.disposeVultureWallFaceOverlay(mesh, face);
+            }
+            if (!activePlaneDirections.has(face)) {
+              this.disposeVultureWallPlaneOverlay(mesh, face);
+            }
+          }
+          this.disposeVultureDoorPlaneOverlay(mesh);
           mesh.material = [
-            eastWallMaterial ?? baseMaterial,
-            westWallMaterial ?? baseMaterial,
-            northWallMaterial ?? baseMaterial,
-            southWallMaterial ?? baseMaterial,
-            baseMaterial,
-            baseMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
           ];
+        }
+      } else if (shouldUseVultureDoorPlane && useTiles) {
+        this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        const doorwayPlaneApplied = this.applyVultureDoorPlane(
+          mesh,
+          tileTextureSourceGlyph,
+          tileIndex,
+          clampedDarken,
+          overlay.material.opacity,
+          wallOrientationChar,
+        );
+        if (doorwayPlaneApplied) {
+          mesh.material = [
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+            this.vultureInvisibleSurfaceMaterial,
+          ];
+        } else {
+          this.disposeVultureDoorPlaneOverlay(mesh);
+          mesh.material = wallSideOverrideMaterial
+            ? [
+                wallSideOverrideMaterial, // right edge
+                wallSideOverrideMaterial, // left edge
+                wallSideOverrideMaterial, // front
+                wallSideOverrideMaterial, // back
+                overlay.material, // top edge
+                baseMaterial, // bottom edge
+              ]
+            : [
+                overlay.material, // right edge
+                overlay.material, // left edge
+                overlay.material, // front
+                overlay.material, // back
+                overlay.material, // top edge
+                baseMaterial, // bottom edge
+            ];
         }
       } else if (isDoorWall && useTiles) {
         this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        this.disposeVultureDoorPlaneOverlay(mesh);
         mesh.material = wallSideOverrideMaterial
           ? [
               wallSideOverrideMaterial, // right edge
@@ -11167,6 +11807,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
             ];
       } else if (useTiles) {
         this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        this.disposeVultureDoorPlaneOverlay(mesh);
         const leftRightWallMaterial =
           wallSideOverrideMaterial ?? overlay.material;
         const frontBackWallMaterial =
@@ -11193,6 +11835,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
             ];
       } else if (solidWallMaterial) {
         this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        this.disposeVultureDoorPlaneOverlay(mesh);
         mesh.material = [
           solidWallMaterial,
           solidWallMaterial,
@@ -11203,6 +11847,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ];
       } else {
         this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        this.disposeVultureDoorPlaneOverlay(mesh);
         mesh.material = [
           baseMaterial,
           baseMaterial,
@@ -11215,6 +11861,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else {
       this.disposeWallSideTileOverlay(mesh);
       this.disposeVultureWallFaceOverlay(mesh);
+      this.disposeVultureWallPlaneOverlay(mesh);
+      this.disposeVultureDoorPlaneOverlay(mesh);
       mesh.material = overlay.material;
     }
   }
@@ -12818,6 +13466,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.tileMap.forEach((mesh) => {
       this.disposeWallSideTileOverlay(mesh);
       this.disposeVultureWallFaceOverlay(mesh);
+      this.disposeVultureWallPlaneOverlay(mesh);
+      this.disposeVultureDoorPlaneOverlay(mesh);
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
@@ -14343,6 +14993,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (mesh) {
         this.disposeWallSideTileOverlay(mesh);
         this.disposeVultureWallFaceOverlay(mesh);
+        this.disposeVultureWallPlaneOverlay(mesh);
+        this.disposeVultureDoorPlaneOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }

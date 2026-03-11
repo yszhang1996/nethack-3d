@@ -212,18 +212,12 @@ export class VultureTilesetTranslator {
       typeof params.tileIndex === "number" && Number.isFinite(params.tileIndex)
         ? Math.trunc(params.tileIndex)
         : null;
-    const lookup =
-      (normalizedTileIndex !== null && normalizedTileIndex >= 0
-        ? this.resolveTileLookupForTileIndex(
-            normalizedTileIndex,
-            params.materialKind,
-          )
-        : null) ??
-      this.resolveTileLookupForGlyph(
-        normalizedGlyph,
-        params.materialKind,
-        params.forBillboard,
-      );
+    const lookup = this.resolveLookupForTile({
+      glyph: normalizedGlyph,
+      tileIndex: normalizedTileIndex,
+      materialKind: params.materialKind,
+      forBillboard: params.forBillboard,
+    });
     if (!lookup) {
       return false;
     }
@@ -234,6 +228,39 @@ export class VultureTilesetTranslator {
       lookup,
       forBillboard: params.forBillboard,
     });
+  }
+
+  public resolveLookupForTile(params: {
+    glyph: number;
+    tileIndex?: number | null;
+    materialKind: TileMaterialKind | null;
+    forBillboard: boolean;
+  }): VultureTileLookup | null {
+    if (this.disposed) {
+      return null;
+    }
+    this.ensureConfigLoadingStarted();
+    if (!this.configLoaded) {
+      return null;
+    }
+    const normalizedGlyph = Math.trunc(params.glyph);
+    const normalizedTileIndex =
+      typeof params.tileIndex === "number" && Number.isFinite(params.tileIndex)
+        ? Math.trunc(params.tileIndex)
+        : null;
+    return (
+      (normalizedTileIndex !== null && normalizedTileIndex >= 0
+        ? this.resolveTileLookupForTileIndex(
+            normalizedTileIndex,
+            params.materialKind,
+          )
+        : null) ??
+      this.resolveTileLookupForGlyph(
+        normalizedGlyph,
+        params.materialKind,
+        params.forBillboard,
+      )
+    );
   }
 
   public drawLookupTile(params: DrawLookupTileParams): boolean {
@@ -645,12 +672,14 @@ export class VultureTilesetTranslator {
     });
     const heightToken: VultureWallHeightToken =
       params.halfHeight === true ? "H" : "F";
-    // Vulture's W/N wall images are mostly mask/occlusion helpers in this set.
-    // For 3D face texturing, reuse visible E/S variants for opposite sides.
     const faceToken =
-      params.face === "west" || params.face === "east"
-        ? "E"
-        : "S";
+      params.face === "west"
+        ? "W"
+        : params.face === "north"
+          ? "N"
+          : params.face === "east"
+            ? "E"
+            : "S";
     return {
       category: "wall",
       name: `WALL_${wallStyle}_${heightToken}_${faceToken}`,
