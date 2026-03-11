@@ -5477,9 +5477,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.syncVultureWallProjectionRotationButtonLabels();
     const wasVisible = this.vultureWallProjectionDebugPanel.style.display === "block";
-    const visible =
-      this.vultureTilesetTranslator !== null &&
-      this.clientOptions.tilesetMode === "tiles";
+    const visible = this.shouldUseVultureTiles();
     this.vultureWallProjectionDebugPanel.style.display = visible ? "block" : "none";
     if (visible) {
       if (!wasVisible) {
@@ -8671,11 +8669,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
-  private shouldUseVultureWallFaceRendering(): boolean {
+  private shouldUseVultureTiles(): boolean {
     return (
       this.clientOptions.tilesetMode === "tiles" &&
       this.vultureTilesetTranslator !== null
     );
+  }
+
+  private shouldUseVultureWallFaceRendering(): boolean {
+    return this.shouldUseVultureTiles();
   }
 
   private resolveVultureWallNeighborFaceLookup(
@@ -11955,7 +11957,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? Math.trunc(mesh.userData.tileY)
         : null;
     const canUseTranslatedTileWithoutAtlas =
-      this.vultureTilesetTranslator !== null && tileTextureSourceGlyph !== null;
+      this.shouldUseVultureTiles() && tileTextureSourceGlyph !== null;
     const useTiles =
       !useSolidColor &&
       this.clientOptions.tilesetMode === "tiles" &&
@@ -11964,7 +11966,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
     const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
     const shouldIncludeTileCoordinatesInTextureKey =
-      this.vultureTilesetTranslator !== null && !isWall;
+      this.shouldUseVultureTiles() && !isWall;
     const tileTextureCoordinateKey =
       shouldIncludeTileCoordinatesInTextureKey &&
       tileTextureX !== null &&
@@ -12068,24 +12070,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isOpenDoorGlyph =
       tileTextureSourceGlyph !== null &&
       getOpenDoorGlyphFrom(tileTextureSourceGlyph) === tileTextureSourceGlyph;
+    const useVultureTiles = this.shouldUseVultureTiles() && useTiles;
     const shouldUseVultureOpenDoorPlane =
-      useTiles &&
-      this.shouldUseVultureWallFaceRendering() &&
-      !isWall &&
-      isDoorWall &&
-      isOpenDoorGlyph;
+      useVultureTiles && !isWall && isDoorWall && isOpenDoorGlyph;
     const shouldUseVultureWallFaceMaterials =
-      useTiles &&
-      this.shouldUseVultureWallFaceRendering() &&
-      isWall &&
-      !isDoorWall;
-    const shouldUseVultureDoorPlane =
-      useTiles &&
-      this.shouldUseVultureWallFaceRendering() &&
-      isWall &&
-      isDoorWall;
+      useVultureTiles && isWall && !isDoorWall;
+    const shouldUseVultureDoorPlane = useVultureTiles && isWall && isDoorWall;
     const supportsAtlasWallSideOverrides =
-      useTiles && this.vultureTilesetTranslator === null;
+      useTiles && !this.shouldUseVultureTiles();
     const wallOrientationSourceGlyph =
       tileTextureMaterialKind === "door" ? tileTextureSourceGlyph : sourceGlyph;
     const wallOrientationChar =
@@ -13407,7 +13399,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const { tileIndex, sourceGlyph } =
       this.getFpsWallChamferFloorTileSource(materialKind);
     const canUseTranslatedTileWithoutAtlas =
-      this.vultureTilesetTranslator !== null && sourceGlyph !== null;
+      this.shouldUseVultureTiles() && sourceGlyph !== null;
     const useTiles =
       this.clientOptions.tilesetMode === "tiles" &&
       (tileIndex >= 0 || canUseTranslatedTileWithoutAtlas);
@@ -15494,7 +15486,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const normalizedMaterialKind =
       typeof materialKind === "string" ? materialKind : null;
     const canUseTranslatedTileWithoutAtlas =
-      this.vultureTilesetTranslator !== null && normalizedSourceGlyph !== null;
+      this.shouldUseVultureTiles() && normalizedSourceGlyph !== null;
     const useTiles =
       this.clientOptions.tilesetMode === "tiles" &&
       (tileIndex >= 0 || canUseTranslatedTileWithoutAtlas);
@@ -15511,14 +15503,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const spriteKey = key;
     let sprite = this.monsterBillboards.get(spriteKey);
-    const useVultureWallPlaneOverlay = this.shouldUseVultureWallFaceRendering();
+    const useVultureWallPlaneOverlay = this.shouldUseVultureTiles();
+    const useVultureBillboardGrounding = useVultureWallPlaneOverlay && useTiles;
     const spriteDepthWrite = false;
     const spriteDepthTest = !useVultureWallPlaneOverlay;
     const spriteAlphaTest = useVultureWallPlaneOverlay ? 0.01 : 0;
     // Do not render the legacy flattened duplicate behind Vulture billboards.
     // Keep only the standing billboard plus tile-floor underlay.
     const shouldRenderFlattenedBackdrop = false;
-    const spriteRenderOrder = useVultureWallPlaneOverlay
+    const spriteRenderOrder = useVultureBillboardGrounding
       ? this.vultureBillboardRenderOrder
       : 910;
     if (!sprite) {
@@ -15630,7 +15623,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const spriteMaterial = sprite.material;
     const texture =
       spriteMaterial instanceof THREE.SpriteMaterial ? spriteMaterial.map : null;
-    if (useTiles) {
+    if (useVultureBillboardGrounding) {
       const textureInfo = texture
         ? this.resolveMonsterBillboardTextureSource(texture)
         : null;
@@ -15642,26 +15635,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
         scaleX = textureInfo.width * worldUnitsPerTexturePixelX * scaleBase;
         scaleY = textureInfo.height * worldUnitsPerTexturePixelY * scaleBase;
       }
-      if (texture?.image instanceof HTMLCanvasElement) {
-        const canvas = texture.image;
-        const context = canvas.getContext("2d");
-        if (context) {
-          verticalOffset = this.getLowestPixelOffset(
-            context,
-            canvas.width,
-            canvas.height,
-          );
-          contentWidth = this.getSpriteContentWidth(
-            context,
-            canvas.width,
-            canvas.height,
-          );
-        }
+    }
+    if (useTiles && texture?.image instanceof HTMLCanvasElement) {
+      const canvas = texture.image;
+      const context = canvas.getContext("2d");
+      if (context) {
+        verticalOffset = this.getLowestPixelOffset(
+          context,
+          canvas.width,
+          canvas.height,
+        );
+        contentWidth = this.getSpriteContentWidth(
+          context,
+          canvas.width,
+          canvas.height,
+        );
       }
     }
-    // Anchor billboards from bottom-center so they stand on the tile center.
-    sprite.center.set(0.5, 0);
-    sprite.scale.set(scaleX, scaleY, 1);
+    if (useVultureBillboardGrounding) {
+      // Anchor vulture billboards from bottom-center so they stand on the tile center.
+      sprite.center.set(0.5, 0);
+      sprite.scale.set(scaleX, scaleY, 1);
+    } else {
+      // Keep legacy placement/scaling for non-vulture tilesets and ASCII.
+      sprite.center.set(0.5, 0.5);
+      sprite.scale.set(scaleBase, scaleBase, 1);
+    }
     if (flattenedBackdropSprite) {
       // Keep the historical flattened billboard behind the primary billboard.
       flattenedBackdropSprite.scale.set(scaleBase, scaleBase, 1);
@@ -15669,14 +15668,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const floorZ = isWall ? WALL_HEIGHT + 0.03 : 0.028;
-    const bottomTransparentPadding = 1 - verticalOffset;
-    const newZ = floorZ - bottomTransparentPadding * scaleY;
+    const newZ = useVultureBillboardGrounding
+      ? floorZ - (1 - verticalOffset) * scaleY
+      : (verticalOffset - 0.5) * scaleBase + floorZ;
     sprite.position.set(x * TILE_SIZE, -y * TILE_SIZE, newZ);
     sprite.userData.elevatedZ = newZ;
     sprite.userData.tileX = x;
     sprite.userData.tileY = y;
 
-    const shadowScale = (scaleX * contentWidth * 1.25) / (TILE_SIZE * 0.8);
+    const shadowScale =
+      ((useVultureBillboardGrounding ? scaleX : scaleBase) *
+        contentWidth *
+        1.25) /
+      (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
   }
 
@@ -15920,7 +15924,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
             priorTerrain: floorSnapshot,
           });
           const shouldKeepBaseFloorUnderRaisedSpecialInVulture =
-            this.shouldUseVultureWallFaceRendering() &&
+            this.shouldUseVultureTiles() &&
             useTiles &&
             this.shouldUseRaisedSpecialTileBillboardInTiles(floorBehavior);
           if (shouldKeepBaseFloorUnderRaisedSpecialInVulture) {
@@ -16101,7 +16105,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.hasSeenPlayerPosition &&
       shouldSuppressPlayerTileVisualInFps;
     const shouldRenderPlayerUnderlayRaisedBillboard =
-      this.shouldUseVultureWallFaceRendering() &&
+      this.shouldUseVultureTiles() &&
       useTiles &&
       !isFpsPlayerTile &&
       this.hasSeenPlayerPosition &&
