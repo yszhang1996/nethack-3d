@@ -1035,6 +1035,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private vultureDoorProjectionRotationButtons: Partial<
     Record<VultureDoorProjectionSide, HTMLButtonElement>
   > = {};
+  private vultureBillboardScaleFactor = 1.4;
+  private vultureBillboardScaleInput: HTMLInputElement | null = null;
   private vultureWallProjectionDebugStatusLabel: HTMLDivElement | null = null;
   private vultureWallProjectionWorkCanvas: HTMLCanvasElement | null = null;
   private vultureWallProjectionDebugDrag: {
@@ -5435,6 +5437,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureFloorProjectionRotationButton = floorRotationButton;
     panel.appendChild(floorRotationRow);
 
+    const billboardScaleRow = document.createElement("div");
+    billboardScaleRow.style.display = "flex";
+    billboardScaleRow.style.justifyContent = "space-between";
+    billboardScaleRow.style.alignItems = "center";
+    billboardScaleRow.style.marginBottom = "8px";
+
+    const billboardScaleLabel = document.createElement("span");
+    billboardScaleLabel.textContent = "Billboard Scale";
+    billboardScaleRow.appendChild(billboardScaleLabel);
+
+    const billboardScaleInput = document.createElement("input");
+    billboardScaleInput.type = "number";
+    billboardScaleInput.step = "0.05";
+    billboardScaleInput.min = "0.1";
+    billboardScaleInput.style.width = "72px";
+    billboardScaleInput.style.font = "11px monospace";
+    billboardScaleInput.style.padding = "1px 4px";
+    billboardScaleInput.addEventListener("change", () => {
+      const parsed = Number.parseFloat(billboardScaleInput.value);
+      if (!Number.isFinite(parsed)) {
+        this.syncVultureBillboardScaleInputValue();
+        return;
+      }
+      this.setVultureBillboardScaleFactor(parsed);
+    });
+    billboardScaleInput.addEventListener("blur", () => {
+      this.syncVultureBillboardScaleInputValue();
+    });
+    billboardScaleRow.appendChild(billboardScaleInput);
+    this.vultureBillboardScaleInput = billboardScaleInput;
+    panel.appendChild(billboardScaleRow);
+
     const doorRotationGrid = document.createElement("div");
     doorRotationGrid.style.display = "grid";
     doorRotationGrid.style.gridTemplateColumns = "repeat(2, minmax(0, 1fr))";
@@ -5602,6 +5636,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureWallProjectionDebugPanel = panel;
     this.vultureWallProjectionDebugStatusLabel = status;
     this.syncVultureWallProjectionRotationButtonLabels();
+    this.syncVultureBillboardScaleInputValue();
     for (const family of [
       "ew",
       "sn",
@@ -5629,6 +5664,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.vultureWallProjectionDebugStatusLabel) {
       this.vultureWallProjectionDebugStatusLabel.textContent = message;
     }
+  }
+
+  private getVultureBillboardScaleFactor(): number {
+    const raw = this.vultureBillboardScaleFactor;
+    if (!Number.isFinite(raw)) {
+      return 1;
+    }
+    return THREE.MathUtils.clamp(raw, 0.1, 8);
+  }
+
+  private syncVultureBillboardScaleInputValue(): void {
+    if (!this.vultureBillboardScaleInput) {
+      return;
+    }
+    this.vultureBillboardScaleInput.value =
+      this.getVultureBillboardScaleFactor().toFixed(2);
+  }
+
+  private setVultureBillboardScaleFactor(rawValue: number): void {
+    const next = THREE.MathUtils.clamp(rawValue, 0.1, 8);
+    if (Math.abs(next - this.vultureBillboardScaleFactor) < 0.0001) {
+      this.syncVultureBillboardScaleInputValue();
+      return;
+    }
+    this.vultureBillboardScaleFactor = next;
+    this.syncVultureBillboardScaleInputValue();
+    this.scheduleVultureWallProjectionRefresh();
   }
 
   private syncVultureWallProjectionRotationButtonLabels(): void {
@@ -5757,6 +5819,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       door_closed_ew: roundQuad(this.vultureDoorClosedProjectionQuadEW),
       door_closed_sn: roundQuad(this.vultureDoorClosedProjectionQuadSN),
       previewFamily: this.vultureWallProjectionDebugSelectedFamily,
+      billboardScale: Number(this.getVultureBillboardScaleFactor().toFixed(2)),
       rotation: {
         north: this.getVultureWallProjectionRotationDegrees("north"),
         east: this.getVultureWallProjectionRotationDegrees("east"),
@@ -6146,6 +6209,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     this.syncVultureWallProjectionRotationButtonLabels();
+    this.syncVultureBillboardScaleInputValue();
     const wasVisible =
       this.vultureWallProjectionDebugPanel.style.display === "block";
     const visible = this.shouldUseVultureTiles();
@@ -16666,6 +16730,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         scaleX = textureInfo.width * worldUnitsPerTexturePixelX * scaleBase;
         scaleY = textureInfo.height * worldUnitsPerTexturePixelY * scaleBase;
       }
+      const billboardScale = this.getVultureBillboardScaleFactor();
+      scaleX *= billboardScale;
+      scaleY *= billboardScale;
     }
     if (useTiles && texture?.image instanceof HTMLCanvasElement) {
       const canvas = texture.image;
