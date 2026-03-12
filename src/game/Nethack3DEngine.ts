@@ -776,6 +776,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private normalTileContextTarget: TileContextTarget | null = null;
   private activeContextActionTile: { x: number; y: number } | null = null;
   private selectedContextHighlightTile: { x: number; y: number } | null = null;
+  private vultureMouseHoverHighlightTile: { x: number; y: number } | null =
+    null;
   private suppressNextMapPrimaryPointerUntilMs: number = 0;
   private readonly suppressNextMapPrimaryPointerWindowMs: number = 140;
   private readonly fpsVoidContextMesh: THREE.Mesh = (() => {
@@ -837,7 +839,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraPitch: number = Math.PI / 2 - 0.3; // Elevation above the board (0 = horizon)
   private cameraYaw: number = 0; // Azimuth around the board (0 = facing north)
   private readonly vultureIsometricYawOffset: number = -Math.PI / 4;
-  private readonly vultureIsometricPitch: number = THREE.MathUtils.degToRad(49);
+  private readonly vultureIsometricPitch: number = THREE.MathUtils.degToRad(43);
   private readonly minCameraPitch: number = 0.2;
   private readonly maxCameraPitch: number = Math.PI / 2 - 0.01;
   private readonly rotationSpeed: number = 0.01;
@@ -4049,6 +4051,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     if (!wasUsingVultureTiles && isUsingVultureTiles) {
       this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
+    }
+    if (!isUsingVultureTiles) {
+      this.clearVultureMouseHoverHighlight();
     }
     if (blockAmbientOcclusionChanged) {
       this.refreshAllFloorBlockAmbientOcclusion();
@@ -15249,6 +15254,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.normalTileContextSignature = "";
     this.normalTileContextTarget = null;
     this.selectedContextHighlightTile = null;
+    this.vultureMouseHoverHighlightTile = null;
     this.fpsCrosshairGlanceCache.clear();
     this.fpsCrosshairGlanceAttemptedKeys.clear();
     this.fpsCrosshairGlanceIssuedThisOpen = false;
@@ -20838,6 +20844,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       document.pointerLockElement === this.renderer.domElement;
     if (this.fpsPointerLockActive) {
       this.fpsPointerLockRestorePending = false;
+      this.clearVultureMouseHoverHighlight();
     }
     this.syncFpsPointerLockForUiState(false);
   }
@@ -22103,6 +22110,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private ensureFpsAimVisuals(): void {
     if (this.fpsForwardHighlight) {
+      this.fpsForwardHighlight.renderOrder =
+        this.resolveContextHighlightRenderOrder();
       return;
     }
 
@@ -22122,13 +22131,54 @@ class Nethack3DEngine implements Nethack3DEngineController {
         toneMapped: false,
       });
       const mesh = new THREE.Mesh(geometry, material);
-      // Keep forward-tile highlight above floor/shadow layers but beneath
-      // elevated billboards (monster/loot sprites use renderOrder 910).
-      mesh.renderOrder = 907;
+      // Keep highlight above floor/shadow layers while still beneath
+      // dominant wall/billboard overlays.
+      mesh.renderOrder = this.resolveContextHighlightRenderOrder();
       this.scene.add(mesh);
       this.fpsForwardHighlight = mesh;
       this.fpsForwardHighlightMaterial = material;
     }
+  }
+
+  private resolveContextHighlightRenderOrder(): number {
+    if (this.shouldUseVultureTiles()) {
+      // Door floor overlays draw at frontWall-1, so draw above that but below
+      // front wall and billboards.
+      return this.vultureFrontWallPlaneRenderOrder - 0.5;
+    }
+    return 907;
+  }
+
+  private resolveHighlightTargetZ(targetTile: THREE.Mesh | null): number {
+    if (!targetTile) {
+      return 0.03;
+    }
+    if (
+      this.shouldUseVultureTiles() &&
+      (targetTile.userData?.materialKind === "door" ||
+        targetTile.userData?.vultureDoorPlaneOverlay)
+    ) {
+      return 0.03;
+    }
+    return targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+  }
+
+  private applyContextHighlightRenderConfig(targetTile: THREE.Mesh | null): void {
+    if (!this.fpsForwardHighlight) {
+      return;
+    }
+    let renderOrder = this.resolveContextHighlightRenderOrder();
+    if (
+      this.shouldUseVultureTiles() &&
+      targetTile &&
+      (targetTile.userData?.materialKind === "door" ||
+        targetTile.userData?.vultureDoorPlaneOverlay)
+    ) {
+      // Keep door-tile highlight visible regardless of which side of the door
+      // currently renders in front.
+      renderOrder = this.vultureBillboardRenderOrder - 0.1;
+    }
+    this.fpsForwardHighlight.renderOrder = renderOrder;
   }
 
   private updateFpsAimVisuals(timeMs: number): void {
@@ -22181,9 +22231,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       return;
     }
-    const targetZ = targetTile?.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+    const targetZ = this.resolveHighlightTargetZ(targetTile);
 
     if (this.fpsForwardHighlight) {
+      this.applyContextHighlightRenderConfig(targetTile);
       this.fpsForwardHighlight.position.set(
         targetX * TILE_SIZE,
         -targetY * TILE_SIZE,
@@ -22280,6 +22331,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private setContextSelectionHighlight(tileX: number, tileY: number): void {
     this.selectedContextHighlightTile = { x: tileX, y: tileY };
+  }
+
+  private clearVultureMouseHoverHighlight(): void {
+    this.vultureMouseHoverHighlightTile = null;
+  }
+
+  private updateVultureMouseHoverHighlightFromMouseEvent(
+    event: MouseEvent,
+  ): void {
+    if (!this.shouldUseVultureTiles() || this.isAnyModalVisible()) {
+      this.clearVultureMouseHoverHighlight();
+      return;
+    }
+    if (event.target !== this.renderer.domElement) {
+      this.clearVultureMouseHoverHighlight();
+      return;
+    }
+    const target = this.getTilePositionFromClientCoordinates(
+      event.clientX,
+      event.clientY,
+    );
+    if (!target) {
+      this.clearVultureMouseHoverHighlight();
+      return;
+    }
+    this.vultureMouseHoverHighlightTile = { x: target.x, y: target.y };
   }
 
   private openNormalTileContextMenuAtTarget(target: TileContextTarget): void {
@@ -22411,9 +22488,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    for (const intersection of intersections) {
+    for (
+      let intersectionIndex = 0;
+      intersectionIndex < intersections.length;
+      intersectionIndex += 1
+    ) {
+      const intersection = intersections[intersectionIndex];
       const object = intersection.object;
       if (object instanceof THREE.Sprite) {
+        if (this.shouldIgnoreVulturePlayerBillboardIntersection(object)) {
+          continue;
+        }
         if (!this.isOpaqueSpriteIntersection(intersection)) {
           continue;
         }
@@ -22443,20 +22528,272 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const x = Math.round(object.position.x / TILE_SIZE);
-      const y = Math.round(-object.position.y / TILE_SIZE);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      const preferredFloorMesh = this.resolvePreferredVultureFloorMeshTarget({
+        mesh: object,
+        intersection,
+        intersections,
+        intersectionIndex,
+      });
+      const resolvedMesh = preferredFloorMesh ?? object;
+      const resolvedTarget = this.getTileTargetFromMesh(resolvedMesh);
+      if (!resolvedTarget) {
         continue;
       }
-      return {
-        key: `${x},${y}`,
-        x,
-        y,
-        mesh: object,
-      };
+      return resolvedTarget;
     }
 
     return null;
+  }
+
+  private shouldIgnoreVulturePlayerBillboardIntersection(
+    sprite: THREE.Sprite,
+  ): boolean {
+    if (!this.shouldUseVultureTiles()) {
+      return false;
+    }
+    const spriteTileX = Number(sprite.userData?.tileX);
+    const spriteTileY = Number(sprite.userData?.tileY);
+    if (!Number.isFinite(spriteTileX) || !Number.isFinite(spriteTileY)) {
+      return false;
+    }
+    return (
+      Math.trunc(spriteTileX) === this.playerPos.x &&
+      Math.trunc(spriteTileY) === this.playerPos.y
+    );
+  }
+
+  private getTileTargetFromMesh(mesh: THREE.Mesh): {
+    key: string;
+    x: number;
+    y: number;
+    mesh: THREE.Mesh;
+  } | null {
+    const tileX =
+      typeof mesh.userData?.tileX === "number" &&
+      Number.isFinite(mesh.userData.tileX)
+        ? Math.trunc(mesh.userData.tileX)
+        : Math.round(mesh.position.x / TILE_SIZE);
+    const tileY =
+      typeof mesh.userData?.tileY === "number" &&
+      Number.isFinite(mesh.userData.tileY)
+        ? Math.trunc(mesh.userData.tileY)
+        : Math.round(-mesh.position.y / TILE_SIZE);
+    if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+      return null;
+    }
+    return {
+      key: `${tileX},${tileY}`,
+      x: tileX,
+      y: tileY,
+      mesh,
+    };
+  }
+
+  private resolvePreferredVultureFloorMeshTarget(params: {
+    mesh: THREE.Mesh;
+    intersection: THREE.Intersection<THREE.Object3D>;
+    intersections: Array<THREE.Intersection<THREE.Object3D>>;
+    intersectionIndex: number;
+  }): THREE.Mesh | null {
+    if (!this.shouldUseVultureTiles() || !params.mesh.userData?.isWall) {
+      return null;
+    }
+    if (this.isVultureClosedDoorWallMesh(params.mesh)) {
+      // Closed-door wall blocks should stay targetable as door tiles and should
+      // not remap to neighboring floor tiles.
+      return null;
+    }
+    const wallTileTarget = this.getTileTargetFromMesh(params.mesh);
+    if (!wallTileTarget) {
+      return null;
+    }
+
+    const worldFaceNormal = this.getIntersectionWorldFaceNormal(
+      params.intersection,
+      params.mesh,
+    );
+    const isTopWallFaceHit =
+      worldFaceNormal !== null && worldFaceNormal.z >= 0.55;
+
+    if (isTopWallFaceHit) {
+      const floorMeshBehindWall = this.findFloorMeshIntersectionAfterIndex(
+        params.intersections,
+        params.intersectionIndex,
+      );
+      if (floorMeshBehindWall) {
+        return floorMeshBehindWall;
+      }
+    }
+
+    // Side wall hit handling differs for inner vs outer faces.
+    const isSideWallFaceHit =
+      worldFaceNormal === null || Math.abs(worldFaceNormal.z) < 0.55;
+    if (!isSideWallFaceHit) {
+      return null;
+    }
+    const floorMeshBehindSide = this.findFloorMeshIntersectionAfterIndex(
+      params.intersections,
+      params.intersectionIndex,
+    );
+    if (this.isVultureWallCornerHit(params.intersection, params.mesh)) {
+      if (floorMeshBehindSide) {
+        return floorMeshBehindSide;
+      }
+    }
+    const isInnerSideHit =
+      worldFaceNormal === null
+        ? true
+        : this.isVultureInnerWallSideHit(
+            wallTileTarget.x,
+            wallTileTarget.y,
+            worldFaceNormal,
+          );
+    if (!isInnerSideHit) {
+      // Outer side hits use top-hit behavior: pass through to a floor behind,
+      // otherwise keep the wall hit.
+      return floorMeshBehindSide;
+    }
+    return this.findNearestAdjacentFloorMesh(
+      wallTileTarget.x,
+      wallTileTarget.y,
+      {
+        worldX: params.intersection.point.x,
+        worldY: params.intersection.point.y,
+      },
+    );
+  }
+
+  private isVultureClosedDoorWallMesh(mesh: THREE.Mesh): boolean {
+    return (
+      mesh.userData?.isWall === true && mesh.userData?.materialKind === "door"
+    );
+  }
+
+  private isVultureInnerWallSideHit(
+    wallTileX: number,
+    wallTileY: number,
+    worldFaceNormal: THREE.Vector3,
+  ): boolean {
+    const sideNeighborOffset =
+      this.resolveWallSideNeighborOffsetFromFaceNormal(worldFaceNormal);
+    if (!sideNeighborOffset) {
+      return true;
+    }
+    const neighborMesh = this.tileMap.get(
+      `${wallTileX + sideNeighborOffset.dx},${wallTileY + sideNeighborOffset.dy}`,
+    );
+    return Boolean(neighborMesh) && !Boolean(neighborMesh?.userData?.isWall);
+  }
+
+  private resolveWallSideNeighborOffsetFromFaceNormal(
+    worldFaceNormal: THREE.Vector3,
+  ): { dx: number; dy: number } | null {
+    const absX = Math.abs(worldFaceNormal.x);
+    const absY = Math.abs(worldFaceNormal.y);
+    if (!Number.isFinite(absX) || !Number.isFinite(absY)) {
+      return null;
+    }
+    if (absX < 0.0001 && absY < 0.0001) {
+      return null;
+    }
+    if (absX >= absY) {
+      return {
+        dx: worldFaceNormal.x >= 0 ? 1 : -1,
+        dy: 0,
+      };
+    }
+    return {
+      dx: 0,
+      dy: worldFaceNormal.y >= 0 ? -1 : 1,
+    };
+  }
+
+  private isVultureWallCornerHit(
+    intersection: THREE.Intersection<THREE.Object3D>,
+    mesh: THREE.Mesh,
+  ): boolean {
+    const localPoint = mesh.worldToLocal(intersection.point.clone());
+    const halfTileSize = TILE_SIZE * 0.5;
+    const cornerEpsilon = TILE_SIZE * 0.14;
+    const nearXEdge =
+      Math.abs(Math.abs(localPoint.x) - halfTileSize) <= cornerEpsilon;
+    const nearYEdge =
+      Math.abs(Math.abs(localPoint.y) - halfTileSize) <= cornerEpsilon;
+    return nearXEdge && nearYEdge;
+  }
+
+  private getIntersectionWorldFaceNormal(
+    intersection: THREE.Intersection<THREE.Object3D>,
+    mesh: THREE.Mesh,
+  ): THREE.Vector3 | null {
+    if (!intersection.face) {
+      return null;
+    }
+    const worldNormal = intersection.face.normal.clone();
+    worldNormal.transformDirection(mesh.matrixWorld);
+    if (
+      !Number.isFinite(worldNormal.x) ||
+      !Number.isFinite(worldNormal.y) ||
+      !Number.isFinite(worldNormal.z)
+    ) {
+      return null;
+    }
+    return worldNormal;
+  }
+
+  private findFloorMeshIntersectionAfterIndex(
+    intersections: Array<THREE.Intersection<THREE.Object3D>>,
+    startIndex: number,
+  ): THREE.Mesh | null {
+    for (let index = startIndex + 1; index < intersections.length; index += 1) {
+      const nextObject = intersections[index]?.object;
+      if (!(nextObject instanceof THREE.Mesh)) {
+        continue;
+      }
+      if (nextObject.userData?.isWall) {
+        continue;
+      }
+      return nextObject;
+    }
+    return null;
+  }
+
+  private findNearestAdjacentFloorMesh(
+    wallTileX: number,
+    wallTileY: number,
+    hitPoint: { worldX: number; worldY: number },
+  ): THREE.Mesh | null {
+    const neighborOffsets = [
+      { dx: 1, dy: 0 },
+      { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 },
+      { dx: 0, dy: -1 },
+      { dx: 1, dy: 1 },
+      { dx: 1, dy: -1 },
+      { dx: -1, dy: 1 },
+      { dx: -1, dy: -1 },
+    ];
+    let bestMesh: THREE.Mesh | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const offset of neighborOffsets) {
+      const mesh =
+        this.tileMap.get(`${wallTileX + offset.dx},${wallTileY + offset.dy}`) ??
+        null;
+      if (!mesh || mesh.userData?.isWall) {
+        continue;
+      }
+      const centerX = (wallTileX + offset.dx) * TILE_SIZE;
+      const centerY = -(wallTileY + offset.dy) * TILE_SIZE;
+      const distance = Math.hypot(
+        hitPoint.worldX - centerX,
+        hitPoint.worldY - centerY,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestMesh = mesh;
+      }
+    }
+    return bestMesh;
   }
 
   private sanitizeFpsCrosshairGlanceText(rawText: string): string {
@@ -23394,13 +23731,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private updateContextSelectionHighlight(timeMs: number): void {
     const highlightTile =
-      this.selectedContextHighlightTile ?? this.controllerMoveHighlightTile;
+      this.selectedContextHighlightTile ??
+      this.controllerMoveHighlightTile ??
+      this.vultureMouseHoverHighlightTile;
+    const isSelectedContextHighlight =
+      highlightTile === this.selectedContextHighlightTile;
+    const isControllerHighlight =
+      highlightTile === this.controllerMoveHighlightTile;
     if (highlightTile) {
       this.ensureFpsAimVisuals();
       const { x, y } = highlightTile;
       const targetTile = this.tileMap.get(`${x},${y}`) ?? null;
       if (targetTile && this.fpsForwardHighlight) {
-        const targetZ = targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
+        this.applyContextHighlightRenderConfig(targetTile);
+        const targetZ = this.resolveHighlightTargetZ(targetTile);
         this.fpsForwardHighlight.position.set(
           x * TILE_SIZE,
           -y * TILE_SIZE,
@@ -23413,10 +23757,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         return;
       }
-      if (this.selectedContextHighlightTile) {
+      if (isSelectedContextHighlight) {
         this.closeAnyTileContextMenu(false);
-      } else {
+      } else if (isControllerHighlight) {
         this.controllerMoveHighlightTile = null;
+      } else {
+        this.clearVultureMouseHoverHighlight();
       }
       return;
     }
@@ -26593,6 +26939,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private handleMouseMove(event: MouseEvent): void {
     if (this.isFpsMode() && this.fpsPointerLockActive) {
+      this.clearVultureMouseHoverHighlight();
       const deltaX = event.movementX || 0;
       const deltaY = event.movementY || 0;
       this.applyFpsLookDelta(deltaX, deltaY, this.firstPersonMouseSensitivity);
@@ -26620,6 +26967,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
+      this.clearVultureMouseHoverHighlight();
     } else if (this.isFpsMode() && this.isRightMouseDown) {
       event.preventDefault();
       const deltaX = event.clientX - this.lastMouseX;
@@ -26627,6 +26975,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.applyFpsLookDelta(deltaX, deltaY, this.rotationSpeed);
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
+      this.clearVultureMouseHoverHighlight();
     } else if (this.isRightMouseDown) {
       // Right mouse - pan camera
       event.preventDefault();
@@ -26651,6 +27000,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
+      this.clearVultureMouseHoverHighlight();
+    } else {
+      this.updateVultureMouseHoverHighlightFromMouseEvent(event);
     }
   }
 
