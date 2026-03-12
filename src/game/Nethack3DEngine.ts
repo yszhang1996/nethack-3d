@@ -15190,6 +15190,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private clearScene(): void {
     this.clearDamageEffects();
+    this.vultureTilesetTranslator?.resetRuntimeMapState();
     // Keep last-known status baselines across scene clears so status deltas
     // (damage numbers, AC/stat change text) are not dropped after map redraws.
     this.pendingPlayerTileRefreshOnNextPosition = true;
@@ -22496,7 +22497,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const intersection = intersections[intersectionIndex];
       const object = intersection.object;
       if (object instanceof THREE.Sprite) {
-        if (this.shouldIgnoreVulturePlayerBillboardIntersection(object)) {
+        if (this.shouldIgnoreTileModePlayerBillboardIntersection(object)) {
           continue;
         }
         if (!this.isOpaqueSpriteIntersection(intersection)) {
@@ -22528,7 +22529,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         continue;
       }
 
-      const preferredFloorMesh = this.resolvePreferredVultureFloorMeshTarget({
+      const preferredFloorMesh = this.resolvePreferredTilesModeFloorMeshTarget({
         mesh: object,
         intersection,
         intersections,
@@ -22545,10 +22546,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return null;
   }
 
-  private shouldIgnoreVulturePlayerBillboardIntersection(
+  private shouldIgnoreTileModePlayerBillboardIntersection(
     sprite: THREE.Sprite,
   ): boolean {
-    if (!this.shouldUseVultureTiles()) {
+    if (!this.shouldApplyTilesModeRaycastTargetingRules()) {
       return false;
     }
     const spriteTileX = Number(sprite.userData?.tileX);
@@ -22589,16 +22590,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private resolvePreferredVultureFloorMeshTarget(params: {
+  private shouldApplyTilesModeRaycastTargetingRules(): boolean {
+    return this.clientOptions.tilesetMode === "tiles";
+  }
+
+  private resolvePreferredTilesModeFloorMeshTarget(params: {
     mesh: THREE.Mesh;
     intersection: THREE.Intersection<THREE.Object3D>;
     intersections: Array<THREE.Intersection<THREE.Object3D>>;
     intersectionIndex: number;
   }): THREE.Mesh | null {
-    if (!this.shouldUseVultureTiles() || !params.mesh.userData?.isWall) {
+    if (
+      !this.shouldApplyTilesModeRaycastTargetingRules() ||
+      !params.mesh.userData?.isWall
+    ) {
       return null;
     }
-    if (this.isVultureClosedDoorWallMesh(params.mesh)) {
+    if (this.isTilesModeClosedDoorWallMesh(params.mesh)) {
       // Closed-door wall blocks should stay targetable as door tiles and should
       // not remap to neighboring floor tiles.
       return null;
@@ -22616,12 +22624,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       worldFaceNormal !== null && worldFaceNormal.z >= 0.55;
 
     if (isTopWallFaceHit) {
-      const floorMeshBehindWall = this.findFloorMeshIntersectionAfterIndex(
-        params.intersections,
-        params.intersectionIndex,
-      );
-      if (floorMeshBehindWall) {
-        return floorMeshBehindWall;
+      const passThroughMeshBehindWall =
+        this.findPassThroughTargetMeshIntersectionAfterIndex(
+          params.intersections,
+          params.intersectionIndex,
+        );
+      if (passThroughMeshBehindWall) {
+        return passThroughMeshBehindWall;
       }
     }
 
@@ -22631,27 +22640,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!isSideWallFaceHit) {
       return null;
     }
-    const floorMeshBehindSide = this.findFloorMeshIntersectionAfterIndex(
-      params.intersections,
-      params.intersectionIndex,
-    );
-    if (this.isVultureWallCornerHit(params.intersection, params.mesh)) {
-      if (floorMeshBehindSide) {
-        return floorMeshBehindSide;
+    const passThroughMeshBehindSide =
+      this.findPassThroughTargetMeshIntersectionAfterIndex(
+        params.intersections,
+        params.intersectionIndex,
+      );
+    if (this.isTilesModeWallCornerHit(params.intersection, params.mesh)) {
+      if (passThroughMeshBehindSide) {
+        return passThroughMeshBehindSide;
       }
     }
     const isInnerSideHit =
       worldFaceNormal === null
         ? true
-        : this.isVultureInnerWallSideHit(
+        : this.isTilesModeInnerWallSideHit(
             wallTileTarget.x,
             wallTileTarget.y,
             worldFaceNormal,
           );
     if (!isInnerSideHit) {
-      // Outer side hits use top-hit behavior: pass through to a floor behind,
-      // otherwise keep the wall hit.
-      return floorMeshBehindSide;
+      // Outer side hits use top-hit behavior: pass through to a target behind
+      // (floor or closed door), otherwise keep the wall hit.
+      return passThroughMeshBehindSide;
     }
     return this.findNearestAdjacentFloorMesh(
       wallTileTarget.x,
@@ -22663,13 +22673,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private isVultureClosedDoorWallMesh(mesh: THREE.Mesh): boolean {
+  private isTilesModeClosedDoorWallMesh(mesh: THREE.Mesh): boolean {
     return (
       mesh.userData?.isWall === true && mesh.userData?.materialKind === "door"
     );
   }
 
-  private isVultureInnerWallSideHit(
+  private isTilesModeInnerWallSideHit(
     wallTileX: number,
     wallTileY: number,
     worldFaceNormal: THREE.Vector3,
@@ -22708,7 +22718,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private isVultureWallCornerHit(
+  private isTilesModeWallCornerHit(
     intersection: THREE.Intersection<THREE.Object3D>,
     mesh: THREE.Mesh,
   ): boolean {
@@ -22741,7 +22751,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return worldNormal;
   }
 
-  private findFloorMeshIntersectionAfterIndex(
+  private findPassThroughTargetMeshIntersectionAfterIndex(
     intersections: Array<THREE.Intersection<THREE.Object3D>>,
     startIndex: number,
   ): THREE.Mesh | null {
@@ -22750,12 +22760,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!(nextObject instanceof THREE.Mesh)) {
         continue;
       }
-      if (nextObject.userData?.isWall) {
+      if (!this.isTilesModePassThroughTargetMesh(nextObject)) {
         continue;
       }
       return nextObject;
     }
     return null;
+  }
+
+  private isTilesModePassThroughTargetMesh(mesh: THREE.Mesh): boolean {
+    if (this.isTilesModeClosedDoorWallMesh(mesh)) {
+      return true;
+    }
+    return !Boolean(mesh.userData?.isWall);
   }
 
   private findNearestAdjacentFloorMesh(
@@ -23946,7 +23963,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ) {
         return;
       }
-      const target = this.getTilePositionFromClientCoordinates(
+      const target = this.resolvePointerTargetTileFromClientCoordinates(
         hold.startX,
         hold.startY,
       );
@@ -25978,10 +25995,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private getClickedTilePosition(
     event: MouseEvent,
   ): { x: number; y: number } | null {
-    return this.getTilePositionFromClientCoordinates(
+    return this.resolvePointerTargetTileFromClientCoordinates(
       event.clientX,
       event.clientY,
     );
+  }
+
+  private resolvePointerTargetTileFromClientCoordinates(
+    clientX: number,
+    clientY: number,
+  ): { x: number; y: number } | null {
+    const directTarget = this.getTilePositionFromClientCoordinates(
+      clientX,
+      clientY,
+    );
+    if (directTarget) {
+      return directTarget;
+    }
+    return this.getVisualTargetTileForPointerInputFallback();
+  }
+
+  private getVisualTargetTileForPointerInputFallback(): {
+    x: number;
+    y: number;
+  } | null {
+    if (!this.shouldUseVultureTiles() || !this.vultureMouseHoverHighlightTile) {
+      return null;
+    }
+    const candidate = this.vultureMouseHoverHighlightTile;
+    if (!this.tileMap.has(`${candidate.x},${candidate.y}`)) {
+      return null;
+    }
+    return { x: candidate.x, y: candidate.y };
   }
 
   private canUseFpsGameplayMouseInput(event: MouseEvent): boolean {
@@ -26872,7 +26917,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       distance < this.touchSwipeMinDistancePx ||
       durationMs > this.touchSwipeMaxDurationMs
     ) {
-      const target = this.getTilePositionFromClientCoordinates(
+      const target = this.resolvePointerTargetTileFromClientCoordinates(
         touch.clientX,
         touch.clientY,
       );
@@ -27019,7 +27064,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.rightMouseCanOpenContextMenuOnRelease &&
         !this.rightMouseDragExceededDeadzone
       ) {
-        const target = this.getTilePositionFromClientCoordinates(
+        const target = this.resolvePointerTargetTileFromClientCoordinates(
           this.rightMouseDownStartX,
           this.rightMouseDownStartY,
         );
