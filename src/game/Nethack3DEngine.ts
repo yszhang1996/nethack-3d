@@ -84,6 +84,7 @@ import { getItemTextClassName } from "./helpers/helpers";
 import { MessageSoundHooks } from "./message-sound-hooks";
 import {
   VultureTilesetTranslator,
+  type VultureRoomDecorDebugInfo,
   type VultureTileLookup,
   type VultureWallFaceDirection,
 } from "./vulture/translation";
@@ -1048,6 +1049,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     cornerId: VultureWallProjectionCornerId;
   } | null = null;
   private vultureWallProjectionRefreshScheduled = false;
+  private vultureRoomDecorDebugOverlay: HTMLDivElement | null = null;
+  private vultureRoomDecorRevisionLastApplied = -1;
+  private vultureRoomDecorRefreshInProgress = false;
   private vultureTilesetTranslator: VultureTilesetTranslator | null = null;
   private vultureTilesetDataRootUrl = "";
   private vulturePrebakedProjectionManifest: VulturePrebakedProjectionManifest | null =
@@ -4172,6 +4176,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureTilesetTranslator?.dispose();
     this.vultureTilesetTranslator = null;
     this.vultureTilesetDataRootUrl = "";
+    this.vultureRoomDecorRevisionLastApplied = -1;
     this.disposeVulturePrebakedProjectionManifest();
   }
 
@@ -4385,6 +4390,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       dataRootUrl: normalizedDataRootUrl,
       onAssetReady: this.handleVultureTilesetAssetReady,
     });
+    this.vultureRoomDecorRevisionLastApplied = -1;
     this.vultureTilesetTranslator.setRuntimeObjectTileIndexByObjectId(
       this.runtimeObjectTileIndexByObjectId,
     );
@@ -5370,7 +5376,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.ensureMinimapOverlay();
     this.ensureControllerVirtualCursorOverlay();
     this.ensureVultureWallProjectionDebugPanel();
+    this.ensureVultureRoomDecorDebugOverlay();
     this.syncVultureWallProjectionDebugPanelVisibility();
+    this.syncVultureRoomDecorDebugOverlayVisibility();
     this.resetControllerVirtualCursor();
     this.uiAdapter.setStatus("Starting local NetHack runtime...");
     this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
@@ -5379,6 +5387,144 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setExtendedCommands([]);
     this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
     this.uiAdapter.setGameOver({ ...this.gameOverState });
+  }
+
+  private ensureVultureRoomDecorDebugOverlay(): void {
+    if (this.vultureRoomDecorDebugOverlay) {
+      return;
+    }
+    const host = this.mountElement ?? document.body;
+    const panel = document.createElement("div");
+    panel.className = "nh3d-vulture-room-decor-debug";
+    panel.style.position = "fixed";
+    panel.style.top = "8px";
+    panel.style.left = "8px";
+    panel.style.zIndex = "2147483646";
+    panel.style.padding = "8px 10px";
+    panel.style.border = "1px solid rgba(255, 255, 255, 0.35)";
+    panel.style.borderRadius = "4px";
+    panel.style.background = "rgba(0, 0, 0, 0.76)";
+    panel.style.color = "#f3f3f3";
+    panel.style.font = "12px monospace";
+    panel.style.lineHeight = "1.3";
+    panel.style.whiteSpace = "pre";
+    panel.style.pointerEvents = "none";
+    panel.style.maxWidth = "360px";
+    panel.style.display = "none";
+    host.appendChild(panel);
+    this.vultureRoomDecorDebugOverlay = panel;
+  }
+
+  private syncVultureRoomDecorDebugOverlayVisibility(): void {
+    if (!this.vultureRoomDecorDebugOverlay) {
+      return;
+    }
+    const visible = Boolean(
+      this.vultureTilesetTranslator &&
+        this.clientOptions.tilesetMode === "tiles" &&
+        this.shouldUseVultureTiles(),
+    );
+    this.vultureRoomDecorDebugOverlay.style.display = visible ? "block" : "none";
+  }
+
+  private resolveVultureRoomDecorDebugFocusTile(): { x: number; y: number } | null {
+    const hovered = this.vultureMouseHoverHighlightTile;
+    if (hovered && this.tileMap.has(`${hovered.x},${hovered.y}`)) {
+      return { x: hovered.x, y: hovered.y };
+    }
+    const selected = this.selectedContextHighlightTile;
+    if (selected && this.tileMap.has(`${selected.x},${selected.y}`)) {
+      return { x: selected.x, y: selected.y };
+    }
+    if (this.isFpsMode()) {
+      const crosshairTarget = this.getTileUnderFpsCrosshair();
+      if (crosshairTarget) {
+        return { x: crosshairTarget.x, y: crosshairTarget.y };
+      }
+    }
+    return null;
+  }
+
+  private formatVultureRoomDecorDebugInfo(
+    info: VultureRoomDecorDebugInfo,
+  ): string {
+    const lines: string[] = [];
+    lines.push(`Tile ${info.x},${info.y} (cmap: ${info.cmapIndex ?? "?"})`);
+    lines.push(
+      `Room ${info.roomId ?? "n/a"} sel:${info.roomSelector} (${info.selectorSource})`,
+    );
+    lines.push(`Floor theme: ${info.floorTheme ?? "n/a"}`);
+    lines.push(`Wall theme: ${info.wallTheme ?? "n/a"}`);
+    if (info.roomAnchor) {
+      lines.push(`Room anchor: ${info.roomAnchor.x},${info.roomAnchor.y}`);
+    } else {
+      lines.push("Room anchor: n/a");
+    }
+    if (info.decorTile) {
+      lines.push(`Decor tile: ${info.decorTile.style}#${info.decorTile.position}`);
+    } else {
+      lines.push("Decor tile: none");
+    }
+    if (info.decorAnchor) {
+      lines.push(
+        `Decor anchor: ${info.decorAnchor.style} at ${info.decorAnchor.originX},${info.decorAnchor.originY} (${info.decorAnchor.width}x${info.decorAnchor.height})`,
+      );
+    } else {
+      lines.push("Decor anchor: none");
+    }
+    return lines.join("\n");
+  }
+
+  private updateVultureRoomDecorDebugOverlay(): void {
+    if (!this.vultureRoomDecorDebugOverlay) {
+      return;
+    }
+    this.syncVultureRoomDecorDebugOverlayVisibility();
+    if (this.vultureRoomDecorDebugOverlay.style.display === "none") {
+      return;
+    }
+    const translator = this.vultureTilesetTranslator;
+    if (!translator) {
+      this.vultureRoomDecorDebugOverlay.textContent = "Vulture room debug\nNo translator";
+      return;
+    }
+    const focusTile = this.resolveVultureRoomDecorDebugFocusTile();
+    if (!focusTile) {
+      this.vultureRoomDecorDebugOverlay.textContent =
+        "Vulture room debug\nHover a tile (or use FPS crosshair)";
+      return;
+    }
+    const info = translator.getRoomDecorDebugInfo(focusTile.x, focusTile.y);
+    this.vultureRoomDecorDebugOverlay.textContent =
+      `Vulture room debug (rev ${translator.getRoomDecorRevision()})\n${this.formatVultureRoomDecorDebugInfo(info)}`;
+  }
+
+  private syncVultureRoomDecorRevision(): void {
+    const translator = this.vultureTilesetTranslator;
+    if (
+      !translator ||
+      !this.shouldUseVultureTiles() ||
+      this.clientOptions.tilesetMode !== "tiles"
+    ) {
+      this.vultureRoomDecorRevisionLastApplied = -1;
+      return;
+    }
+    const revision = translator.getRoomDecorRevision();
+    if (revision === this.vultureRoomDecorRevisionLastApplied) {
+      return;
+    }
+    this.vultureRoomDecorRevisionLastApplied = revision;
+    if (this.vultureRoomDecorRefreshInProgress) {
+      return;
+    }
+    this.vultureRoomDecorRefreshInProgress = true;
+    try {
+      this.invalidateTilesetDependentCaches();
+      this.refreshTilesFromStateCache();
+      this.flushPendingVultureWallMaterialRefreshes(true);
+    } finally {
+      this.vultureRoomDecorRefreshInProgress = false;
+    }
   }
 
   private ensureVultureWallProjectionDebugPanel(): void {
@@ -15191,6 +15337,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.vultureTilesetTranslator?.resetRuntimeMapState();
+    this.vultureRoomDecorRevisionLastApplied = -1;
     // Keep last-known status baselines across scene clears so status deltas
     // (damage numbers, AC/stat change text) are not dropped after map redraws.
     this.pendingPlayerTileRefreshOnNextPosition = true;
@@ -27379,6 +27526,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
     this.syncFpsPointerLockForUiState(false);
+    this.syncVultureRoomDecorRevision();
     this.updateControllerInput(deltaSeconds);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
@@ -27387,6 +27535,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateNormalTileContextMenu();
     this.updateFpsAimVisuals(timeMs);
     this.updateContextSelectionHighlight(timeMs);
+    this.updateVultureRoomDecorDebugOverlay();
     this.expireBlindSearchInferenceWindowIfNeeded();
     this.updateLightingCenter(deltaSeconds);
     if (this.clientOptions.minimap) {

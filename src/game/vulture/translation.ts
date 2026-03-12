@@ -164,11 +164,53 @@ type VultureDecorativeFloorPlacement = {
 };
 
 type VultureKnownRoom = {
+  id: number;
   lx: number;
   ly: number;
   hx: number;
   hy: number;
   cellKeys: string[];
+};
+
+type VultureRoomDecorAnchor = {
+  style: VultureDecorativeFloorStyle;
+  originX: number;
+  originY: number;
+};
+
+type VultureRuntimeRoomState = {
+  id: number;
+  anchorX: number;
+  anchorY: number;
+  selector: number;
+  decorAnchor: VultureRoomDecorAnchor | null;
+};
+
+export type VultureRoomDecorDebugInfo = {
+  x: number;
+  y: number;
+  cmapIndex: number | null;
+  roomId: number | null;
+  roomSelector: number;
+  selectorSource: "room" | "pseudo";
+  floorTheme: VultureFloorDecorStyle | null;
+  wallTheme: VultureWallDecorStyle | null;
+  roomAnchor: { x: number; y: number } | null;
+  decorTile:
+    | {
+        style: VultureDecorativeFloorStyle;
+        position: number;
+      }
+    | null;
+  decorAnchor:
+    | {
+        style: VultureDecorativeFloorStyle;
+        originX: number;
+        originY: number;
+        width: number;
+        height: number;
+      }
+    | null;
 };
 
 const decorativeFloorStylesInPlacementOrder: ReadonlyArray<VultureDecorativeFloorStyle> =
@@ -284,6 +326,38 @@ function positiveModulo(value: number, divisor: number): number {
   return ((Math.trunc(value) % normalizedDivisor) + normalizedDivisor) % normalizedDivisor;
 }
 
+function resolveRoomFloorStyleBySelector(
+  selector: number,
+): VultureFloorDecorStyle {
+  switch (positiveModulo(selector, 4)) {
+    case 0:
+      return "CERAMIC";
+    case 1:
+      return "COBBLESTONE";
+    case 2:
+      return "MOSS_COVERED";
+    case 3:
+      return "MARBLE";
+    default:
+      return "COBBLESTONE";
+  }
+}
+
+function resolveRoomWallStyleBySelector(selector: number): VultureWallDecorStyle {
+  switch (positiveModulo(selector, 4)) {
+    case 0:
+      return "STUCCO";
+    case 1:
+      return "BRICK";
+    case 2:
+      return "VINE_COVERED";
+    case 3:
+      return "MARBLE";
+    default:
+      return "BRICK";
+  }
+}
+
 export class VultureTilesetTranslator {
   private readonly dataRootUrl: string;
 
@@ -322,7 +396,16 @@ export class VultureTilesetTranslator {
 
   private readonly knownCmapIndexByCoordinate = new Map<string, number>();
 
+  private readonly roomSelectorHintByCoordinate = new Map<string, number>();
+
+  private readonly roomSelectorObservationOrderByCoordinate = new Map<
+    string,
+    number
+  >();
+
   private readonly roomIndexByCoordinate = new Map<string, number>();
+
+  private readonly roomStateById = new Map<number, VultureRuntimeRoomState>();
 
   private readonly decorativeFloorPlacementByCoordinate = new Map<
     string,
@@ -354,6 +437,12 @@ export class VultureTilesetTranslator {
   private pendingAssetReadyCallback = false;
 
   private roomDecorStateDirty = true;
+
+  private nextRuntimeRoomId = 1;
+
+  private roomDecorRevision = 1;
+
+  private roomSelectorObservationCounter = 1;
 
   private disposed = false;
 
@@ -448,11 +537,76 @@ export class VultureTilesetTranslator {
 
   public resetRuntimeMapState(): void {
     this.knownCmapIndexByCoordinate.clear();
+    this.roomSelectorHintByCoordinate.clear();
+    this.roomSelectorObservationOrderByCoordinate.clear();
     this.roomIndexByCoordinate.clear();
+    this.roomStateById.clear();
     this.decorativeFloorPlacementByCoordinate.clear();
     this.pseudoRoomSelectorByRoomCell.clear();
+    this.nextRuntimeRoomId = 1;
+    this.roomSelectorObservationCounter = 1;
     this.roomDecorStateDirty = true;
+    this.roomDecorRevision += 1;
     this.clearLookupDecisionCaches();
+  }
+
+  public getRoomDecorRevision(): number {
+    return this.roomDecorRevision;
+  }
+
+  public getRoomDecorDebugInfo(
+    tileX: number,
+    tileY: number,
+  ): VultureRoomDecorDebugInfo {
+    const normalizedX = Math.trunc(tileX);
+    const normalizedY = Math.trunc(tileY);
+    this.ensureRoomDecorState();
+    const key = this.makeCoordinateKey(normalizedX, normalizedY);
+    const cmapIndex = this.knownCmapIndexByCoordinate.get(key) ?? null;
+    const roomId = this.roomIndexByCoordinate.get(key) ?? null;
+    const roomState =
+      typeof roomId === "number" ? this.roomStateById.get(roomId) ?? null : null;
+    const selector =
+      roomState?.selector ??
+      this.resolvePseudoRoomSelector(normalizedX, normalizedY);
+    const floorTheme =
+      cmapIndex === 19 ? resolveRoomFloorStyleBySelector(selector) : null;
+    const wallTheme =
+      cmapIndex === 19 ? resolveRoomWallStyleBySelector(selector) : null;
+    const decorTile = this.decorativeFloorPlacementByCoordinate.get(key) ?? null;
+    const decorAnchor = roomState?.decorAnchor ?? null;
+    const decorPattern = decorAnchor
+      ? floorDecorPatternByStyle[decorAnchor.style]
+      : null;
+    return {
+      x: normalizedX,
+      y: normalizedY,
+      cmapIndex,
+      roomId,
+      roomSelector: selector,
+      selectorSource: roomState ? "room" : "pseudo",
+      floorTheme,
+      wallTheme,
+      roomAnchor: roomState
+        ? { x: roomState.anchorX, y: roomState.anchorY }
+        : null,
+      decorTile: decorTile
+        ? {
+            style: decorTile.style,
+            position: decorTile.position,
+          }
+        : null,
+      decorAnchor:
+        decorAnchor && decorPattern
+          ? {
+              style: decorAnchor.style,
+              originX: decorAnchor.originX,
+              originY: decorAnchor.originY,
+              width: decorPattern.width,
+              height: decorPattern.height,
+            }
+          : null,
+    };
   }
 
   public dispose(): void {
@@ -1139,6 +1293,22 @@ export class VultureTilesetTranslator {
       return;
     }
     this.knownCmapIndexByCoordinate.set(key, normalizedCmapIndex);
+    if (normalizedCmapIndex === 19) {
+      if (!this.roomSelectorHintByCoordinate.has(key)) {
+        this.roomSelectorHintByCoordinate.set(
+          key,
+          this.resolvePseudoRoomSelector(x, y),
+        );
+        this.roomSelectorObservationOrderByCoordinate.set(
+          key,
+          this.roomSelectorObservationCounter,
+        );
+        this.roomSelectorObservationCounter += 1;
+      }
+    } else {
+      this.roomSelectorHintByCoordinate.delete(key);
+      this.roomSelectorObservationOrderByCoordinate.delete(key);
+    }
     this.roomDecorStateDirty = true;
     this.clearLookupDecisionCaches();
   }
@@ -1202,13 +1372,84 @@ export class VultureTilesetTranslator {
     return cmapIndex >= 0 && cmapIndex <= 11;
   }
 
+  private createRuntimeRoomState(
+    anchorX: number,
+    anchorY: number,
+    selectorOverride?: number,
+  ): VultureRuntimeRoomState {
+    const roomId = this.nextRuntimeRoomId;
+    this.nextRuntimeRoomId += 1;
+    const normalizedAnchorX = Math.trunc(anchorX);
+    const normalizedAnchorY = Math.trunc(anchorY);
+    const roomState: VultureRuntimeRoomState = {
+      id: roomId,
+      anchorX: normalizedAnchorX,
+      anchorY: normalizedAnchorY,
+      selector:
+        typeof selectorOverride === "number" && Number.isFinite(selectorOverride)
+          ? positiveModulo(selectorOverride, 4)
+          : this.resolvePseudoRoomSelector(normalizedAnchorX, normalizedAnchorY),
+      decorAnchor: null,
+    };
+    this.roomStateById.set(roomId, roomState);
+    return roomState;
+  }
+
+  private ensureRuntimeRoomState(
+    roomId: number,
+    fallbackX: number,
+    fallbackY: number,
+  ): VultureRuntimeRoomState {
+    const normalizedRoomId = Math.max(1, Math.trunc(roomId));
+    const existing = this.roomStateById.get(normalizedRoomId);
+    if (existing) {
+      return existing;
+    }
+    const normalizedFallbackX = Math.trunc(fallbackX);
+    const normalizedFallbackY = Math.trunc(fallbackY);
+    const created: VultureRuntimeRoomState = {
+      id: normalizedRoomId,
+      anchorX: normalizedFallbackX,
+      anchorY: normalizedFallbackY,
+      selector: this.resolvePseudoRoomSelector(
+        normalizedFallbackX,
+        normalizedFallbackY,
+      ),
+      decorAnchor: null,
+    };
+    this.roomStateById.set(normalizedRoomId, created);
+    this.nextRuntimeRoomId = Math.max(
+      this.nextRuntimeRoomId,
+      normalizedRoomId + 1,
+    );
+    return created;
+  }
+
+  private mergeRuntimeRoomState(
+    canonicalRoomId: number,
+    mergedRoomId: number,
+  ): void {
+    if (canonicalRoomId === mergedRoomId) {
+      return;
+    }
+    const canonical = this.roomStateById.get(canonicalRoomId);
+    const merged = this.roomStateById.get(mergedRoomId);
+    if (!canonical || !merged) {
+      this.roomStateById.delete(mergedRoomId);
+      return;
+    }
+    if (!canonical.decorAnchor && merged.decorAnchor) {
+      canonical.decorAnchor = merged.decorAnchor;
+    }
+    this.roomStateById.delete(mergedRoomId);
+  }
+
   private ensureRoomDecorState(): void {
     if (!this.roomDecorStateDirty) {
       return;
     }
     this.roomDecorStateDirty = false;
-    this.roomIndexByCoordinate.clear();
-    this.decorativeFloorPlacementByCoordinate.clear();
+    const previousRoomIndexByCoordinate = new Map(this.roomIndexByCoordinate);
 
     const roomKeys: string[] = [];
     for (const [key, cmapIndex] of this.knownCmapIndexByCoordinate) {
@@ -1216,7 +1457,11 @@ export class VultureTilesetTranslator {
         roomKeys.push(key);
       }
     }
+    this.roomIndexByCoordinate.clear();
+    this.decorativeFloorPlacementByCoordinate.clear();
     if (roomKeys.length <= 0) {
+      this.roomDecorRevision += 1;
+      this.clearLookupDecisionCaches();
       return;
     }
 
@@ -1281,7 +1526,63 @@ export class VultureTilesetTranslator {
       if (roomCellKeys.length <= 0) {
         continue;
       }
+      const fallbackCoordinate = {
+        x: minX,
+        y: minY,
+      };
+      const priorRoomIds = new Set<number>();
+      for (const key of roomCellKeys) {
+        const previousRoomId = previousRoomIndexByCoordinate.get(key);
+        if (typeof previousRoomId === "number" && Number.isFinite(previousRoomId)) {
+          priorRoomIds.add(Math.trunc(previousRoomId));
+        }
+      }
+      let roomId: number;
+      if (priorRoomIds.size > 0) {
+        const sortedPriorRoomIds = Array.from(priorRoomIds).sort((left, right) => {
+          const leftState = this.roomStateById.get(left);
+          const rightState = this.roomStateById.get(right);
+          const leftAnchorX = leftState?.anchorX ?? fallbackCoordinate.x;
+          const leftAnchorY = leftState?.anchorY ?? fallbackCoordinate.y;
+          const rightAnchorX = rightState?.anchorX ?? fallbackCoordinate.x;
+          const rightAnchorY = rightState?.anchorY ?? fallbackCoordinate.y;
+          if (leftAnchorX !== rightAnchorX) {
+            return leftAnchorX - rightAnchorX;
+          }
+          if (leftAnchorY !== rightAnchorY) {
+            return leftAnchorY - rightAnchorY;
+          }
+          return left - right;
+        });
+        roomId = sortedPriorRoomIds[0];
+        this.ensureRuntimeRoomState(roomId, fallbackCoordinate.x, fallbackCoordinate.y);
+        for (let index = 1; index < sortedPriorRoomIds.length; index += 1) {
+          this.mergeRuntimeRoomState(roomId, sortedPriorRoomIds[index]);
+        }
+      } else {
+        let preferredSelector: number | null = null;
+        let preferredOrder = Number.POSITIVE_INFINITY;
+        for (const key of roomCellKeys) {
+          const hintedSelector = this.roomSelectorHintByCoordinate.get(key);
+          if (typeof hintedSelector !== "number" || !Number.isFinite(hintedSelector)) {
+            continue;
+          }
+          const observationOrder =
+            this.roomSelectorObservationOrderByCoordinate.get(key) ??
+            Number.POSITIVE_INFINITY;
+          if (observationOrder < preferredOrder) {
+            preferredOrder = observationOrder;
+            preferredSelector = hintedSelector;
+          }
+        }
+        roomId = this.createRuntimeRoomState(
+          fallbackCoordinate.x,
+          fallbackCoordinate.y,
+          preferredSelector ?? undefined,
+        ).id;
+      }
       rooms.push({
+        id: roomId,
         lx: minX,
         ly: minY,
         hx: maxX,
@@ -1291,34 +1592,64 @@ export class VultureTilesetTranslator {
     }
 
     rooms.sort((left, right) => {
-      if (left.lx !== right.lx) {
-        return left.lx - right.lx;
+      const leftState = this.roomStateById.get(left.id);
+      const rightState = this.roomStateById.get(right.id);
+      const leftAnchorX = leftState?.anchorX ?? left.lx;
+      const leftAnchorY = leftState?.anchorY ?? left.ly;
+      const rightAnchorX = rightState?.anchorX ?? right.lx;
+      const rightAnchorY = rightState?.anchorY ?? right.ly;
+      if (leftAnchorX !== rightAnchorX) {
+        return leftAnchorX - rightAnchorX;
       }
-      if (left.ly !== right.ly) {
-        return left.ly - right.ly;
+      if (leftAnchorY !== rightAnchorY) {
+        return leftAnchorY - rightAnchorY;
       }
-      if (left.hx !== right.hx) {
-        return left.hx - right.hx;
-      }
-      return left.hy - right.hy;
+      return left.id - right.id;
     });
 
-    for (let roomIndex = 0; roomIndex < rooms.length; roomIndex += 1) {
-      const normalizedRoomIndex = roomIndex + 1;
-      for (const key of rooms[roomIndex].cellKeys) {
-        this.roomIndexByCoordinate.set(key, normalizedRoomIndex);
+    for (const room of rooms) {
+      for (const key of room.cellKeys) {
+        this.roomIndexByCoordinate.set(key, room.id);
       }
     }
 
-    this.buildDecorativeFloorPlacements(rooms);
+    const candidateDecorativeFloorPlacements =
+      this.buildDecorativeFloorPlacements(rooms);
+    for (const room of rooms) {
+      const roomState = this.ensureRuntimeRoomState(room.id, room.lx, room.ly);
+      if (!roomState.decorAnchor) {
+        const derivedDecorAnchor = this.deriveDecorAnchorFromPlacements(
+          room,
+          candidateDecorativeFloorPlacements,
+        );
+        if (derivedDecorAnchor) {
+          roomState.decorAnchor = derivedDecorAnchor;
+        }
+      }
+      if (roomState.decorAnchor) {
+        this.applyDecorAnchorPlacementForRoom(
+          room,
+          roomState.decorAnchor,
+          this.decorativeFloorPlacementByCoordinate,
+        );
+        continue;
+      }
+      this.applyCandidateDecorPlacementsForRoom(
+        room,
+        candidateDecorativeFloorPlacements,
+        this.decorativeFloorPlacementByCoordinate,
+      );
+    }
+    this.roomDecorRevision += 1;
+    this.clearLookupDecisionCaches();
   }
 
   private buildDecorativeFloorPlacements(
     rooms: ReadonlyArray<VultureKnownRoom>,
-  ): void {
+  ): Map<string, VultureDecorativeFloorPlacement> {
     const roomCount = rooms.length;
     if (roomCount <= 0) {
-      return;
+      return new Map();
     }
 
     const placedDecorByCoordinate = new Map<string, number>();
@@ -1450,6 +1781,7 @@ export class VultureTilesetTranslator {
       }
     }
 
+    const resolvedPlacements = new Map<string, VultureDecorativeFloorPlacement>();
     for (const [key, code] of placedDecorByCoordinate) {
       const styleIndex = decodeDecorStyleIndex(code);
       if (styleIndex < 0) {
@@ -1459,10 +1791,98 @@ export class VultureTilesetTranslator {
       const pattern = floorDecorPatternByStyle[style];
       const patternTileCount = Math.max(1, pattern.width * pattern.height);
       const decorPosition = positiveModulo(code & 0x0f, patternTileCount);
-      this.decorativeFloorPlacementByCoordinate.set(key, {
+      resolvedPlacements.set(key, {
         style,
         position: decorPosition,
       });
+    }
+    return resolvedPlacements;
+  }
+
+  private deriveDecorAnchorFromPlacements(
+    room: VultureKnownRoom,
+    candidateDecorativeFloorPlacements: ReadonlyMap<
+      string,
+      VultureDecorativeFloorPlacement
+    >,
+  ): VultureRoomDecorAnchor | null {
+    let selectedCoordinate: { x: number; y: number } | null = null;
+    let selectedDecorPlacement: VultureDecorativeFloorPlacement | null = null;
+    for (const key of room.cellKeys) {
+      const decorPlacement = candidateDecorativeFloorPlacements.get(key);
+      if (!decorPlacement) {
+        continue;
+      }
+      const coordinate = this.parseCoordinateKey(key);
+      if (!coordinate) {
+        continue;
+      }
+      if (
+        !selectedCoordinate ||
+        coordinate.y < selectedCoordinate.y ||
+        (coordinate.y === selectedCoordinate.y &&
+          coordinate.x < selectedCoordinate.x)
+      ) {
+        selectedCoordinate = coordinate;
+        selectedDecorPlacement = decorPlacement;
+      }
+    }
+    if (!selectedCoordinate || !selectedDecorPlacement) {
+      return null;
+    }
+    const pattern = floorDecorPatternByStyle[selectedDecorPlacement.style];
+    const patternTileCount = Math.max(1, pattern.width * pattern.height);
+    const normalizedPosition = positiveModulo(
+      selectedDecorPlacement.position,
+      patternTileCount,
+    );
+    const patternX = normalizedPosition % pattern.width;
+    const patternY = Math.trunc(normalizedPosition / pattern.width);
+    return {
+      style: selectedDecorPlacement.style,
+      originX: selectedCoordinate.x - patternX,
+      originY: selectedCoordinate.y - patternY,
+    };
+  }
+
+  private applyDecorAnchorPlacementForRoom(
+    room: VultureKnownRoom,
+    decorAnchor: VultureRoomDecorAnchor,
+    placementsByCoordinate: Map<string, VultureDecorativeFloorPlacement>,
+  ): void {
+    const pattern = floorDecorPatternByStyle[decorAnchor.style];
+    const roomCellKeySet = new Set(room.cellKeys);
+    for (let patternY = 0; patternY < pattern.height; patternY += 1) {
+      for (let patternX = 0; patternX < pattern.width; patternX += 1) {
+        const worldX = decorAnchor.originX + patternX;
+        const worldY = decorAnchor.originY + patternY;
+        const key = this.makeCoordinateKey(worldX, worldY);
+        if (!roomCellKeySet.has(key)) {
+          continue;
+        }
+        const position = patternY * pattern.width + patternX;
+        placementsByCoordinate.set(key, {
+          style: decorAnchor.style,
+          position,
+        });
+      }
+    }
+  }
+
+  private applyCandidateDecorPlacementsForRoom(
+    room: VultureKnownRoom,
+    candidateDecorativeFloorPlacements: ReadonlyMap<
+      string,
+      VultureDecorativeFloorPlacement
+    >,
+    placementsByCoordinate: Map<string, VultureDecorativeFloorPlacement>,
+  ): void {
+    for (const key of room.cellKeys) {
+      const decorPlacement = candidateDecorativeFloorPlacements.get(key);
+      if (!decorPlacement) {
+        continue;
+      }
+      placementsByCoordinate.set(key, decorPlacement);
     }
   }
 
@@ -1494,11 +1914,15 @@ export class VultureTilesetTranslator {
   ): number {
     if (floorX !== null && floorY !== null) {
       this.ensureRoomDecorState();
-      const roomIndex = this.roomIndexByCoordinate.get(
+      const roomId = this.roomIndexByCoordinate.get(
         this.makeCoordinateKey(floorX, floorY),
       );
-      if (typeof roomIndex === "number" && Number.isFinite(roomIndex)) {
-        return positiveModulo(roomIndex, 4);
+      if (typeof roomId === "number" && Number.isFinite(roomId)) {
+        const roomState = this.roomStateById.get(roomId);
+        if (roomState) {
+          return positiveModulo(roomState.selector, 4);
+        }
+        return positiveModulo(roomId, 4);
       }
     }
     return this.resolvePseudoRoomSelector(floorX, floorY);
@@ -1534,18 +1958,7 @@ export class VultureTilesetTranslator {
     // Ported from Vulture floor style selection (levelwin::get_floor_decor).
     if (cmapIndex === 19) {
       const roomSelector = this.resolveRoomSelectorForCoordinate(floorX, floorY);
-      switch (roomSelector) {
-        case 0:
-          return "CERAMIC";
-        case 1:
-          return "COBBLESTONE";
-        case 2:
-          return "MOSS_COVERED";
-        case 3:
-          return "MARBLE";
-        default:
-          return "COBBLESTONE";
-      }
+      return resolveRoomFloorStyleBySelector(roomSelector);
     }
     return fixedFloorDecorStyleByCmap.get(cmapIndex) ?? null;
   }
