@@ -84,7 +84,6 @@ import { getItemTextClassName } from "./helpers/helpers";
 import { MessageSoundHooks } from "./message-sound-hooks";
 import {
   VultureTilesetTranslator,
-  type VultureRoomDecorDebugInfo,
   type VultureTileLookup,
   type VultureWallFaceDirection,
 } from "./vulture/translation";
@@ -1049,9 +1048,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     cornerId: VultureWallProjectionCornerId;
   } | null = null;
   private vultureWallProjectionRefreshScheduled = false;
-  private vultureRoomDecorDebugOverlay: HTMLDivElement | null = null;
-  private vultureRoomDecorRevisionLastApplied = -1;
-  private vultureRoomDecorRefreshInProgress = false;
+  private pendingVultureRoomDecorReconcileKeys: Set<string> = new Set();
+  private vultureRoomDecorReconcileScheduled = false;
+  private readonly vultureRoomDecorReconcileMaxPerFrame = 96;
   private vultureTilesetTranslator: VultureTilesetTranslator | null = null;
   private vultureTilesetDataRootUrl = "";
   private vulturePrebakedProjectionManifest: VulturePrebakedProjectionManifest | null =
@@ -1067,12 +1066,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
     string,
     Promise<HTMLImageElement | null>
   >();
+  private readonly menuTilePreviewDataUrlCache = new Map<string, string>();
+  private menuTilePreviewCanvas: HTMLCanvasElement | null = null;
   private readonly handleVultureTilesetAssetReady = (): void => {
     if (this.clientOptions.tilesetMode !== "tiles") {
       return;
     }
+    this.clearMenuTilePreviewCache();
     this.invalidateTilesetDependentCaches();
     this.refreshTilesFromStateCache();
+    this.refreshMenuTilePreviewStateForUi();
   };
 
   // Direction question handling
@@ -2727,9 +2730,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private parseTileKey(key: string): { x: number; y: number } | null {
-    const [rawX, rawY] = String(key || "").split(",");
-    const x = Number.parseInt(rawX, 10);
-    const y = Number.parseInt(rawY, 10);
+    const normalizedKey = String(key || "");
+    const separatorIndex = normalizedKey.indexOf(",");
+    if (separatorIndex <= 0 || separatorIndex >= normalizedKey.length - 1) {
+      return null;
+    }
+    const x = Number.parseInt(normalizedKey.slice(0, separatorIndex), 10);
+    const y = Number.parseInt(normalizedKey.slice(separatorIndex + 1), 10);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       return null;
     }
@@ -3888,6 +3895,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         },
       );
     }
+    this.collectPendingVultureRoomDecorReconcileKeys(false);
+    this.flushPendingVultureRoomDecorReconcile(true);
     this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
   }
 
@@ -4040,6 +4049,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearMonsterBillboardShardParticles();
     }
     if (tilesetPathChanged) {
+      this.clearMenuTilePreviewCache();
       this.loadTilesetTexture(normalized);
     }
     if (
@@ -4051,7 +4061,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.refreshTilesFromStateCache();
     }
     if (tilesetModeChanged) {
+      this.clearMenuTilePreviewCache();
       this.refreshTilesFromStateCache();
+    }
+    if (tilesetPathChanged || tilesetModeChanged) {
+      this.refreshMenuTilePreviewStateForUi();
     }
     if (!wasUsingVultureTiles && isUsingVultureTiles) {
       this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
@@ -4176,7 +4190,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureTilesetTranslator?.dispose();
     this.vultureTilesetTranslator = null;
     this.vultureTilesetDataRootUrl = "";
-    this.vultureRoomDecorRevisionLastApplied = -1;
+    this.pendingVultureRoomDecorReconcileKeys.clear();
+    this.vultureRoomDecorReconcileScheduled = false;
     this.disposeVulturePrebakedProjectionManifest();
   }
 
@@ -4390,7 +4405,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       dataRootUrl: normalizedDataRootUrl,
       onAssetReady: this.handleVultureTilesetAssetReady,
     });
-    this.vultureRoomDecorRevisionLastApplied = -1;
     this.vultureTilesetTranslator.setRuntimeObjectTileIndexByObjectId(
       this.runtimeObjectTileIndexByObjectId,
     );
@@ -5376,9 +5390,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.ensureMinimapOverlay();
     this.ensureControllerVirtualCursorOverlay();
     this.ensureVultureWallProjectionDebugPanel();
-    this.ensureVultureRoomDecorDebugOverlay();
     this.syncVultureWallProjectionDebugPanelVisibility();
-    this.syncVultureRoomDecorDebugOverlayVisibility();
     this.resetControllerVirtualCursor();
     this.uiAdapter.setStatus("Starting local NetHack runtime...");
     this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
@@ -5389,141 +5401,92 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setGameOver({ ...this.gameOverState });
   }
 
-  private ensureVultureRoomDecorDebugOverlay(): void {
-    if (this.vultureRoomDecorDebugOverlay) {
-      return;
-    }
-    const host = this.mountElement ?? document.body;
-    const panel = document.createElement("div");
-    panel.className = "nh3d-vulture-room-decor-debug";
-    panel.style.position = "fixed";
-    panel.style.top = "8px";
-    panel.style.left = "8px";
-    panel.style.zIndex = "2147483646";
-    panel.style.padding = "8px 10px";
-    panel.style.border = "1px solid rgba(255, 255, 255, 0.35)";
-    panel.style.borderRadius = "4px";
-    panel.style.background = "rgba(0, 0, 0, 0.76)";
-    panel.style.color = "#f3f3f3";
-    panel.style.font = "12px monospace";
-    panel.style.lineHeight = "1.3";
-    panel.style.whiteSpace = "pre";
-    panel.style.pointerEvents = "none";
-    panel.style.maxWidth = "360px";
-    panel.style.display = "none";
-    host.appendChild(panel);
-    this.vultureRoomDecorDebugOverlay = panel;
-  }
-
-  private syncVultureRoomDecorDebugOverlayVisibility(): void {
-    if (!this.vultureRoomDecorDebugOverlay) {
-      return;
-    }
-    const visible = Boolean(
-      this.vultureTilesetTranslator &&
-        this.clientOptions.tilesetMode === "tiles" &&
-        this.shouldUseVultureTiles(),
-    );
-    this.vultureRoomDecorDebugOverlay.style.display = visible ? "block" : "none";
-  }
-
-  private resolveVultureRoomDecorDebugFocusTile(): { x: number; y: number } | null {
-    const hovered = this.vultureMouseHoverHighlightTile;
-    if (hovered && this.tileMap.has(`${hovered.x},${hovered.y}`)) {
-      return { x: hovered.x, y: hovered.y };
-    }
-    const selected = this.selectedContextHighlightTile;
-    if (selected && this.tileMap.has(`${selected.x},${selected.y}`)) {
-      return { x: selected.x, y: selected.y };
-    }
-    if (this.isFpsMode()) {
-      const crosshairTarget = this.getTileUnderFpsCrosshair();
-      if (crosshairTarget) {
-        return { x: crosshairTarget.x, y: crosshairTarget.y };
-      }
-    }
-    return null;
-  }
-
-  private formatVultureRoomDecorDebugInfo(
-    info: VultureRoomDecorDebugInfo,
-  ): string {
-    const lines: string[] = [];
-    lines.push(`Tile ${info.x},${info.y} (cmap: ${info.cmapIndex ?? "?"})`);
-    lines.push(
-      `Room ${info.roomId ?? "n/a"} sel:${info.roomSelector} (${info.selectorSource})`,
-    );
-    lines.push(`Floor theme: ${info.floorTheme ?? "n/a"}`);
-    lines.push(`Wall theme: ${info.wallTheme ?? "n/a"}`);
-    if (info.roomAnchor) {
-      lines.push(`Room anchor: ${info.roomAnchor.x},${info.roomAnchor.y}`);
-    } else {
-      lines.push("Room anchor: n/a");
-    }
-    if (info.decorTile) {
-      lines.push(`Decor tile: ${info.decorTile.style}#${info.decorTile.position}`);
-    } else {
-      lines.push("Decor tile: none");
-    }
-    if (info.decorAnchor) {
-      lines.push(
-        `Decor anchor: ${info.decorAnchor.style} at ${info.decorAnchor.originX},${info.decorAnchor.originY} (${info.decorAnchor.width}x${info.decorAnchor.height})`,
-      );
-    } else {
-      lines.push("Decor anchor: none");
-    }
-    return lines.join("\n");
-  }
-
-  private updateVultureRoomDecorDebugOverlay(): void {
-    if (!this.vultureRoomDecorDebugOverlay) {
-      return;
-    }
-    this.syncVultureRoomDecorDebugOverlayVisibility();
-    if (this.vultureRoomDecorDebugOverlay.style.display === "none") {
-      return;
-    }
-    const translator = this.vultureTilesetTranslator;
-    if (!translator) {
-      this.vultureRoomDecorDebugOverlay.textContent = "Vulture room debug\nNo translator";
-      return;
-    }
-    const focusTile = this.resolveVultureRoomDecorDebugFocusTile();
-    if (!focusTile) {
-      this.vultureRoomDecorDebugOverlay.textContent =
-        "Vulture room debug\nHover a tile (or use FPS crosshair)";
-      return;
-    }
-    const info = translator.getRoomDecorDebugInfo(focusTile.x, focusTile.y);
-    this.vultureRoomDecorDebugOverlay.textContent =
-      `Vulture room debug (rev ${translator.getRoomDecorRevision()})\n${this.formatVultureRoomDecorDebugInfo(info)}`;
-  }
-
-  private syncVultureRoomDecorRevision(): void {
+  private collectPendingVultureRoomDecorReconcileKeys(
+    scheduleDeferred: boolean = true,
+  ): void {
     const translator = this.vultureTilesetTranslator;
     if (
       !translator ||
       !this.shouldUseVultureTiles() ||
       this.clientOptions.tilesetMode !== "tiles"
     ) {
-      this.vultureRoomDecorRevisionLastApplied = -1;
+      this.pendingVultureRoomDecorReconcileKeys.clear();
       return;
     }
-    const revision = translator.getRoomDecorRevision();
-    if (revision === this.vultureRoomDecorRevisionLastApplied) {
+    const keys = translator.consumeRoomDecorDirtyCoordinateKeys();
+    if (keys.length <= 0) {
       return;
     }
-    this.vultureRoomDecorRevisionLastApplied = revision;
-    if (this.vultureRoomDecorRefreshInProgress) {
+    for (const key of keys) {
+      this.pendingVultureRoomDecorReconcileKeys.add(key);
+    }
+    if (scheduleDeferred) {
+      this.scheduleVultureRoomDecorReconcile();
+    }
+  }
+
+  private scheduleVultureRoomDecorReconcile(): void {
+    if (this.vultureRoomDecorReconcileScheduled) {
       return;
     }
-    this.vultureRoomDecorRefreshInProgress = true;
-    try {
-      this.invalidateTilesetDependentCaches();
-      this.refreshTilesFromStateCache();
-      this.flushPendingVultureWallMaterialRefreshes(true);
-    } finally {
-      this.vultureRoomDecorRefreshInProgress = false;
+    this.vultureRoomDecorReconcileScheduled = true;
+    requestAnimationFrame(() => {
+      this.vultureRoomDecorReconcileScheduled = false;
+      this.flushPendingVultureRoomDecorReconcile();
+      if (this.pendingVultureRoomDecorReconcileKeys.size > 0) {
+        this.scheduleVultureRoomDecorReconcile();
+      }
+    });
+  }
+
+  private flushPendingVultureRoomDecorReconcile(forceAll: boolean = false): void {
+    if (
+      !this.shouldUseVultureTiles() ||
+      this.clientOptions.tilesetMode !== "tiles" ||
+      !this.vultureTilesetTranslator
+    ) {
+      this.pendingVultureRoomDecorReconcileKeys.clear();
+      return;
+    }
+    if (this.pendingVultureRoomDecorReconcileKeys.size <= 0) {
+      return;
+    }
+    const maxToProcess = forceAll
+      ? this.pendingVultureRoomDecorReconcileKeys.size
+      : this.vultureRoomDecorReconcileMaxPerFrame;
+    let processed = 0;
+    const pendingIterator =
+      this.pendingVultureRoomDecorReconcileKeys.keys();
+    while (processed < maxToProcess) {
+      const nextPending = pendingIterator.next();
+      if (nextPending.done) {
+        break;
+      }
+      const key = nextPending.value;
+      this.pendingVultureRoomDecorReconcileKeys.delete(key);
+      const coordinate = this.parseTileKey(key);
+      if (!coordinate) {
+        continue;
+      }
+      const snapshot = this.getTileSnapshotFromStateCache(key);
+      if (!snapshot) {
+        continue;
+      }
+      this.updateTile(
+        coordinate.x,
+        coordinate.y,
+        snapshot.glyph,
+        snapshot.char,
+        snapshot.color,
+        {
+          runtimeTileIndex:
+            typeof snapshot.tileIndex === "number"
+              ? snapshot.tileIndex
+              : undefined,
+        },
+      );
+      this.refreshVultureWallMaterialsNear(coordinate.x, coordinate.y);
+      processed += 1;
     }
   }
 
@@ -7228,9 +7191,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       case "inventory_update":
         // Handle inventory updates without showing dialog
-        const nextInventory = Array.isArray(data.items)
-          ? data.items.map((item: any) => ({ ...item }))
-          : [];
+        const nextInventory = this.normalizeMenuItemsForUi(data.items);
         this.inventoryRefreshInFlight = false;
         const itemCount = nextInventory.length;
         const actualItems = nextInventory.filter(
@@ -8427,6 +8388,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Flush minimap cells once per tile batch to keep runtime bursts lightweight.
     this.flushPendingMinimapTileUpdates();
     this.flushPendingVultureWallMaterialRefreshes();
+    this.collectPendingVultureRoomDecorReconcileKeys(false);
+    this.flushPendingVultureRoomDecorReconcile();
 
     if (
       (this.pendingTileFlushQueueIndex < this.pendingTileFlushQueue.length ||
@@ -15337,7 +15300,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearScene(): void {
     this.clearDamageEffects();
     this.vultureTilesetTranslator?.resetRuntimeMapState();
-    this.vultureRoomDecorRevisionLastApplied = -1;
+    this.pendingVultureRoomDecorReconcileKeys.clear();
+    this.vultureRoomDecorReconcileScheduled = false;
     // Keep last-known status baselines across scene clears so status deltas
     // (damage numbers, AC/stat change text) are not dropped after map redraws.
     this.pendingPlayerTileRefreshOnNextPosition = true;
@@ -18260,10 +18224,147 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setPlayerStats(snapshot);
   }
 
+  private clearMenuTilePreviewCache(): void {
+    this.menuTilePreviewDataUrlCache.clear();
+    this.menuTilePreviewCanvas = null;
+  }
+
+  private refreshMenuTilePreviewStateForUi(): void {
+    if (this.currentInventory.length > 0) {
+      this.currentInventory = this.normalizeMenuItemsForUi(this.currentInventory);
+      this.uiAdapter.setInventory(this.buildInventoryDialogState());
+    }
+
+    if (this.activeQuestionMenuItems.length > 0) {
+      this.activeQuestionMenuItems = this.normalizeMenuItemsForUi(
+        this.activeQuestionMenuItems,
+      );
+      this.rebuildActiveQuestionMenuPagination();
+      if (this.isInQuestion) {
+        this.syncQuestionDialogState();
+      }
+    }
+  }
+
+  private normalizeMenuItemsForUi(items: unknown): any[] {
+    if (!Array.isArray(items)) {
+      return [];
+    }
+    return items.map((item) => this.normalizeMenuItemForUi(item));
+  }
+
+  private normalizeMenuItemForUi(item: unknown): any {
+    if (!item || typeof item !== "object") {
+      return item;
+    }
+    const normalizedItem = { ...(item as Record<string, unknown>) };
+    const previewDataUrl = this.resolveMenuItemTilePreviewDataUrl(normalizedItem);
+    if (previewDataUrl) {
+      normalizedItem.tilePreviewDataUrl = previewDataUrl;
+    } else {
+      delete normalizedItem.tilePreviewDataUrl;
+    }
+    return normalizedItem;
+  }
+
+  private resolveMenuItemTilePreviewDataUrl(
+    item: Record<string, unknown>,
+  ): string | null {
+    if (
+      !this.shouldUseVultureTiles() ||
+      !this.vultureTilesetTranslator ||
+      item.isCategory === true
+    ) {
+      return null;
+    }
+
+    const explicitTileApplicable = item.isTileApplicable;
+    if (typeof explicitTileApplicable === "boolean" && !explicitTileApplicable) {
+      return null;
+    }
+
+    const glyph = this.resolveNonNegativeMenuInteger(item.glyph);
+    const tileIndex = this.resolveNonNegativeMenuInteger(item.tileIndex);
+    if (glyph === null && tileIndex === null) {
+      return null;
+    }
+
+    const glyphForLookup = glyph ?? -1;
+    const previewSize = Math.max(
+      32,
+      Math.min(112, Math.trunc(this.tileSourceSize) || 112),
+    );
+    const cacheKey = `${this.clientOptions.tilesetPath}|g:${glyphForLookup}|ti:${
+      tileIndex === null ? "n" : tileIndex
+    }|s:${previewSize}`;
+    const cached = this.menuTilePreviewDataUrlCache.get(cacheKey);
+    if (typeof cached === "string" && cached.length > 0) {
+      return cached;
+    }
+
+    if (typeof document === "undefined") {
+      return null;
+    }
+    let previewCanvas = this.menuTilePreviewCanvas;
+    if (!previewCanvas) {
+      previewCanvas = document.createElement("canvas");
+      this.menuTilePreviewCanvas = previewCanvas;
+    }
+    if (
+      previewCanvas.width !== previewSize ||
+      previewCanvas.height !== previewSize
+    ) {
+      previewCanvas.width = previewSize;
+      previewCanvas.height = previewSize;
+    }
+    const context = previewCanvas.getContext("2d");
+    if (!context) {
+      return null;
+    }
+
+    context.clearRect(0, 0, previewSize, previewSize);
+    const lookup = this.vultureTilesetTranslator.resolveLookupForTile({
+      glyph: glyphForLookup,
+      tileIndex,
+      materialKind: null,
+      forBillboard: true,
+    });
+    if (!lookup) {
+      return null;
+    }
+    const drewTile =
+      this.vultureTilesetTranslator.drawLookupSourcePreview({
+        context,
+        size: previewSize,
+        lookup,
+      }) ||
+      this.vultureTilesetTranslator.drawLookupTile({
+        context,
+        size: previewSize,
+        lookup,
+        forBillboard: true,
+      });
+    if (!drewTile) {
+      return null;
+    }
+    const dataUrl = previewCanvas.toDataURL("image/png");
+    if (dataUrl) {
+      this.menuTilePreviewDataUrlCache.set(cacheKey, dataUrl);
+      return dataUrl;
+    }
+    return null;
+  }
+
+  private resolveNonNegativeMenuInteger(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return null;
+    }
+    const normalized = Math.trunc(value);
+    return normalized >= 0 ? normalized : null;
+  }
+
   private updateInventoryDisplay(items: any[]): void {
-    const nextInventory = Array.isArray(items)
-      ? items.map((item) => ({ ...item }))
-      : [];
+    const nextInventory = this.normalizeMenuItemsForUi(items);
     this.currentInventory = nextInventory;
 
     this.uiAdapter.setInventory(this.buildInventoryDialogState());
@@ -18993,9 +19094,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.activeQuestionText = question || "";
     this.activeQuestionChoices = choices || "";
     this.activeQuestionDefaultChoice = defaultChoice || "";
-    this.activeQuestionMenuItems = Array.isArray(menuItems)
-      ? [...menuItems]
-      : [];
+    this.activeQuestionMenuItems = this.normalizeMenuItemsForUi(menuItems);
     this.activeQuestionIsPickupDialog =
       this.activeQuestionMenuItems.length > 0 &&
       this.isMultiSelectLootQuestion(this.activeQuestionText);
@@ -27526,7 +27625,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const deltaSeconds = Math.max(0, Math.min(rawDeltaMs, 250)) / 1000;
 
     this.syncFpsPointerLockForUiState(false);
-    this.syncVultureRoomDecorRevision();
     this.updateControllerInput(deltaSeconds);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
@@ -27535,7 +27633,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateNormalTileContextMenu();
     this.updateFpsAimVisuals(timeMs);
     this.updateContextSelectionHighlight(timeMs);
-    this.updateVultureRoomDecorDebugOverlay();
     this.expireBlindSearchInferenceWindowIfNeeded();
     this.updateLightingCenter(deltaSeconds);
     if (this.clientOptions.minimap) {

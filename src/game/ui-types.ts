@@ -28,6 +28,7 @@ export type NethackMenuItem = {
   menuIndex?: number;
   glyph?: number;
   tileIndex?: number;
+  tilePreviewDataUrl?: string;
   glyphChar?: string;
   isTileApplicable?: boolean;
   [key: string]: unknown;

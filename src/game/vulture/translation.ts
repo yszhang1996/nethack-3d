@@ -183,34 +183,8 @@ type VultureRuntimeRoomState = {
   anchorX: number;
   anchorY: number;
   selector: number;
+  firstSeenOrder: number;
   decorAnchor: VultureRoomDecorAnchor | null;
-};
-
-export type VultureRoomDecorDebugInfo = {
-  x: number;
-  y: number;
-  cmapIndex: number | null;
-  roomId: number | null;
-  roomSelector: number;
-  selectorSource: "room" | "pseudo";
-  floorTheme: VultureFloorDecorStyle | null;
-  wallTheme: VultureWallDecorStyle | null;
-  roomAnchor: { x: number; y: number } | null;
-  decorTile:
-    | {
-        style: VultureDecorativeFloorStyle;
-        position: number;
-      }
-    | null;
-  decorAnchor:
-    | {
-        style: VultureDecorativeFloorStyle;
-        originX: number;
-        originY: number;
-        width: number;
-        height: number;
-      }
-    | null;
 };
 
 const decorativeFloorStylesInPlacementOrder: ReadonlyArray<VultureDecorativeFloorStyle> =
@@ -412,6 +386,8 @@ export class VultureTilesetTranslator {
     VultureDecorativeFloorPlacement
   >();
 
+  private readonly roomDecorDirtyCoordinateKeys = new Set<string>();
+
   private readonly pseudoRoomSelectorByRoomCell = new Map<string, number>();
 
   private readonly tileLookupDecisionCache = new Map<
@@ -439,8 +415,6 @@ export class VultureTilesetTranslator {
   private roomDecorStateDirty = true;
 
   private nextRuntimeRoomId = 1;
-
-  private roomDecorRevision = 1;
 
   private roomSelectorObservationCounter = 1;
 
@@ -542,71 +516,22 @@ export class VultureTilesetTranslator {
     this.roomIndexByCoordinate.clear();
     this.roomStateById.clear();
     this.decorativeFloorPlacementByCoordinate.clear();
+    this.roomDecorDirtyCoordinateKeys.clear();
     this.pseudoRoomSelectorByRoomCell.clear();
     this.nextRuntimeRoomId = 1;
     this.roomSelectorObservationCounter = 1;
     this.roomDecorStateDirty = true;
-    this.roomDecorRevision += 1;
     this.clearLookupDecisionCaches();
   }
 
-  public getRoomDecorRevision(): number {
-    return this.roomDecorRevision;
-  }
-
-  public getRoomDecorDebugInfo(
-    tileX: number,
-    tileY: number,
-  ): VultureRoomDecorDebugInfo {
-    const normalizedX = Math.trunc(tileX);
-    const normalizedY = Math.trunc(tileY);
+  public consumeRoomDecorDirtyCoordinateKeys(): string[] {
     this.ensureRoomDecorState();
-    const key = this.makeCoordinateKey(normalizedX, normalizedY);
-    const cmapIndex = this.knownCmapIndexByCoordinate.get(key) ?? null;
-    const roomId = this.roomIndexByCoordinate.get(key) ?? null;
-    const roomState =
-      typeof roomId === "number" ? this.roomStateById.get(roomId) ?? null : null;
-    const selector =
-      roomState?.selector ??
-      this.resolvePseudoRoomSelector(normalizedX, normalizedY);
-    const floorTheme =
-      cmapIndex === 19 ? resolveRoomFloorStyleBySelector(selector) : null;
-    const wallTheme =
-      cmapIndex === 19 ? resolveRoomWallStyleBySelector(selector) : null;
-    const decorTile = this.decorativeFloorPlacementByCoordinate.get(key) ?? null;
-    const decorAnchor = roomState?.decorAnchor ?? null;
-    const decorPattern = decorAnchor
-      ? floorDecorPatternByStyle[decorAnchor.style]
-      : null;
-    return {
-      x: normalizedX,
-      y: normalizedY,
-      cmapIndex,
-      roomId,
-      roomSelector: selector,
-      selectorSource: roomState ? "room" : "pseudo",
-      floorTheme,
-      wallTheme,
-      roomAnchor: roomState
-        ? { x: roomState.anchorX, y: roomState.anchorY }
-        : null,
-      decorTile: decorTile
-        ? {
-            style: decorTile.style,
-            position: decorTile.position,
-          }
-        : null,
-      decorAnchor:
-        decorAnchor && decorPattern
-          ? {
-              style: decorAnchor.style,
-              originX: decorAnchor.originX,
-              originY: decorAnchor.originY,
-              width: decorPattern.width,
-              height: decorPattern.height,
-            }
-          : null,
-    };
+    if (this.roomDecorDirtyCoordinateKeys.size <= 0) {
+      return [];
+    }
+    const keys = Array.from(this.roomDecorDirtyCoordinateKeys);
+    this.roomDecorDirtyCoordinateKeys.clear();
+    return keys;
   }
 
   public dispose(): void {
@@ -1309,8 +1234,12 @@ export class VultureTilesetTranslator {
       this.roomSelectorHintByCoordinate.delete(key);
       this.roomSelectorObservationOrderByCoordinate.delete(key);
     }
-    this.roomDecorStateDirty = true;
-    this.clearLookupDecisionCaches();
+    const touchesRoomState =
+      previousCmapIndex === 19 || normalizedCmapIndex === 19;
+    if (touchesRoomState) {
+      this.roomDecorStateDirty = true;
+      this.clearLookupDecisionCaches();
+    }
   }
 
   private resolveCmapIndexFromContext(
@@ -1376,6 +1305,7 @@ export class VultureTilesetTranslator {
     anchorX: number,
     anchorY: number,
     selectorOverride?: number,
+    firstSeenOrderOverride?: number,
   ): VultureRuntimeRoomState {
     const roomId = this.nextRuntimeRoomId;
     this.nextRuntimeRoomId += 1;
@@ -1389,6 +1319,11 @@ export class VultureTilesetTranslator {
         typeof selectorOverride === "number" && Number.isFinite(selectorOverride)
           ? positiveModulo(selectorOverride, 4)
           : this.resolvePseudoRoomSelector(normalizedAnchorX, normalizedAnchorY),
+      firstSeenOrder:
+        typeof firstSeenOrderOverride === "number" &&
+        Number.isFinite(firstSeenOrderOverride)
+          ? Math.max(0, Math.trunc(firstSeenOrderOverride))
+          : Number.POSITIVE_INFINITY,
       decorAnchor: null,
     };
     this.roomStateById.set(roomId, roomState);
@@ -1415,6 +1350,7 @@ export class VultureTilesetTranslator {
         normalizedFallbackX,
         normalizedFallbackY,
       ),
+      firstSeenOrder: Number.POSITIVE_INFINITY,
       decorAnchor: null,
     };
     this.roomStateById.set(normalizedRoomId, created);
@@ -1438,10 +1374,26 @@ export class VultureTilesetTranslator {
       this.roomStateById.delete(mergedRoomId);
       return;
     }
+    if (merged.firstSeenOrder < canonical.firstSeenOrder) {
+      canonical.firstSeenOrder = merged.firstSeenOrder;
+    }
     if (!canonical.decorAnchor && merged.decorAnchor) {
       canonical.decorAnchor = merged.decorAnchor;
     }
     this.roomStateById.delete(mergedRoomId);
+  }
+
+  private isDecorativePlacementEqual(
+    left: VultureDecorativeFloorPlacement | undefined,
+    right: VultureDecorativeFloorPlacement | undefined,
+  ): boolean {
+    if (!left && !right) {
+      return true;
+    }
+    if (!left || !right) {
+      return false;
+    }
+    return left.style === right.style && left.position === right.position;
   }
 
   private ensureRoomDecorState(): void {
@@ -1450,6 +1402,9 @@ export class VultureTilesetTranslator {
     }
     this.roomDecorStateDirty = false;
     const previousRoomIndexByCoordinate = new Map(this.roomIndexByCoordinate);
+    const previousDecorativeFloorPlacementByCoordinate = new Map(
+      this.decorativeFloorPlacementByCoordinate,
+    );
 
     const roomKeys: string[] = [];
     for (const [key, cmapIndex] of this.knownCmapIndexByCoordinate) {
@@ -1460,8 +1415,18 @@ export class VultureTilesetTranslator {
     this.roomIndexByCoordinate.clear();
     this.decorativeFloorPlacementByCoordinate.clear();
     if (roomKeys.length <= 0) {
-      this.roomDecorRevision += 1;
-      this.clearLookupDecisionCaches();
+      if (
+        previousRoomIndexByCoordinate.size > 0 ||
+        previousDecorativeFloorPlacementByCoordinate.size > 0
+      ) {
+        for (const key of previousRoomIndexByCoordinate.keys()) {
+          this.roomDecorDirtyCoordinateKeys.add(key);
+        }
+        for (const key of previousDecorativeFloorPlacementByCoordinate.keys()) {
+          this.roomDecorDirtyCoordinateKeys.add(key);
+        }
+        this.clearLookupDecisionCaches();
+      }
       return;
     }
 
@@ -1530,6 +1495,15 @@ export class VultureTilesetTranslator {
         x: minX,
         y: minY,
       };
+      let roomFirstObservationOrder = Number.POSITIVE_INFINITY;
+      for (const key of roomCellKeys) {
+        const observationOrder =
+          this.roomSelectorObservationOrderByCoordinate.get(key) ??
+          Number.POSITIVE_INFINITY;
+        if (observationOrder < roomFirstObservationOrder) {
+          roomFirstObservationOrder = observationOrder;
+        }
+      }
       const priorRoomIds = new Set<number>();
       for (const key of roomCellKeys) {
         const previousRoomId = previousRoomIndexByCoordinate.get(key);
@@ -1542,6 +1516,11 @@ export class VultureTilesetTranslator {
         const sortedPriorRoomIds = Array.from(priorRoomIds).sort((left, right) => {
           const leftState = this.roomStateById.get(left);
           const rightState = this.roomStateById.get(right);
+          const leftOrder = leftState?.firstSeenOrder ?? Number.POSITIVE_INFINITY;
+          const rightOrder = rightState?.firstSeenOrder ?? Number.POSITIVE_INFINITY;
+          if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
           const leftAnchorX = leftState?.anchorX ?? fallbackCoordinate.x;
           const leftAnchorY = leftState?.anchorY ?? fallbackCoordinate.y;
           const rightAnchorX = rightState?.anchorX ?? fallbackCoordinate.x;
@@ -1555,7 +1534,14 @@ export class VultureTilesetTranslator {
           return left - right;
         });
         roomId = sortedPriorRoomIds[0];
-        this.ensureRuntimeRoomState(roomId, fallbackCoordinate.x, fallbackCoordinate.y);
+        const canonicalRoomState = this.ensureRuntimeRoomState(
+          roomId,
+          fallbackCoordinate.x,
+          fallbackCoordinate.y,
+        );
+        if (roomFirstObservationOrder < canonicalRoomState.firstSeenOrder) {
+          canonicalRoomState.firstSeenOrder = roomFirstObservationOrder;
+        }
         for (let index = 1; index < sortedPriorRoomIds.length; index += 1) {
           this.mergeRuntimeRoomState(roomId, sortedPriorRoomIds[index]);
         }
@@ -1579,6 +1565,7 @@ export class VultureTilesetTranslator {
           fallbackCoordinate.x,
           fallbackCoordinate.y,
           preferredSelector ?? undefined,
+          preferredOrder,
         ).id;
       }
       rooms.push({
@@ -1640,8 +1627,38 @@ export class VultureTilesetTranslator {
         this.decorativeFloorPlacementByCoordinate,
       );
     }
-    this.roomDecorRevision += 1;
-    this.clearLookupDecisionCaches();
+
+    for (const [key, previousRoomId] of previousRoomIndexByCoordinate.entries()) {
+      const nextRoomId = this.roomIndexByCoordinate.get(key);
+      if (nextRoomId !== previousRoomId) {
+        this.roomDecorDirtyCoordinateKeys.add(key);
+        continue;
+      }
+      const previousDecor =
+        previousDecorativeFloorPlacementByCoordinate.get(key);
+      const nextDecor = this.decorativeFloorPlacementByCoordinate.get(key);
+      if (!this.isDecorativePlacementEqual(previousDecor, nextDecor)) {
+        this.roomDecorDirtyCoordinateKeys.add(key);
+      }
+    }
+    for (const key of this.roomIndexByCoordinate.keys()) {
+      if (!previousRoomIndexByCoordinate.has(key)) {
+        this.roomDecorDirtyCoordinateKeys.add(key);
+      }
+    }
+    for (const key of this.decorativeFloorPlacementByCoordinate.keys()) {
+      if (!previousDecorativeFloorPlacementByCoordinate.has(key)) {
+        this.roomDecorDirtyCoordinateKeys.add(key);
+      }
+    }
+    for (const key of previousDecorativeFloorPlacementByCoordinate.keys()) {
+      if (!this.decorativeFloorPlacementByCoordinate.has(key)) {
+        this.roomDecorDirtyCoordinateKeys.add(key);
+      }
+    }
+    if (this.roomDecorDirtyCoordinateKeys.size > 0) {
+      this.clearLookupDecisionCaches();
+    }
   }
 
   private buildDecorativeFloorPlacements(

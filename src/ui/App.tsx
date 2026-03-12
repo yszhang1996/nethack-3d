@@ -562,6 +562,16 @@ function resolveMenuItemTileIndex(
   return resolveTileIndexForGlyph(item.glyph);
 }
 
+function resolveMenuItemTilePreviewDataUrl(
+  item: NethackMenuItem | null | undefined,
+): string | null {
+  const candidate =
+    typeof item?.tilePreviewDataUrl === "string"
+      ? item.tilePreviewDataUrl.trim()
+      : "";
+  return candidate.length > 0 ? candidate : null;
+}
+
 function resolveMenuItemFallbackGlyph(
   item: NethackMenuItem | null | undefined,
   fallback = "?",
@@ -5517,8 +5527,9 @@ export default function App(): JSX.Element {
     );
     return tilePreviewDataUrlById.get(clampedTileId) ?? null;
   };
-  const renderTilePreviewImage = (tileId: number): JSX.Element | null => {
-    const tilePreviewDataUrl = getTilePreviewDataUrl(tileId);
+  const renderTilePreviewImageFromDataUrl = (
+    tilePreviewDataUrl: string,
+  ): JSX.Element | null => {
     if (!tilePreviewDataUrl) {
       return null;
     }
@@ -5530,6 +5541,26 @@ export default function App(): JSX.Element {
         src={tilePreviewDataUrl}
       />
     );
+  };
+  const renderTilePreviewImage = (tileId: number): JSX.Element | null => {
+    const tilePreviewDataUrl = getTilePreviewDataUrl(tileId);
+    if (!tilePreviewDataUrl) {
+      return null;
+    }
+    return renderTilePreviewImageFromDataUrl(tilePreviewDataUrl);
+  };
+  const renderMenuItemTilePreview = (
+    item: NethackMenuItem | null | undefined,
+    tileId: number | null,
+  ): JSX.Element | null => {
+    const dataUrl = resolveMenuItemTilePreviewDataUrl(item);
+    if (dataUrl) {
+      return renderTilePreviewImageFromDataUrl(dataUrl);
+    }
+    if (tileId === null) {
+      return null;
+    }
+    return renderTilePreviewImage(tileId);
   };
   const tilesetManagerTilePickerEntries = useMemo<TilePickerEntry[]>(() => {
     if (
@@ -12262,10 +12293,10 @@ export default function App(): JSX.Element {
                   const tileIndex = tileApplicable
                     ? resolveMenuItemTileIndex(item)
                     : null;
-                  const tilePreview =
-                    tileIndex !== null
-                      ? renderTilePreviewImage(tileIndex)
-                      : null;
+                  const tilePreview = renderMenuItemTilePreview(
+                    item,
+                    tileIndex,
+                  );
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   return (
                     <div
@@ -12589,10 +12620,10 @@ export default function App(): JSX.Element {
                   const tileIndex = tileApplicable
                     ? resolveMenuItemTileIndex(item)
                     : null;
-                  const tilePreview =
-                    tileIndex !== null
-                      ? renderTilePreviewImage(tileIndex)
-                      : null;
+                  const tilePreview = renderMenuItemTilePreview(
+                    item,
+                    tileIndex,
+                  );
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   return (
                     <button
@@ -12680,10 +12711,10 @@ export default function App(): JSX.Element {
                     tileApplicable && inventoryChoiceItem
                       ? resolveMenuItemTileIndex(inventoryChoiceItem)
                       : null;
-                  const tilePreview =
-                    tileIndex !== null
-                      ? renderTilePreviewImage(tileIndex)
-                      : null;
+                  const tilePreview = renderMenuItemTilePreview(
+                    inventoryChoiceItem,
+                    tileIndex,
+                  );
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(
                     inventoryChoiceItem,
                     choice.trim().charAt(0) || "?",
@@ -13354,10 +13385,10 @@ export default function App(): JSX.Element {
                     tilesUiEnabled && tileApplicable
                       ? resolveMenuItemTileIndex(item)
                       : null;
-                  const tilePreview =
-                    tileIndex !== null
-                      ? renderTilePreviewImage(tileIndex)
-                      : null;
+                  const tilePreview = renderMenuItemTilePreview(
+                    item,
+                    tileIndex,
+                  );
                   const fallbackGlyph = resolveMenuItemFallbackGlyph(item);
                   const itemAccelerator =
                     typeof item.accelerator === "string"
