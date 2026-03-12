@@ -112,7 +112,9 @@ function makeTileToken(category, name) {
 }
 
 function normalizePathSeparators(value) {
-  return String(value || "").replace(/\\/g, "/").replace(/^\.?\//, "");
+  return String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\.?\//, "");
 }
 
 function parseCliOptions() {
@@ -229,7 +231,7 @@ function createTileEntryResolver(rawEntryByToken, defaultTargetByCategory) {
     const target =
       rawEntry?.kind === "redirect"
         ? rawEntry.target
-        : defaultTargetByCategory.get(category) ?? null;
+        : (defaultTargetByCategory.get(category) ?? null);
     if (!target) {
       resolvedEntryByToken.set(token, null);
       return null;
@@ -253,7 +255,9 @@ function clamp(value, minValue, maxValue) {
 }
 
 function parseWallFaceToken(lookupName) {
-  const match = String(lookupName || "").toUpperCase().match(/_([WNES])$/);
+  const match = String(lookupName || "")
+    .toUpperCase()
+    .match(/_([WNES])$/);
   return match ? match[1] : null;
 }
 
@@ -453,7 +457,12 @@ function solidifyTexturePixels(pixels, size) {
   }
 }
 
-function drawScaledSourcePreview(sourcePixels, sourceWidth, sourceHeight, size) {
+function drawScaledSourcePreview(
+  sourcePixels,
+  sourceWidth,
+  sourceHeight,
+  size,
+) {
   const output = new Uint8ClampedArray(size * size * 4);
   const clampedSourceWidth = Math.max(1, Math.trunc(sourceWidth));
   const clampedSourceHeight = Math.max(1, Math.trunc(sourceHeight));
@@ -514,7 +523,7 @@ function reprojectPixels(sourcePixels, size, family, face, doorSide = null) {
               ? doorClosedProjectionQuadEW
               : family === "door_closed_sn"
                 ? doorClosedProjectionQuadSN
-        : floorProjectionQuad;
+                : floorProjectionQuad;
   let rotationDegrees = defaultProjectionRotationByFace.floor;
   if (
     family === "door_open_ew" ||
@@ -528,6 +537,13 @@ function reprojectPixels(sourcePixels, size, family, face, doorSide = null) {
         : "closed";
     const side = doorSide === "back" ? "back" : "front";
     rotationDegrees = defaultDoorProjectionRotationByStateSide[state][side];
+    if (
+      (family === "door_open_ew" || family === "door_closed_ew") &&
+      side === "front"
+    ) {
+      // Match runtime correction for E/W left-side door rendering.
+      rotationDegrees = (rotationDegrees + 180) % 360;
+    }
   } else if (family !== "floor") {
     rotationDegrees = defaultProjectionRotationByFace[face] ?? 0;
   }
@@ -815,7 +831,10 @@ async function main() {
       ),
     );
     await ensureParentDir(PREBAKED_MANIFEST_PATH);
-    await fs.writeFile(PREBAKED_MANIFEST_PATH, `${JSON.stringify(manifest, null, 2)}\n`);
+    await fs.writeFile(
+      PREBAKED_MANIFEST_PATH,
+      `${JSON.stringify(manifest, null, 2)}\n`,
+    );
   }
 
   console.log(
@@ -832,4 +851,3 @@ main().catch((error) => {
   console.error("[vulture:prebake] Failed:", error);
   process.exitCode = 1;
 });
-

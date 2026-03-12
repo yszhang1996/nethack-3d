@@ -374,6 +374,7 @@ type VultureDoorPlaneOverlay = {
   frontMaterial: THREE.MeshBasicMaterial;
   backMaterial: THREE.MeshBasicMaterial;
   floorMaterial: THREE.MeshBasicMaterial;
+  doorOrientation: VultureWallProjectionFamily;
 };
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
@@ -9102,6 +9103,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       frontMaterial,
       backMaterial,
       floorMaterial,
+      doorOrientation: "sn",
     };
     mesh.userData.vultureDoorPlaneOverlay = overlay;
     return overlay;
@@ -9305,6 +9307,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       floorLookup = glyphFloorLookup;
     }
     const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
+    overlay.doorOrientation = family;
     const floorPlaneZ = anchorFloorToWall
       ? -WALL_HEIGHT / 2 + TILE_SIZE * 0.003
       : TILE_SIZE * 0.003;
@@ -10728,6 +10731,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         doorState,
         side,
       );
+      if (
+        (family === "door_open_ew" || family === "door_closed_ew") &&
+        side === "front"
+      ) {
+        // E/W back-facing door planes need an additional half turn to match
+        // visual orientation with in-world left-side rendering.
+        rotationDegrees = (rotationDegrees + 180) % 360;
+      }
     } else if (family !== "floor") {
       face = this.resolveVultureWallProjectionFace(
         lookup as VultureWallProjectionLookup | null,
@@ -26776,6 +26787,84 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private updateVultureDoorPlaneRenderOrdering(): void {
+    if (!this.shouldUseVultureTiles()) {
+      return;
+    }
+    const cameraX = this.camera.position.x;
+    const cameraY = this.camera.position.y;
+    const playerX = this.playerPos.x * TILE_SIZE;
+    const playerY = -this.playerPos.y * TILE_SIZE;
+    const axisEpsilon = TILE_SIZE * 0.06;
+    const doorBehindFrontOrder = this.vultureFrontWallPlaneRenderOrder;
+    const doorBehindBackOrder = this.vultureFrontWallPlaneRenderOrder + 0.05;
+    const doorAheadFrontOrder = this.vultureBillboardRenderOrder + 0.1;
+    const doorAheadBackOrder = this.vultureBackWallPlaneRenderOrder;
+
+    for (const mesh of this.tileMap.values()) {
+      const overlay = mesh.userData?.vultureDoorPlaneOverlay as
+        | VultureDoorPlaneOverlay
+        | undefined;
+      if (!overlay) {
+        continue;
+      }
+      const orientation =
+        overlay.doorOrientation === "ew" || overlay.doorOrientation === "sn"
+          ? overlay.doorOrientation
+          : null;
+      if (!orientation) {
+        continue;
+      }
+      const tileX =
+        typeof mesh.userData?.tileX === "number" &&
+        Number.isFinite(mesh.userData.tileX)
+          ? Math.trunc(mesh.userData.tileX)
+          : null;
+      const tileY =
+        typeof mesh.userData?.tileY === "number" &&
+        Number.isFinite(mesh.userData.tileY)
+          ? Math.trunc(mesh.userData.tileY)
+          : null;
+      if (tileX === null || tileY === null) {
+        continue;
+      }
+
+      const doorCenterX = tileX * TILE_SIZE;
+      const doorCenterY = -tileY * TILE_SIZE;
+      const cameraAxisDelta =
+        orientation === "ew" ? cameraX - doorCenterX : cameraY - doorCenterY;
+      const playerAxisDelta =
+        orientation === "ew" ? playerX - doorCenterX : playerY - doorCenterY;
+      const cameraSide =
+        cameraAxisDelta > axisEpsilon
+          ? 1
+          : cameraAxisDelta < -axisEpsilon
+            ? -1
+            : 0;
+      const playerSide =
+        playerAxisDelta > axisEpsilon
+          ? 1
+          : playerAxisDelta < -axisEpsilon
+            ? -1
+            : 0;
+
+      // If camera/player are on opposite sides of the door plane, the door
+      // draws in front of the player. Crossing 180 degrees around Y naturally
+      // flips sides and therefore flips this rule.
+      const doorInFrontOfPlayer =
+        cameraSide !== 0 && playerSide !== 0 && cameraSide !== playerSide;
+      const frontOrder = doorInFrontOfPlayer
+        ? doorAheadFrontOrder
+        : doorBehindFrontOrder;
+      const backOrder = doorInFrontOfPlayer
+        ? doorAheadBackOrder
+        : doorBehindBackOrder;
+      overlay.frontMesh.renderOrder = frontOrder;
+      overlay.backMesh.renderOrder = backOrder;
+      overlay.floorMesh.renderOrder = frontOrder - 1;
+    }
+  }
+
   private animate(timeMs: number = performance.now()): void {
     requestAnimationFrame(this.animateFrameCallback);
     const rawDeltaMs =
@@ -26803,6 +26892,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);
     this.updateTileRevealFades(timeMs);
+    this.updateVultureDoorPlaneRenderOrdering();
     if (this.composer) {
       this.updateTaaState();
       this.composer.render(deltaSeconds);
