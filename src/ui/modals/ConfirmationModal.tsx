@@ -1,4 +1,4 @@
-import type { ConfirmationDialogState } from "./useConfirmationDialog";
+import type { ConfirmationDialogState } from "./modals/useConfirmationDialog";
 
 type ConfirmationModalProps = {
   dialogId: string;
@@ -22,7 +22,9 @@ export default function ConfirmationModal({
       className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
       id={dialogId}
     >
-      {dialog.title ? <div className="nh3d-options-title">{dialog.title}</div> : null}
+      {dialog.title ? (
+        <div className="nh3d-options-title">{dialog.title}</div>
+      ) : null}
       <div className="nh3d-question-text">{dialog.message}</div>
       <div className="nh3d-menu-actions">
         <button

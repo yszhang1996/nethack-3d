@@ -1,10 +1,10 @@
 import { useId, type ChangeEvent } from "react";
 import {
+  StartupInitOptionValues,
+  StartupInitOptionValue,
+  StartupInitOptionDefinition,
   startupInitOptionDefinitions,
-  type StartupInitOptionDefinition,
-  type StartupInitOptionValue,
-  type StartupInitOptionValues,
-} from "../runtime/startup-init-options";
+} from "../../runtime/startup-init-options";
 
 type StartupInitOptionsAccordionProps = {
   expanded: boolean;
@@ -43,7 +43,10 @@ function renderBooleanOption(
   const enabled = Boolean(values[option.key]);
   const ariaIds = createStartupInitOptionAriaIds(idPrefix, option.key);
   return (
-    <div className="nh3d-option-row nh3d-option-row-inline-toggle" key={option.key}>
+    <div
+      className="nh3d-option-row nh3d-option-row-inline-toggle"
+      key={option.key}
+    >
       <div className="nh3d-option-copy">
         <div className="nh3d-option-label" id={ariaIds.labelId}>
           {option.label}
@@ -97,7 +100,9 @@ function renderSelectOption(
           aria-labelledby={ariaIds.labelId}
           className="nh3d-startup-config-select"
           id={ariaIds.controlId}
-          onChange={(event) => onOptionValueChange(option.key, event.target.value)}
+          onChange={(event) =>
+            onOptionValueChange(option.key, event.target.value)
+          }
           value={selectedValue}
         >
           {option.options.map((selectOption) => (

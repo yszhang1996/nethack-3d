@@ -11,7 +11,6 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { TAARenderPass } from "three/examples/jsm/postprocessing/TAARenderPass.js";
 import { WorkerRuntimeBridge } from "../runtime";
 import type { RuntimeBridge, RuntimeEvent } from "../runtime";
-import { sanitizeStartupInitOptionTokens } from "../runtime/startup-init-options";
 import { FmodRuntime } from "../audio";
 import type { FmodRuntimeOptions, FmodThreadingDiagnostics } from "../audio";
 import {
@@ -81,13 +80,14 @@ import {
   inferNh3dTilesetTileSizeFromAtlasWidth,
   resolveNh3dTilesetAssetUrl,
 } from "./tilesets";
-import { getItemTextClassName } from "./helpers";
+import { getItemTextClassName } from "./helpers/helpers";
 import { MessageSoundHooks } from "./message-sound-hooks";
 import {
   VultureTilesetTranslator,
   type VultureTileLookup,
   type VultureWallFaceDirection,
 } from "./vulture/translation";
+import { sanitizeStartupInitOptionTokens } from "../runtime/startup-init-options";
 
 type PendingCharacterDamage = {
   amount: number;
@@ -836,6 +836,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private cameraDistance: number = 20;
   private cameraPitch: number = Math.PI / 2 - 0.3; // Elevation above the board (0 = horizon)
   private cameraYaw: number = 0; // Azimuth around the board (0 = facing north)
+  private readonly vultureIsometricYawOffset: number = -Math.PI / 4;
+  private readonly vultureIsometricPitch: number = THREE.MathUtils.degToRad(49);
   private readonly minCameraPitch: number = 0.2;
   private readonly maxCameraPitch: number = Math.PI / 2 - 0.01;
   private readonly rotationSpeed: number = 0.01;
@@ -1680,6 +1682,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.updateMinimapVisibility();
     this.applyClientOptions(this.clientOptions);
+    this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
   }
 
   private initThreeJS(): void {
@@ -3941,6 +3944,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.minCameraPitch,
         this.maxCameraPitch,
       );
+      this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
       this.cameraFollowInitialized = false;
       this.requestTileUpdate(this.playerPos.x, this.playerPos.y);
     }
@@ -3956,6 +3960,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private applyClientOptions(nextOptions: Nh3dClientOptions): void {
     const normalized = normalizeNh3dClientOptions(nextOptions);
     const previous = this.clientOptions;
+    const wasUsingVultureTiles = this.isVultureTilesActive(previous);
+    const isUsingVultureTiles = this.isVultureTilesActive(normalized);
     const playModeChanged = previous.fpsMode !== normalized.fpsMode;
     const fpsFovChanged = previous.fpsFov !== normalized.fpsFov;
     const minimapChanged = previous.minimap !== normalized.minimap;
@@ -4041,6 +4047,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (tilesetModeChanged) {
       this.refreshTilesFromStateCache();
     }
+    if (!wasUsingVultureTiles && isUsingVultureTiles) {
+      this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
+    }
     if (blockAmbientOcclusionChanged) {
       this.refreshAllFloorBlockAmbientOcclusion();
     }
@@ -4061,6 +4070,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.syncFmodRuntimeWithClientOptions(normalized.soundEnabled);
     this.syncVultureWallProjectionDebugPanelVisibility();
+  }
+
+  private isVultureTilesActive(options: Nh3dClientOptions): boolean {
+    if (options.tilesetMode !== "tiles") {
+      return false;
+    }
+    return findNh3dTilesetByPath(options.tilesetPath)?.source === "vulture";
+  }
+
+  private applyVultureIsometricCameraPresetIfNeeded(params?: {
+    force?: boolean;
+  }): void {
+    if (
+      this.playMode === "fps" ||
+      !this.isVultureTilesActive(this.clientOptions)
+    ) {
+      return;
+    }
+    const nextPitch = THREE.MathUtils.clamp(
+      this.vultureIsometricPitch,
+      this.minCameraPitch,
+      this.maxCameraPitch,
+    );
+    const nextYaw = this.wrapAngle(Math.PI + this.vultureIsometricYawOffset);
+    if (
+      !params?.force &&
+      Math.abs(this.cameraPitch - nextPitch) < 0.0001 &&
+      Math.abs(this.wrapAngle(this.cameraYaw - nextYaw)) < 0.0001
+    ) {
+      return;
+    }
+    this.cameraPitch = nextPitch;
+    this.cameraYaw = nextYaw;
   }
 
   private shouldUseDesktopTextureAnisotropy(): boolean {
@@ -19434,7 +19476,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
-  private sendInput(
+  public sendInput(
     input: string,
     options: { keepContextMenuOpen?: boolean; delayMs?: number } = {},
   ): void {

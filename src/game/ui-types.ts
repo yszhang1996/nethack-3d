@@ -915,6 +915,7 @@ export interface Nethack3DEngineUIAdapter {
 }
 
 export interface Nethack3DEngineController {
+  sendInput(input: string): void;
   chooseDirection(directionKey: string): void;
   chooseQuestionChoice(choice: string): void;
   confirmQuestionMenuChoice(): void;

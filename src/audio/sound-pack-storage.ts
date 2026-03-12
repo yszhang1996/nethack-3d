@@ -10,7 +10,6 @@ type Nh3dSoundEffectDefinitionShape = {
 
 export const nh3dSoundEffectDefinitions = [
   { key: "player-walk", label: "Player walk" },
-  // { key: "monster-footstep", label: "Monster footstep" },
   { key: "hit", label: "Hit" },
   { key: "monster-killed", label: "Monster killed (player)" },
   { key: "monster-killed-other", label: "Monster killed (other)" },
@@ -38,7 +37,10 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "door-smash",
     label: "Door smash",
-    messageLogKeywords: ["As you kick the door, it crashes open!"],
+    messageLogKeywords: [
+      "As you kick the door, it crashes open!",
+      "As you kick the door, it shatters to pieces!",
+    ],
   },
   {
     key: "door-resists",
@@ -425,7 +427,7 @@ function sanitizeFileName(value: string, fallback: string): string {
 }
 
 function resolveDefaultFileName(key: Nh3dSoundEffectKey): string {
-  if (key === "player-walk" || key === "player-run") {
+  if (key === "player-walk") {
     return "player-footstep.ogg";
   }
   if (key === "monster-killed-other") {
@@ -533,6 +535,13 @@ function clampUnit(value: unknown, fallback = 1): number {
   return Math.max(0, Math.min(1, Number(parsed.toFixed(4))));
 }
 
+function toArrayBufferBackedUint8Array(
+  bytes: Uint8Array<ArrayBufferLike>,
+): Uint8Array<ArrayBuffer> {
+  // BlobPart expects an ArrayBuffer-backed view; copy in case source is SharedArrayBuffer-backed.
+  return Uint8Array.from(bytes);
+}
+
 function resolveSoundDefinitionLabel(key: Nh3dSoundEffectKey): string {
   const definition = nh3dSoundEffectDefinitions.find(
     (entry) => entry.key === key,
@@ -544,7 +553,6 @@ function createDefaultSoundAssignment(
   key: Nh3dSoundEffectKey,
 ): Nh3dSoundEffectAssignment {
   const defaultFileName = resolveDefaultFileName(key);
-  const defaultLabel = resolveSoundDefinitionLabel(key);
   return {
     key,
     enabled: true,
@@ -857,7 +865,7 @@ function normalizeSoundPackRecord(
     const soundKey = definition.key;
     const fallback = createDefaultSoundAssignment(soundKey);
     const legacyPlayerFootstepSound =
-      rawSounds && (soundKey === "player-walk" || soundKey === "player-run")
+      rawSounds && soundKey === "player-walk"
         ? rawSounds["player-footstep"]
         : undefined;
     const rawSound = rawSounds ? rawSounds[soundKey] : undefined;
@@ -2216,7 +2224,9 @@ export async function exportNh3dSoundPackToZip(
     JSON.stringify(manifest, null, 2),
   );
   const zipBytes = zipSync(archiveEntries, { level: 6 });
-  return new Blob([zipBytes], { type: "application/zip" });
+  return new Blob([toArrayBufferBackedUint8Array(zipBytes)], {
+    type: "application/zip",
+  });
 }
 
 function parseImportManifest(rawManifest: unknown): {
@@ -2251,19 +2261,13 @@ function parseImportManifest(rawManifest: unknown): {
       continue;
     }
     const rawKey = String(rawEntry.key || "");
-    const isLegacyPlayerFootstep = rawKey === "player-footstep";
     const key = rawKey as Nh3dSoundEffectKey;
-    if (
-      !isLegacyPlayerFootstep &&
-      !nh3dSoundEffectDefinitions.some((definition) => definition.key === key)
-    ) {
+    if (!nh3dSoundEffectDefinitions.some((definition) => definition.key === key)) {
       continue;
     }
     const source: Nh3dSoundEntrySource =
       rawEntry.source === "user" ? "user" : "builtin";
-    const targetKeys: Nh3dSoundEffectKey[] = isLegacyPlayerFootstep
-      ? ["player-walk", "player-run"]
-      : [key];
+    const targetKeys: Nh3dSoundEffectKey[] = [key];
     for (const targetKey of targetKeys) {
       const parsedEntry: ParsedImportSoundEntry = {
         key: targetKey,
@@ -2467,7 +2471,10 @@ export async function importNh3dSoundPackFromZip(
             fileName,
             variationId,
           );
-          const fileBlob = new Blob([archiveBytes], { type: mimeType });
+          const fileBlob = new Blob(
+            [toArrayBufferBackedUint8Array(archiveBytes)],
+            { type: mimeType },
+          );
 
           await writeSoundFileRecord(fileStore, {
             path,

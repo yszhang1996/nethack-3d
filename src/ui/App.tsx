@@ -86,22 +86,22 @@ import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-
 import SoundPackSettings, {
   type SoundPackDialogActions,
 } from "./SoundPackSettings";
-import ConfirmationModal from "./ConfirmationModal";
-import StartupInitOptionsAccordion from "./StartupInitOptionsAccordion";
+import { CastSpellMenu, parseCastSpellMenu } from "./modals/cast-menu";
+import { useConfirmationDialog } from "./modals/useConfirmationDialog";
+import StartupInitOptionsAccordion from "./componenets/StartupInitOptionsAccordion";
+import ConfirmationModal from "./modals/ConfirmationModal";
 import {
   normalizeStartupCreateCharacterSelection,
   pickRandomStartupGenderForRole,
   pickRandomStartupRole,
   resolveStartupCreateCharacterOptionSet,
-} from "./startup-character-constraints";
+} from "../game/helpers/startup-character-constraints";
 import {
+  CharacterSheetStatKey,
   parseCharacterSheetInfoMenu,
   resolveCharacterCommandActions,
-  type CharacterSheetStatKey,
-} from "./character-sheet";
-import { parseEnhanceMenu } from "./enhance-menu";
-import { CastSpellMenu, parseCastSpellMenu } from "./question/cast-menu";
-import { useConfirmationDialog } from "./useConfirmationDialog";
+} from "./modals/character-sheet";
+import { parseEnhanceMenu } from "./modals/enhance-menu";
 
 type DirectionChoice = {
   key?: string;
@@ -151,7 +151,9 @@ const playerConditionStatusDefinitions: ReadonlyArray<{
   { mask: 0x00001000, label: "Ride", severity: "good" },
 ];
 
-function resolveHungerStatusBadge(rawHunger: unknown): PlayerStatusBadge | null {
+function resolveHungerStatusBadge(
+  rawHunger: unknown,
+): PlayerStatusBadge | null {
   const label = String(rawHunger || "").trim();
   if (!label) {
     return null;
@@ -214,7 +216,9 @@ function resolveConditionStatusBadges(rawMask: unknown): PlayerStatusBadge[] {
     }));
 }
 
-function buildPlayerStatusBadges(stats: PlayerStatsSnapshot): PlayerStatusBadge[] {
+function buildPlayerStatusBadges(
+  stats: PlayerStatsSnapshot,
+): PlayerStatusBadge[] {
   const badges: PlayerStatusBadge[] = [];
   const seen = new Set<string>();
   const pushUnique = (badge: PlayerStatusBadge | null): void => {
@@ -1946,7 +1950,9 @@ function inventoryItemSupportsRub(
   categoryId: InventoryCategoryId | null,
   itemText: string,
 ): boolean {
-  const normalizedText = String(itemText || "").trim().toLowerCase();
+  const normalizedText = String(itemText || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedText) {
     return false;
   }
@@ -1982,7 +1988,9 @@ function inventoryItemSupportsTip(
   categoryId: InventoryCategoryId | null,
   itemText: string,
 ): boolean {
-  const normalizedText = String(itemText || "").trim().toLowerCase();
+  const normalizedText = String(itemText || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedText) {
     return false;
   }
@@ -2009,7 +2017,9 @@ function inventoryItemSupportsLoot(
 }
 
 function inventoryItemSupportsUntrap(itemText: string): boolean {
-  const normalizedText = String(itemText || "").trim().toLowerCase();
+  const normalizedText = String(itemText || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedText) {
     return false;
   }
@@ -2017,7 +2027,9 @@ function inventoryItemSupportsUntrap(itemText: string): boolean {
 }
 
 function inventoryItemSupportsOffer(itemText: string): boolean {
-  const normalizedText = String(itemText || "").trim().toLowerCase();
+  const normalizedText = String(itemText || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedText) {
     return false;
   }
@@ -2028,7 +2040,9 @@ function inventoryItemSupportsInvoke(
   categoryId: InventoryCategoryId | null,
   itemText: string,
 ): boolean {
-  const normalizedText = String(itemText || "").trim().toLowerCase();
+  const normalizedText = String(itemText || "")
+    .trim()
+    .toLowerCase();
   if (!normalizedText) {
     return false;
   }
@@ -2051,7 +2065,9 @@ function inventoryItemSupportsInvoke(
   );
 }
 
-function inventoryItemSupportsCall(categoryId: InventoryCategoryId | null): boolean {
+function inventoryItemSupportsCall(
+  categoryId: InventoryCategoryId | null,
+): boolean {
   return (
     categoryId === "scrolls" ||
     categoryId === "potions" ||
@@ -12322,7 +12338,9 @@ export default function App(): JSX.Element {
                         onClick={() => controller?.toggleAllPickupChoices()}
                         type="button"
                       >
-                        {question.allPickupSelected ? "Deselect All" : "Select All"}
+                        {question.allPickupSelected
+                          ? "Deselect All"
+                          : "Select All"}
                       </button>
                     ) : null}
                     <button
