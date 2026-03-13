@@ -843,6 +843,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly minCameraPitch: number = 0.2;
   private readonly maxCameraPitch: number = Math.PI / 2 - 0.01;
   private readonly rotationSpeed: number = 0.01;
+  private readonly cameraYawSnapStepRadians: number = Math.PI / 4;
+  private readonly cameraYawSnapLerpSpeed: number = 10.5;
+  private readonly cameraYawSnapEpsilon: number = Math.PI / 1800; // 0.1 degrees
+  private cameraYawSnapTarget: number | null = null;
   private isMiddleMouseDown: boolean = false;
   private isRightMouseDown: boolean = false;
   private rightMouseDownStartX: number = 0;
@@ -3513,9 +3517,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private isDarkCorridorWallInferenceEnabled(): boolean {
     const runtimeVersion =
       this.characterCreationConfig.runtimeVersion ?? "3.6.7";
-    return (
-      runtimeVersion === "3.6.7" && this.clientOptions.darkCorridorWalls367
-    );
+    if (runtimeVersion !== "3.6.7") {
+      return false;
+    }
+    // Vulture mode relies on NetHack 3.6.7 dark corridor wall inference, so
+    // the toggle is ignored and treated as enabled while Vulture tiles are active.
+    if (this.isVultureTilesActive(this.clientOptions)) {
+      return true;
+    }
+    return this.clientOptions.darkCorridorWalls367;
+  }
+
+  private isDarkCorridorWallSettingsSuppressedByVultureTiles(): boolean {
+    return this.isVultureTilesActive(this.clientOptions);
   }
 
   private resolveInferredDarkCorridorWallTileTextureIndex(
@@ -3523,6 +3537,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     isInferredDarkCorridorWall: boolean,
   ): number {
     if (!isInferredDarkCorridorWall) {
+      return fallbackTileIndex;
+    }
+    if (this.isDarkCorridorWallSettingsSuppressedByVultureTiles()) {
       return fallbackTileIndex;
     }
     if (this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
@@ -3546,6 +3563,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!isInferredDarkCorridorWall) {
       return null;
     }
+    if (this.isDarkCorridorWallSettingsSuppressedByVultureTiles()) {
+      return null;
+    }
     if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
       return null;
     }
@@ -3567,6 +3587,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!isInferredDarkCorridorWall) {
       return false;
     }
+    if (this.isDarkCorridorWallSettingsSuppressedByVultureTiles()) {
+      return false;
+    }
     if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
       return false;
     }
@@ -3577,6 +3600,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     isInferredDarkCorridorWall: boolean,
   ): number {
     if (!isInferredDarkCorridorWall) {
+      return 15;
+    }
+    if (this.isDarkCorridorWallSettingsSuppressedByVultureTiles()) {
       return 15;
     }
     if (!this.clientOptions.darkCorridorWallSolidColorOverrideEnabled) {
@@ -3917,6 +3943,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isRightMouseDown = false;
     this.rightMouseCanOpenContextMenuOnRelease = false;
     this.rightMouseDragExceededDeadzone = false;
+    this.clearCameraYawSnapTarget();
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
     this.fpsStepCameraActive = false;
@@ -4023,8 +4050,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const gammaChanged = previous.gamma !== normalized.gamma;
     const soundEnabledChanged =
       previous.soundEnabled !== normalized.soundEnabled;
+    const cameraYawSnapChanged =
+      previous.snapCameraYawToNearest45 !== normalized.snapCameraYawToNearest45;
 
     this.clientOptions = normalized;
+    if (cameraYawSnapChanged && !normalized.snapCameraYawToNearest45) {
+      this.clearCameraYawSnapTarget();
+    }
 
     if (playModeChanged) {
       this.applyPlayMode(normalized.fpsMode ? "fps" : "normal");
@@ -17610,6 +17642,71 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : nextYaw;
   }
 
+  private isCameraYawSnapEnabled(): boolean {
+    return !this.isFpsMode() && this.clientOptions.snapCameraYawToNearest45;
+  }
+
+  private clearCameraYawSnapTarget(): void {
+    this.cameraYawSnapTarget = null;
+  }
+
+  private queueCameraYawSnapToNearest45(): void {
+    if (!this.isCameraYawSnapEnabled()) {
+      this.clearCameraYawSnapTarget();
+      return;
+    }
+    if (!Number.isFinite(this.cameraYaw)) {
+      this.cameraYaw = 0;
+      this.clearCameraYawSnapTarget();
+      return;
+    }
+    const normalizedYaw = this.wrapAngle(this.cameraYaw);
+    const targetYaw = this.wrapAngle(
+      Math.round(normalizedYaw / this.cameraYawSnapStepRadians) *
+        this.cameraYawSnapStepRadians,
+    );
+    if (
+      Math.abs(this.wrapAngle(targetYaw - normalizedYaw)) <=
+      this.cameraYawSnapEpsilon
+    ) {
+      this.cameraYaw = targetYaw;
+      this.clearCameraYawSnapTarget();
+      return;
+    }
+    this.cameraYawSnapTarget = targetYaw;
+  }
+
+  private updateQueuedCameraYawSnap(deltaSeconds: number): void {
+    if (!this.isCameraYawSnapEnabled() || this.cameraYawSnapTarget === null) {
+      return;
+    }
+    if (this.isMiddleMouseDown) {
+      return;
+    }
+    if (!Number.isFinite(this.cameraYaw)) {
+      this.cameraYaw = 0;
+      this.clearCameraYawSnapTarget();
+      return;
+    }
+    const normalizedYaw = this.wrapAngle(this.cameraYaw);
+    const targetYaw = this.cameraYawSnapTarget;
+    const yawDelta = this.wrapAngle(targetYaw - normalizedYaw);
+    const alpha = THREE.MathUtils.clamp(
+      1 - Math.exp(-Math.max(0, deltaSeconds) * this.cameraYawSnapLerpSpeed),
+      0,
+      1,
+    );
+    const nextYaw = this.wrapAngle(normalizedYaw + yawDelta * alpha);
+    if (
+      Math.abs(this.wrapAngle(targetYaw - nextYaw)) <= this.cameraYawSnapEpsilon
+    ) {
+      this.cameraYaw = targetYaw;
+      this.clearCameraYawSnapTarget();
+      return;
+    }
+    this.cameraYaw = nextYaw;
+  }
+
   private beginFpsStepCameraTransition(
     fromX: number,
     fromY: number,
@@ -19416,7 +19513,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isInDirectionQuestion || !directionKey) {
       return;
     }
-    this.submitDirectionAnswer(directionKey);
+    const resolvedDirection =
+      this.resolveDirectionQuestionInputForCurrentCamera(directionKey);
+    if (!resolvedDirection) {
+      return;
+    }
+    this.submitDirectionAnswer(resolvedDirection);
   }
 
   public chooseQuestionChoice(choice: string): void {
@@ -20474,6 +20576,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleWindowBlur(): void {
+    const wasMiddleMouseRotating = this.isMiddleMouseDown;
     this.altOrMetaHeld = false;
     this.clearPlayerCliparoundInputCooldown();
     this.clearFpsTouchGestures();
@@ -20495,6 +20598,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.fpsPointerLockActive = false;
     this.fpsPointerLockRestorePending = false;
+    if (wasMiddleMouseRotating && !this.isFpsMode()) {
+      this.queueCameraYawSnapToNearest45();
+    }
   }
 
   private handleBeforeUnload(event: BeforeUnloadEvent): void {
@@ -20526,6 +20632,135 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return ".";
     }
     return null;
+  }
+
+  private isCameraRelativeMovementEnabled(): boolean {
+    return !this.isFpsMode() && this.clientOptions.cameraRelativeMovement;
+  }
+
+  private resolveCameraRelativeDirectionInputFromLocalDelta(
+    localDx: number,
+    localDy: number,
+  ): string | null {
+    const stepDx = THREE.MathUtils.clamp(Math.sign(localDx), -1, 1) as
+      | -1
+      | 0
+      | 1;
+    const stepDy = THREE.MathUtils.clamp(Math.sign(localDy), -1, 1) as
+      | -1
+      | 0
+      | 1;
+    if (stepDx === 0 && stepDy === 0) {
+      return null;
+    }
+    const aim = this.getFpsAimDirectionFromCamera();
+    if (!aim) {
+      return this.getDirectionInputFromMapDelta(stepDx, stepDy);
+    }
+    const localRight = stepDx;
+    const localForward = (stepDy * -1) as -1 | 0 | 1;
+    return this.resolveFpsRelativeMovementInput(aim, localRight, localForward);
+  }
+
+  private tryResolveCameraRelativeGameplayMovementInput(
+    event: KeyboardEvent,
+  ): string | null {
+    if (!this.isCameraRelativeMovementEnabled()) {
+      return null;
+    }
+
+    let logicalInput: string | null = null;
+    let sourceIsNumpadDigit = false;
+    if (event.code.startsWith("Numpad") && /^[1-9]$/.test(event.key)) {
+      sourceIsNumpadDigit = true;
+      if (this.numberPadModeEnabled) {
+        logicalInput = event.key;
+      } else {
+        logicalInput = this.mapNumpadDigitToDirectionKey(event.key);
+      }
+    } else {
+      const mappedNavigationInput = this.mapDirectionalKeyFromNavigationInput(
+        event.key,
+      );
+      if (mappedNavigationInput) {
+        logicalInput = mappedNavigationInput;
+      } else if (this.numberPadModeEnabled && /^[1-9]$/.test(event.key)) {
+        logicalInput = event.key;
+      } else if (
+        !this.numberPadModeEnabled &&
+        /^[hjklyubnHJKLYUBN]$/.test(event.key)
+      ) {
+        logicalInput = event.key;
+      }
+    }
+
+    if (!logicalInput) {
+      return null;
+    }
+
+    const localDirection = this.getDirectionVectorFromInput(logicalInput);
+    if (!localDirection) {
+      return null;
+    }
+
+    const mappedDirection = this.resolveCameraRelativeDirectionInputFromLocalDelta(
+      localDirection.dx,
+      localDirection.dy,
+    );
+    if (!mappedDirection) {
+      return null;
+    }
+
+    let output = mappedDirection;
+    if (/^[A-Z]$/.test(logicalInput) && /^[a-z]$/.test(output)) {
+      output = output.toUpperCase();
+    }
+    if (
+      sourceIsNumpadDigit &&
+      this.numberPadModeEnabled &&
+      /^[1-9]$/.test(output)
+    ) {
+      return `Numpad${output}`;
+    }
+    return output;
+  }
+
+  private resolveDirectionQuestionInputForCurrentCamera(
+    directionKey: string,
+  ): string | null {
+    const normalized = String(directionKey).trim();
+    if (!normalized) {
+      return null;
+    }
+    if (!this.isCameraRelativeMovementEnabled()) {
+      return normalized;
+    }
+
+    const localDirection = this.getDirectionVectorFromInput(normalized);
+    if (!localDirection) {
+      return normalized;
+    }
+
+    const mappedDirection = this.resolveCameraRelativeDirectionInputFromLocalDelta(
+      localDirection.dx,
+      localDirection.dy,
+    );
+    if (!mappedDirection) {
+      return normalized;
+    }
+
+    let output = mappedDirection;
+    if (/^[A-Z]$/.test(normalized) && /^[a-z]$/.test(output)) {
+      output = output.toUpperCase();
+    }
+    if (
+      /^Numpad[1-9]$/.test(normalized) &&
+      this.numberPadModeEnabled &&
+      /^[1-9]$/.test(output)
+    ) {
+      output = `Numpad${output}`;
+    }
+    return output;
   }
 
   private mapArrowKeyToDirectionKey(key: string): string | null {
@@ -21824,6 +22059,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    if (!this.isInQuestion && !this.isInDirectionQuestion && !this.isFpsMode()) {
+      const cameraRelativeMovementInput =
+        this.tryResolveCameraRelativeGameplayMovementInput(event);
+      if (cameraRelativeMovementInput) {
+        event.preventDefault();
+        this.sendInput(cameraRelativeMovementInput);
+        return;
+      }
+    }
+
     // Preserve numpad intent in the runtime so movement digits are not
     // conflated with top-row numeric count prefixes.
     if (
@@ -21924,7 +22169,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
 
         if (keyToSend) {
-          this.submitDirectionAnswer(keyToSend);
+          const resolvedDirection =
+            this.resolveDirectionQuestionInputForCurrentCamera(keyToSend);
+          if (resolvedDirection) {
+            this.submitDirectionAnswer(resolvedDirection);
+          }
         }
         return; // Don't send other keys when in direction question mode
       }
@@ -22272,7 +22521,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraFollowCurrent.lerp(this.cameraFollowTarget, alpha);
     }
 
-    this.applyCameraYawStraightAssist(deltaSeconds);
+    this.updateQueuedCameraYawSnap(deltaSeconds);
 
     const followX = this.cameraFollowCurrent.x;
     const followY = this.cameraFollowCurrent.y;
@@ -24418,7 +24667,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     dx: number,
     dy: number,
     deadzone: number,
-  ): string | null {
+  ): { dx: number; dy: number } | null {
     const absX = Math.abs(dx);
     const absY = Math.abs(dy);
     if (absX < deadzone && absY < deadzone) {
@@ -24428,35 +24677,52 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const axisBiasRatio = 0.55;
     if (absX <= absY * axisBiasRatio) {
       if (dy < 0) {
-        return this.numberPadModeEnabled ? "8" : "k";
+        return { dx: 0, dy: -1 };
       }
-      return this.numberPadModeEnabled ? "2" : "j";
+      return { dx: 0, dy: 1 };
     }
     if (absY <= absX * axisBiasRatio) {
       if (dx < 0) {
-        return this.numberPadModeEnabled ? "4" : "h";
+        return { dx: -1, dy: 0 };
       }
-      return this.numberPadModeEnabled ? "6" : "l";
+      return { dx: 1, dy: 0 };
     }
 
     if (dx < 0 && dy < 0) {
-      return this.numberPadModeEnabled ? "7" : "y";
+      return { dx: -1, dy: -1 };
     }
     if (dx > 0 && dy < 0) {
-      return this.numberPadModeEnabled ? "9" : "u";
+      return { dx: 1, dy: -1 };
     }
     if (dx < 0 && dy > 0) {
-      return this.numberPadModeEnabled ? "1" : "b";
+      return { dx: -1, dy: 1 };
     }
-    return this.numberPadModeEnabled ? "3" : "n";
+    return { dx: 1, dy: 1 };
   }
 
   private resolveSwipeDirectionInput(dx: number, dy: number): string | null {
-    return this.resolveDirectionKeyFromDelta(dx, dy, 1);
+    const localDirection = this.resolveDirectionKeyFromDelta(dx, dy, 1);
+    if (!localDirection) {
+      return null;
+    }
+    if (this.isCameraRelativeMovementEnabled()) {
+      return this.resolveCameraRelativeDirectionInputFromLocalDelta(
+        localDirection.dx,
+        localDirection.dy,
+      );
+    }
+    return this.getDirectionInputFromMapDelta(
+      localDirection.dx,
+      localDirection.dy,
+    );
   }
 
   private resolveDirectionFromDelta(dx: number, dy: number): string | null {
-    return this.resolveDirectionKeyFromDelta(dx, dy, 0.25);
+    const direction = this.resolveDirectionKeyFromDelta(dx, dy, 0.25);
+    if (!direction) {
+      return null;
+    }
+    return this.getDirectionInputFromMapDelta(direction.dx, direction.dy);
   }
 
   private getControllerBindings(): Nh3dControllerBindings {
@@ -24842,12 +25108,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       dpadY,
       this.controllerAxisDeadzone,
     );
+    const resolvedLeftDirectionInput = leftDirectionInput
+      ? this.resolveDirectionQuestionInputForCurrentCamera(leftDirectionInput)
+      : null;
+    const resolvedDpadDirectionInput = dpadDirectionInput
+      ? this.resolveDirectionQuestionInputForCurrentCamera(dpadDirectionInput)
+      : null;
 
-    if (leftDirectionInput) {
-      this.controllerDirectionPromptPreviewInput = leftDirectionInput;
+    if (resolvedLeftDirectionInput) {
+      this.controllerDirectionPromptPreviewInput = resolvedLeftDirectionInput;
       this.controllerDirectionPromptPreviewSource = "left_stick";
-    } else if (dpadDirectionInput) {
-      this.controllerDirectionPromptPreviewInput = dpadDirectionInput;
+    } else if (resolvedDpadDirectionInput) {
+      this.controllerDirectionPromptPreviewInput = resolvedDpadDirectionInput;
       this.controllerDirectionPromptPreviewSource = "dpad";
     }
 
@@ -24945,7 +25217,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!Number.isFinite(axisX) || !Number.isFinite(axisY)) {
       return null;
     }
-    return this.resolveDirectionKeyFromDelta(axisX, axisY, deadzone);
+    const direction = this.resolveDirectionKeyFromDelta(axisX, axisY, deadzone);
+    if (!direction) {
+      return null;
+    }
+    return this.getDirectionInputFromMapDelta(direction.dx, direction.dy);
   }
 
   private resolveControllerFpsMovementFromAxes(
@@ -26567,6 +26843,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       // Middle mouse button - rotation
       event.preventDefault();
       this.isMiddleMouseDown = true;
+      this.clearCameraYawSnapTarget();
       this.lastMouseX = event.clientX;
       this.lastMouseY = event.clientY;
     } else if (event.button === 2) {
@@ -27300,7 +27577,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private handleMouseUp(event: MouseEvent): void {
     if (event.button === 1) {
       // Middle mouse button
+      const wasMiddleMouseDown = this.isMiddleMouseDown;
       this.isMiddleMouseDown = false;
+      if (wasMiddleMouseDown && !this.isFpsMode()) {
+        this.queueCameraYawSnapToNearest45();
+      }
     } else if (event.button === 2) {
       // Right mouse button
       const wasRightMouseDown = this.isRightMouseDown;

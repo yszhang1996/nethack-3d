@@ -1663,6 +1663,8 @@ type ClientOptionToggleKey =
   | "fpsMode"
   | "controllerEnabled"
   | "invertLookYAxis"
+  | "cameraRelativeMovement"
+  | "snapCameraYawToNearest45"
   | "invertTouchPanningDirection"
   | "uiTileBackgroundRemoval"
   | "minimap"
@@ -2879,6 +2881,20 @@ const clientOptionsConfig: ClientOption[] = [
     key: "invertLookYAxis",
     label: "Invert Y-axis look",
     description: "Invert vertical mouselook and touch-look direction.",
+    type: "boolean",
+  },
+  {
+    key: "cameraRelativeMovement",
+    label: "Camera-relative movement and swipes",
+    description:
+      "Rotate movement keys and swipe directions based on the camera Y-axis angle.",
+    type: "boolean",
+  },
+  {
+    key: "snapCameraYawToNearest45",
+    label: "Snap camera yaw to 45 degrees",
+    description:
+      "When camera rotation input is released, smoothly snap yaw to the nearest 45 degree angle.",
     type: "boolean",
   },
   {
@@ -5380,6 +5396,9 @@ export default function App(): JSX.Element {
     () => findNh3dTilesetByPath(clientOptionsDraft.tilesetPath),
     [clientOptionsDraft.tilesetPath, tilesetCatalog],
   );
+  const isVultureTilesetSelected =
+    clientOptionsDraft.tilesetMode === "tiles" &&
+    selectedTilesetEntry?.source === "vulture";
   const tilePickerEntries = useMemo<TilePickerEntry[]>(() => {
     if (!tileAtlasState.loaded || tileAtlasState.tileCount <= 0) {
       return [];
@@ -8749,6 +8768,12 @@ export default function App(): JSX.Element {
   }, [clientOptionsDraft.darkCorridorWalls367]);
 
   useEffect(() => {
+    if (isVultureTilesetSelected) {
+      setIsDarkWallTilePickerVisible(false);
+    }
+  }, [isVultureTilesetSelected]);
+
+  useEffect(() => {
     if (clientOptionsDraft.tilesetMode !== "tiles" || !selectedTilesetEntry) {
       setIsTilesetBackgroundTilePickerVisible(false);
       setIsTilesetSolidColorPickerVisible(false);
@@ -11065,12 +11090,10 @@ export default function App(): JSX.Element {
                       return null;
                     }
                     if (option.type === "boolean") {
-                      const enabled = Boolean(clientOptionsDraft[option.key]);
                       const isInventoryTileOnlyMotionOption =
                         option.key === "inventoryTileOnlyMotion";
-                      const toggleDisabled =
-                        isInventoryTileOnlyMotionOption &&
-                        clientOptionsDraft.reduceInventoryMotion;
+                      const isDarkCorridorWallsOption =
+                        option.key === "darkCorridorWalls367";
                       const isDarkWallTileOverrideOption =
                         option.key === "darkCorridorWallTileOverrideEnabled";
                       const isDarkWallSolidColorOverrideOption =
@@ -11079,6 +11102,20 @@ export default function App(): JSX.Element {
                       const isDarkWallOverrideOption =
                         isDarkWallTileOverrideOption ||
                         isDarkWallSolidColorOverrideOption;
+                      const darkCorridorOptionSuppressedByVulture =
+                        isVultureTilesetSelected &&
+                        (isDarkCorridorWallsOption || isDarkWallOverrideOption);
+                      const darkCorridorWallsForcedOnByVulture =
+                        isVultureTilesetSelected && isDarkCorridorWallsOption;
+                      const enabled = darkCorridorWallsForcedOnByVulture
+                        ? true
+                        : Boolean(clientOptionsDraft[option.key]);
+                      const toggleDisabled =
+                        (isInventoryTileOnlyMotionOption &&
+                          clientOptionsDraft.reduceInventoryMotion) ||
+                        darkCorridorOptionSuppressedByVulture;
+                      const darkWallSecondaryControlsDisabled =
+                        !enabled || toggleDisabled;
                       return (
                         <Fragment key={option.key}>
                           <div
@@ -11102,15 +11139,22 @@ export default function App(): JSX.Element {
                               </div>
                               <div className="nh3d-option-description">
                                 {option.description}
+                                {darkCorridorWallsForcedOnByVulture
+                                  ? " Always enabled while Vulture tiles are active."
+                                  : darkCorridorOptionSuppressedByVulture
+                                    ? " Disabled while Vulture tiles are active."
+                                    : ""}
                               </div>
                             </div>
                             {isDarkWallTileOverrideOption ? (
                               <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                                 <button
                                   className={`nh3d-option-tile-picker-button${
-                                    enabled ? "" : " is-disabled"
+                                    darkWallSecondaryControlsDisabled
+                                      ? " is-disabled"
+                                      : ""
                                   }`}
-                                  disabled={!enabled}
+                                  disabled={darkWallSecondaryControlsDisabled}
                                   onClick={() =>
                                     setIsDarkWallTilePickerVisible(true)
                                   }
@@ -11141,7 +11185,9 @@ export default function App(): JSX.Element {
                                         <input
                                           aria-label="Dark wall solid color (normal mode)"
                                           className="nh3d-option-solid-color-native-picker"
-                                          disabled={!enabled}
+                                          disabled={
+                                            darkWallSecondaryControlsDisabled
+                                          }
                                           onChange={(event) =>
                                             updateDarkWallSolidColorHexDraft(
                                               event.target.value,
@@ -11158,7 +11204,9 @@ export default function App(): JSX.Element {
                                         <input
                                           aria-label="Dark wall solid color (FPS mode)"
                                           className="nh3d-option-solid-color-native-picker"
-                                          disabled={!enabled}
+                                          disabled={
+                                            darkWallSecondaryControlsDisabled
+                                          }
                                           onChange={(event) =>
                                             updateDarkWallSolidColorHexFpsDraft(
                                               event.target.value,
@@ -11177,7 +11225,9 @@ export default function App(): JSX.Element {
                                           checked={
                                             selectedDarkWallSolidColorGridEnabled
                                           }
-                                          disabled={!enabled}
+                                          disabled={
+                                            darkWallSecondaryControlsDisabled
+                                          }
                                           onChange={(event) =>
                                             updateDarkWallSolidColorGridEnabledDraft(
                                               event.target.checked,
@@ -11193,7 +11243,7 @@ export default function App(): JSX.Element {
                                           <input
                                             className="nh3d-dark-wall-grid-darkness-input"
                                             disabled={
-                                              !enabled ||
+                                              darkWallSecondaryControlsDisabled ||
                                               !selectedDarkWallSolidColorGridEnabled
                                             }
                                             max={100}

@@ -164,6 +164,8 @@ export type Nh3dClientOptions = {
   controllerFpsMoveRepeatMs: number;
   controllerBindings: Nh3dControllerBindings;
   invertLookYAxis: boolean;
+  cameraRelativeMovement: boolean;
+  snapCameraYawToNearest45: boolean;
   invertTouchPanningDirection: boolean;
   desktopTouchInterfaceMode: Nh3dDesktopTouchInterfaceMode;
   uiTileBackgroundRemoval: boolean;
@@ -241,6 +243,8 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
     defaultNh3dControllerBindings,
   ),
   invertLookYAxis: false,
+  cameraRelativeMovement: true,
+  snapCameraYawToNearest45: true,
   invertTouchPanningDirection: true,
   desktopTouchInterfaceMode: "off",
   uiTileBackgroundRemoval: true,
@@ -777,6 +781,14 @@ export function normalizeNh3dClientOptions(
       typeof overrides?.invertLookYAxis === "boolean"
         ? overrides.invertLookYAxis
         : defaultNh3dClientOptions.invertLookYAxis,
+    cameraRelativeMovement:
+      typeof overrides?.cameraRelativeMovement === "boolean"
+        ? overrides.cameraRelativeMovement
+        : defaultNh3dClientOptions.cameraRelativeMovement,
+    snapCameraYawToNearest45:
+      typeof overrides?.snapCameraYawToNearest45 === "boolean"
+        ? overrides.snapCameraYawToNearest45
+        : defaultNh3dClientOptions.snapCameraYawToNearest45,
     invertTouchPanningDirection:
       typeof overrides?.invertTouchPanningDirection === "boolean"
         ? overrides.invertTouchPanningDirection
