@@ -1072,14 +1072,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
   >();
   private readonly menuTilePreviewDataUrlCache = new Map<string, string>();
   private menuTilePreviewCanvas: HTMLCanvasElement | null = null;
+  private runtimeLoadingVisible = true;
+  private tilesetCompilationLoadingVisible = false;
+  private tilesetTextureLoadRequestId = 0;
   private readonly handleVultureTilesetAssetReady = (): void => {
     if (this.clientOptions.tilesetMode !== "tiles") {
+      this.refreshTilesetCompilationLoadingState();
       return;
     }
     this.clearMenuTilePreviewCache();
     this.invalidateTilesetDependentCaches();
     this.refreshTilesFromStateCache();
     this.refreshMenuTilePreviewStateForUi();
+    this.refreshTilesetCompilationLoadingState();
   };
 
   // Direction question handling
@@ -1683,15 +1688,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.cameraYaw = Math.PI;
       this.cameraFollowInitialized = true;
     } else {
-      // Set initial camera position looking straight down with a slight tilt
-      this.cameraDistance = 15;
-      this.cameraPitch = THREE.MathUtils.clamp(
-        Math.PI / 2 - 0.2,
-        this.minCameraPitch,
-        this.maxCameraPitch,
-      );
-      // Yaw is in radians; start at 180 degrees to face the board correctly.
-      this.cameraYaw = Math.PI;
+      this.applyStandardCameraPresetForTopDownModes({ force: true });
     }
     this.updateMinimapVisibility();
     this.applyClientOptions(this.clientOptions);
@@ -3979,13 +3976,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.fpsPointerLockRestorePending = false;
       this.camera.fov = 75;
       this.camera.updateProjectionMatrix();
-      this.cameraDistance = 15;
-      this.cameraYaw = Math.PI;
-      this.cameraPitch = THREE.MathUtils.clamp(
-        Math.PI / 2 - 0.2,
-        this.minCameraPitch,
-        this.maxCameraPitch,
-      );
+      this.applyStandardCameraPresetForTopDownModes({ force: true });
       this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
       this.cameraFollowInitialized = false;
       this.requestTileUpdate(this.playerPos.x, this.playerPos.y);
@@ -4102,8 +4093,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!wasUsingVultureTiles && isUsingVultureTiles) {
       this.applyVultureIsometricCameraPresetIfNeeded({ force: true });
     }
+    if (wasUsingVultureTiles && !isUsingVultureTiles && !this.isFpsMode()) {
+      this.applyStandardCameraPresetForTopDownModes({ force: true });
+    }
     if (!isUsingVultureTiles) {
       this.clearVultureMouseHoverHighlight();
+    }
+    if (!this.shouldUseChamferedWallGeometry()) {
+      this.clearFpsWallChamferFloorMeshes();
     }
     if (blockAmbientOcclusionChanged) {
       this.refreshAllFloorBlockAmbientOcclusion();
@@ -4125,6 +4122,33 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.syncFmodRuntimeWithClientOptions(normalized.soundEnabled);
     this.syncVultureWallProjectionDebugPanelVisibility();
+    this.refreshTilesetCompilationLoadingState();
+  }
+
+  private applyStandardCameraPresetForTopDownModes(params?: {
+    force?: boolean;
+  }): void {
+    if (this.playMode === "fps") {
+      return;
+    }
+    const nextDistance = 15;
+    const nextPitch = THREE.MathUtils.clamp(
+      Math.PI / 2 - 0.2,
+      this.minCameraPitch,
+      this.maxCameraPitch,
+    );
+    const nextYaw = Math.PI;
+    if (
+      !params?.force &&
+      Math.abs(this.cameraDistance - nextDistance) < 0.0001 &&
+      Math.abs(this.cameraPitch - nextPitch) < 0.0001 &&
+      Math.abs(this.wrapAngle(this.cameraYaw - nextYaw)) < 0.0001
+    ) {
+      return;
+    }
+    this.cameraDistance = nextDistance;
+    this.cameraPitch = nextPitch;
+    this.cameraYaw = nextYaw;
   }
 
   private isVultureTilesActive(options: Nh3dClientOptions): boolean {
@@ -4440,11 +4464,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.vultureTilesetTranslator.setRuntimeObjectTileIndexByObjectId(
       this.runtimeObjectTileIndexByObjectId,
     );
+    this.vultureTilesetTranslator.ensureAssetLoadingStarted();
     this.vultureTilesetDataRootUrl = normalizedDataRootUrl;
     this.ensureVulturePrebakedProjectionManifest(normalizedDataRootUrl);
   }
 
   private loadTilesetTexture(options: Nh3dClientOptions): void {
+    const loadRequestId = ++this.tilesetTextureLoadRequestId;
+    const shouldShowCompileLoading = options.tilesetMode === "tiles";
+    this.setTilesetCompilationLoadingVisible(shouldShowCompileLoading);
     const tileset = findNh3dTilesetByPath(options.tilesetPath);
     const tilesetAssetUrl = resolveNh3dTilesetAssetUrl(options.tilesetPath);
     if (!tileset) {
@@ -4457,6 +4485,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.refreshTilesFromStateCache();
       }
       this.syncVultureWallProjectionDebugPanelVisibility();
+      this.setTilesetCompilationLoadingVisible(false);
       return;
     }
 
@@ -4471,6 +4500,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.refreshTilesFromStateCache();
       }
       this.syncVultureWallProjectionDebugPanelVisibility();
+      this.refreshTilesetCompilationLoadingState();
       return;
     }
 
@@ -4482,6 +4512,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     nextTexture = textureLoader.load(
       tilesetAssetUrl || tileset.path,
       () => {
+        if (loadRequestId !== this.tilesetTextureLoadRequestId) {
+          return;
+        }
         const atlasWidth = Math.max(
           0,
           Math.trunc(Number(nextTexture.image?.width) || 0),
@@ -4493,10 +4526,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.clientOptions.tilesetMode === "tiles") {
           this.refreshTilesFromStateCache();
         }
+        this.setTilesetCompilationLoadingVisible(false);
       },
       undefined,
       () => {
+        if (loadRequestId !== this.tilesetTextureLoadRequestId) {
+          return;
+        }
         console.warn(`Failed to load tileset atlas: ${tileset.path}`);
+        this.setTilesetCompilationLoadingVisible(false);
       },
     );
     this.configureTilesetTextureSampling(nextTexture);
@@ -5426,7 +5464,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.resetControllerVirtualCursor();
     this.uiAdapter.setStatus("Starting local NetHack runtime...");
     this.uiAdapter.setConnectionStatus("Disconnected", "disconnected");
-    this.uiAdapter.setLoadingVisible(true);
+    this.setLoadingVisible(true);
     this.availableExtendedCommands = [];
     this.uiAdapter.setExtendedCommands([]);
     this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
@@ -13452,7 +13490,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
       if (useTiles) {
-        // Chamfered FPS wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
+        // Chamfered wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
         // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
         mesh.material = chamferSideOverrideMaterial
           ? [
@@ -13521,64 +13559,64 @@ class Nethack3DEngine implements Nethack3DEngineController {
               this.vultureInvisibleSurfaceMaterial,
               this.vultureInvisibleSurfaceMaterial,
             ];
-            return;
-          }
-          const usedTextureFaces = new Set<VultureWallFaceSlot>();
-          const activePlaneDirections = new Set<VultureWallFaceSlot>();
-          for (const sliceConfig of wallPlaneConfig.slices) {
-            const innerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
-              mesh,
-              sliceConfig.innerTextureFace,
-              sliceConfig.innerLookup,
-              clampedDarken,
-              overlay.material.opacity,
-            );
-            innerWallMaterial.side = THREE.FrontSide;
-            innerWallMaterial.transparent = true;
-            const outerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
-              mesh,
-              sliceConfig.outerTextureFace,
-              sliceConfig.outerLookup,
-              clampedDarken,
-              overlay.material.opacity,
-            );
-            outerWallMaterial.side = THREE.FrontSide;
-            outerWallMaterial.transparent = true;
-            const planeSlice = this.ensureVultureWallPlaneSlice(
-              mesh,
-              sliceConfig.direction,
-            );
-            this.applyVultureWallPlaneSliceTransform(
-              planeSlice,
-              sliceConfig.direction,
-            );
-            planeSlice.frontMesh.renderOrder =
-              this.vultureFrontWallPlaneRenderOrder;
-            planeSlice.backMesh.renderOrder =
-              this.vultureBackWallPlaneRenderOrder;
-            planeSlice.frontMesh.material = innerWallMaterial;
-            planeSlice.backMesh.material = outerWallMaterial;
-            usedTextureFaces.add(sliceConfig.innerTextureFace);
-            usedTextureFaces.add(sliceConfig.outerTextureFace);
-            activePlaneDirections.add(sliceConfig.direction);
-          }
-          for (const face of ["west", "north", "east", "south"] as const) {
-            if (!usedTextureFaces.has(face)) {
-              this.disposeVultureWallFaceOverlay(mesh, face);
+          } else {
+            const usedTextureFaces = new Set<VultureWallFaceSlot>();
+            const activePlaneDirections = new Set<VultureWallFaceSlot>();
+            for (const sliceConfig of wallPlaneConfig.slices) {
+              const innerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
+                mesh,
+                sliceConfig.innerTextureFace,
+                sliceConfig.innerLookup,
+                clampedDarken,
+                overlay.material.opacity,
+              );
+              innerWallMaterial.side = THREE.FrontSide;
+              innerWallMaterial.transparent = true;
+              const outerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
+                mesh,
+                sliceConfig.outerTextureFace,
+                sliceConfig.outerLookup,
+                clampedDarken,
+                overlay.material.opacity,
+              );
+              outerWallMaterial.side = THREE.FrontSide;
+              outerWallMaterial.transparent = true;
+              const planeSlice = this.ensureVultureWallPlaneSlice(
+                mesh,
+                sliceConfig.direction,
+              );
+              this.applyVultureWallPlaneSliceTransform(
+                planeSlice,
+                sliceConfig.direction,
+              );
+              planeSlice.frontMesh.renderOrder =
+                this.vultureFrontWallPlaneRenderOrder;
+              planeSlice.backMesh.renderOrder =
+                this.vultureBackWallPlaneRenderOrder;
+              planeSlice.frontMesh.material = innerWallMaterial;
+              planeSlice.backMesh.material = outerWallMaterial;
+              usedTextureFaces.add(sliceConfig.innerTextureFace);
+              usedTextureFaces.add(sliceConfig.outerTextureFace);
+              activePlaneDirections.add(sliceConfig.direction);
             }
-            if (!activePlaneDirections.has(face)) {
-              this.disposeVultureWallPlaneOverlay(mesh, face);
+            for (const face of ["west", "north", "east", "south"] as const) {
+              if (!usedTextureFaces.has(face)) {
+                this.disposeVultureWallFaceOverlay(mesh, face);
+              }
+              if (!activePlaneDirections.has(face)) {
+                this.disposeVultureWallPlaneOverlay(mesh, face);
+              }
             }
+            this.disposeVultureDoorPlaneOverlay(mesh);
+            mesh.material = [
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+              this.vultureInvisibleSurfaceMaterial,
+            ];
           }
-          this.disposeVultureDoorPlaneOverlay(mesh);
-          mesh.material = [
-            this.vultureInvisibleSurfaceMaterial,
-            this.vultureInvisibleSurfaceMaterial,
-            this.vultureInvisibleSurfaceMaterial,
-            this.vultureInvisibleSurfaceMaterial,
-            this.vultureInvisibleSurfaceMaterial,
-            this.vultureInvisibleSurfaceMaterial,
-          ];
         }
       } else if (shouldUseVultureDoorPlane && useTiles) {
         this.disposeVultureWallFaceOverlay(mesh);
@@ -13747,6 +13785,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureDoorPlaneOverlay(mesh);
       mesh.material = overlay.material;
     }
+    this.applyWallBackSideVisibilityForCurrentPlayMode(mesh, isWall);
+  }
+
+  private applyWallBackSideVisibilityForCurrentPlayMode(
+    mesh: THREE.Mesh,
+    isWall: boolean,
+  ): void {
+    const vultureOverlay = mesh.userData?.vultureWallPlaneOverlay as
+      | VultureWallPlaneOverlay
+      | undefined;
+    if (vultureOverlay) {
+      const showBackWallPlanes = !this.isFpsMode();
+      for (const direction of ["west", "north", "east", "south"] as const) {
+        const slice = vultureOverlay[direction];
+        if (!slice) {
+          continue;
+        }
+        slice.frontMesh.visible = true;
+        slice.backMesh.visible = showBackWallPlanes;
+      }
+    }
+    if (!isWall || !this.isFpsMode()) {
+      return;
+    }
+    const material = mesh.material;
+    if (!Array.isArray(material) || material.length < 4) {
+      return;
+    }
+    if (material[3] === this.vultureInvisibleSurfaceMaterial) {
+      return;
+    }
+    const nextMaterial = [...material];
+    nextMaterial[3] = this.vultureInvisibleSurfaceMaterial;
+    mesh.material = nextMaterial;
   }
 
   private getMaterialByKind(kind: TileMaterialKind): THREE.MeshLambertMaterial {
@@ -14635,6 +14707,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return !Boolean(mesh.userData?.isWall);
   }
 
+  private shouldUseChamferedWallGeometry(): boolean {
+    return this.isFpsMode();
+  }
+
   private shouldChamferFpsWallCorner(
     tileX: number,
     tileY: number,
@@ -15153,6 +15229,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
   }
 
+  private clearFpsWallChamferFloorMeshes(): void {
+    for (const key of Array.from(this.fpsWallChamferFloorMeshes.keys())) {
+      this.removeFpsWallChamferFloorMesh(key);
+    }
+  }
+
   private upsertFpsWallChamferFloorMesh(
     tileX: number,
     tileY: number,
@@ -15210,10 +15292,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private refreshFpsWallChamferGeometryAt(tileX: number, tileY: number): void {
-    if (!this.isFpsMode()) {
+    const key = `${tileX},${tileY}`;
+    if (!this.shouldUseChamferedWallGeometry()) {
+      this.removeFpsWallChamferFloorMesh(key);
       return;
     }
-    const key = `${tileX},${tileY}`;
     const mesh = this.tileMap.get(key);
     if (!mesh || !mesh.userData?.isWall) {
       this.removeFpsWallChamferFloorMesh(key);
@@ -15312,7 +15395,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       textColor,
       true,
       darkenFactor,
-      true,
+      this.isFpsMode(),
       tileIndex,
       inferredDarkWallSolidColorHex,
       inferredDarkWallSolidColorGridEnabled,
@@ -15324,7 +15407,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     tileX: number,
     tileY: number,
   ): void {
-    if (!this.isFpsMode()) {
+    if (!this.shouldUseChamferedWallGeometry()) {
+      this.clearFpsWallChamferFloorMeshes();
       return;
     }
     for (let dy = -1; dy <= 1; dy += 1) {
@@ -17289,7 +17373,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const material = this.getMaterialByKind(renderBehavior.materialKind);
     const wallChamferMask =
-      this.isFpsMode() &&
+      this.shouldUseChamferedWallGeometry() &&
       renderBehavior.geometryKind === "wall" &&
       renderBehavior.materialKind !== "door"
         ? this.computeFpsWallChamferMask(x, y)
@@ -17551,7 +17635,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
           moveDy,
           autoMoveLikely,
         );
-        this.beginFpsStepCameraTransition(fromX, fromY, toX, toY);
       } else {
         this.recenterCameraOnPlayerIfNeeded();
       }
@@ -17718,33 +17801,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     toX: number,
     toY: number,
   ): void {
-    if (!this.isFpsMode()) {
-      return;
-    }
-
-    const fromEyeX = fromX * TILE_SIZE;
-    const fromEyeY = -fromY * TILE_SIZE;
+    void fromX;
+    void fromY;
     const toEyeX = toX * TILE_SIZE;
     const toEyeY = -toY * TILE_SIZE;
-
-    if (!this.fpsStepCameraActive) {
-      this.fpsStepCameraFrom.set(fromEyeX, fromEyeY, this.firstPersonEyeHeight);
-    } else {
-      const now = performance.now();
-      const progress = THREE.MathUtils.clamp(
-        (now - this.fpsStepCameraStartMs) / this.fpsStepCameraDurationMs,
-        0,
-        1,
-      );
-      const eased = 1 - Math.pow(1 - progress, 3);
-      this.fpsStepCameraFrom.lerp(this.fpsStepCameraTo, eased);
-    }
-
-    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
-
+    this.fpsStepCameraFrom.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
     this.fpsStepCameraTo.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
-    this.fpsStepCameraStartMs = performance.now();
-    this.fpsStepCameraActive = true;
+    this.fpsStepCameraActive = false;
   }
 
   private showFloatingGameMessage(message: string): void {
@@ -17823,8 +17886,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.addGameMessage(normalizedMessage);
   }
 
+  private syncLoadingVisibility(): void {
+    this.uiAdapter.setLoadingVisible(
+      this.runtimeLoadingVisible || this.tilesetCompilationLoadingVisible,
+    );
+  }
+
+  private setTilesetCompilationLoadingVisible(visible: boolean): void {
+    const nextVisible = Boolean(visible);
+    if (this.tilesetCompilationLoadingVisible === nextVisible) {
+      return;
+    }
+    this.tilesetCompilationLoadingVisible = nextVisible;
+    this.syncLoadingVisibility();
+  }
+
+  private refreshTilesetCompilationLoadingState(): void {
+    if (this.clientOptions.tilesetMode !== "tiles") {
+      this.setTilesetCompilationLoadingVisible(false);
+      return;
+    }
+    const translator = this.vultureTilesetTranslator;
+    if (translator) {
+      this.setTilesetCompilationLoadingVisible(
+        translator.isAssetCompilationInProgress(),
+      );
+    }
+  }
+
   private setLoadingVisible(visible: boolean): void {
-    this.uiAdapter.setLoadingVisible(visible);
+    this.runtimeLoadingVisible = Boolean(visible);
+    this.syncLoadingVisibility();
   }
 
   private parseGoldStatusValue(rawValue: string): number | null {
@@ -22475,41 +22567,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isFpsMode()) {
       const targetEyeX = this.playerPos.x * TILE_SIZE;
       const targetEyeY = -this.playerPos.y * TILE_SIZE;
-      let eyeX = targetEyeX;
-      let eyeY = targetEyeY;
+      const eyeX = targetEyeX;
+      const eyeY = targetEyeY;
       const eyeZ = this.firstPersonEyeHeight;
 
       this.updateFpsAutoTurnYaw(deltaSeconds);
       this.applyCameraYawStraightAssist(deltaSeconds);
-
-      if (this.fpsStepCameraActive) {
-        const progress = THREE.MathUtils.clamp(
-          (performance.now() - this.fpsStepCameraStartMs) /
-            this.fpsStepCameraDurationMs,
-          0,
-          1,
-        );
-        const eased = 1 - Math.pow(1 - progress, 3);
-        eyeX = THREE.MathUtils.lerp(
-          this.fpsStepCameraFrom.x,
-          this.fpsStepCameraTo.x,
-          eased,
-        );
-        eyeY = THREE.MathUtils.lerp(
-          this.fpsStepCameraFrom.y,
-          this.fpsStepCameraTo.y,
-          eased,
-        );
-        if (progress >= 1) {
-          this.fpsStepCameraActive = false;
-          this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
-          this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
-          if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
-            this.tileFlushScheduled = true;
-            requestAnimationFrame(() => this.flushPendingTileUpdates());
-          }
-        }
-      }
+      this.fpsStepCameraActive = false;
+      this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
+      this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
 
       const forwardX = -Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch);
       const forwardY = -Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch);
@@ -23011,9 +23077,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       const intersection = intersections[intersectionIndex];
       const object = intersection.object;
       if (object instanceof THREE.Sprite) {
-        if (this.shouldIgnoreTileModePlayerBillboardIntersection(object)) {
-          continue;
-        }
         if (!this.isOpaqueSpriteIntersection(intersection)) {
           continue;
         }
@@ -23058,23 +23121,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     return null;
-  }
-
-  private shouldIgnoreTileModePlayerBillboardIntersection(
-    sprite: THREE.Sprite,
-  ): boolean {
-    if (!this.shouldApplyTilesModeRaycastTargetingRules()) {
-      return false;
-    }
-    const spriteTileX = Number(sprite.userData?.tileX);
-    const spriteTileY = Number(sprite.userData?.tileY);
-    if (!Number.isFinite(spriteTileX) || !Number.isFinite(spriteTileY)) {
-      return false;
-    }
-    return (
-      Math.trunc(spriteTileX) === this.playerPos.x &&
-      Math.trunc(spriteTileY) === this.playerPos.y
-    );
   }
 
   private getTileTargetFromMesh(mesh: THREE.Mesh): {

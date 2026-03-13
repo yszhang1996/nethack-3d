@@ -410,6 +410,8 @@ export class VultureTilesetTranslator {
 
   private configLoaded = false;
 
+  private configLoadFailed = false;
+
   private pendingAssetReadyCallback = false;
 
   private roomDecorStateDirty = true;
@@ -534,6 +536,23 @@ export class VultureTilesetTranslator {
     return keys;
   }
 
+  public isAssetCompilationInProgress(): boolean {
+    if (this.disposed) {
+      return false;
+    }
+    const waitingForConfig =
+      this.configLoadingStarted && !this.configLoaded && !this.configLoadFailed;
+    if (waitingForConfig) {
+      return true;
+    }
+    for (const imageState of this.imageByUrl.values()) {
+      if (imageState === "loading") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   public dispose(): void {
     this.disposed = true;
     this.imageByUrl.clear();
@@ -550,6 +569,7 @@ export class VultureTilesetTranslator {
     this.cmapTileLookupInitialized = false;
     this.configLoadingStarted = false;
     this.configLoaded = false;
+    this.configLoadFailed = false;
     this.pendingAssetReadyCallback = false;
   }
 
@@ -587,6 +607,13 @@ export class VultureTilesetTranslator {
       lookup,
       forBillboard: params.forBillboard,
     });
+  }
+
+  public ensureAssetLoadingStarted(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.ensureConfigLoadingStarted();
   }
 
   public resolveLookupForTile(params: {
@@ -828,6 +855,7 @@ export class VultureTilesetTranslator {
       return;
     }
     this.configLoadingStarted = true;
+    this.configLoadFailed = false;
     void this.loadConfig();
   }
 
@@ -846,6 +874,7 @@ export class VultureTilesetTranslator {
       }
       this.parseConfig(configText);
       this.configLoaded = true;
+      this.configLoadFailed = false;
       this.notifyAssetReady();
     } catch (error) {
       if (this.disposed) {
@@ -856,6 +885,8 @@ export class VultureTilesetTranslator {
         error,
       );
       this.configLoaded = false;
+      this.configLoadFailed = true;
+      this.notifyAssetReady();
     }
   }
 
