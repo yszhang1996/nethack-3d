@@ -5471,7 +5471,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
-  private flushPendingVultureRoomDecorReconcile(forceAll: boolean = false): void {
+  private flushPendingVultureRoomDecorReconcile(
+    forceAll: boolean = false,
+  ): void {
     if (
       !this.shouldUseVultureTiles() ||
       this.clientOptions.tilesetMode !== "tiles" ||
@@ -5487,8 +5489,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ? this.pendingVultureRoomDecorReconcileKeys.size
       : this.vultureRoomDecorReconcileMaxPerFrame;
     let processed = 0;
-    const pendingIterator =
-      this.pendingVultureRoomDecorReconcileKeys.keys();
+    const pendingIterator = this.pendingVultureRoomDecorReconcileKeys.keys();
     while (processed < maxToProcess) {
       const nextPending = pendingIterator.next();
       if (nextPending.done) {
@@ -5523,6 +5524,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private ensureVultureWallProjectionDebugPanel(): void {
+    if (this.shouldUseVulturePrebakedProjectionTextures()) {
+      return;
+    }
+
     if (this.vultureWallProjectionDebugPanel) {
       for (const family of [
         "ew",
@@ -18328,7 +18333,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private refreshMenuTilePreviewStateForUi(): void {
     if (this.currentInventory.length > 0) {
-      this.currentInventory = this.normalizeMenuItemsForUi(this.currentInventory);
+      this.currentInventory = this.normalizeMenuItemsForUi(
+        this.currentInventory,
+      );
       this.uiAdapter.setInventory(this.buildInventoryDialogState());
     }
 
@@ -18355,7 +18362,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return item;
     }
     const normalizedItem = { ...(item as Record<string, unknown>) };
-    const previewDataUrl = this.resolveMenuItemTilePreviewDataUrl(normalizedItem);
+    const previewDataUrl =
+      this.resolveMenuItemTilePreviewDataUrl(normalizedItem);
     if (previewDataUrl) {
       normalizedItem.tilePreviewDataUrl = previewDataUrl;
     } else {
@@ -18376,7 +18384,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const explicitTileApplicable = item.isTileApplicable;
-    if (typeof explicitTileApplicable === "boolean" && !explicitTileApplicable) {
+    if (
+      typeof explicitTileApplicable === "boolean" &&
+      !explicitTileApplicable
+    ) {
       return null;
     }
 
@@ -20703,10 +20714,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
 
-    const mappedDirection = this.resolveCameraRelativeDirectionInputFromLocalDelta(
-      localDirection.dx,
-      localDirection.dy,
-    );
+    const mappedDirection =
+      this.resolveCameraRelativeDirectionInputFromLocalDelta(
+        localDirection.dx,
+        localDirection.dy,
+      );
     if (!mappedDirection) {
       return null;
     }
@@ -20741,10 +20753,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return normalized;
     }
 
-    const mappedDirection = this.resolveCameraRelativeDirectionInputFromLocalDelta(
-      localDirection.dx,
-      localDirection.dy,
-    );
+    const mappedDirection =
+      this.resolveCameraRelativeDirectionInputFromLocalDelta(
+        localDirection.dx,
+        localDirection.dy,
+      );
     if (!mappedDirection) {
       return normalized;
     }
@@ -22059,7 +22072,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    if (!this.isInQuestion && !this.isInDirectionQuestion && !this.isFpsMode()) {
+    if (
+      !this.isInQuestion &&
+      !this.isInDirectionQuestion &&
+      !this.isFpsMode()
+    ) {
       const cameraRelativeMovementInput =
         this.tryResolveCameraRelativeGameplayMovementInput(event);
       if (cameraRelativeMovementInput) {
@@ -22659,7 +22676,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return targetTile.userData?.isWall ? WALL_HEIGHT + 0.02 : 0.03;
   }
 
-  private applyContextHighlightRenderConfig(targetTile: THREE.Mesh | null): void {
+  private applyContextHighlightRenderConfig(
+    targetTile: THREE.Mesh | null,
+  ): void {
     if (!this.fpsForwardHighlight) {
       return;
     }
