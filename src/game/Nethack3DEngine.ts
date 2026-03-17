@@ -9758,6 +9758,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     const material =
       side === "front" ? overlay.frontMaterial : overlay.backMaterial;
+    const useFpsDepthOcclusion = this.isFpsMode();
+    const depthAlphaTest = useFpsDepthOcclusion ? 0.01 : 0;
+    if (
+      material.depthWrite !== useFpsDepthOcclusion ||
+      material.depthTest !== true ||
+      Math.abs(material.alphaTest - depthAlphaTest) > 0.0001
+    ) {
+      material.depthWrite = useFpsDepthOcclusion;
+      material.depthTest = true;
+      material.alphaTest = depthAlphaTest;
+      material.needsUpdate = true;
+    }
     material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
     material.color.set("#ffffff");
   }
@@ -9841,40 +9853,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       sourceGlyph !== null && getOpenDoorGlyphFrom(sourceGlyph) === sourceGlyph
         ? "open"
         : "closed";
-    let floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
-    let floorLookupGlyph: number | null = sourceGlyph;
-    let floorLookupTileIndex: number | null = tileIndex >= 0 ? tileIndex : null;
-    if (
-      wallX !== null &&
-      Number.isFinite(wallX) &&
-      wallY !== null &&
-      Number.isFinite(wallY)
-    ) {
-      const floorSnapshot = this.getKnownTerrainSnapshotForInferenceAtKey(
-        `${Math.trunc(wallX)},${Math.trunc(wallY)}`,
-      );
-      if (floorSnapshot && Number.isFinite(floorSnapshot.glyph)) {
-        floorLookupGlyph = Math.trunc(floorSnapshot.glyph);
-      }
-      if (
-        floorSnapshot &&
-        typeof floorSnapshot.tileIndex === "number" &&
-        Number.isFinite(floorSnapshot.tileIndex)
-      ) {
-        floorLookupTileIndex = Math.trunc(floorSnapshot.tileIndex);
-      }
-    }
-    const glyphFloorLookup = translator.resolveLookupForTile({
-      glyph: floorLookupGlyph ?? -1,
-      tileIndex: floorLookupTileIndex,
-      tileX: wallX,
-      tileY: wallY,
-      materialKind: "floor",
-      forBillboard: false,
-    });
-    if (glyphFloorLookup?.projection === "iso_floor") {
-      floorLookup = glyphFloorLookup;
-    }
+    // Doorway floor planes in Vulture should always use the rough-floor family.
+    const floorLookup = translator.resolveDoorwayFloorLookup(wallX, wallY);
     const overlay = this.ensureVultureDoorPlaneOverlay(mesh);
     overlay.doorOrientation = family;
     const floorPlaneZ = anchorFloorToWall
@@ -9969,8 +9949,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     overlay.material.color.set("#ffffff");
     overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
-    overlay.material.depthWrite = false;
-    overlay.material.depthTest = true;
+    const useFpsDepthOcclusion = this.isFpsMode();
+    const depthAlphaTest = useFpsDepthOcclusion ? 0.01 : 0;
+    if (
+      overlay.material.depthWrite !== useFpsDepthOcclusion ||
+      overlay.material.depthTest !== true ||
+      Math.abs(overlay.material.alphaTest - depthAlphaTest) > 0.0001
+    ) {
+      overlay.material.depthWrite = useFpsDepthOcclusion;
+      overlay.material.depthTest = true;
+      overlay.material.alphaTest = depthAlphaTest;
+      overlay.material.needsUpdate = true;
+    }
     return overlay.material;
   }
 
@@ -14959,11 +14949,55 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isPassableTileForFpsDiagonal(tileX: number, tileY: number): boolean {
-    const mesh = this.tileMap.get(`${tileX},${tileY}`);
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (this.isDoorwayTileForFpsChamfer(tileX, tileY)) {
+      return true;
+    }
     if (!mesh) {
       return false;
     }
     return !Boolean(mesh.userData?.isWall);
+  }
+
+  private isDoorwayTileForFpsChamfer(tileX: number, tileY: number): boolean {
+    const key = `${tileX},${tileY}`;
+    const mesh = this.tileMap.get(key);
+    if (mesh) {
+      const materialKind =
+        typeof mesh.userData?.materialKind === "string"
+          ? (mesh.userData.materialKind as TileMaterialKind)
+          : null;
+      if (materialKind === "door") {
+        return true;
+      }
+      const tileTextureSourceGlyph =
+        typeof mesh.userData?.tileTextureSourceGlyph === "number" &&
+        Number.isFinite(mesh.userData.tileTextureSourceGlyph)
+          ? Math.trunc(mesh.userData.tileTextureSourceGlyph)
+          : null;
+      if (
+        tileTextureSourceGlyph !== null &&
+        isDoorwayCmapGlyph(tileTextureSourceGlyph)
+      ) {
+        return true;
+      }
+      const sourceGlyph =
+        typeof mesh.userData?.sourceGlyph === "number" &&
+        Number.isFinite(mesh.userData.sourceGlyph)
+          ? Math.trunc(mesh.userData.sourceGlyph)
+          : null;
+      if (sourceGlyph !== null && isDoorwayCmapGlyph(sourceGlyph)) {
+        return true;
+      }
+    }
+
+    const knownTerrain = this.getKnownTerrainSnapshotForInferenceAtKey(key);
+    return Boolean(
+      knownTerrain &&
+        typeof knownTerrain.glyph === "number" &&
+        isDoorwayCmapGlyph(Math.trunc(knownTerrain.glyph)),
+    );
   }
 
   private shouldUseChamferedWallGeometry(): boolean {
@@ -15572,6 +15606,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number"
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
     const nextMask = this.computeFpsWallChamferMask(tileX, tileY);
     const nextChamferKind =
       nextMask > 0 ? this.getFpsChamferMaterialKindForWall(materialKind) : null;
@@ -15584,10 +15622,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.glyphChar === "string"
         ? mesh.userData.glyphChar
         : " ";
-    const sourceGlyph =
-      typeof mesh.userData?.sourceGlyph === "number"
-        ? Math.trunc(mesh.userData.sourceGlyph)
-        : null;
     const chamferSideUvRotation =
       nextMask > 0
         ? this.resolveFpsChamferWallUvRotation(glyphChar, sourceGlyph)
@@ -17143,8 +17177,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     let sprite = this.monsterBillboards.get(spriteKey);
     const useVultureWallPlaneOverlay = this.shouldUseVultureTiles();
     const useVultureBillboardGrounding = useVultureWallPlaneOverlay && useTiles;
+    const useVultureFpsDepthOcclusion =
+      useVultureWallPlaneOverlay && this.isFpsMode();
     const spriteDepthWrite = false;
-    const spriteDepthTest = !useVultureWallPlaneOverlay;
+    const spriteDepthTest =
+      useVultureFpsDepthOcclusion || !useVultureWallPlaneOverlay;
     const spriteAlphaTest = useVultureWallPlaneOverlay ? 0.01 : 0;
     // Do not render the legacy flattened duplicate behind Vulture billboards.
     // Keep only the standing billboard plus tile-floor underlay.
