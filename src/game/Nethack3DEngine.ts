@@ -618,11 +618,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private playerPos = { x: 0, y: 0 };
   private gameMessages: string[] = [];
   private hasSeenPlayerPosition: boolean = false;
-  private fpsPreviousPlayerTileForSuppression: {
+  private readonly fpsPlayerTrailSuppressionWindowMs: number = 450;
+  private readonly fpsPlayerTrailSuppressionMaxEntries: number = 8;
+  private fpsRecentPlayerTilesForSuppression: Array<{
     x: number;
     y: number;
     capturedAtMs: number;
-  } | null = null;
+  }> = [];
   private pendingPlayerTileRefreshOnNextPosition: boolean = true;
   private hasPlayerMovedOnce: boolean = false;
   private autoPickupEnabled: boolean = true;
@@ -760,9 +762,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
   private readonly firstPersonPitchMin = -Math.PI / 2 + 0.03;
   private readonly firstPersonPitchMax = 1.18;
-  private readonly cameraYawStraightAssistThreshold = Math.PI / 36; // 5 degrees
-  private readonly cameraYawStraightAssistLerpSpeed = 14;
-  private readonly cameraYawStraightAssistEpsilon = Math.PI / 1800; // 0.1 degrees
   private readonly firstPersonMouseSensitivity = 0.0026;
   private readonly fpsDiagonalAimBias = 0.035;
   private fpsPointerLockActive: boolean = false;
@@ -810,6 +809,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsCrosshairGlanceTimeoutMs: number = 2600;
   private readonly fpsCrosshairGlanceSettleWindowMs: number = 450;
   private readonly fpsCrosshairGlanceMaxLines: number = 8;
+  private readonly asciiFriendlyGlyphTextColor: string = "#F7FFF9";
+  private readonly asciiPlayerTileDebugLogThrottleMs: number = 120;
   private fpsWallChamferGeometryCache: Map<string, THREE.BufferGeometry> =
     new Map();
   private fpsWallChamferFloorGeometryCache: Map<number, THREE.ShapeGeometry> =
@@ -836,14 +837,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private fpsStepCameraActive: boolean = false;
   private fpsStepCameraStartMs: number = 0;
   private readonly fpsStepCameraBaseDurationMs: number = 92;
+  private readonly fpsStepCameraRunDurationMs: number = 46;
+  private readonly fpsStepCameraRunInputWindowMs: number = 220;
+  private readonly fpsStepCameraRapidDurationScale: number = 0.75;
+  private readonly fpsStepCameraMinDurationMs: number = 28;
+  private readonly fpsPredictedPlayerTileWindowMs: number = 220;
+  private readonly asciiPendingPlayerTileWindowMs: number = 220;
   private fpsStepCameraDurationMs: number = this.fpsStepCameraBaseDurationMs;
   private readonly fpsAutoMoveDetectionWindowMs: number = 120;
   private lastManualDirectionalInputAtMs: number = 0;
+  private lastRunLikeInputAtMs: number = 0;
+  private fpsPredictedPlayerTile: { x: number; y: number; expiresAtMs: number } | null =
+    null;
+  private asciiPendingPlayerTile: { x: number; y: number; expiresAtMs: number } | null =
+    null;
+  private asciiPlayerTileDebugLastLogAtByKey: Map<string, number> =
+    new Map();
   private fpsAutoMoveDirection: { dx: number; dy: number } | null = null;
   private fpsAutoTurnTargetYaw: number | null = null;
   private readonly fpsAutoTurnSpeedRadPerSec: number = 8.8;
   private fpsStepCameraFrom = new THREE.Vector3();
   private fpsStepCameraTo = new THREE.Vector3();
+  private fpsStepCameraTargetTile: { x: number; y: number } | null = null;
 
   // Camera controls
   private cameraDistance: number = 20;
@@ -3956,7 +3971,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
     this.fpsStepCameraActive = false;
-    this.fpsPreviousPlayerTileForSuppression = null;
+    this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
+    this.fpsStepCameraTargetTile = null;
+    this.lastRunLikeInputAtMs = 0;
+    this.fpsPredictedPlayerTile = null;
+    this.asciiPendingPlayerTile = null;
+    this.fpsRecentPlayerTilesForSuppression = [];
+    this.asciiPlayerTileDebugLastLogAtByKey.clear();
     this.closeAnyTileContextMenu(false);
 
     if (this.playMode === "fps") {
@@ -7106,8 +7127,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
+        this.logAsciiPlayerTileDebug("player_position_received", data.x, data.y, {
+          oldPlayerPos: { ...this.playerPos },
+          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+          playMode: this.playMode,
+          tilesetMode: this.clientOptions.tilesetMode,
+        });
         this.handlePendingLevelTransitionPlayerPosition(data.x, data.y);
         const oldPos = { ...this.playerPos };
+        this.fpsPredictedPlayerTile = null;
+        this.asciiPendingPlayerTile = null;
         this.playPlayerFootstepSoundFromCliparoundIfEligible(
           oldPos.x,
           oldPos.y,
@@ -7128,6 +7157,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.refreshPlayerCliparoundInputCooldownFromMovement();
         }
         this.playerPos = { x: data.x, y: data.y };
+        this.logAsciiPlayerTileDebug("player_position_applied", data.x, data.y, {
+          oldPos,
+          newPos: { ...this.playerPos },
+          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+        });
         if (oldPos.x !== data.x || oldPos.y !== data.y) {
           this.clearAutomaticGlancePendingState();
         }
@@ -7135,6 +7169,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.closeAnyTileContextMenu(false);
         }
         this.flushPendingTileUpdatesForPlayerPositionReconcile();
+        this.refreshAsciiPlayerTilesAfterPositionUpdate(
+          oldPos.x,
+          oldPos.y,
+          data.x,
+          data.y,
+        );
         this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
         if (this.isFpsMode()) {
           this.removeMonsterBillboard(`${data.x},${data.y}`);
@@ -7157,6 +7197,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       case "position_cursor":
         if (typeof data.x === "number" && typeof data.y === "number") {
           this.setPositionCursorPosition(data.x, data.y);
+        }
+        break;
+
+      case "map_cursor":
+        if (typeof data.x === "number" && typeof data.y === "number") {
+          const previousAsciiPendingPlayerTile =
+            this.getActiveAsciiPendingPlayerTile(Date.now());
+          this.updateFpsPredictedPlayerTileFromMapCursorHint(data.x, data.y);
+          this.updateAsciiPendingPlayerTileFromMapCursorHint(data.x, data.y);
+          this.refreshAsciiPlayerTilesForCursorHint(
+            data.x,
+            data.y,
+            previousAsciiPendingPlayerTile,
+          );
         }
         break;
 
@@ -8390,6 +8444,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const key = `${tile.x},${tile.y}`;
     this.recordNewlyDiscoveredDarkCorridorTileForCurrentInput(tile);
     const behavior = this.classifyTilePayload(tile);
+    const nowMs = Date.now();
+    const tileRelation = this.getFpsPlayerTileRelationFlags(
+      tile.x,
+      tile.y,
+      nowMs,
+      behavior,
+    );
     if (
       this.isFpsMode() &&
       this.fpsStepCameraActive &&
@@ -8406,15 +8467,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.tileStateCache.get(key) === signature) {
       const shouldHaveMonsterBillboard =
         behavior !== null &&
+        !tileRelation.isPlayerGlyph &&
+        !tileRelation.isPlayerMaterial &&
+        !tileRelation.isStepDestinationTile &&
+        !tileRelation.isPredictedPlayerTile &&
+        !tileRelation.isTrailSuppressedTile &&
         (this.isMonsterLikeBehavior(behavior) ||
           this.isLootLikeBehavior(behavior)) &&
         (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
-        !(tile.x === this.playerPos.x && tile.y === this.playerPos.y);
+        !tileRelation.isCurrentPlayerTile;
       if (shouldHaveMonsterBillboard && !this.monsterBillboards.has(key)) {
         this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
           runtimeTileIndex:
             typeof tile.tileIndex === "number" ? tile.tileIndex : undefined,
         });
+      } else if (!shouldHaveMonsterBillboard && this.monsterBillboards.has(key)) {
+        this.removeMonsterBillboard(key);
       }
       return;
     }
@@ -8505,6 +8573,200 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return (
       behavior.materialKind === "floor" || behavior.materialKind === "dark"
     );
+  }
+
+  private resolveFpsFloorUnderlayBehaviorFromCache(
+    key: string,
+  ): TileBehaviorResult {
+    const floorSnapshot = this.lastKnownTerrain.get(key) ?? null;
+    if (floorSnapshot) {
+      const floorBehavior = classifyTileBehavior({
+        glyph: floorSnapshot.glyph,
+        runtimeChar: floorSnapshot.char ?? null,
+        runtimeColor:
+          typeof floorSnapshot.color === "number" ? floorSnapshot.color : null,
+        runtimeTileIndex:
+          typeof floorSnapshot.tileIndex === "number"
+            ? floorSnapshot.tileIndex
+            : null,
+        priorTerrain: floorSnapshot,
+      });
+      if (
+        !floorBehavior.isWall &&
+        !this.isMonsterLikeBehavior(floorBehavior) &&
+        floorBehavior.materialKind !== "player"
+      ) {
+        return floorBehavior;
+      }
+    }
+    return classifyTileBehavior({
+      glyph: getDefaultDarkFloorGlyph(),
+      runtimeChar: ".",
+      runtimeColor: null,
+      priorTerrain: null,
+    });
+  }
+
+  private shouldEmitAsciiPlayerTileDebugLog(
+    debugKey: string,
+    nowMs: number,
+  ): boolean {
+    if (!isLoggingEnabled()) {
+      return false;
+    }
+    const lastLoggedAtMs =
+      this.asciiPlayerTileDebugLastLogAtByKey.get(debugKey) ?? 0;
+    if (nowMs - lastLoggedAtMs < this.asciiPlayerTileDebugLogThrottleMs) {
+      return false;
+    }
+    this.asciiPlayerTileDebugLastLogAtByKey.set(debugKey, nowMs);
+    if (this.asciiPlayerTileDebugLastLogAtByKey.size > 256) {
+      const cutoffMs = nowMs - this.asciiPlayerTileDebugLogThrottleMs * 6;
+      for (const [
+        key,
+        loggedAtMs,
+      ] of this.asciiPlayerTileDebugLastLogAtByKey) {
+        if (loggedAtMs < cutoffMs) {
+          this.asciiPlayerTileDebugLastLogAtByKey.delete(key);
+        }
+      }
+    }
+    return true;
+  }
+
+  private logAsciiPlayerTileDebug(
+    event: string,
+    tileX: number,
+    tileY: number,
+    payload: Record<string, unknown>,
+  ): void {
+    const nowMs = Date.now();
+    const debugKey = `${event}:${tileX},${tileY}`;
+    if (!this.shouldEmitAsciiPlayerTileDebugLog(debugKey, nowMs)) {
+      return;
+    }
+    console.log(`[ASCII_PLAYER_TILE_DEBUG] ${event}`, {
+      nowMs,
+      tileX,
+      tileY,
+      ...payload,
+    });
+  }
+
+  private refreshTileVisualFromStateCache(tileX: number, tileY: number): void {
+    const key = `${tileX},${tileY}`;
+    const snapshot = this.getTileSnapshotFromStateCache(key);
+    if (!snapshot) {
+      if (
+        !this.isFpsMode() &&
+        this.clientOptions.tilesetMode !== "tiles" &&
+        this.hasSeenPlayerPosition &&
+        tileX === this.playerPos.x &&
+        tileY === this.playerPos.y
+      ) {
+        this.logAsciiPlayerTileDebug("refresh_from_cache_missing_snapshot", tileX, tileY, {
+          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+          tileStateCacheHasKey: this.tileStateCache.has(key),
+        });
+      }
+      return;
+    }
+    if (
+      !this.isFpsMode() &&
+      this.clientOptions.tilesetMode !== "tiles" &&
+      this.hasSeenPlayerPosition &&
+      tileX === this.playerPos.x &&
+      tileY === this.playerPos.y
+    ) {
+      this.logAsciiPlayerTileDebug("refresh_from_cache_update_tile", tileX, tileY, {
+        glyph: snapshot.glyph,
+        char: snapshot.char ?? null,
+        color: typeof snapshot.color === "number" ? snapshot.color : null,
+        tileIndex:
+          typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
+      });
+    }
+    this.updateTile(
+      tileX,
+      tileY,
+      snapshot.glyph,
+      snapshot.char ?? undefined,
+      typeof snapshot.color === "number" && Number.isFinite(snapshot.color)
+        ? Math.trunc(snapshot.color)
+        : undefined,
+      {
+        runtimeTileIndex:
+          typeof snapshot.tileIndex === "number" &&
+          Number.isFinite(snapshot.tileIndex)
+            ? Math.trunc(snapshot.tileIndex)
+            : undefined,
+      },
+    );
+  }
+
+  private refreshAsciiPlayerTilesAfterPositionUpdate(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    if (this.isFpsMode() || this.clientOptions.tilesetMode === "tiles") {
+      return;
+    }
+    this.logAsciiPlayerTileDebug("refresh_after_player_position", toX, toY, {
+      from: { x: fromX, y: fromY },
+      to: { x: toX, y: toY },
+      hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+      playerPos: { ...this.playerPos },
+      playMode: this.playMode,
+      tilesetMode: this.clientOptions.tilesetMode,
+    });
+    this.refreshTileVisualFromStateCache(fromX, fromY);
+    this.refreshTileVisualFromStateCache(toX, toY);
+  }
+
+  private refreshAsciiPlayerTilesForCursorHint(
+    cursorX: number,
+    cursorY: number,
+    previousPendingTile?: { x: number; y: number } | null,
+  ): void {
+    if (this.isFpsMode() || this.clientOptions.tilesetMode === "tiles") {
+      return;
+    }
+    if (this.positionInputModeActive || !this.hasSeenPlayerPosition) {
+      return;
+    }
+
+    const pendingTile =
+      this.getActiveAsciiPendingPlayerTile(Date.now()) ?? { x: cursorX, y: cursorY };
+    const tilesToRefresh = new Set<string>();
+    const enqueueTile = (tileX: number, tileY: number): void => {
+      tilesToRefresh.add(`${tileX},${tileY}`);
+    };
+
+    enqueueTile(this.playerPos.x, this.playerPos.y);
+    enqueueTile(pendingTile.x, pendingTile.y);
+    if (previousPendingTile) {
+      enqueueTile(previousPendingTile.x, previousPendingTile.y);
+    }
+
+    this.logAsciiPlayerTileDebug("refresh_after_cursor_hint", pendingTile.x, pendingTile.y, {
+      cursor: { x: cursorX, y: cursorY },
+      pendingTile,
+      previousPendingTile: previousPendingTile ?? null,
+      playerPos: { ...this.playerPos },
+      hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+    });
+
+    for (const tileKey of tilesToRefresh) {
+      const [tileXRaw, tileYRaw] = tileKey.split(",");
+      const tileX = Number(tileXRaw);
+      const tileY = Number(tileYRaw);
+      if (!Number.isFinite(tileX) || !Number.isFinite(tileY)) {
+        continue;
+      }
+      this.refreshTileVisualFromStateCache(tileX, tileY);
+    }
   }
 
   private flushPendingTileUpdatesForPlayerPositionReconcile(): void {
@@ -13797,13 +14059,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureDoorPlaneOverlay(mesh);
       mesh.material = overlay.material;
     }
-    this.applyWallBackSideVisibilityForCurrentPlayMode(mesh, isWall);
+    this.applyWallBackSideVisibilityForCurrentPlayMode(mesh);
   }
 
-  private applyWallBackSideVisibilityForCurrentPlayMode(
-    mesh: THREE.Mesh,
-    isWall: boolean,
-  ): void {
+  private applyWallBackSideVisibilityForCurrentPlayMode(mesh: THREE.Mesh): void {
     const vultureOverlay = mesh.userData?.vultureWallPlaneOverlay as
       | VultureWallPlaneOverlay
       | undefined;
@@ -13817,20 +14076,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         slice.frontMesh.visible = true;
         slice.backMesh.visible = showBackWallPlanes;
       }
-    }
-    if (!isWall || !this.isFpsMode()) {
       return;
     }
-    const material = mesh.material;
-    if (!Array.isArray(material) || material.length < 4) {
-      return;
-    }
-    if (material[3] === this.vultureInvisibleSurfaceMaterial) {
-      return;
-    }
-    const nextMaterial = [...material];
-    nextMaterial[3] = this.vultureInvisibleSurfaceMaterial;
-    mesh.material = nextMaterial;
   }
 
   private getMaterialByKind(kind: TileMaterialKind): THREE.MeshLambertMaterial {
@@ -15488,10 +15735,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsFireSuppressionUntilMs = 0;
     this.fpsStepCameraActive = false;
     this.fpsStepCameraDurationMs = this.fpsStepCameraBaseDurationMs;
+    this.fpsStepCameraTargetTile = null;
+    this.fpsPredictedPlayerTile = null;
+    this.asciiPendingPlayerTile = null;
     this.lastManualDirectionalInputAtMs = 0;
+    this.lastRunLikeInputAtMs = 0;
     this.fpsAutoMoveDirection = null;
     this.fpsAutoTurnTargetYaw = null;
-    this.fpsPreviousPlayerTileForSuppression = null;
+    this.fpsRecentPlayerTilesForSuppression = [];
+    this.asciiPlayerTileDebugLastLogAtByKey.clear();
     this.fpsPointerLockRestorePending = false;
     this.fpsCrosshairContextMenuOpen = false;
     this.fpsCrosshairContextSignature = "";
@@ -17111,17 +17363,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isStatue = behavior.effective.kind === "statue";
     const useTiles = this.clientOptions.tilesetMode === "tiles";
     const nowMs = Date.now();
-    const previousPlayerTileForSuppression =
-      this.fpsPreviousPlayerTileForSuppression;
+    const isCurrentKnownPlayerTile =
+      this.hasSeenPlayerPosition &&
+      x === this.playerPos.x &&
+      y === this.playerPos.y;
+    const pendingAsciiPlayerTile = this.getActiveAsciiPendingPlayerTile(nowMs);
+    const isPendingAsciiPlayerTile =
+      pendingAsciiPlayerTile !== null &&
+      x === pendingAsciiPlayerTile.x &&
+      y === pendingAsciiPlayerTile.y;
+    const hasPendingAsciiPlayerTile = pendingAsciiPlayerTile !== null;
+    const isPlayerPosCoordinate = x === this.playerPos.x && y === this.playerPos.y;
+    const shouldTraceAsciiPlayerTile =
+      !this.isFpsMode() &&
+      !useTiles &&
+      (isCurrentKnownPlayerTile || isPlayerPosCoordinate || isPendingAsciiPlayerTile);
+    const tileRelation = this.getFpsPlayerTileRelationFlags(
+      x,
+      y,
+      nowMs,
+      behavior,
+    );
+    const isFpsStepDestinationTile = tileRelation.isStepDestinationTile;
     const shouldSuppressRecentPreviousPlayerTileInFps =
-      this.isFpsMode() &&
-      previousPlayerTileForSuppression !== null &&
-      nowMs - previousPlayerTileForSuppression.capturedAtMs <= 450 &&
-      x === previousPlayerTileForSuppression.x &&
-      y === previousPlayerTileForSuppression.y;
+      tileRelation.isTrailSuppressedTile;
+    const isPredictedFpsPlayerTile = tileRelation.isPredictedPlayerTile;
     const shouldSuppressPlayerTileVisualInFps =
       this.isFpsMode() &&
-      ((x === this.playerPos.x && y === this.playerPos.y) ||
+      (tileRelation.isPlayerGlyph ||
+        tileRelation.isPlayerMaterial ||
+        isFpsStepDestinationTile ||
+        isPredictedFpsPlayerTile ||
+        tileRelation.isCurrentPlayerTile ||
         shouldSuppressRecentPreviousPlayerTileInFps);
 
     const shouldElevateEntity =
@@ -17274,11 +17547,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
           : " ";
       tileTextColor = renderBehavior.textColor;
     } else if (preferNormalModeAsciiUnderlayForFpsBillboards) {
-      // In FPS ASCII mode, keep the same tile color/material classification that
-      // normal mode would use under entity glyphs; only lift the glyph itself
-      // onto the billboard to avoid double-drawing the character.
+      // In FPS ASCII mode, entity glyphs render on billboards; keep floor-style
+      // terrain underlays on the tile to avoid hostile/player tint bleed.
+      renderBehavior = this.resolveFpsFloorUnderlayBehaviorFromCache(key);
       tileGlyphChar = " ";
-      tileTextColor = behavior.textColor;
+      tileTextColor = renderBehavior.textColor;
     } else if (shouldUseElevatedBillboard) {
       const defaultBillboardUnderlayGlyph = this.isFpsMode()
         ? getDefaultDarkFloorGlyph()
@@ -17382,6 +17655,65 @@ class Nethack3DEngine implements Nethack3DEngineController {
       });
       tileTextColor = renderBehavior.textColor;
     }
+    const isPlayerRelatedTileInFps =
+      this.isFpsMode() &&
+      (tileRelation.isPlayerGlyph ||
+        tileRelation.isPlayerMaterial ||
+        isFpsStepDestinationTile ||
+        isPredictedFpsPlayerTile ||
+        tileRelation.isCurrentPlayerTile ||
+        shouldSuppressRecentPreviousPlayerTileInFps);
+    const hasAtGlyphForAsciiPlayerTint =
+      tileGlyphChar === "@" || behavior.glyphChar === "@" || char === "@";
+    if (isPlayerRelatedTileInFps) {
+      // Player color should never leak onto FPS tile underlays.
+      if (
+        this.isMonsterLikeBehavior(renderBehavior) ||
+        renderBehavior.materialKind === "player"
+      ) {
+        renderBehavior = this.resolveFpsFloorUnderlayBehaviorFromCache(key);
+      }
+      tileTextColor = renderBehavior.textColor;
+    } else if (
+      !this.isFpsMode() &&
+      !useTiles &&
+      (isPendingAsciiPlayerTile || isCurrentKnownPlayerTile) &&
+      hasAtGlyphForAsciiPlayerTint
+    ) {
+      // Keep top-down ASCII player tile aligned with friendly/pet tint.
+      if (renderBehavior.materialKind !== "monster_friendly") {
+        renderBehavior = {
+          ...renderBehavior,
+          materialKind: "monster_friendly",
+        };
+      }
+      tileTextColor = this.asciiFriendlyGlyphTextColor;
+    }
+    if (shouldTraceAsciiPlayerTile) {
+      this.logAsciiPlayerTileDebug("update_tile_color_resolution", x, y, {
+        hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+        isCurrentKnownPlayerTile,
+        isPlayerPosCoordinate,
+        isPendingAsciiPlayerTile,
+        hasPendingAsciiPlayerTile,
+        pendingAsciiPlayerTile,
+        playerPos: { ...this.playerPos },
+        hasAtGlyphForAsciiPlayerTint,
+        glyph,
+        char: char ?? null,
+        color: typeof color === "number" ? color : null,
+        tileIndex:
+          typeof options.runtimeTileIndex === "number"
+            ? options.runtimeTileIndex
+            : null,
+        behaviorKind: behavior.effective.kind,
+        behaviorDisposition: behavior.disposition,
+        behaviorTextColor: behavior.textColor,
+        renderKind: renderBehavior.effective.kind,
+        renderMaterialKind: renderBehavior.materialKind,
+        resolvedTileTextColor: tileTextColor,
+      });
+    }
 
     const material = this.getMaterialByKind(renderBehavior.materialKind);
     const wallChamferMask =
@@ -17440,7 +17772,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphChar = behavior.glyphChar;
     mesh.userData.sourceGlyph = glyph;
     mesh.userData.tileTextureSourceGlyph = renderBehavior.effective.glyph;
-    mesh.userData.glyphTextColor = behavior.textColor;
+    mesh.userData.glyphTextColor = tileTextColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
     const tileTextureIndex =
@@ -17541,7 +17873,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     // Create or remove a billboard for any entity that should be elevated.
-    if (shouldUseElevatedBillboard && !isFpsPlayerTile) {
+    const shouldRenderEntityBillboard =
+      shouldUseElevatedBillboard &&
+      !tileRelation.isPlayerGlyph &&
+      !tileRelation.isPlayerMaterial &&
+      !isFpsStepDestinationTile &&
+      !isPredictedFpsPlayerTile &&
+      !shouldSuppressRecentPreviousPlayerTileInFps &&
+      !tileRelation.isCurrentPlayerTile;
+    if (shouldRenderEntityBillboard && !isFpsPlayerTile) {
       this.ensureMonsterBillboard(
         key,
         x,
@@ -17614,6 +17954,328 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.showFloatingGameMessage(message);
   }
 
+  private pruneFpsRecentPlayerTilesForSuppression(nowMs: number): void {
+    if (this.fpsRecentPlayerTilesForSuppression.length === 0) {
+      return;
+    }
+    const cutoffMs = nowMs - this.fpsPlayerTrailSuppressionWindowMs;
+    this.fpsRecentPlayerTilesForSuppression =
+      this.fpsRecentPlayerTilesForSuppression.filter(
+        (entry) => entry.capturedAtMs >= cutoffMs,
+      );
+    const overflowCount =
+      this.fpsRecentPlayerTilesForSuppression.length -
+      this.fpsPlayerTrailSuppressionMaxEntries;
+    if (overflowCount > 0) {
+      this.fpsRecentPlayerTilesForSuppression.splice(0, overflowCount);
+    }
+  }
+
+  private rememberRecentFpsPlayerTileForSuppression(
+    tileX: number,
+    tileY: number,
+    nowMs: number,
+  ): void {
+    this.pruneFpsRecentPlayerTilesForSuppression(nowMs);
+    const existing = this.fpsRecentPlayerTilesForSuppression.find(
+      (entry) => entry.x === tileX && entry.y === tileY,
+    );
+    if (existing) {
+      existing.capturedAtMs = nowMs;
+      return;
+    }
+    this.fpsRecentPlayerTilesForSuppression.push({
+      x: tileX,
+      y: tileY,
+      capturedAtMs: nowMs,
+    });
+    const overflowCount =
+      this.fpsRecentPlayerTilesForSuppression.length -
+      this.fpsPlayerTrailSuppressionMaxEntries;
+    if (overflowCount > 0) {
+      this.fpsRecentPlayerTilesForSuppression.splice(0, overflowCount);
+    }
+  }
+
+  private shouldSuppressRecentPlayerTrailTileInFps(
+    tileX: number,
+    tileY: number,
+    nowMs: number,
+  ): boolean {
+    if (!this.isFpsMode()) {
+      return false;
+    }
+    this.pruneFpsRecentPlayerTilesForSuppression(nowMs);
+    return this.fpsRecentPlayerTilesForSuppression.some(
+      (entry) => entry.x === tileX && entry.y === tileY,
+    );
+  }
+
+  private getFpsPlayerTileRelationFlags(
+    tileX: number,
+    tileY: number,
+    nowMs: number,
+    behavior: TileBehaviorResult | null = null,
+  ): {
+    isCurrentPlayerTile: boolean;
+    isStepDestinationTile: boolean;
+    isPredictedPlayerTile: boolean;
+    isTrailSuppressedTile: boolean;
+    isPlayerGlyph: boolean;
+    isPlayerMaterial: boolean;
+  } {
+    const isPlayerGlyph = behavior?.isPlayerGlyph === true;
+    const isPlayerMaterial = behavior?.materialKind === "player";
+    if (!this.isFpsMode()) {
+      return {
+        isCurrentPlayerTile: false,
+        isStepDestinationTile: false,
+        isPredictedPlayerTile: false,
+        isTrailSuppressedTile: false,
+        isPlayerGlyph,
+        isPlayerMaterial,
+      };
+    }
+
+    const isCurrentPlayerTile =
+      this.hasSeenPlayerPosition &&
+      tileX === this.playerPos.x &&
+      tileY === this.playerPos.y;
+    const isStepDestinationTile =
+      this.fpsStepCameraTargetTile !== null &&
+      tileX === this.fpsStepCameraTargetTile.x &&
+      tileY === this.fpsStepCameraTargetTile.y;
+    const isPredictedPlayerTile = this.isFpsPredictedPlayerTile(
+      tileX,
+      tileY,
+      nowMs,
+    );
+    const isTrailSuppressedTile = this.shouldSuppressRecentPlayerTrailTileInFps(
+      tileX,
+      tileY,
+      nowMs,
+    );
+    return {
+      isCurrentPlayerTile,
+      isStepDestinationTile,
+      isPredictedPlayerTile,
+      isTrailSuppressedTile,
+      isPlayerGlyph,
+      isPlayerMaterial,
+    };
+  }
+
+  private setFpsPredictedPlayerTileFromMovementVector(
+    originX: number,
+    originY: number,
+    dx: number,
+    dy: number,
+  ): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    if ((dx === 0 && dy === 0) || !Number.isFinite(dx) || !Number.isFinite(dy)) {
+      return;
+    }
+    this.fpsPredictedPlayerTile = {
+      x: originX + dx,
+      y: originY + dy,
+      expiresAtMs: Date.now() + this.fpsPredictedPlayerTileWindowMs,
+    };
+  }
+
+  private setFpsPredictedPlayerTileFromMovementInput(input: string): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const movement = this.getMovementDeltaFromInput(input);
+    if (!movement) {
+      return;
+    }
+    this.setFpsPredictedPlayerTileFromMovementVector(
+      this.playerPos.x,
+      this.playerPos.y,
+      movement.dx,
+      movement.dy,
+    );
+  }
+
+  private updateFpsPredictedPlayerTileFromMapCursorHint(
+    cursorX: number,
+    cursorY: number,
+  ): void {
+    if (!this.isFpsMode() || this.positionInputModeActive) {
+      return;
+    }
+    if (this.isInQuestion || this.isInDirectionQuestion) {
+      return;
+    }
+    if (!this.hasSeenPlayerPosition) {
+      return;
+    }
+
+    const nowMs = Date.now();
+    const runLikeInputActive =
+      nowMs - this.lastRunLikeInputAtMs <= this.fpsStepCameraRunInputWindowMs;
+    const autoMoveLikely =
+      nowMs - this.lastManualDirectionalInputAtMs >
+      this.fpsAutoMoveDetectionWindowMs;
+    if (!this.fpsStepCameraActive && !runLikeInputActive && !autoMoveLikely) {
+      return;
+    }
+    const anchorTiles: Array<{ x: number; y: number }> = [{ ...this.playerPos }];
+    if (this.fpsPredictedPlayerTile) {
+      anchorTiles.push({
+        x: this.fpsPredictedPlayerTile.x,
+        y: this.fpsPredictedPlayerTile.y,
+      });
+    }
+    if (this.fpsStepCameraTargetTile) {
+      anchorTiles.push({ ...this.fpsStepCameraTargetTile });
+    }
+    if (
+      !this.isMapCursorHintNearAnyAnchorTile(cursorX, cursorY, anchorTiles)
+    ) {
+      return;
+    }
+    this.fpsPredictedPlayerTile = {
+      x: cursorX,
+      y: cursorY,
+      expiresAtMs: nowMs + this.fpsPredictedPlayerTileWindowMs,
+    };
+  }
+
+  private isMapCursorHintNearAnyAnchorTile(
+    cursorX: number,
+    cursorY: number,
+    anchors: Array<{ x: number; y: number }>,
+  ): boolean {
+    for (const anchor of anchors) {
+      if (!anchor) {
+        continue;
+      }
+      const dx = Math.abs(cursorX - anchor.x);
+      const dy = Math.abs(cursorY - anchor.y);
+      if (dx <= 1 && dy <= 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private getActiveAsciiPendingPlayerTile(
+    nowMs: number,
+  ): { x: number; y: number } | null {
+    const pending = this.asciiPendingPlayerTile;
+    if (!pending) {
+      return null;
+    }
+    if (nowMs > pending.expiresAtMs) {
+      this.asciiPendingPlayerTile = null;
+      return null;
+    }
+    return { x: pending.x, y: pending.y };
+  }
+
+  private updateAsciiPendingPlayerTileFromMapCursorHint(
+    cursorX: number,
+    cursorY: number,
+  ): void {
+    if (this.isFpsMode() || this.clientOptions.tilesetMode === "tiles") {
+      return;
+    }
+    if (this.positionInputModeActive) {
+      return;
+    }
+    if (!this.hasSeenPlayerPosition) {
+      return;
+    }
+
+    this.asciiPendingPlayerTile = {
+      x: cursorX,
+      y: cursorY,
+      expiresAtMs: Date.now() + this.asciiPendingPlayerTileWindowMs,
+    };
+    this.logAsciiPlayerTileDebug("pending_tile_from_map_cursor", cursorX, cursorY, {
+      playerPos: { ...this.playerPos },
+      hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+      pendingAsciiPlayerTile: this.asciiPendingPlayerTile,
+    });
+  }
+
+  private isFpsPredictedPlayerTile(
+    tileX: number,
+    tileY: number,
+    nowMs: number,
+  ): boolean {
+    if (!this.isFpsMode()) {
+      return false;
+    }
+    const predicted = this.fpsPredictedPlayerTile;
+    if (!predicted) {
+      return false;
+    }
+    if (nowMs > predicted.expiresAtMs) {
+      this.fpsPredictedPlayerTile = null;
+      return false;
+    }
+    return predicted.x === tileX && predicted.y === tileY;
+  }
+
+  private refreshRecentFpsPlayerTrailTileVisual(tileX: number, tileY: number): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const key = `${tileX},${tileY}`;
+    const snapshot = this.getTileSnapshotFromStateCache(key);
+    if (snapshot) {
+      this.updateTile(
+        tileX,
+        tileY,
+        snapshot.glyph,
+        snapshot.char ?? undefined,
+        typeof snapshot.color === "number" && Number.isFinite(snapshot.color)
+          ? Math.trunc(snapshot.color)
+          : undefined,
+        {
+          runtimeTileIndex:
+            typeof snapshot.tileIndex === "number" &&
+            Number.isFinite(snapshot.tileIndex)
+              ? Math.trunc(snapshot.tileIndex)
+              : undefined,
+        },
+      );
+      return;
+    }
+    const mesh = this.tileMap.get(key);
+    if (!mesh) {
+      return;
+    }
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.sourceGlyph)
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    if (sourceGlyph === null) {
+      return;
+    }
+    const runtimeTileIndex =
+      typeof mesh.userData?.tileIndex === "number" &&
+      Number.isFinite(mesh.userData.tileIndex)
+        ? Math.trunc(mesh.userData.tileIndex)
+        : undefined;
+    this.updateTile(
+      tileX,
+      tileY,
+      sourceGlyph,
+      undefined,
+      undefined,
+      {
+        runtimeTileIndex,
+      },
+    );
+  }
+
   private recordPlayerMovement(
     fromX: number,
     fromY: number,
@@ -17629,19 +18291,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     if (moved) {
       if (this.isFpsMode()) {
-        this.fpsPreviousPlayerTileForSuppression = {
-          x: fromX,
-          y: fromY,
-          capturedAtMs: Date.now(),
-        };
-      }
-      if (this.isFpsMode()) {
         const nowMs = Date.now();
+        const moveDx = Math.sign(toX - fromX);
+        const moveDy = Math.sign(toY - fromY);
         const autoMoveLikely =
           nowMs - this.lastManualDirectionalInputAtMs >
           this.fpsAutoMoveDetectionWindowMs;
-        const moveDx = Math.sign(toX - fromX);
-        const moveDy = Math.sign(toY - fromY);
+        const runLikeInputActive =
+          nowMs - this.lastRunLikeInputAtMs <=
+          this.fpsStepCameraRunInputWindowMs;
+        const shouldExtrapolateNextRunTile =
+          runLikeInputActive || autoMoveLikely;
+        this.beginFpsStepCameraTransition(fromX, fromY, toX, toY);
+        this.rememberRecentFpsPlayerTileForSuppression(fromX, fromY, nowMs);
+        this.refreshRecentFpsPlayerTrailTileVisual(fromX, fromY);
+        if (shouldExtrapolateNextRunTile) {
+          this.setFpsPredictedPlayerTileFromMovementVector(
+            toX,
+            toY,
+            moveDx,
+            moveDy,
+          );
+        }
         this.updateFpsCameraAutoTurnFromMovement(
           moveDx,
           moveDy,
@@ -17707,39 +18378,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.cameraYaw = this.wrapAngle(
       this.cameraYaw + Math.sign(delta) * maxStep,
     );
-  }
-
-  private applyCameraYawStraightAssist(deltaSeconds: number): void {
-    if (this.isMiddleMouseDown) {
-      return;
-    }
-    if (!Number.isFinite(this.cameraYaw)) {
-      this.cameraYaw = 0;
-      return;
-    }
-    const quarterTurn = Math.PI / 2;
-    const normalizedYaw = this.wrapAngle(this.cameraYaw);
-    const targetYaw = this.wrapAngle(
-      Math.round(normalizedYaw / quarterTurn) * quarterTurn,
-    );
-    const yawDelta = this.wrapAngle(targetYaw - normalizedYaw);
-    if (Math.abs(yawDelta) > this.cameraYawStraightAssistThreshold) {
-      return;
-    }
-    const alpha = THREE.MathUtils.clamp(
-      1 -
-        Math.exp(
-          -Math.max(0, deltaSeconds) * this.cameraYawStraightAssistLerpSpeed,
-        ),
-      0,
-      1,
-    );
-    const nextYaw = this.wrapAngle(normalizedYaw + yawDelta * alpha);
-    this.cameraYaw =
-      Math.abs(this.wrapAngle(targetYaw - nextYaw)) <=
-      this.cameraYawStraightAssistEpsilon
-        ? targetYaw
-        : nextYaw;
   }
 
   private isCameraYawSnapEnabled(): boolean {
@@ -17813,13 +18451,55 @@ class Nethack3DEngine implements Nethack3DEngineController {
     toX: number,
     toY: number,
   ): void {
-    void fromX;
-    void fromY;
+    if (!this.isFpsMode()) {
+      return;
+    }
+
+    const fromEyeX = fromX * TILE_SIZE;
+    const fromEyeY = -fromY * TILE_SIZE;
     const toEyeX = toX * TILE_SIZE;
     const toEyeY = -toY * TILE_SIZE;
-    this.fpsStepCameraFrom.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
+    const now = performance.now();
+    const nowMs = Date.now();
+
+    if (!this.fpsStepCameraActive) {
+      this.fpsStepCameraFrom.set(fromEyeX, fromEyeY, this.firstPersonEyeHeight);
+    } else {
+      const progress = THREE.MathUtils.clamp(
+        (now - this.fpsStepCameraStartMs) /
+          Math.max(1, this.fpsStepCameraDurationMs),
+        0,
+        1,
+      );
+      const eased = 1 - Math.pow(1 - progress, 3);
+      this.fpsStepCameraFrom.lerp(this.fpsStepCameraTo, eased);
+    }
+
+    let nextDurationMs = this.fpsStepCameraBaseDurationMs;
+    if (
+      nowMs - this.lastRunLikeInputAtMs <= this.fpsStepCameraRunInputWindowMs
+    ) {
+      nextDurationMs = Math.min(nextDurationMs, this.fpsStepCameraRunDurationMs);
+    }
+    if (this.fpsStepCameraStartMs > 0) {
+      const moveCadenceMs = now - this.fpsStepCameraStartMs;
+      if (
+        moveCadenceMs > 0 &&
+        moveCadenceMs < this.fpsStepCameraBaseDurationMs
+      ) {
+        const cadenceDurationMs = Math.max(
+          this.fpsStepCameraMinDurationMs,
+          moveCadenceMs * this.fpsStepCameraRapidDurationScale,
+        );
+        nextDurationMs = Math.min(nextDurationMs, cadenceDurationMs);
+      }
+    }
+    this.fpsStepCameraDurationMs = nextDurationMs;
+
     this.fpsStepCameraTo.set(toEyeX, toEyeY, this.firstPersonEyeHeight);
-    this.fpsStepCameraActive = false;
+    this.fpsStepCameraTargetTile = { x: toX, y: toY };
+    this.fpsStepCameraStartMs = now;
+    this.fpsStepCameraActive = true;
   }
 
   private showFloatingGameMessage(message: string): void {
@@ -20066,13 +20746,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const resolvedInput = input;
 
     if (this.isMovementInput(resolvedInput)) {
-      this.lastManualDirectionalInputAtMs = Date.now();
+      const nowMs = Date.now();
+      this.lastManualDirectionalInputAtMs = nowMs;
       this.fpsAutoMoveDirection = null;
       this.fpsAutoTurnTargetYaw = null;
       this.armPendingPlayerFootstepSound();
+      this.setFpsPredictedPlayerTileFromMovementInput(resolvedInput);
       if (this.isRunMovementInput(resolvedInput)) {
+        this.lastRunLikeInputAtMs = nowMs;
         this.armPlayerCliparoundInputCooldown();
       } else if (this.isNumpadRunPrefixInput(resolvedInput)) {
+        this.lastRunLikeInputAtMs = nowMs;
         this.armPlayerCliparoundInputCooldown();
       }
     }
@@ -20123,12 +20807,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     const nowMs = Date.now();
     let hasMovementInput = false;
+    let firstMovementInput: string | null = null;
     for (const input of inputs) {
       if (this.isMovementInput(input)) {
         this.lastManualDirectionalInputAtMs = nowMs;
         this.fpsAutoMoveDirection = null;
         this.fpsAutoTurnTargetYaw = null;
         hasMovementInput = true;
+        firstMovementInput = input;
         break;
       }
     }
@@ -20137,7 +20823,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     if (hasMovementInput) {
       this.armPendingPlayerFootstepSound();
+      if (firstMovementInput) {
+        this.setFpsPredictedPlayerTileFromMovementInput(firstMovementInput);
+      }
       if (hasRunPrefixInput) {
+        this.lastRunLikeInputAtMs = nowMs;
         this.armPlayerCliparoundInputCooldown();
       }
     }
@@ -22688,15 +23378,40 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.isFpsMode()) {
       const targetEyeX = this.playerPos.x * TILE_SIZE;
       const targetEyeY = -this.playerPos.y * TILE_SIZE;
-      const eyeX = targetEyeX;
-      const eyeY = targetEyeY;
+      let eyeX = targetEyeX;
+      let eyeY = targetEyeY;
       const eyeZ = this.firstPersonEyeHeight;
 
       this.updateFpsAutoTurnYaw(deltaSeconds);
-      this.applyCameraYawStraightAssist(deltaSeconds);
-      this.fpsStepCameraActive = false;
-      this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
-      this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
+      if (this.fpsStepCameraActive) {
+        const progress = THREE.MathUtils.clamp(
+          (performance.now() - this.fpsStepCameraStartMs) /
+            Math.max(1, this.fpsStepCameraDurationMs),
+          0,
+          1,
+        );
+        const eased = 1 - Math.pow(1 - progress, 3);
+        eyeX = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.x,
+          this.fpsStepCameraTo.x,
+          eased,
+        );
+        eyeY = THREE.MathUtils.lerp(
+          this.fpsStepCameraFrom.y,
+          this.fpsStepCameraTo.y,
+          eased,
+        );
+        if (progress >= 1) {
+          this.fpsStepCameraActive = false;
+          this.fpsStepCameraTargetTile = null;
+          this.fpsStepCameraFrom.set(targetEyeX, targetEyeY, eyeZ);
+          this.fpsStepCameraTo.set(targetEyeX, targetEyeY, eyeZ);
+          if (this.pendingTileUpdates.size > 0 && !this.tileFlushScheduled) {
+            this.tileFlushScheduled = true;
+            requestAnimationFrame(() => this.flushPendingTileUpdates());
+          }
+        }
+      }
 
       const forwardX = -Math.sin(this.cameraYaw) * Math.cos(this.cameraPitch);
       const forwardY = -Math.cos(this.cameraYaw) * Math.cos(this.cameraPitch);

@@ -5218,6 +5218,19 @@ class LocalNetHackRuntime {
         );
         if (this.positionInputActive || this.isFarLookPositionRequest()) {
           this.emitPositionCursor(cursWin, cursX, cursY, "curs");
+        } else if (
+          this.eventHandler &&
+          Number.isFinite(cursX) &&
+          Number.isFinite(cursY) &&
+          (cursWin === 2 || cursWin === 3)
+        ) {
+          this.emit({
+            type: "map_cursor",
+            x: cursX,
+            y: cursY,
+            window: cursWin,
+            source: "curs",
+          });
         }
         return 0;
 

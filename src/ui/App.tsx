@@ -1806,7 +1806,6 @@ const inventoryCategoryActionBlocklist: Record<
     "put-on",
     "remove",
     "zap",
-    "engrave",
   ]),
   boulders_statues: new Set([
     "quaff",
