@@ -787,6 +787,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     null;
   private directionPromptPressedButtonId: DirectionPromptOverlayButtonId | null =
     null;
+  private directionPromptMouseDownActive: boolean = false;
   private directionPromptTouchId: number | null = null;
   private suppressNextMapPrimaryPointerUntilMs: number = 0;
   private readonly suppressNextMapPrimaryPointerWindowMs: number = 140;
@@ -19493,6 +19494,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private clearDirectionPromptOverlayInteraction(): void {
     this.directionPromptHoveredButtonId = null;
     this.directionPromptPressedButtonId = null;
+    this.directionPromptMouseDownActive = false;
     this.directionPromptTouchId = null;
     this.updateDirectionPromptOverlayState();
   }
@@ -26835,6 +26837,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return true;
   }
 
+  private cancelDirectionPromptOverlaySelection(): void {
+    if (!this.isInDirectionQuestion) {
+      return;
+    }
+    this.sendInput("Escape");
+    this.hideDirectionQuestion();
+  }
+
   private canUseFpsGameplayMouseInput(event: MouseEvent): boolean {
     if (!this.session || !this.isFpsMode()) {
       return false;
@@ -27050,6 +27060,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         event.clientX,
         event.clientY,
       );
+      this.directionPromptMouseDownActive = true;
       this.directionPromptPressedButtonId = buttonId;
       this.setHoveredDirectionPromptOverlayButton(buttonId);
       this.updateDirectionPromptOverlayState();
@@ -27602,6 +27613,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearDirectionPromptOverlayInteraction();
       if (shouldConfirm) {
         this.confirmDirectionPromptOverlayButton(hoveredButtonId);
+      } else {
+        this.cancelDirectionPromptOverlaySelection();
       }
       if (event.cancelable) {
         event.preventDefault();
@@ -27972,7 +27985,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseUp(event: MouseEvent): void {
-    if (event.button === 0 && this.directionPromptPressedButtonId) {
+    if (event.button === 0 && this.directionPromptMouseDownActive) {
       const hoveredButtonId =
         this.canUseNormalDirectionPromptOverlayMouseInput(event)
           ? this.getDirectionPromptOverlayButtonFromClientCoordinates(
@@ -27986,6 +27999,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.clearDirectionPromptOverlayInteraction();
       if (shouldConfirm) {
         this.confirmDirectionPromptOverlayButton(hoveredButtonId);
+      } else {
+        this.cancelDirectionPromptOverlaySelection();
       }
       event.preventDefault();
       return;
