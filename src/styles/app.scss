@@ -406,7 +406,7 @@ canvas {
   border: 1px solid var(--nh3d-ui-border);
   border-radius: 5px;
   max-width: 400px;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   pointer-events: auto;
   box-shadow: var(--nh3d-ui-shadow);
 
@@ -548,7 +548,7 @@ canvas {
   @extend %custom-scrollbar;
   max-height: calc(250px * var(--nh3d-ui-font-scale, 1));
   overflow-y: auto;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.4;
 }
 
@@ -620,7 +620,7 @@ canvas {
   border-radius: 8px;
   max-width: 500px;
   text-align: center;
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   pointer-events: auto;
   display: none;
   box-shadow: var(--nh3d-ui-shadow);
@@ -646,7 +646,7 @@ canvas {
   border-radius: 4px;
   cursor: pointer;
   font-family: inherit;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -666,13 +666,13 @@ canvas {
   left: 50%;
   transform: translate(-50%, -50%);
   color: var(--nh3d-ui-accent);
-  font-size: nh3d-scale-font(18px);
+  font-size: nh3d-scale-font(20px);
   text-align: center;
   z-index: 4000;
 }
 
 .loading-subtitle {
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   margin-top: 10px;
 }
 
@@ -693,7 +693,7 @@ canvas {
   );
   color: var(--nh3d-ui-text);
   padding: 8px 15px;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   z-index: 1500;
   border-bottom: 2px solid var(--nh3d-ui-border-strong);
   display: flex;
@@ -703,7 +703,7 @@ canvas {
 
   .stat-label {
     color: var(--nh3d-ui-text-muted);
-    font-size: nh3d-scale-font(10px);
+    font-size: nh3d-scale-font(12px);
   }
 
   .stat-value {
@@ -783,7 +783,7 @@ canvas {
   .nh3d-stats-group {
     display: flex;
     gap: 15px;
-    font-size: nh3d-scale-font(11px);
+    font-size: nh3d-scale-font(13px);
   }
 
   .nh3d-stats-core-row {
@@ -822,7 +822,7 @@ canvas {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    font-size: nh3d-scale-font(11px);
+    font-size: nh3d-scale-font(13px);
     flex: 1;
     text-align: right;
   }
@@ -1019,7 +1019,7 @@ canvas {
   opacity: 1;
   color: #ffffff;
   font-family: "Segoe UI", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-  font-size: nh3d-scale-live-log-font(clamp(12px, 1.4vw, 17px));
+  font-size: nh3d-scale-live-log-font(clamp(14px, 1.4vw, 19px));
   font-weight: bold;
   line-height: 1.2;
   text-align: center;
@@ -1064,7 +1064,7 @@ canvas {
   border-radius: 10px;
   box-shadow: var(--nh3d-ui-shadow);
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(clamp(20px, 2.3vw, 28px));
+  font-size: nh3d-scale-font(clamp(22px, 2.3vw, 30px));
   font-weight: bold;
   line-height: 1.15;
   letter-spacing: 0.02em;
@@ -1141,7 +1141,7 @@ canvas {
   // background: rgba(17, 38, 58, 0.55);
   color: var(--nh3d-ui-text-muted);
   padding: 4px 8px;
-  font-size: nh3d-scale-font(clamp(12px, 1.25vw, 15px));
+  font-size: nh3d-scale-font(clamp(14px, 1.25vw, 17px));
   line-height: 1.2;
 }
 
@@ -1166,7 +1166,7 @@ canvas {
     transform: translateX(-40%);
     font-family: "Consolas", "Courier New", monospace;
     white-space: pre;
-    font-size: nh3d-scale-font(9px);
+    font-size: nh3d-scale-font(11px);
     font-weight: 700;
     color: rgb(255, 0, 0);
     text-shadow: 0 0 8px rgba(255, 0, 119, 0.479);
@@ -1577,7 +1577,7 @@ canvas {
   scroll-padding-bottom: var(--nh3d-startup-fixed-actions-reserve);
 
   .nh3d-question-text {
-    font-size: nh3d-scale-font(clamp(15px, 2.4vw, 19px));
+    font-size: nh3d-scale-font(clamp(17px, 2.4vw, 21px));
   }
 
   .nh3d-choice-list {
@@ -1870,7 +1870,7 @@ canvas {
 
   .nh3d-direction-text {
     margin: 0;
-    font-size: nh3d-scale-font(14px);
+    font-size: nh3d-scale-font(16px);
     line-height: 1.2;
   }
 
@@ -1889,7 +1889,7 @@ canvas {
 .nh3d-direction-fps-hint {
   margin-top: 4px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
 
   @media (pointer: coarse) {
     font-size: nh3d-scale-font(10px);
@@ -1999,7 +1999,7 @@ canvas {
 
 .nh3d-character-panel-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -2015,7 +2015,7 @@ canvas {
 
 .nh3d-character-line {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.4;
 }
 
@@ -2038,7 +2038,7 @@ canvas {
   justify-content: space-between;
   gap: 6px;
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
 }
 
@@ -2061,7 +2061,7 @@ canvas {
 .nh3d-character-xp-meta {
   margin-top: 6px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
 }
 
 .nh3d-character-chip-list {
@@ -2072,7 +2072,7 @@ canvas {
 
 .nh3d-character-chip {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.35;
   padding: 5px 8px;
   border-radius: 999px;
@@ -2093,7 +2093,7 @@ canvas {
 .nh3d-character-stat-grid-hint {
   grid-column: 1 / -1;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   text-align: right;
   padding-right: 2px;
 }
@@ -2116,7 +2116,7 @@ canvas {
 
 .nh3d-character-stat-label {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.01em;
 }
@@ -2127,7 +2127,7 @@ canvas {
   justify-self: end;
   gap: 4px;
   color: #f2f6ff;
-  font-size: nh3d-scale-font(20px);
+  font-size: nh3d-scale-font(22px);
   font-weight: bold;
   line-height: 1;
 
@@ -2147,13 +2147,13 @@ canvas {
 
 .nh3d-character-stat-limit {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(15px);
+  font-size: nh3d-scale-font(17px);
 }
 
 .nh3d-character-stat-description {
   grid-column: 1 / -1;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.3;
 }
 
@@ -2198,14 +2198,14 @@ canvas {
 }
 
 .nh3d-character-action-label {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   color: var(--nh3d-ui-text);
   line-height: 1.25;
 }
 
 .nh3d-character-action-detail {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-text-muted);
   line-height: 1.2;
 }
@@ -2289,7 +2289,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-options-title {
-  font-size: nh3d-scale-font(18px);
+  font-size: nh3d-scale-font(20px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 12px;
@@ -2343,7 +2343,7 @@ canvas {
   border: 1px solid rgba(82, 121, 176, 0.62);
   background: rgba(11, 28, 46, 0.78);
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.02em;
   text-align: left;
@@ -2385,7 +2385,7 @@ canvas {
 
 .nh3d-options-panel-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2393,7 +2393,7 @@ canvas {
 
 .nh3d-options-panel-description {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.35;
   margin-top: 3px;
 }
@@ -2421,7 +2421,7 @@ canvas {
 
 .nh3d-controller-remap-hint {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.35;
 }
 
@@ -2432,7 +2432,7 @@ canvas {
   border-radius: 8px;
   background: rgba(10, 30, 49, 0.7);
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-controller-remap-list-shell {
@@ -2465,7 +2465,7 @@ canvas {
 
 .nh3d-controller-remap-group-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -2492,14 +2492,14 @@ canvas {
 
 .nh3d-controller-remap-action-label {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
 }
 
 .nh3d-controller-remap-action-description {
   margin-top: 2px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.25;
 }
 
@@ -2557,14 +2557,14 @@ canvas {
 
 .nh3d-controller-remap-slot-label {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
 
 .nh3d-controller-remap-slot-value {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
 }
 
@@ -2575,7 +2575,7 @@ canvas {
   border-radius: 6px;
   background: rgba(22, 36, 55, 0.9);
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   padding: 6px 8px;
   cursor: pointer;
 
@@ -2628,7 +2628,7 @@ canvas {
 
 .nh3d-options-group-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
   letter-spacing: 0.08em;
   margin: 4px 2px 0;
@@ -2672,13 +2672,13 @@ canvas {
 
 .nh3d-option-label {
   color: var(--nh3d-ui-text);
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
 }
 
 .nh3d-option-description {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.3;
   margin-top: 2px;
 }
@@ -2832,7 +2832,7 @@ canvas {
   border: 1px solid rgba(108, 166, 226, 0.45);
   background: rgba(8, 18, 29, 0.96);
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.02em;
   padding: 7px 8px;
@@ -2877,7 +2877,7 @@ canvas {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-accent-soft);
   min-width: 0;
   padding: 3px 6px;
@@ -2896,7 +2896,7 @@ canvas {
   border: 1px solid rgba(75, 106, 155, 0.45);
   border-radius: 6px;
   background: rgba(8, 18, 29, 0.72);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-accent-soft);
   user-select: none;
 
@@ -2925,7 +2925,7 @@ canvas {
   border: 1px solid rgba(75, 106, 155, 0.45);
   border-radius: 6px;
   background: rgba(8, 18, 29, 0.72);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-accent-soft);
 }
 
@@ -2942,7 +2942,7 @@ canvas {
   background: rgba(8, 18, 29, 0.96);
   color: var(--nh3d-ui-text);
   font-family: "Consolas", "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   padding: 3px 18px 3px 6px;
   text-align: right;
 }
@@ -2950,7 +2950,7 @@ canvas {
 .nh3d-dark-wall-grid-darkness-suffix {
   position: absolute;
   right: 6px;
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-text-muted);
   line-height: 1;
   pointer-events: none;
@@ -2973,13 +2973,13 @@ canvas {
 }
 
 .nh3d-option-tile-picker-glyph {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   color: var(--nh3d-ui-text);
 }
 
 .nh3d-option-tile-picker-id {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-accent-soft);
   text-transform: lowercase;
 }
@@ -3067,7 +3067,7 @@ canvas {
 
 .nh3d-option-slider-value {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
 }
 
@@ -3128,7 +3128,7 @@ canvas {
 .nh3d-dark-wall-picker-status {
   padding: 10px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-tileset-manager-upload {
@@ -3167,7 +3167,7 @@ canvas {
 }
 
 .nh3d-tileset-manager-file-input {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
 
   &::file-selector-button {
@@ -3176,7 +3176,7 @@ canvas {
     border: 1px solid var(--nh3d-ui-button-border);
     background: var(--nh3d-ui-button-alt-bg);
     color: var(--nh3d-ui-text);
-    font-size: nh3d-scale-font(12px);
+    font-size: nh3d-scale-font(14px);
     font-weight: bold;
     padding: 6px 10px;
     cursor: pointer;
@@ -3191,7 +3191,7 @@ canvas {
     border: 1px solid var(--nh3d-ui-button-border);
     background: var(--nh3d-ui-button-alt-bg);
     color: var(--nh3d-ui-text);
-    font-size: nh3d-scale-font(12px);
+    font-size: nh3d-scale-font(14px);
     font-weight: bold;
     padding: 6px 10px;
     cursor: pointer;
@@ -3214,7 +3214,7 @@ canvas {
 .nh3d-tileset-manager-error {
   margin-top: 10px;
   color: #ffd3d3;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-tileset-manager-divider {
@@ -3310,12 +3310,12 @@ canvas {
 
 .nh3d-soundpack-status {
   color: #b6ffd1;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-soundpack-error {
   color: #ffd3d3;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-soundpack-list {
@@ -3423,7 +3423,7 @@ canvas {
 .nh3d-soundpack-path-value {
   margin-top: 2px;
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.3;
   word-break: break-word;
   white-space: normal;
@@ -3544,7 +3544,7 @@ canvas {
   align-items: center;
   gap: 8px;
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   width: 100%;
   min-width: 0;
 
@@ -3560,7 +3560,7 @@ canvas {
 
 .nh3d-soundpack-volume-value {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   white-space: nowrap;
 }
@@ -3638,7 +3638,7 @@ canvas {
 
 .nh3d-solid-chroma-picker-hover-hex {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -3715,17 +3715,17 @@ canvas {
 }
 
 .nh3d-dark-wall-tile-card-glyph {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-text);
 }
 
 .nh3d-dark-wall-tile-card-id {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-dark-wall-tile-card-default {
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   color: #0f1f12;
   background: #96d8a9;
   border-radius: 999px;
@@ -3775,7 +3775,7 @@ canvas {
 }
 
 .nh3d-question-text {
-  font-size: nh3d-scale-font(16px);
+  font-size: nh3d-scale-font(18px);
   font-weight: bold;
   margin-bottom: 15px;
   line-height: 1.4;
@@ -3783,14 +3783,14 @@ canvas {
 }
 
 .nh3d-direction-text {
-  font-size: nh3d-scale-font(16px);
+  font-size: nh3d-scale-font(18px);
   margin-bottom: 20px;
   line-height: 1.4;
   color: var(--nh3d-ui-accent-soft);
 }
 
 .nh3d-dialog-hint {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   margin-top: 15px;
 
@@ -3871,7 +3871,7 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   text-align: left;
 
@@ -3888,7 +3888,7 @@ canvas {
   border-radius: 3px;
   padding: 6px 8px;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 
   @media (pointer: coarse) {
     font-size: nh3d-scale-font(16px);
@@ -3929,7 +3929,7 @@ canvas {
   list-style: none;
   cursor: pointer;
   padding: 10px 12px;
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
   color: var(--nh3d-ui-accent-soft);
   background: rgba(14, 36, 58, 0.78);
@@ -4006,7 +4006,7 @@ canvas {
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   width: fit-content;
   max-width: 100%;
@@ -4069,7 +4069,7 @@ canvas {
   border-radius: 5px;
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(16px);
+  font-size: nh3d-scale-font(18px);
   font-weight: bold;
   display: flex;
   flex-direction: column;
@@ -4113,12 +4113,12 @@ canvas {
 }
 
 .nh3d-direction-symbol {
-  font-size: nh3d-scale-font(20px);
+  font-size: nh3d-scale-font(22px);
   margin-bottom: 2px;
 }
 
 .nh3d-direction-key {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
 }
 
 .nh3d-direction-button-extra {
@@ -4128,13 +4128,13 @@ canvas {
   aspect-ratio: 1 / 1;
 
   .nh3d-direction-symbol {
-    font-size: nh3d-scale-font(10px);
+    font-size: nh3d-scale-font(12px);
     letter-spacing: 0.06em;
     margin-bottom: 1px;
   }
 
   .nh3d-direction-key {
-    font-size: nh3d-scale-font(15px);
+    font-size: nh3d-scale-font(17px);
     line-height: 1;
   }
 
@@ -4148,7 +4148,7 @@ canvas {
 }
 
 .nh3d-info-title {
-  font-size: nh3d-scale-font(18px);
+  font-size: nh3d-scale-font(20px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 12px;
@@ -4158,7 +4158,7 @@ canvas {
 }
 
 .nh3d-info-body {
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
   line-height: 1.4;
   white-space: pre-wrap;
@@ -4175,7 +4175,7 @@ canvas {
 }
 
 .nh3d-info-hint {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
   margin-top: 12px;
@@ -4192,7 +4192,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 .nh3d-inventory-title {
-  font-size: nh3d-scale-font(18px);
+  font-size: nh3d-scale-font(20px);
   font-weight: bold;
   color: var(--nh3d-ui-accent);
   margin-bottom: 15px;
@@ -4220,7 +4220,7 @@ canvas {
 }
 
 .nh3d-inventory-category {
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
   color: var(--nh3d-ui-accent-soft);
   margin: 15px 0 8px 0;
@@ -4399,7 +4399,7 @@ canvas {
   flex: 0 0 24px;
   padding: 0;
   text-align: center;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   letter-spacing: 0.03em;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
@@ -4463,7 +4463,7 @@ canvas {
 
 .nh3d-inventory-icon-fallback {
   color: #c8ddf1;
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: 700;
   line-height: 1;
   user-select: none;
@@ -4473,7 +4473,7 @@ canvas {
   color: var(--nh3d-ui-text);
   flex: 1 1 auto;
   min-width: 0;
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -4522,7 +4522,7 @@ canvas {
 
 .nh3d-context-menu-title {
   color: var(--nh3d-ui-accent-soft);
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   margin-bottom: 8px;
   padding-bottom: 6px;
@@ -4586,7 +4586,7 @@ canvas {
   padding: 6px 10px;
   text-align: left;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   cursor: pointer;
   transition:
     background-color 120ms ease,
@@ -4728,7 +4728,7 @@ canvas {
 }
 
 .nh3d-inventory-keybinds {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1.2;
   margin-bottom: 10px;
   padding: 8px;
@@ -4747,7 +4747,7 @@ canvas {
 }
 
 .nh3d-inventory-close {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
   margin-top: 10px;
@@ -4760,7 +4760,7 @@ canvas {
 }
 
 .nh3d-name-question {
-  font-size: nh3d-scale-font(16px);
+  font-size: nh3d-scale-font(18px);
   margin-bottom: 15px;
 }
 
@@ -4772,7 +4772,7 @@ canvas {
   border: 1px solid var(--nh3d-ui-button-border);
   border-radius: 3px;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   margin-bottom: 15px;
 
   @media (pointer: coarse) {
@@ -4788,7 +4788,7 @@ canvas {
   border: 1px solid var(--nh3d-ui-button-border);
   border-radius: 3px;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   margin-bottom: 12px;
   box-sizing: border-box;
 
@@ -4818,7 +4818,7 @@ canvas {
 }
 
 .nh3d-menu-category {
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
   color: var(--nh3d-ui-accent-soft);
   margin: 15px 0 5px 0;
@@ -4828,7 +4828,7 @@ canvas {
 }
 
 .nh3d-menu-row {
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   line-height: 1.35;
   text-align: left;
@@ -4856,7 +4856,7 @@ canvas {
   border: 1px solid rgba(96, 137, 183, 0.6);
   background: rgba(17, 39, 63, 0.64);
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   line-height: 1;
   padding: 4px 8px;
 
@@ -4913,7 +4913,7 @@ canvas {
 .nh3d-cast-table-head {
   padding: 0 10px 4px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -4947,7 +4947,7 @@ canvas {
   color: var(--nh3d-ui-text);
   text-align: left;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.3;
   box-sizing: border-box;
   transition:
@@ -4991,7 +4991,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-cast-spell-name {
-  font-size: nh3d-scale-font(13px);
+  font-size: nh3d-scale-font(15px);
   font-weight: bold;
   color: #e6f2ff;
   min-width: 0;
@@ -5001,7 +5001,7 @@ button.nh3d-cast-row {
 .nh3d-cast-row-level,
 .nh3d-cast-row-category {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
 }
 
 .nh3d-cast-row-category {
@@ -5031,7 +5031,7 @@ button.nh3d-cast-row {
   border: 1px solid rgba(112, 161, 209, 0.55);
   background: rgba(19, 52, 81, 0.64);
   color: #d9e9fb;
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   letter-spacing: 0.02em;
   padding: 4px 8px;
@@ -5184,7 +5184,7 @@ button.nh3d-cast-row {
   border: 1px solid rgba(96, 137, 183, 0.6);
   background: rgba(17, 39, 63, 0.64);
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   padding: 4px 8px;
 
   &.is-available {
@@ -5219,7 +5219,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-enhance-legend-line {
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   color: var(--nh3d-ui-text-muted);
   line-height: 1.35;
 }
@@ -5305,7 +5305,7 @@ button.nh3d-cast-row {
 }
 
 .nh3d-enhance-skill-name {
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
   color: #e6f2ff;
   line-height: 1.2;
@@ -5327,7 +5327,7 @@ button.nh3d-cast-row {
   border-radius: 4px;
   background: rgba(18, 44, 72, 0.7);
   color: #cbe6ff;
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   line-height: 1;
   padding: 2px 5px;
@@ -5338,7 +5338,7 @@ button.nh3d-cast-row {
   border: 1px solid rgba(112, 161, 209, 0.55);
   background: rgba(19, 52, 81, 0.64);
   color: #d9e9fb;
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: bold;
   letter-spacing: 0.02em;
   line-height: 1;
@@ -5377,7 +5377,7 @@ button.nh3d-cast-row {
   align-items: baseline;
   gap: 6px;
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   font-weight: 600;
 }
 
@@ -5388,13 +5388,13 @@ button.nh3d-cast-row {
 
 .nh3d-enhance-rank-max {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   font-weight: normal;
 }
 
 .nh3d-enhance-slot-cost {
   color: var(--nh3d-ui-text-muted);
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   line-height: 1.2;
 }
 
@@ -5449,7 +5449,7 @@ button.nh3d-cast-row {
 
 .nh3d-question-item-icon-fallback {
   color: #c8ddf1;
-  font-size: nh3d-scale-font(10px);
+  font-size: nh3d-scale-font(12px);
   font-weight: 700;
   line-height: 1;
   user-select: none;
@@ -5532,7 +5532,7 @@ button.nh3d-cast-row {
   color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -5596,7 +5596,7 @@ button.nh3d-cast-row {
   color: var(--nh3d-ui-button-warm-text);
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   transition:
     background-color 120ms ease,
@@ -5617,7 +5617,7 @@ button.nh3d-cast-row {
 
 .nh3d-question-page-indicator {
   min-width: 140px;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   color: var(--nh3d-ui-text-muted);
   text-align: center;
 }
@@ -5635,7 +5635,7 @@ button.nh3d-cast-row {
   border-radius: 3px;
   cursor: pointer;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   text-align: left;
   line-height: 1.3;
@@ -5784,7 +5784,7 @@ button.nh3d-cast-row {
   background: linear-gradient(180deg, #1b2d48 0%, #12243e 100%);
   color: #d5e7ff;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   font-weight: bold;
   letter-spacing: 0.02em;
   text-align: center;
@@ -5987,7 +5987,7 @@ button.nh3d-cast-row {
   background: #16253d;
   color: #d5e7ff;
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(11px);
+  font-size: nh3d-scale-font(13px);
   font-weight: bold;
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
   bottom: calc(58px + env(safe-area-inset-bottom));
@@ -6156,7 +6156,7 @@ button.nh3d-cast-row {
 
 .nh3d-controller-action-wheel-title {
   color: var(--nh3d-ui-accent);
-  font-size: nh3d-scale-font(14px);
+  font-size: nh3d-scale-font(16px);
   font-weight: bold;
 }
 
@@ -6218,7 +6218,7 @@ button.nh3d-cast-row {
   text-align: center;
   color: rgba(220, 242, 255, 0.95);
   font-family: "Courier New", monospace;
-  font-size: nh3d-scale-font(12px);
+  font-size: nh3d-scale-font(14px);
   line-height: 1.12;
   font-weight: bold;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
@@ -6281,7 +6281,7 @@ button.nh3d-cast-row {
 
 .nh3d-controller-action-wheel-dialog.is-extended
   .nh3d-controller-action-wheel-title {
-  font-size: nh3d-scale-font(17px);
+  font-size: nh3d-scale-font(19px);
 }
 
 .nh3d-controller-action-wheel-extended .nh3d-mobile-actions-subheader {
