@@ -87,6 +87,9 @@ import {
   type VultureTileLookup,
   type VultureWallFaceDirection,
 } from "./vulture/translation";
+import DirectionPromptOverlay, {
+  type DirectionPromptOverlayButtonId,
+} from "./DirectionPromptOverlay";
 import { sanitizeStartupInitOptionTokens } from "../runtime/startup-init-options";
 
 type PendingCharacterDamage = {
@@ -751,6 +754,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly pointerRaycaster = new THREE.Raycaster();
   private readonly pointerNdc = new THREE.Vector2();
   private readonly pointerIntersection = new THREE.Vector3();
+  private readonly directionPromptOverlayNdc = new THREE.Vector2();
   private readonly tileVisualScaleFps = 1;
   private readonly defaultFpsCameraFov = 62;
   private readonly firstPersonEyeHeight = WALL_HEIGHT * 0.62;
@@ -778,6 +782,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private selectedContextHighlightTile: { x: number; y: number } | null = null;
   private vultureMouseHoverHighlightTile: { x: number; y: number } | null =
     null;
+  private directionPromptOverlay: DirectionPromptOverlay | null = null;
+  private directionPromptHoveredButtonId: DirectionPromptOverlayButtonId | null =
+    null;
+  private directionPromptPressedButtonId: DirectionPromptOverlayButtonId | null =
+    null;
+  private directionPromptTouchId: number | null = null;
   private suppressNextMapPrimaryPointerUntilMs: number = 0;
   private readonly suppressNextMapPrimaryPointerWindowMs: number = 140;
   private readonly fpsVoidContextMesh: THREE.Mesh = (() => {
@@ -1715,6 +1725,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.renderer.domElement.style.backgroundColor = "";
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.directionPromptOverlay = new DirectionPromptOverlay(this.scene);
 
     this.loadTilesetTexture(normalizeNh3dClientOptions(this.clientOptions));
 
@@ -19366,6 +19377,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private showDirectionQuestion(question: string): void {
     this.isInDirectionQuestion = true;
     this.clearControllerDirectionPromptPreview();
+    this.clearDirectionPromptOverlayInteraction();
+    this.syncDirectionPromptOverlayVisibility();
     this.syncFpsPointerLockForUiState(this.isFpsMode());
     this.uiAdapter.setDirectionQuestion(question);
   }
@@ -19374,9 +19387,114 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.isInDirectionQuestion = false;
     this.isInQuestion = false;
     this.clearControllerDirectionPromptPreview();
+    this.clearDirectionPromptOverlayInteraction();
+    this.syncDirectionPromptOverlayVisibility();
     this.clearFpsFireSuppression();
     this.uiAdapter.setDirectionQuestion(null);
     this.syncFpsPointerLockForUiState(true);
+  }
+
+  private syncDirectionPromptOverlayVisibility(): void {
+    this.directionPromptOverlay?.setVisible(
+      this.isInDirectionQuestion && !this.isFpsMode(),
+    );
+    this.updateDirectionPromptOverlayState();
+  }
+
+  private resolveDirectionPromptOverlayButtonFromInput(
+    input: string | null | undefined,
+  ): DirectionPromptOverlayButtonId | null {
+    const normalized = String(input ?? "").trim();
+    if (!normalized) {
+      return null;
+    }
+    if (normalized === "s" || normalized === "S") {
+      return "self";
+    }
+    if (normalized === "<" || normalized === ",") {
+      return "up";
+    }
+    if (normalized === ">") {
+      return "down";
+    }
+
+    const direction = this.getDirectionVectorFromInput(normalized);
+    if (!direction) {
+      return null;
+    }
+    if (direction.dx === -1 && direction.dy === -1) {
+      return "northwest";
+    }
+    if (direction.dx === 0 && direction.dy === -1) {
+      return "north";
+    }
+    if (direction.dx === 1 && direction.dy === -1) {
+      return "northeast";
+    }
+    if (direction.dx === -1 && direction.dy === 0) {
+      return "west";
+    }
+    if (direction.dx === 1 && direction.dy === 0) {
+      return "east";
+    }
+    if (direction.dx === -1 && direction.dy === 1) {
+      return "southwest";
+    }
+    if (direction.dx === 0 && direction.dy === 1) {
+      return "south";
+    }
+    if (direction.dx === 1 && direction.dy === 1) {
+      return "southeast";
+    }
+    return null;
+  }
+
+  private resolveDirectionPromptInputFromOverlayButton(
+    buttonId: DirectionPromptOverlayButtonId,
+  ): string | null {
+    switch (buttonId) {
+      case "northwest":
+        return this.getDirectionInputFromMapDelta(-1, -1);
+      case "north":
+        return this.getDirectionInputFromMapDelta(0, -1);
+      case "northeast":
+        return this.getDirectionInputFromMapDelta(1, -1);
+      case "west":
+        return this.getDirectionInputFromMapDelta(-1, 0);
+      case "self":
+        return "s";
+      case "east":
+        return this.getDirectionInputFromMapDelta(1, 0);
+      case "southwest":
+        return this.getDirectionInputFromMapDelta(-1, 1);
+      case "south":
+        return this.getDirectionInputFromMapDelta(0, 1);
+      case "southeast":
+        return this.getDirectionInputFromMapDelta(1, 1);
+      case "up":
+        return "<";
+      case "down":
+        return ">";
+      default:
+        return null;
+    }
+  }
+
+  private updateDirectionPromptOverlayState(): void {
+    this.directionPromptOverlay?.setInteractionState({
+      hoveredButtonId: this.directionPromptHoveredButtonId,
+      pressedButtonId: this.directionPromptPressedButtonId,
+      previewedButtonId: this.resolveDirectionPromptOverlayButtonFromInput(
+        this.controllerDirectionPromptPreviewInput,
+      ),
+    });
+  }
+
+  private clearDirectionPromptOverlayInteraction(): void {
+    this.directionPromptHoveredButtonId = null;
+    this.directionPromptPressedButtonId = null;
+    this.directionPromptTouchId = null;
+    this.updateDirectionPromptOverlayState();
   }
 
   private showInfoMenuDialog(title: string, lines: string[]): void {
@@ -20683,6 +20801,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.altOrMetaHeld = false;
     this.clearPlayerCliparoundInputCooldown();
     this.clearFpsTouchGestures();
+    this.clearDirectionPromptOverlayInteraction();
     this.isMiddleMouseDown = false;
     this.isRightMouseDown = false;
     this.rightMouseCanOpenContextMenuOnRelease = false;
@@ -24927,6 +25046,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.controllerDirectionPromptPreviewInput = null;
     this.controllerDirectionPromptPreviewSource = null;
     this.controllerMoveHighlightTile = null;
+    this.updateDirectionPromptOverlayState();
   }
 
   private consumeControllerConfirmUntilRelease(): void {
@@ -25187,6 +25307,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.controllerDirectionPromptPreviewInput = resolvedDpadDirectionInput;
       this.controllerDirectionPromptPreviewSource = "dpad";
     }
+    this.updateDirectionPromptOverlayState();
 
     if (this.controllerDirectionPromptPreviewInput) {
       this.setControllerMovePreviewDirection(
@@ -26616,6 +26737,104 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return { x: candidate.x, y: candidate.y };
   }
 
+  private isNormalDirectionPromptOverlayActive(): boolean {
+    return Boolean(this.session && this.isInDirectionQuestion && !this.isFpsMode());
+  }
+
+  private canUseNormalDirectionPromptOverlayMouseInput(
+    event: MouseEvent,
+  ): boolean {
+    if (!this.isNormalDirectionPromptOverlayActive()) {
+      return false;
+    }
+    if (event.target !== this.renderer.domElement) {
+      return false;
+    }
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private canUseNormalDirectionPromptOverlayTouchInput(
+    event: TouchEvent,
+  ): boolean {
+    if (!this.isNormalDirectionPromptOverlayActive()) {
+      return false;
+    }
+    if (!this.isTouchEventOnGameCanvas(event)) {
+      return false;
+    }
+    if (
+      this.isTextInputActive ||
+      this.positionInputModeActive ||
+      this.metaCommandModeActive ||
+      this.isInventoryDialogOpen() ||
+      this.isInfoDialogOpen()
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  private getDirectionPromptOverlayButtonFromClientCoordinates(
+    clientX: number,
+    clientY: number,
+  ): DirectionPromptOverlayButtonId | null {
+    if (!this.directionPromptOverlay) {
+      return null;
+    }
+    const canvas = this.renderer.domElement;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) {
+      return null;
+    }
+
+    this.directionPromptOverlayNdc.set(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    return this.directionPromptOverlay.hitTest(
+      this.directionPromptOverlayNdc.x,
+      this.directionPromptOverlayNdc.y,
+      this.camera,
+      this.pointerRaycaster,
+    );
+  }
+
+  private setHoveredDirectionPromptOverlayButton(
+    buttonId: DirectionPromptOverlayButtonId | null,
+  ): void {
+    if (this.directionPromptHoveredButtonId === buttonId) {
+      return;
+    }
+    this.directionPromptHoveredButtonId = buttonId;
+    this.updateDirectionPromptOverlayState();
+  }
+
+  private confirmDirectionPromptOverlayButton(
+    buttonId: DirectionPromptOverlayButtonId | null,
+  ): boolean {
+    if (!buttonId || !this.isInDirectionQuestion) {
+      return false;
+    }
+    const input = this.resolveDirectionPromptInputFromOverlayButton(buttonId);
+    if (!input) {
+      return false;
+    }
+    this.submitDirectionAnswer(input);
+    return true;
+  }
+
   private canUseFpsGameplayMouseInput(event: MouseEvent): boolean {
     if (!this.session || !this.isFpsMode()) {
       return false;
@@ -26822,6 +27041,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (
+      !this.isFpsMode() &&
+      event.button === 0 &&
+      this.canUseNormalDirectionPromptOverlayMouseInput(event)
+    ) {
+      event.preventDefault();
+      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
+        event.clientX,
+        event.clientY,
+      );
+      this.directionPromptPressedButtonId = buttonId;
+      this.setHoveredDirectionPromptOverlayButton(buttonId);
+      this.updateDirectionPromptOverlayState();
+      return;
+    }
+
+    if (
       this.isFpsMode() &&
       this.isInDirectionQuestion &&
       event.button === 0 &&
@@ -26938,6 +27173,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.touchSwipeStart = null;
       this.pinchZoomStart = null;
       this.cancelMapTouchContextHoldState();
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
+    if (!this.isFpsMode() && this.isInDirectionQuestion) {
+      if (!this.canUseNormalDirectionPromptOverlayTouchInput(event)) {
+        this.clearDirectionPromptOverlayInteraction();
+        return;
+      }
+      if (event.touches.length !== 1 || event.changedTouches.length < 1) {
+        this.clearDirectionPromptOverlayInteraction();
+        if (event.cancelable) {
+          event.preventDefault();
+        }
+        return;
+      }
+
+      const touch = event.changedTouches[0];
+      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
+        touch.clientX,
+        touch.clientY,
+      );
+      this.directionPromptTouchId = touch.identifier;
+      this.directionPromptPressedButtonId = buttonId;
+      this.setHoveredDirectionPromptOverlayButton(buttonId);
+      this.updateDirectionPromptOverlayState();
       if (event.cancelable) {
         event.preventDefault();
       }
@@ -27090,6 +27353,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchMove(event: TouchEvent): void {
+    if (!this.isFpsMode() && this.isInDirectionQuestion) {
+      if (!this.canUseNormalDirectionPromptOverlayTouchInput(event)) {
+        this.clearDirectionPromptOverlayInteraction();
+        return;
+      }
+      if (this.directionPromptTouchId === null) {
+        return;
+      }
+      const touch =
+        this.findTouchById(event.touches, this.directionPromptTouchId) ||
+        this.findTouchById(event.changedTouches, this.directionPromptTouchId);
+      if (!touch) {
+        return;
+      }
+      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
+        touch.clientX,
+        touch.clientY,
+      );
+      this.setHoveredDirectionPromptOverlayButton(buttonId);
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (this.isFpsMode()) {
       if (this.isInDirectionQuestion) {
         if (!this.canUseFpsDirectionPromptTouchInput(event)) {
@@ -27293,6 +27581,34 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchEnd(event: TouchEvent): void {
+    if (!this.isFpsMode() && this.isInDirectionQuestion) {
+      if (this.directionPromptTouchId === null || !event.changedTouches) {
+        return;
+      }
+      const touch = this.findTouchById(
+        event.changedTouches,
+        this.directionPromptTouchId,
+      );
+      if (!touch) {
+        return;
+      }
+      const hoveredButtonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
+        touch.clientX,
+        touch.clientY,
+      );
+      const shouldConfirm =
+        hoveredButtonId !== null &&
+        hoveredButtonId === this.directionPromptPressedButtonId;
+      this.clearDirectionPromptOverlayInteraction();
+      if (shouldConfirm) {
+        this.confirmDirectionPromptOverlayButton(hoveredButtonId);
+      }
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+      return;
+    }
+
     if (this.isFpsMode()) {
       if (this.isInDirectionQuestion) {
         this.clearFpsTouchRunButtonHoldTimer();
@@ -27561,6 +27877,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchCancel(): void {
+    if (!this.isFpsMode() && this.isInDirectionQuestion) {
+      this.clearDirectionPromptOverlayInteraction();
+      return;
+    }
     if (this.isFpsMode()) {
       this.clearFpsTouchGestures();
       return;
@@ -27635,11 +27955,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lastMouseY = event.clientY;
       this.clearVultureMouseHoverHighlight();
     } else {
+      if (this.isNormalDirectionPromptOverlayActive()) {
+        const buttonId =
+          event.target === this.renderer.domElement
+            ? this.getDirectionPromptOverlayButtonFromClientCoordinates(
+                event.clientX,
+                event.clientY,
+              )
+            : null;
+        this.setHoveredDirectionPromptOverlayButton(buttonId);
+        this.clearVultureMouseHoverHighlight();
+        return;
+      }
       this.updateVultureMouseHoverHighlightFromMouseEvent(event);
     }
   }
 
   private handleMouseUp(event: MouseEvent): void {
+    if (event.button === 0 && this.directionPromptPressedButtonId) {
+      const hoveredButtonId =
+        this.canUseNormalDirectionPromptOverlayMouseInput(event)
+          ? this.getDirectionPromptOverlayButtonFromClientCoordinates(
+              event.clientX,
+              event.clientY,
+            )
+          : null;
+      const shouldConfirm =
+        hoveredButtonId !== null &&
+        hoveredButtonId === this.directionPromptPressedButtonId;
+      this.clearDirectionPromptOverlayInteraction();
+      if (shouldConfirm) {
+        this.confirmDirectionPromptOverlayButton(hoveredButtonId);
+      }
+      event.preventDefault();
+      return;
+    }
+
     if (event.button === 1) {
       // Middle mouse button
       const wasMiddleMouseDown = this.isMiddleMouseDown;
@@ -27974,6 +28325,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateControllerInput(deltaSeconds);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.syncDirectionPromptOverlayVisibility();
+    this.directionPromptOverlay?.update(
+      this.camera,
+      this.playerPos.x,
+      this.playerPos.y,
+    );
     this.updateFpsPlayerLightPosition();
     this.updateFpsCrosshairContextMenu();
     this.updateNormalTileContextMenu();

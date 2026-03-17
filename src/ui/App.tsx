@@ -103,12 +103,6 @@ import {
 } from "./modals/character-sheet";
 import { parseEnhanceMenu } from "./modals/enhance-menu";
 
-type DirectionChoice = {
-  key?: string;
-  label?: string;
-  spacer?: boolean;
-};
-
 type CoreStatKey =
   | "strength"
   | "dexterity"
@@ -301,43 +295,17 @@ const getCoreStatValuesFromSnapshot = (
   armor: Number(stats.armor) || 0,
 });
 
-const numpadDirectionChoices: DirectionChoice[] = [
-  { key: "7", label: "\u2196" },
-  { key: "8", label: "\u2191" },
-  { key: "9", label: "\u2197" },
-  { key: "4", label: "\u2190" },
-  { spacer: true },
-  { key: "6", label: "\u2192" },
-  { key: "1", label: "\u2199" },
-  { key: "2", label: "\u2193" },
-  { key: "3", label: "\u2198" },
-];
-
-const viDirectionChoices: DirectionChoice[] = [
-  { key: "y", label: "\u2196" },
-  { key: "k", label: "\u2191" },
-  { key: "u", label: "\u2197" },
-  { key: "h", label: "\u2190" },
-  { spacer: true },
-  { key: "l", label: "\u2192" },
-  { key: "b", label: "\u2199" },
-  { key: "j", label: "\u2193" },
-  { key: "n", label: "\u2198" },
-];
-
-const getDirectionChoices = (numberPadModeEnabled: boolean) =>
-  numberPadModeEnabled ? numpadDirectionChoices : viDirectionChoices;
-
-const directionAuxChoices = [
-  { key: "<", label: "UP" },
-  { key: "s", label: "SELF" },
-  { key: ">", label: "DOWN" },
-];
-
-const getDirectionHelpText = (numberPadModeEnabled: boolean) =>
+const getDirectionHelpText = (
+  numberPadModeEnabled: boolean,
+  controllerEnabled: boolean,
+) =>
   numberPadModeEnabled
-    ? "Use numpad (1-4,6-9), arrow keys, <, >, or s. Press ESC to cancel"
-    : "Use hjkl/yubn, arrow keys, <, >, or s. Press ESC to cancel";
+    ? controllerEnabled
+      ? "Click a direction, or use left stick/DPAD to preview and release to confirm. Center circle targets self. Use < or > for stairs. Press ESC to cancel."
+      : "Click a direction. Center circle targets self. You can also use numpad (1-4,6-9), arrow keys, <, >, or s. Press ESC to cancel."
+    : controllerEnabled
+      ? "Click a direction, or use left stick/DPAD to preview and release to confirm. Center circle targets self. Use < or > for stairs. Press ESC to cancel."
+      : "Click a direction. Center circle targets self. You can also use hjkl/yubn, arrow keys, <, >, or s. Press ESC to cancel.";
 
 function expandChoiceSpec(spec: string): string[] {
   const normalized = String(spec || "")
@@ -12877,90 +12845,24 @@ export default function App(): JSX.Element {
       ) : null}
 
       {directionQuestion ? (
-        isFpsPlayMode || clientOptions.controllerEnabled ? (
-          <div
-            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close is-visible"
-            id="direction-dialog"
-          >
-            {renderMobileDialogCloseButton(
-              () => controller?.cancelActivePrompt(),
-              "Cancel direction prompt",
-            )}
-            <div className="nh3d-direction-text">{directionQuestion}</div>
-            <div className="nh3d-direction-fps-hint">
-              {isFpsPlayMode
-                ? "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels."
-                : "Left stick or DPAD points direction. Release A / RT to confirm. Releasing DPAD also confirms. B cancels."}
-            </div>
+        <div
+          className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close is-visible"
+          id="direction-dialog"
+        >
+          {renderMobileDialogCloseButton(
+            () => controller?.cancelActivePrompt(),
+            "Cancel direction prompt",
+          )}
+          <div className="nh3d-direction-text">{directionQuestion}</div>
+          <div className="nh3d-direction-fps-hint">
+            {isFpsPlayMode
+              ? "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels."
+              : getDirectionHelpText(
+                  numberPadModeEnabled,
+                  clientOptions.controllerEnabled,
+                )}
           </div>
-        ) : (
-          <div
-            className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-has-mobile-close is-visible"
-            id="direction-dialog"
-          >
-            {renderMobileDialogCloseButton(
-              () => controller?.cancelActivePrompt(),
-              "Cancel direction prompt",
-            )}
-            <div className="nh3d-direction-text">{directionQuestion}</div>
-            <div className="nh3d-direction-grid">
-              {getDirectionChoices(numberPadModeEnabled).map(
-                (direction, index) => {
-                  if (direction.spacer || !direction.key || !direction.label) {
-                    return (
-                      <div
-                        aria-hidden="true"
-                        className="nh3d-direction-spacer"
-                        key={`spacer-${index}`}
-                      />
-                    );
-                  }
-
-                  return (
-                    <button
-                      className="nh3d-direction-button"
-                      key={direction.key}
-                      onClick={() =>
-                        controller?.chooseDirection(direction.key!)
-                      }
-                      type="button"
-                    >
-                      <div className="nh3d-direction-symbol">
-                        {direction.label}
-                      </div>
-                      <div className="nh3d-direction-key">{direction.key}</div>
-                    </button>
-                  );
-                },
-              )}
-            </div>
-            <div className="nh3d-direction-extra-row">
-              {directionAuxChoices.map((direction) => (
-                <button
-                  className="nh3d-direction-button nh3d-direction-button-extra"
-                  key={direction.key}
-                  onClick={() => controller?.chooseDirection(direction.key)}
-                  type="button"
-                >
-                  <div className="nh3d-direction-symbol">{direction.label}</div>
-                  <div className="nh3d-direction-key">{direction.key}</div>
-                </button>
-              ))}
-            </div>
-            <div className="nh3d-dialog-hint">
-              {getDirectionHelpText(numberPadModeEnabled)}
-            </div>
-            <div className="nh3d-menu-actions">
-              <button
-                className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                onClick={() => controller?.cancelActivePrompt()}
-                type="button"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )
+        </div>
       ) : null}
 
       {infoMenu ? (
