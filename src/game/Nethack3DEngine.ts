@@ -7903,6 +7903,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private seedFpsFlatFeatureUnderPlayerCacheFromPreviousState(
+    key: string,
+  ): void {
+    const previousSnapshot = this.getTileSnapshotFromStateCache(key);
+    if (!previousSnapshot) {
+      return;
+    }
+    const previousBehavior = classifyTileBehavior({
+      glyph: previousSnapshot.glyph,
+      runtimeChar: previousSnapshot.char ?? null,
+      runtimeColor:
+        typeof previousSnapshot.color === "number"
+          ? previousSnapshot.color
+          : null,
+      runtimeTileIndex:
+        typeof previousSnapshot.tileIndex === "number"
+          ? previousSnapshot.tileIndex
+          : null,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null,
+    });
+    const previousFlatFeature = this.snapshotFlatFeatureUnderFpsPlayerFromTile(
+      previousSnapshot,
+      previousBehavior,
+    );
+    if (previousFlatFeature) {
+      this.fpsFlatFeatureUnderPlayerCache.set(key, previousFlatFeature);
+    }
+  }
+
   private extractDamageAmountFromMessage(message: string): number | null {
     const patterns = [
       /\bfor\s+(-?\d+)\s+damage\b/i,
@@ -8477,6 +8506,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       nowMs,
       behavior,
     );
+    const isLikelyPlayerGlyphTile =
+      typeof tile?.char === "string"
+        ? tile.char.trim() === "@"
+        : behavior?.glyphChar === "@";
+    if (
+      this.isFpsMode() &&
+      behavior &&
+      (tileRelation.isCurrentPlayerTile ||
+        tileRelation.isStepDestinationTile ||
+        tileRelation.isPredictedPlayerTile ||
+        isLikelyPlayerGlyphTile)
+    ) {
+      this.seedFpsFlatFeatureUnderPlayerCacheFromPreviousState(key);
+    }
     const shouldSuppressRecentPreviousPlayerTileInFps =
       tileRelation.isTrailSuppressedTile &&
       (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
@@ -17634,13 +17677,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           color: behavior.resolved.color ?? undefined,
           tileIndex: behavior.resolved.tileIndex,
         });
-      } else if (
-        !(
-          this.isFpsMode() &&
-          shouldSuppressPlayerTileVisualInFps &&
-          (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial)
-        )
-      ) {
+      } else if (!(this.isFpsMode() && shouldSuppressPlayerTileVisualInFps)) {
         this.fpsFlatFeatureUnderPlayerCache.delete(key);
       }
     }
