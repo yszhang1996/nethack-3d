@@ -1465,7 +1465,8 @@ canvas {
   --nh3d-dialog-fixed-actions-bg: #040c18;
   padding-bottom: 0;
 
-  &.is-visible {
+  &.is-visible,
+  &.is-exiting {
     display: flex;
     flex-direction: column;
   }
