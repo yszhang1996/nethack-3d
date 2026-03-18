@@ -1,4 +1,4 @@
-import type { InfoMenuState } from "../game/ui-types";
+import type { InfoMenuState } from "../../game/ui-types";
 
 export type CharacterSheetSectionId =
   | "background"

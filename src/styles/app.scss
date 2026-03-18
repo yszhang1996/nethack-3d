@@ -4639,6 +4639,7 @@ canvas {
 
 .nh3d-context-menu {
   @extend %custom-scrollbar;
+  --nh3d-context-menu-transform-base: translate3d(0, 0, 0);
   position: fixed;
   min-width: 200px;
   max-width: min(360px, 92vw);
@@ -4648,6 +4649,31 @@ canvas {
   box-shadow: var(--nh3d-ui-shadow);
   padding: 8px;
   z-index: 2200;
+  transform: var(--nh3d-context-menu-transform-base);
+  transform-origin: top left;
+
+  &.is-visible {
+    opacity: 0;
+    animation: nh3d-context-menu-fade-in 140ms ease-out forwards;
+    will-change: opacity, transform;
+
+    @media (prefers-reduced-motion: reduce) {
+      opacity: 1;
+      animation: none;
+    }
+  }
+
+  &.is-exiting {
+    opacity: 1;
+    animation: nh3d-context-menu-fade-out 120ms ease-in forwards;
+    pointer-events: none;
+    will-change: opacity, transform;
+
+    @media (prefers-reduced-motion: reduce) {
+      opacity: 0;
+      animation: none;
+    }
+  }
 }
 
 .nh3d-context-menu-title {
@@ -4688,6 +4714,28 @@ canvas {
   }
   to {
     transform: translateX(calc(-50% - 14px));
+  }
+}
+
+@keyframes nh3d-context-menu-fade-in {
+  from {
+    opacity: 0;
+    transform: var(--nh3d-context-menu-transform-base) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: var(--nh3d-context-menu-transform-base) scale(1);
+  }
+}
+
+@keyframes nh3d-context-menu-fade-out {
+  from {
+    opacity: 1;
+    transform: var(--nh3d-context-menu-transform-base) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: var(--nh3d-context-menu-transform-base) scale(0.985);
   }
 }
 
@@ -4771,6 +4819,7 @@ canvas {
 }
 
 .nh3d-fps-crosshair-context {
+  --nh3d-context-menu-transform-base: translate3d(0, -50%, 0);
   --nh3d-fps-context-side-pad: 8px;
   --nh3d-fps-context-width: min(280px, max(140px, calc(50vw - 28px)));
   left: clamp(
@@ -4781,7 +4830,6 @@ canvas {
     )
   ) !important;
   top: 50%;
-  transform: translateY(-50%);
   z-index: 1701;
   min-width: 0;
   width: min(var(--nh3d-fps-context-width), calc(100vw - 16px));

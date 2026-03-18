@@ -1,4 +1,4 @@
-import type { NethackMenuItem } from "../game/ui-types";
+import type { NethackMenuItem } from "../../game/ui-types";
 
 export type EnhanceSkillAvailability =
   | "available_now"

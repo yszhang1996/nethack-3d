@@ -4597,7 +4597,13 @@ export default function App(): JSX.Element {
         } as CSSProperties)
       : undefined;
   const fpsCrosshairContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const fpsCrosshairContextLastVisibleRef =
+    useRef<FpsCrosshairContextState | null>(null);
   const [tileContextMenuPosition, setTileContextMenuPosition] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const tileContextMenuPositionLastVisibleRef = useRef<{
     x: number;
     y: number;
   } | null>(null);
@@ -4608,6 +4614,8 @@ export default function App(): JSX.Element {
   const inventoryContextMenuStateRef = useRef<InventoryContextMenuState | null>(
     null,
   );
+  const inventoryContextMenuLastVisibleRef =
+    useRef<InventoryContextMenuState | null>(null);
   const inventoryRowHoverValueByIndexRef = useRef<Map<number, number>>(
     new Map(),
   );
@@ -4637,8 +4645,27 @@ export default function App(): JSX.Element {
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
   useEffect(() => {
+    if (fpsCrosshairContext) {
+      fpsCrosshairContextLastVisibleRef.current = fpsCrosshairContext;
+    }
+  }, [fpsCrosshairContext]);
+  useEffect(() => {
+    if (tileContextMenuPosition) {
+      tileContextMenuPositionLastVisibleRef.current = tileContextMenuPosition;
+    }
+  }, [tileContextMenuPosition]);
+  useEffect(() => {
     inventoryContextMenuStateRef.current = inventoryContextMenu;
+    if (inventoryContextMenu) {
+      inventoryContextMenuLastVisibleRef.current = inventoryContextMenu;
+    }
   }, [inventoryContextMenu]);
+  const fpsCrosshairContextRenderState =
+    fpsCrosshairContext ?? fpsCrosshairContextLastVisibleRef.current;
+  const tileContextMenuRenderPosition =
+    tileContextMenuPosition ?? tileContextMenuPositionLastVisibleRef.current;
+  const inventoryContextMenuRenderState =
+    inventoryContextMenu ?? inventoryContextMenuLastVisibleRef.current;
   const inventoryContextTitle = inventoryContextMenu
     ? `${inventoryContextMenu.itemText} (${inventoryContextMenu.accelerator})`
     : "";
@@ -6646,6 +6673,8 @@ export default function App(): JSX.Element {
     Boolean(question?.isPickupDialog) && questionSelectableMenuItemCount > 1;
   const inventoryContextActionsEnabled =
     inventory.contextActionsEnabled !== false;
+  const inventoryContextMenuOpen =
+    inventoryContextMenu !== null && inventoryContextActionsEnabled;
   const inventoryCloseInstructionText = inventoryContextActionsEnabled
     ? "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close"
     : "Press ENTER, ESC, or 'i' to close.";
@@ -6657,7 +6686,7 @@ export default function App(): JSX.Element {
 
     const visibleOverlays = Array.from(
       document.querySelectorAll<HTMLElement>(
-        ".nh3d-context-menu, .nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-wizard-commands-sheet.is-visible, #loading:not(.is-hidden)",
+        ".nh3d-context-menu.is-visible, .nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-wizard-commands-sheet.is-visible, #loading:not(.is-hidden)",
       ),
     ).filter((element) => {
       if (!element.isConnected) {
@@ -13623,33 +13652,38 @@ export default function App(): JSX.Element {
           </div>
       </AnimatedDialog>
 
-      {inventoryContextMenu && inventoryContextActionsEnabled ? (
-        <div
-          className="nh3d-context-menu nh3d-inventory-context-menu nh3d-overflow-glow-frame"
-          onContextMenu={(event) => event.preventDefault()}
-          onKeyDown={(event) => {
-            const moveDirection = resolveInventoryContextNavigationDirection(
-              event.key,
-              event.code,
-            );
-            if (moveDirection) {
-              event.preventDefault();
-              event.stopPropagation();
-              moveInventoryContextMenuActionFocus(moveDirection);
-              return;
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              event.stopPropagation();
-              closeInventoryContextMenu({ restoreItemFocus: true });
-            }
-          }}
-          ref={inventoryContextMenuRef}
-          style={{
-            left: `${inventoryContextMenu.x}px`,
-            top: `${inventoryContextMenu.y}px`,
-          }}
-        >
+      <AnimatedDialog
+        className="nh3d-context-menu nh3d-inventory-context-menu nh3d-overflow-glow-frame"
+        onContextMenu={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          const moveDirection = resolveInventoryContextNavigationDirection(
+            event.key,
+            event.code,
+          );
+          if (moveDirection) {
+            event.preventDefault();
+            event.stopPropagation();
+            moveInventoryContextMenuActionFocus(moveDirection);
+            return;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            closeInventoryContextMenu({ restoreItemFocus: true });
+          }
+        }}
+        open={inventoryContextMenuOpen}
+        ref={inventoryContextMenuRef}
+        style={
+          inventoryContextMenuRenderState
+            ? {
+                left: `${inventoryContextMenuRenderState.x}px`,
+                top: `${inventoryContextMenuRenderState.y}px`,
+              }
+            : undefined
+        }
+      >
+        {inventoryContextMenuRenderState ? (
           <div
             className="nh3d-inventory-context-menu-scroll"
             data-nh3d-overflow-glow
@@ -13676,21 +13710,21 @@ export default function App(): JSX.Element {
               {inventoryContextMenuActions.map((action) => (
                 <button
                   className="nh3d-context-menu-button"
-                  key={`inventory-${inventoryContextMenu.accelerator}-${action.id}`}
+                  key={`inventory-${inventoryContextMenuRenderState.accelerator}-${action.id}`}
                   onClick={() => {
                     if (action.kind === "extended" && action.value) {
                       if (action.armInventorySelection !== false) {
                         // Use the special prefix to ensure the runtime intercepts it and reliably
                         // applies it to the next inventory prompt menu without race conditions.
                         controller?.sendInput(
-                          `__INVCTX_SELECT__:${inventoryContextMenu.accelerator}`,
+                          `__INVCTX_SELECT__:${inventoryContextMenuRenderState.accelerator}`,
                         );
                       }
                       controller?.runExtendedCommand(action.value);
                     } else {
                       controller?.runInventoryItemAction(
                         action.id,
-                        inventoryContextMenu.accelerator,
+                        inventoryContextMenuRenderState.accelerator,
                       );
                     }
                     setInventoryContextMenu(null);
@@ -13702,8 +13736,8 @@ export default function App(): JSX.Element {
               ))}
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </AnimatedDialog>
 
       {isFpsPlayMode &&
       characterCreationConfig !== null &&
@@ -13714,56 +13748,59 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {fpsCrosshairContext ? (
-        <div
-          className={`nh3d-context-menu ${
-            isFpsPlayMode &&
-            fpsCrosshairContext.autoDirectionFromFpsAim !== false &&
-            tileContextMenuPosition === null
-              ? "nh3d-fps-crosshair-context"
-              : "nh3d-tile-context-menu"
-          }`}
-          ref={fpsCrosshairContextMenuRef}
-          style={
-            tileContextMenuPosition
-              ? {
-                  left: `${tileContextMenuPosition.x}px`,
-                  top: `${tileContextMenuPosition.y}px`,
-                }
-              : undefined
-          }
-        >
-          <div
-            className={`nh3d-context-menu-title${
-              shouldScrollFpsContextTitle
-                ? " nh3d-context-menu-title-scroll"
-                : ""
-            }`}
-            style={fpsContextTitleStyle}
-          >
-            {shouldScrollFpsContextTitle ? (
-              <span className="nh3d-context-menu-title-scroll-track">
-                <span>{fpsContextTitle}</span>
-                <span aria-hidden="true">{fpsContextTitle}</span>
-              </span>
-            ) : (
-              fpsContextTitle
-            )}
-          </div>
-          <div className="nh3d-context-menu-actions">
-            {fpsCrosshairContext.actions.map((action) => (
-              <button
-                className="nh3d-context-menu-button"
-                key={`crosshair-${action.kind}-${action.id}-${action.value}`}
-                onClick={() => runFpsCrosshairContextAction(action)}
-                type="button"
-              >
-                {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      <AnimatedDialog
+        className={`nh3d-context-menu ${
+          isFpsPlayMode &&
+          fpsCrosshairContextRenderState?.autoDirectionFromFpsAim !== false &&
+          tileContextMenuRenderPosition === null
+            ? "nh3d-fps-crosshair-context"
+            : "nh3d-tile-context-menu"
+        }`}
+        open={Boolean(fpsCrosshairContext)}
+        ref={fpsCrosshairContextMenuRef}
+        style={
+          tileContextMenuRenderPosition
+            ? {
+                left: `${tileContextMenuRenderPosition.x}px`,
+                top: `${tileContextMenuRenderPosition.y}px`,
+              }
+            : undefined
+        }
+      >
+        {fpsCrosshairContextRenderState ? (
+          <>
+            <div
+              className={`nh3d-context-menu-title${
+                shouldScrollFpsContextTitle
+                  ? " nh3d-context-menu-title-scroll"
+                  : ""
+              }`}
+              style={fpsContextTitleStyle}
+            >
+              {shouldScrollFpsContextTitle ? (
+                <span className="nh3d-context-menu-title-scroll-track">
+                  <span>{fpsContextTitle}</span>
+                  <span aria-hidden="true">{fpsContextTitle}</span>
+                </span>
+              ) : (
+                fpsContextTitle
+              )}
+            </div>
+            <div className="nh3d-context-menu-actions">
+              {fpsCrosshairContextRenderState.actions.map((action) => (
+                <button
+                  className="nh3d-context-menu-button"
+                  key={`crosshair-${action.kind}-${action.id}-${action.value}`}
+                  onClick={() => runFpsCrosshairContextAction(action)}
+                  type="button"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </>
+        ) : null}
+      </AnimatedDialog>
 
       <AnimatedDialog
         className={`nh3d-dialog nh3d-controller-action-wheel-dialog ${

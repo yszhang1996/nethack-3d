@@ -26285,7 +26285,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private getTopControllerOverlayElement(): HTMLElement | null {
     const candidates = Array.from(
       document.querySelectorAll<HTMLElement>(
-        ".nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-context-menu, .nh3d-fps-crosshair-context, .nh3d-mobile-actions-sheet",
+        ".nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-context-menu.is-visible, .nh3d-fps-crosshair-context.is-visible, .nh3d-mobile-actions-sheet",
       ),
     );
     if (candidates.length === 0) {
