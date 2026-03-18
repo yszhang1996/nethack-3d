@@ -703,6 +703,7 @@ canvas {
 // -----------------------------------------------------------------------------
 
 #stats-bar {
+  --nh3d-mobile-stats-core-scale: 1;
   font-family: "Courier New", monospace !important;
   position: fixed;
   top: var(--nh3d-safe-area-top);
@@ -955,6 +956,41 @@ canvas {
 
     .nh3d-stats-mobile-location-status {
       display: inline;
+    }
+  }
+
+  @media (orientation: portrait) and (pointer: coarse) {
+    .nh3d-stats-group-core {
+      flex-wrap: nowrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .nh3d-stats-core-row-primary,
+    .nh3d-stats-core-row-secondary {
+      flex-wrap: nowrap;
+      gap: clamp(
+        3px,
+        calc(8px * var(--nh3d-mobile-stats-core-scale, 1)),
+        8px
+      );
+      font-size: nh3d-scale-font(
+        calc(13px * var(--nh3d-mobile-stats-core-scale, 1))
+      );
+    }
+
+    &.nh3d-mobile-stats-wrap-fallback {
+      .nh3d-stats-group-core {
+        flex-wrap: wrap;
+        row-gap: 3px;
+      }
+
+      .nh3d-stats-core-row-primary,
+      .nh3d-stats-core-row-secondary {
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: nh3d-scale-font(13px);
+      }
     }
   }
 
