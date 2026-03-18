@@ -84,4 +84,4 @@ Start here before making changes.
 
 ## Suggested Post-Task Check
 
-- Run `npm run check` after completing code changes to catch TS/TSX type regressions without formatting/prettier noise.
+- Run `npm run check:tsc` after completing code changes to catch TS/TSX type regressions without formatting/prettier noise.
