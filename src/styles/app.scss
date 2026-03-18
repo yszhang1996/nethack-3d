@@ -1170,6 +1170,14 @@ canvas {
 .logo-container {
   position: fixed;
   left: 50%;
+  opacity: 0;
+  animation: nh3d-startup-fade-in 240ms ease-out 60ms forwards;
+  will-change: opacity;
+
+  @media (prefers-reduced-motion: reduce) {
+    opacity: 1;
+    animation: none;
+  }
 
   .nethack-ascii-logo {
     --nh3d-ui-font-scale: 1;
@@ -1191,6 +1199,16 @@ canvas {
     @media (max-width: 515px) {
       font-size: nh3d-scale-font(5px);
     }
+  }
+}
+
+@keyframes nh3d-startup-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
   }
 }
 
@@ -1228,6 +1246,17 @@ canvas {
 
   &.startup {
     top: 57vh;
+  }
+
+  &.startup.is-visible {
+    opacity: 0;
+    animation: nh3d-startup-fade-in 240ms ease-out 120ms forwards;
+    will-change: opacity;
+
+    @media (prefers-reduced-motion: reduce) {
+      opacity: 1;
+      animation: none;
+    }
   }
 
   &.is-visible {
