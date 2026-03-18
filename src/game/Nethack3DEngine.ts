@@ -15704,14 +15704,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     this.scene.remove(overlayGroup);
     for (const child of overlayGroup.children) {
-      if (
-        child instanceof THREE.Mesh &&
-        child.material instanceof THREE.MeshBasicMaterial
-      ) {
-        child.material.dispose();
+      if (child instanceof THREE.Mesh) {
+        if (child.geometry !== this.floorGeometry) {
+          child.geometry.dispose();
+        }
+        if (child.material instanceof THREE.MeshBasicMaterial) {
+          child.material.dispose();
+        }
       }
     }
     this.trimmedDoorInsetAmbientOcclusionOverlays.delete(key);
+  }
+
+  private createFloorGeometryWithUvWindow(
+    uMin: number,
+    uMax: number,
+    vMin: number,
+    vMax: number,
+  ): THREE.PlaneGeometry {
+    const geometry = this.floorGeometry.clone();
+    const uv = geometry.getAttribute("uv");
+    if (uv instanceof THREE.BufferAttribute) {
+      const clampedUMin = THREE.MathUtils.clamp(uMin, 0, 1);
+      const clampedUMax = THREE.MathUtils.clamp(uMax, 0, 1);
+      const clampedVMin = THREE.MathUtils.clamp(vMin, 0, 1);
+      const clampedVMax = THREE.MathUtils.clamp(vMax, 0, 1);
+      for (let i = 0; i < uv.count; i += 1) {
+        const u = uv.getX(i);
+        const v = uv.getY(i);
+        uv.setXY(
+          i,
+          THREE.MathUtils.lerp(clampedUMin, clampedUMax, u),
+          THREE.MathUtils.lerp(clampedVMin, clampedVMax, v),
+        );
+      }
+      uv.needsUpdate = true;
+    }
+    return geometry;
   }
 
   private refreshTrimmedDoorInsetAmbientOcclusionAt(
@@ -15792,11 +15821,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.trimmedDoorInsetAmbientOcclusionOverlays.set(key, overlayGroup);
     } else {
       for (const child of overlayGroup.children) {
-        if (
-          child instanceof THREE.Mesh &&
-          child.material instanceof THREE.MeshBasicMaterial
-        ) {
-          child.material.dispose();
+        if (child instanceof THREE.Mesh) {
+          if (child.geometry !== this.floorGeometry) {
+            child.geometry.dispose();
+          }
+          if (child.material instanceof THREE.MeshBasicMaterial) {
+            child.material.dispose();
+          }
         }
       }
       overlayGroup.clear();
@@ -15815,7 +15846,46 @@ class Nethack3DEngine implements Nethack3DEngineController {
         depthWrite: false,
       });
       this.patchMaterialForVignette(material);
-      const overlay = new THREE.Mesh(this.floorGeometry, material);
+      const widthFraction = THREE.MathUtils.clamp(strip.width / TILE_SIZE, 0, 1);
+      const heightFraction = THREE.MathUtils.clamp(
+        strip.height / TILE_SIZE,
+        0,
+        1,
+      );
+      // Match the AO texture's edge-fade footprint (depth ~= 40% of tile).
+      // For very narrow strips, sample at least this much UV span so we avoid
+      // pulling only the darkest texels across the whole strip.
+      const aoDepthFraction = 0.4;
+      let uMin = 0;
+      let uMax = 1;
+      let vMin = 0;
+      let vMax = 1;
+      if (strip.edgeMask === 2) {
+        // West-side exposed strip: sample near AO texture's east edge so AO hugs door.
+        const uSpan = Math.max(widthFraction, aoDepthFraction);
+        uMin = 1 - uSpan;
+        uMax = 1;
+      } else if (strip.edgeMask === 8) {
+        // East-side exposed strip: sample near AO texture's west edge.
+        uMin = 0;
+        uMax = Math.max(widthFraction, aoDepthFraction);
+      } else if (strip.edgeMask === 1) {
+        // South-side exposed strip: sample near AO texture's north edge.
+        const vSpan = Math.max(heightFraction, aoDepthFraction);
+        vMin = 1 - vSpan;
+        vMax = 1;
+      } else if (strip.edgeMask === 4) {
+        // North-side exposed strip: sample near AO texture's south edge.
+        vMin = 0;
+        vMax = Math.max(heightFraction, aoDepthFraction);
+      }
+      const overlayGeometry = this.createFloorGeometryWithUvWindow(
+        uMin,
+        uMax,
+        vMin,
+        vMax,
+      );
+      const overlay = new THREE.Mesh(overlayGeometry, material);
       overlay.castShadow = false;
       overlay.receiveShadow = false;
       overlay.renderOrder = 113;
