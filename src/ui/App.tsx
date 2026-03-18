@@ -45,7 +45,7 @@ import {
 } from "../game/controller-bindings";
 import { registerDebugHelpers } from "../app";
 import { createEngineUiAdapter } from "../state/engineUiAdapter";
-import { useGameStore } from "../state/gameStore";
+import { defaultPlayerStats, useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
 import {
   createDefaultStartupInitOptionValues,
@@ -295,6 +295,24 @@ const getCoreStatValuesFromSnapshot = (
   charisma: Number(stats.charisma) || 0,
   armor: Number(stats.armor) || 0,
 });
+
+const defaultCoreStatValues = getCoreStatValuesFromSnapshot(defaultPlayerStats);
+const defaultCoreStatBaselineTurn = Number.isFinite(defaultPlayerStats.time)
+  ? Math.trunc(defaultPlayerStats.time)
+  : 0;
+const defaultCoreStatBaselineName = String(defaultPlayerStats.name || "");
+
+const isBootstrapCoreStatSnapshot = (snapshot: CoreStatSnapshot): boolean => {
+  if (snapshot.turn !== defaultCoreStatBaselineTurn) {
+    return false;
+  }
+  if (snapshot.playerName !== defaultCoreStatBaselineName) {
+    return false;
+  }
+  return trackedCoreStatKeys.every(
+    (key) => snapshot.values[key] === defaultCoreStatValues[key],
+  );
+};
 
 const getDirectionHelpText = (
   numberPadModeEnabled: boolean,
@@ -6688,6 +6706,17 @@ export default function App(): JSX.Element {
   }, [textInputRequest]);
 
   useEffect(() => {
+    const clearCoreStatHighlights = (): void => {
+      setCoreStatBoldUntilTurn((current) =>
+        Object.keys(current).length > 0 ? {} : current,
+      );
+    };
+    if (!isMobileGameRunning && !isDesktopGameRunning) {
+      previousCoreStatSnapshotRef.current = null;
+      clearCoreStatHighlights();
+      return;
+    }
+
     const currentTurn = Number.isFinite(playerStats.time)
       ? Math.trunc(playerStats.time)
       : 0;
@@ -6696,6 +6725,12 @@ export default function App(): JSX.Element {
       playerName: String(playerStats.name || ""),
       values: getCoreStatValuesFromSnapshot(playerStats),
     };
+    if (isBootstrapCoreStatSnapshot(nextSnapshot)) {
+      previousCoreStatSnapshotRef.current = null;
+      clearCoreStatHighlights();
+      return;
+    }
+
     const previousSnapshot = previousCoreStatSnapshotRef.current;
     if (
       !previousSnapshot ||
@@ -6703,7 +6738,7 @@ export default function App(): JSX.Element {
       nextSnapshot.playerName !== previousSnapshot.playerName
     ) {
       previousCoreStatSnapshotRef.current = nextSnapshot;
-      setCoreStatBoldUntilTurn({});
+      clearCoreStatHighlights();
       return;
     }
 
@@ -6722,7 +6757,7 @@ export default function App(): JSX.Element {
     }
 
     previousCoreStatSnapshotRef.current = nextSnapshot;
-  }, [playerStats]);
+  }, [isDesktopGameRunning, isMobileGameRunning, playerStats]);
 
   useEffect(() => {
     const currentTurn = Number.isFinite(playerStats.time)
