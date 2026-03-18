@@ -660,6 +660,15 @@ type TileAtlasState = {
   tileCount: number;
 };
 
+const createDefaultTileAtlasState = (): TileAtlasState => ({
+  loaded: false,
+  failed: false,
+  tileSourceSize: 32,
+  columns: 0,
+  rows: 0,
+  tileCount: 0,
+});
+
 type TilePickerEntry = {
   tileId: number;
   glyphLabel: string;
@@ -4205,25 +4214,13 @@ export default function App(): JSX.Element {
   const [tileAtlasImage, setTileAtlasImage] = useState<HTMLImageElement | null>(
     null,
   );
-  const [tileAtlasState, setTileAtlasState] = useState<TileAtlasState>({
-    loaded: false,
-    failed: false,
-    tileSourceSize: 32,
-    columns: 0,
-    rows: 0,
-    tileCount: 0,
-  });
+  const [tileAtlasState, setTileAtlasState] = useState<TileAtlasState>(
+    () => createDefaultTileAtlasState(),
+  );
   const [tilesetManagerAtlasImage, setTilesetManagerAtlasImage] =
     useState<HTMLImageElement | null>(null);
   const [tilesetManagerAtlasState, setTilesetManagerAtlasState] =
-    useState<TileAtlasState>({
-      loaded: false,
-      failed: false,
-      tileSourceSize: 32,
-      columns: 0,
-      rows: 0,
-      tileCount: 0,
-    });
+    useState<TileAtlasState>(() => createDefaultTileAtlasState());
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const [isMobileActionSheetVisible, setIsMobileActionSheetVisible] =
     useState(false);
@@ -5427,7 +5424,9 @@ export default function App(): JSX.Element {
     ? "No tileset atlas available."
     : tileAtlasState.failed
       ? "Unable to load tile atlas."
-      : "Loading tile atlas...";
+      : tileAtlasState.loaded
+        ? "Tile atlas loaded."
+        : "Loading tile atlas...";
   const tilePreviewDataUrlByIdRaw = useMemo(() => {
     const previewByTileId = new Map<number, string>();
     if (
@@ -5616,7 +5615,9 @@ export default function App(): JSX.Element {
     ? "No tileset atlas available."
     : tilesetManagerAtlasState.failed
       ? "Unable to load tile atlas."
-      : "Loading tile atlas...";
+      : tilesetManagerAtlasState.loaded
+        ? "Tile atlas loaded."
+        : "Loading tile atlas...";
   const tilesetManagerTilePreviewDataUrlById = useMemo(() => {
     const previewByTileId = new Map<number, string>();
     if (
@@ -5837,14 +5838,7 @@ export default function App(): JSX.Element {
       return;
     }
     if (!selectedTilesetEntry) {
-      setTileAtlasState({
-        loaded: false,
-        failed: false,
-        tileSourceSize: 32,
-        columns: 0,
-        rows: 0,
-        tileCount: 0,
-      });
+      setTileAtlasState(createDefaultTileAtlasState());
       setTileAtlasImage(null);
       return;
     }
@@ -5881,12 +5875,8 @@ export default function App(): JSX.Element {
         return;
       }
       setTileAtlasState({
-        loaded: false,
+        ...createDefaultTileAtlasState(),
         failed: true,
-        tileSourceSize: 32,
-        columns: 0,
-        rows: 0,
-        tileCount: 0,
       });
       setTileAtlasImage(null);
     };
@@ -5907,14 +5897,7 @@ export default function App(): JSX.Element {
       return;
     }
     if (!selectedTilesetManagerEditEntry) {
-      setTilesetManagerAtlasState({
-        loaded: false,
-        failed: false,
-        tileSourceSize: 32,
-        columns: 0,
-        rows: 0,
-        tileCount: 0,
-      });
+      setTilesetManagerAtlasState(createDefaultTileAtlasState());
       setTilesetManagerAtlasImage(null);
       return;
     }
@@ -5951,12 +5934,8 @@ export default function App(): JSX.Element {
         return;
       }
       setTilesetManagerAtlasState({
-        loaded: false,
+        ...createDefaultTileAtlasState(),
         failed: true,
-        tileSourceSize: 32,
-        columns: 0,
-        rows: 0,
-        tileCount: 0,
       });
       setTilesetManagerAtlasImage(null);
     };
@@ -6277,11 +6256,53 @@ export default function App(): JSX.Element {
   const startupLoadingVisible = startup && !startupScreenReady;
   const runtimeLoadingVisible =
     loadingVisible && characterCreationConfig !== null;
-  const loadingSubtitle = startupScreenReady
-    ? "Starting local runtime..."
-    : "Loading startup data...";
+  const tilesetLoadingVisible =
+    (Boolean(selectedTilesetEntry) &&
+      !tileAtlasState.loaded &&
+      !tileAtlasState.failed) ||
+    (Boolean(selectedTilesetManagerEditEntry) &&
+      !tilesetManagerAtlasState.loaded &&
+      !tilesetManagerAtlasState.failed);
+  const loadingOverlayVisible =
+    startupLoadingVisible || runtimeLoadingVisible || tilesetLoadingVisible;
+  const loadingSubtitle = startupLoadingVisible
+    ? "Loading startup data..."
+    : tilesetLoadingVisible
+      ? "Loading tileset..."
+      : "Starting local runtime...";
   const startupMenuVisible =
     startupUiVisible && characterCreationConfig === null;
+
+  useLayoutEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const root = document.getElementById("root");
+    if (!root) {
+      return;
+    }
+
+    if (loadingOverlayVisible) {
+      root.setAttribute("inert", "");
+      root.setAttribute("aria-hidden", "true");
+    } else {
+      root.removeAttribute("inert");
+      root.removeAttribute("aria-hidden");
+    }
+
+    return () => {
+      root.removeAttribute("inert");
+      root.removeAttribute("aria-hidden");
+    };
+  }, [loadingOverlayVisible]);
+
+  useLayoutEffect(() => {
+    useGameStore.getState().setUiBlockingVisible(loadingOverlayVisible);
+    return () => {
+      useGameStore.getState().setUiBlockingVisible(false);
+    };
+  }, [loadingOverlayVisible]);
 
   useEffect(() => {
     if (!startupUiVisible || startupRenderSignalSentRef.current) {
@@ -6606,7 +6627,7 @@ export default function App(): JSX.Element {
 
     const visibleOverlays = Array.from(
       document.querySelectorAll<HTMLElement>(
-        ".nh3d-context-menu, .nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-wizard-commands-sheet.is-visible",
+        ".nh3d-context-menu, .nh3d-dialog.is-visible, #position-dialog.is-visible, .nh3d-wizard-commands-sheet.is-visible, #loading:not(.is-hidden)",
       ),
     ).filter((element) => {
       if (!element.isConnected) {
@@ -6639,6 +6660,11 @@ export default function App(): JSX.Element {
     }
 
     if (topOverlay.id === "text-input-dialog") {
+      return;
+    }
+
+    if (topOverlay.id === "loading") {
+      topOverlay.focus({ preventScroll: true });
       return;
     }
 
@@ -6735,6 +6761,7 @@ export default function App(): JSX.Element {
     isControllerActionWheelVisible,
     controllerActionWheelMode,
     globalConfirmationDialog,
+    loadingOverlayVisible,
   ]);
 
   const mobileExtendedCommandNames = useMemo(() => {
@@ -6872,7 +6899,7 @@ export default function App(): JSX.Element {
     controller?.runExtendedCommand("attributes");
   }, [closeControllerActionWheel, closeWizardCommands, controller]);
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (loadingOverlayVisible || typeof window === "undefined") {
       return;
     }
     const handleControllerCharacterSheetRequest = (event: Event): void => {
@@ -6891,9 +6918,9 @@ export default function App(): JSX.Element {
         handleControllerCharacterSheetRequest,
       );
     };
-  }, [openCharacterDialog]);
+  }, [loadingOverlayVisible, openCharacterDialog]);
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (loadingOverlayVisible || typeof window === "undefined") {
       return;
     }
     const handleControllerActionWheelToggle = (event: Event): void => {
@@ -6946,9 +6973,14 @@ export default function App(): JSX.Element {
     controller,
     isDesktopGameRunning,
     isMobileGameRunning,
+    loadingOverlayVisible,
   ]);
   useEffect(() => {
-    if (!isControllerActionWheelVisible || typeof window === "undefined") {
+    if (
+      !isControllerActionWheelVisible ||
+      loadingOverlayVisible ||
+      typeof window === "undefined"
+    ) {
       return;
     }
     const handleEscape = (event: KeyboardEvent): void => {
@@ -6971,10 +7003,15 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleEscape, true);
       window.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [closeControllerActionWheel, isControllerActionWheelVisible]);
+  }, [
+    closeControllerActionWheel,
+    isControllerActionWheelVisible,
+    loadingOverlayVisible,
+  ]);
   useEffect(() => {
     if (
       !isControllerActionWheelVisible ||
+      loadingOverlayVisible ||
       controllerActionWheelMode !== "quick"
     ) {
       return;
@@ -7016,10 +7053,12 @@ export default function App(): JSX.Element {
     controllerActionWheelMode,
     isControllerActionWheelVisible,
     controllerActionWheelEntries.length,
+    loadingOverlayVisible,
   ]);
   useEffect(() => {
     if (
       !isControllerActionWheelVisible ||
+      loadingOverlayVisible ||
       controllerActionWheelMode !== "extended"
     ) {
       return;
@@ -7052,6 +7091,7 @@ export default function App(): JSX.Element {
     controllerActionWheelMode,
     mobileCommonExtendedCommandNames.length,
     mobileExtendedCommandNames.length,
+    loadingOverlayVisible,
   ]);
   useEffect(() => {
     if (wizardCommandsSupported) {
@@ -7062,6 +7102,7 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (
       !isWizardCommandsVisible ||
+      loadingOverlayVisible ||
       typeof window === "undefined" ||
       typeof document === "undefined"
     ) {
@@ -7092,7 +7133,7 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleEscape, true);
       window.removeEventListener("pointerdown", handlePointerDown, true);
     };
-  }, [closeWizardCommands, isWizardCommandsVisible]);
+  }, [closeWizardCommands, isWizardCommandsVisible, loadingOverlayVisible]);
   useEffect(() => {
     if (!isWizardCommandsVisible || typeof window === "undefined") {
       return;
@@ -7879,6 +7920,8 @@ export default function App(): JSX.Element {
     setTilesetManagerMode("new");
     setTilesetManagerEditPath("");
     setTilesetManagerName("");
+    setTilesetManagerAtlasState(createDefaultTileAtlasState());
+    setTilesetManagerAtlasImage(null);
     resetTilesetManagerSelectedFile();
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
@@ -7895,6 +7938,7 @@ export default function App(): JSX.Element {
       return;
     }
     const userRecord = userTilesetRecordByPath.get(tilesetPath);
+    const currentEditPath = String(tilesetManagerEditPath || "").trim();
     setTilesetManagerMode("edit");
     setTilesetManagerEditPath(tilesetPath);
     setTilesetManagerName(
@@ -7902,6 +7946,10 @@ export default function App(): JSX.Element {
         ? stripUserTilesetNameSuffix(userRecord.label)
         : tilesetEntry.label,
     );
+    if (tilesetPath !== currentEditPath) {
+      setTilesetManagerAtlasState(createDefaultTileAtlasState());
+      setTilesetManagerAtlasImage(null);
+    }
     resetTilesetManagerSelectedFile();
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
@@ -7930,6 +7978,8 @@ export default function App(): JSX.Element {
     setTilesetManagerMode("edit");
     setTilesetManagerEditPath("");
     setTilesetManagerName("");
+    setTilesetManagerAtlasState(createDefaultTileAtlasState());
+    setTilesetManagerAtlasImage(null);
     resetTilesetManagerSelectedFile();
     setIsTilesetBackgroundTilePickerVisible(false);
     setIsTilesetSolidColorPickerVisible(false);
@@ -8302,7 +8352,7 @@ export default function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    if (!controllerRemapListening) {
+    if (!controllerRemapListening || loadingOverlayVisible) {
       return;
     }
 
@@ -8332,10 +8382,19 @@ export default function App(): JSX.Element {
     return () => {
       window.cancelAnimationFrame(frameHandle);
     };
-  }, [controllerRemapListening, setControllerBindingSlotDraft]);
+  }, [
+    controllerRemapListening,
+    loadingOverlayVisible,
+    setControllerBindingSlotDraft,
+  ]);
 
   const updateTilesetPathDraft = (rawTilesetPath: string): void => {
     const tilesetPath = String(rawTilesetPath || "").trim();
+    const currentTilesetPath = String(clientOptionsDraft.tilesetPath || "").trim();
+    if (tilesetPath !== currentTilesetPath) {
+      setTileAtlasState(createDefaultTileAtlasState());
+      setTileAtlasImage(null);
+    }
     setClientOptionsDraft((previous) => {
       const mappedDarkWallTileOverrideEnabled = tilesetPath
         ? previous.darkCorridorWallTileOverrideEnabledByTileset[tilesetPath]
@@ -9396,7 +9455,7 @@ export default function App(): JSX.Element {
   }, [inventoryContextActionsEnabled]);
 
   useEffect(() => {
-    if (!inventory.visible || typeof window === "undefined") {
+    if (!inventory.visible || loadingOverlayVisible || typeof window === "undefined") {
       inventoryKeyboardActivationKeysDownRef.current.clear();
       return;
     }
@@ -9420,7 +9479,7 @@ export default function App(): JSX.Element {
       window.removeEventListener("blur", handleWindowBlur);
       inventoryKeyboardActivationKeysDownRef.current.clear();
     };
-  }, [inventory.visible, normalizeInventoryActivationKey]);
+  }, [inventory.visible, loadingOverlayVisible, normalizeInventoryActivationKey]);
 
   useEffect(() => {
     if (!newGamePrompt.visible) {
@@ -9439,6 +9498,7 @@ export default function App(): JSX.Element {
     if (
       !reopenNewGamePromptOnInteraction ||
       newGamePrompt.visible ||
+      loadingOverlayVisible ||
       typeof window === "undefined"
     ) {
       return;
@@ -9481,10 +9541,11 @@ export default function App(): JSX.Element {
     newGamePrompt.visible,
     reopenNewGamePromptOnInteraction,
     setNewGamePrompt,
+    loadingOverlayVisible,
   ]);
 
   useEffect(() => {
-    if (!inventoryContextMenu) {
+    if (!inventoryContextMenu || loadingOverlayVisible) {
       return;
     }
 
@@ -9541,7 +9602,7 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("resize", handleViewportResize);
     };
-  }, [closeInventoryContextMenu, inventoryContextMenu]);
+  }, [closeInventoryContextMenu, inventoryContextMenu, loadingOverlayVisible]);
 
   useLayoutEffect(() => {
     if (!inventoryContextMenu) {
@@ -9623,7 +9684,7 @@ export default function App(): JSX.Element {
   ]);
 
   useEffect(() => {
-    if (!fpsCrosshairContext) {
+    if (!fpsCrosshairContext || loadingOverlayVisible) {
       return;
     }
 
@@ -9676,10 +9737,10 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("resize", handleViewportResize);
     };
-  }, [controller, fpsCrosshairContext]);
+  }, [controller, fpsCrosshairContext, loadingOverlayVisible]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
+    if (loadingOverlayVisible || typeof window === "undefined") {
       return;
     }
 
@@ -9781,6 +9842,7 @@ export default function App(): JSX.Element {
     isExitConfirmationVisible,
     isDesktopGameRunning,
     isMobileViewport,
+    loadingOverlayVisible,
   ]);
 
   const clearStartupControllerCursorHighlight = useCallback((): void => {
@@ -9978,7 +10040,8 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const startupControllerContextActive = startupMenuVisible;
+    const startupControllerContextActive =
+      startupMenuVisible && !loadingOverlayVisible;
     if (!startupControllerContextActive) {
       startupControllerPreviousActionActiveRef.current = {};
       startupAccordionConfirmReleaseLatchRef.current = false;
@@ -10258,6 +10321,7 @@ export default function App(): JSX.Element {
     setStartupControllerCursorVisible,
     startup,
     startupFlowStep,
+    loadingOverlayVisible,
   ]);
 
   const renderPauseMenu = () => {
@@ -10825,15 +10889,22 @@ export default function App(): JSX.Element {
         </>
       ) : null}
 
-      <div
-        className={`loading${
-          startupLoadingVisible || runtimeLoadingVisible ? "" : " is-hidden"
-        }`}
-        id="loading"
-      >
-        <div>NetHack 3D</div>
-        <div className="loading-subtitle">{loadingSubtitle}</div>
-      </div>
+      {loadingOverlayVisible && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              aria-atomic="true"
+              aria-live="polite"
+              className="loading"
+              id="loading"
+              role="status"
+              tabIndex={-1}
+            >
+              <div>NetHack 3D</div>
+              <div className="loading-subtitle">{loadingSubtitle}</div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       {!isMobileViewport && isDesktopGameRunning ? (
         <div className="top-left-ui with-stats">

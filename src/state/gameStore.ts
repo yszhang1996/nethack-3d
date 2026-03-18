@@ -46,6 +46,7 @@ export const defaultPlayerStats: PlayerStatsSnapshot = {
 
 type GameStore = {
   loadingVisible: boolean;
+  uiBlockingVisible: boolean;
   statusText: string;
   connectionState: NethackConnectionState;
   connectionText: string;
@@ -69,6 +70,7 @@ type GameStore = {
   engineController: Nethack3DEngineController | null;
   nextFloatingMessageId: number;
   setLoadingVisible: (visible: boolean) => void;
+  setUiBlockingVisible: (visible: boolean) => void;
   setStatusText: (text: string) => void;
   setConnectionStatus: (text: string, state: NethackConnectionState) => void;
   setGameMessages: (messages: string[]) => void;
@@ -98,6 +100,7 @@ const maxFloatingMessages = 12;
 
 export const useGameStore = create<GameStore>((set, get) => ({
   loadingVisible: true,
+  uiBlockingVisible: false,
   statusText: "",
   connectionState: "disconnected",
   connectionText: "Disconnected",
@@ -126,6 +129,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
   nextFloatingMessageId: 1,
   setLoadingVisible: (visible) => {
     set({ loadingVisible: visible });
+  },
+  setUiBlockingVisible: (visible) => {
+    set({ uiBlockingVisible: visible });
   },
   setStatusText: (text) => {
     set({ statusText: text });

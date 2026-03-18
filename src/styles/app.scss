@@ -340,6 +340,7 @@ body {
 #root {
   width: 100%;
   height: 100%;
+  background: #000011;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -369,6 +370,7 @@ select {
 .nh3d-canvas-root {
   position: fixed;
   inset: 0;
+  background: #000011;
 
   @media (pointer: coarse) {
     touch-action: none;
@@ -662,13 +664,23 @@ canvas {
 
 .loading {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  background: rgba(0, 0, 17, 0.78);
+  backdrop-filter: blur(5px);
+  pointer-events: auto;
+  user-select: none;
+  cursor: progress;
   color: var(--nh3d-ui-accent);
   font-size: nh3d-scale-font(20px);
   text-align: center;
   z-index: 4000;
+  outline: none;
 }
 
 .loading-subtitle {

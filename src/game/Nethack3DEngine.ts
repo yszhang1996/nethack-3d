@@ -19,6 +19,7 @@ import {
   setLoggingEnabled,
   toggleLoggingEnabled,
 } from "../logging";
+import { useGameStore } from "../state/gameStore";
 import { TILE_SIZE, WALL_HEIGHT } from "./constants";
 import {
   classifyTileBehavior,
@@ -18615,6 +18616,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.addGameMessage(normalizedMessage);
   }
 
+  private isUiInputBlocked(): boolean {
+    const { loadingVisible, uiBlockingVisible } = useGameStore.getState();
+    return loadingVisible || uiBlockingVisible;
+  }
+
   private syncLoadingVisibility(): void {
     this.uiAdapter.setLoadingVisible(
       this.runtimeLoadingVisible || this.tilesetCompilationLoadingVisible,
@@ -22721,6 +22727,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleKeyDown(event: KeyboardEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     this.resumeFmodFromUserGesture();
 
     if (this.isClientOptionsDialogOpen()) {
@@ -25222,6 +25232,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseWheel(event: WheelEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (this.isFpsMode()) {
       event.preventDefault();
       return;
@@ -27789,6 +27803,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseDown(event: MouseEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     this.resumeFmodFromUserGesture();
 
     if (
@@ -27925,6 +27943,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchStart(event: TouchEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     this.resumeFmodFromUserGesture();
 
     if (
@@ -28116,6 +28138,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchMove(event: TouchEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (!this.isFpsMode() && this.isInDirectionQuestion) {
       if (!this.canUseNormalDirectionPromptOverlayTouchInput(event)) {
         this.clearDirectionPromptOverlayInteraction();
@@ -28344,6 +28370,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchEnd(event: TouchEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (!this.isFpsMode() && this.isInDirectionQuestion) {
       if (this.directionPromptTouchId === null || !event.changedTouches) {
         return;
@@ -28642,6 +28672,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleTouchCancel(): void {
+    if (this.isUiInputBlocked()) {
+      return;
+    }
     if (!this.isFpsMode() && this.isInDirectionQuestion) {
       this.clearDirectionPromptOverlayInteraction();
       return;
@@ -28656,6 +28689,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseMove(event: MouseEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (this.isFpsMode() && this.fpsPointerLockActive) {
       this.clearVultureMouseHoverHighlight();
       const deltaX = event.movementX || 0;
@@ -28737,6 +28774,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleMouseUp(event: MouseEvent): void {
+    if (this.isUiInputBlocked()) {
+      event.preventDefault();
+      return;
+    }
     if (event.button === 0 && this.directionPromptMouseDownActive) {
       const hoveredButtonId =
         this.canUseNormalDirectionPromptOverlayMouseInput(event)
