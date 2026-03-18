@@ -2867,7 +2867,7 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "fpsLookSensitivityX",
-    label: "Look Sensitivity X",
+    label: "FPS Look Sensitivity X",
     description: "Horizontal mouselook/touch-look sensitivity.",
     type: "slider",
     min: nh3dFpsLookSensitivityMin,
@@ -2876,7 +2876,7 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "fpsLookSensitivityY",
-    label: "Look Sensitivity Y",
+    label: "FPS Look Sensitivity Y",
     description: "Vertical mouselook/touch-look sensitivity.",
     type: "slider",
     min: nh3dFpsLookSensitivityMin,
@@ -3139,7 +3139,7 @@ const clientOptionsConfig: ClientOption[] = [
     key: "monsterShatterBloodBorders",
     label: "Shatter blood borders",
     description:
-      "Tint shard pixels near split lines with randomized blood-red edging.",
+      "Tint shard pixels near split lines with randomized blood-red edges.",
     type: "boolean",
   },
   {
