@@ -7705,9 +7705,42 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private shouldUseTransparentWallGroundPlaneUnderlay(
     behavior: TileBehaviorResult,
   ): boolean {
+    return this.isIronBarsLikeBehavior(behavior);
+  }
+
+  private isIronBarsLikeBehavior(behavior: TileBehaviorResult): boolean {
     return (
       behavior.effective.glyph === 2376 || behavior.effective.tileIndex === 867
     );
+  }
+
+  private isTileAdjacentToIronBars(tileX: number, tileY: number): boolean {
+    const neighborOffsets = [
+      { dx: 1, dy: 0 },
+      { dx: -1, dy: 0 },
+      { dx: 0, dy: 1 },
+      { dx: 0, dy: -1 },
+    ];
+    for (const offset of neighborOffsets) {
+      const neighborKey = `${tileX + offset.dx},${tileY + offset.dy}`;
+      const snapshot = this.getKnownTerrainSnapshotForInferenceAtKey(neighborKey);
+      if (!snapshot) {
+        continue;
+      }
+      const behavior = classifyTileBehavior({
+        glyph: snapshot.glyph,
+        runtimeChar: snapshot.char ?? null,
+        runtimeColor:
+          typeof snapshot.color === "number" ? snapshot.color : null,
+        runtimeTileIndex:
+          typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
+        priorTerrain: this.lastKnownTerrain.get(neighborKey) ?? snapshot,
+      });
+      if (this.isIronBarsLikeBehavior(behavior)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private getPlayerUnderlayRaisedBillboardKey(tileKey: string): string {
@@ -10220,10 +10253,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.materialKind === "string"
         ? (mesh.userData.materialKind as TileMaterialKind)
         : null;
+    const tileTextureForceBackgroundRemoval =
+      mesh.userData?.tileTextureForceBackgroundRemoval === true;
     const tileTextureSourceGlyphKey =
       tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
     const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
-    const textureKey = `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
+    const textureKey = `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|bgrem:${tileTextureForceBackgroundRemoval ? 1 : 0}|${darkenFactor.toFixed(3)}|rot:${rotation}`;
     const needsTextureRefresh =
       overlay.textureKey !== textureKey ||
       !this.glyphTextureCache.has(textureKey);
@@ -10235,6 +10270,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.createTileTexture(tileIndex, darkenFactor, false, {
           sourceGlyph: tileTextureSourceGlyph,
           materialKind: tileTextureMaterialKind,
+          forceBackgroundRemoval: tileTextureForceBackgroundRemoval,
         }),
       );
       texture.center.set(0.5, 0.5);
@@ -10931,6 +10967,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return background.getHexString();
   }
 
+  private setMaterialFaceSide(
+    material: THREE.Material | null | undefined,
+    side: THREE.Side,
+  ): void {
+    if (
+      material instanceof THREE.MeshBasicMaterial ||
+      material instanceof THREE.MeshLambertMaterial
+    ) {
+      if (material.side !== side) {
+        material.side = side;
+        material.needsUpdate = true;
+      }
+    }
+  }
+
+  private setMaterialAlphaCutout(
+    material: THREE.Material | null | undefined,
+    enabled: boolean,
+  ): void {
+    if (
+      material instanceof THREE.MeshBasicMaterial ||
+      material instanceof THREE.MeshLambertMaterial
+    ) {
+      const nextAlphaTest = enabled ? 0.01 : 0;
+      if (Math.abs((material.alphaTest ?? 0) - nextAlphaTest) > 0.0001) {
+        material.alphaTest = nextAlphaTest;
+        material.needsUpdate = true;
+      }
+    }
+  }
+
   private ensureGlyphOverlay(
     key: string,
     baseMaterial: THREE.MeshLambertMaterial,
@@ -10977,6 +11044,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       materialKind?: TileMaterialKind | null;
       tileX?: number | null;
       tileY?: number | null;
+      forceBackgroundRemoval?: boolean | null;
       floorUnderlayGlyph?: number | null;
       floorUnderlayTileIndex?: number | null;
       floorUnderlayMaterialKind?: TileMaterialKind | null;
@@ -11015,6 +11083,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(sourceContext.tileY)
         ? Math.trunc(sourceContext.tileY)
         : null;
+    const forceBackgroundRemoval = sourceContext.forceBackgroundRemoval === true;
     const floorUnderlayGlyph =
       typeof sourceContext.floorUnderlayGlyph === "number" &&
       Number.isFinite(sourceContext.floorUnderlayGlyph)
@@ -11231,7 +11300,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     const shouldApplyBackgroundRemoval =
-      applyChromaKey &&
+      (applyChromaKey || forceBackgroundRemoval) &&
       this.clientOptions.tilesetBackgroundRemovalMode !== "none";
 
     if (
@@ -13803,6 +13872,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.userData?.floorUnderlayMaterialKind === "string"
         ? (mesh.userData.floorUnderlayMaterialKind as TileMaterialKind)
         : null;
+    const tileTextureForceBackgroundRemoval =
+      mesh.userData?.tileTextureForceBackgroundRemoval === true;
     const canUseTranslatedTileWithoutAtlas =
       this.shouldUseVultureTiles() && tileTextureSourceGlyph !== null;
     const vultureTranslator = this.vultureTilesetTranslator;
@@ -13835,6 +13906,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const floorUnderlayTileIndexKey =
       floorUnderlayTileIndex === null ? "none" : String(floorUnderlayTileIndex);
     const floorUnderlayMaterialKindKey = floorUnderlayMaterialKind ?? "none";
+    const tileTextureForceBackgroundRemovalKey =
+      tileTextureForceBackgroundRemoval ? "bgrem:1" : "bgrem:0";
     const solidWallMaterial =
       useSolidColor && resolvedSolidColorHex
         ? this.getInferredDarkWallSolidColorMaterial(
@@ -13850,7 +13923,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else if (useTiles) {
       textureKey = resolvedVultureLookupKey
         ? `vtile:${resolvedVultureLookupKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`
-        : `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|ug:${floorUnderlayGlyphKey}|ui:${floorUnderlayTileIndexKey}|umk:${floorUnderlayMaterialKindKey}|${clampedDarken.toFixed(3)}`;
+        : `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${tileTextureForceBackgroundRemovalKey}|ug:${floorUnderlayGlyphKey}|ui:${floorUnderlayTileIndexKey}|umk:${floorUnderlayMaterialKindKey}|${clampedDarken.toFixed(3)}`;
     } else {
       textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
     }
@@ -13879,6 +13952,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               materialKind: tileTextureMaterialKind,
               tileX: tileTextureX,
               tileY: tileTextureY,
+              forceBackgroundRemoval: tileTextureForceBackgroundRemoval,
               floorUnderlayGlyph,
               floorUnderlayTileIndex,
               floorUnderlayMaterialKind,
@@ -14033,6 +14107,32 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.disposeWallSideTileOverlay(mesh, rotation);
       }
     }
+    const shouldDisableWallSideCulling =
+      isWall &&
+      tileTextureX !== null &&
+      tileTextureY !== null &&
+      this.isTileAdjacentToIronBars(tileTextureX, tileTextureY);
+    const wallFaceSide = shouldDisableWallSideCulling
+      ? THREE.DoubleSide
+      : THREE.FrontSide;
+    const shouldUseWallAlphaCutout = isWall && tileTextureForceBackgroundRemoval;
+    this.setMaterialFaceSide(overlay.material, wallFaceSide);
+    this.setMaterialFaceSide(wallSideOverrideMaterial, wallFaceSide);
+    this.setMaterialFaceSide(wallSideFrontBackOverrideMaterial, wallFaceSide);
+    this.setMaterialFaceSide(chamferSideOverrideMaterial, wallFaceSide);
+    this.setMaterialAlphaCutout(overlay.material, shouldUseWallAlphaCutout);
+    this.setMaterialAlphaCutout(
+      wallSideOverrideMaterial,
+      shouldUseWallAlphaCutout,
+    );
+    this.setMaterialAlphaCutout(
+      wallSideFrontBackOverrideMaterial,
+      shouldUseWallAlphaCutout,
+    );
+    this.setMaterialAlphaCutout(
+      chamferSideOverrideMaterial,
+      shouldUseWallAlphaCutout,
+    );
 
     const fpsWallChamferMask = Number(mesh.userData?.fpsWallChamferMask ?? 0);
     if (isWall && fpsWallChamferMask > 0) {
@@ -18097,6 +18197,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.glyphChar = behavior.glyphChar;
     mesh.userData.sourceGlyph = glyph;
     mesh.userData.tileTextureSourceGlyph = renderBehavior.effective.glyph;
+    const shouldForceTileTextureBackgroundRemoval =
+      useTiles &&
+      !this.shouldUseVultureTiles() &&
+      renderBehavior.isWall &&
+      this.shouldUseTransparentWallGroundPlaneUnderlay(renderBehavior) &&
+      this.clientOptions.tilesetBackgroundRemovalMode !== "none";
+    mesh.userData.tileTextureForceBackgroundRemoval =
+      shouldForceTileTextureBackgroundRemoval;
     mesh.userData.glyphTextColor = tileTextColor;
     mesh.userData.glyphDarkenFactor = behavior.darkenFactor;
     mesh.userData.glyphBaseColorHex = material.color.getHexString();
@@ -18169,7 +18277,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const shouldRenderTransparentWallGroundPlane =
       useTiles &&
       !this.shouldUseVultureTiles() &&
-      this.clientOptions.tilesetBackgroundRemovalMode === "none" &&
       renderBehavior.isWall &&
       this.shouldUseTransparentWallGroundPlaneUnderlay(renderBehavior);
     if (shouldRenderTransparentWallGroundPlane) {
