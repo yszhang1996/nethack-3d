@@ -7170,7 +7170,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.closeAnyTileContextMenu(false);
         }
         this.flushPendingTileUpdatesForPlayerPositionReconcile();
-        this.refreshAsciiPlayerTilesAfterPositionUpdate(
+        this.refreshTilesAfterPlayerPositionUpdate(
           oldPos.x,
           oldPos.y,
           data.x,
@@ -8477,6 +8477,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       nowMs,
       behavior,
     );
+    const shouldSuppressRecentPreviousPlayerTileInFps =
+      tileRelation.isTrailSuppressedTile &&
+      (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
     if (
       this.isFpsMode() &&
       this.fpsStepCameraActive &&
@@ -8497,7 +8500,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         !tileRelation.isPlayerMaterial &&
         !tileRelation.isStepDestinationTile &&
         !tileRelation.isPredictedPlayerTile &&
-        !tileRelation.isTrailSuppressedTile &&
+        !shouldSuppressRecentPreviousPlayerTileInFps &&
         ((this.isMonsterLikeBehavior(behavior) ||
           this.isLootLikeBehavior(behavior) ||
           ((this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
@@ -8756,6 +8759,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
     this.refreshTileVisualFromStateCache(fromX, fromY);
     this.refreshTileVisualFromStateCache(toX, toY);
+  }
+
+  private refreshTilesAfterPlayerPositionUpdate(
+    fromX: number,
+    fromY: number,
+    toX: number,
+    toY: number,
+  ): void {
+    if (fromX === toX && fromY === toY) {
+      return;
+    }
+    if (this.isFpsMode() || this.clientOptions.tilesetMode === "tiles") {
+      this.refreshTileVisualFromStateCache(fromX, fromY);
+      this.refreshTileVisualFromStateCache(toX, toY);
+      return;
+    }
+    this.refreshAsciiPlayerTilesAfterPositionUpdate(fromX, fromY, toX, toY);
   }
 
   private refreshAsciiPlayerTilesForCursorHint(
@@ -10792,6 +10812,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       materialKind?: TileMaterialKind | null;
       tileX?: number | null;
       tileY?: number | null;
+      floorUnderlayGlyph?: number | null;
+      floorUnderlayTileIndex?: number | null;
+      floorUnderlayMaterialKind?: TileMaterialKind | null;
       vultureLookup?: VultureWallProjectionLookup | null;
       projectionFamilyOverride?: VultureWallProjectionFamily | null;
       doorProjection?: VultureDoorProjectionContext | null;
@@ -10827,6 +10850,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(sourceContext.tileY)
         ? Math.trunc(sourceContext.tileY)
         : null;
+    const floorUnderlayGlyph =
+      typeof sourceContext.floorUnderlayGlyph === "number" &&
+      Number.isFinite(sourceContext.floorUnderlayGlyph)
+        ? Math.trunc(sourceContext.floorUnderlayGlyph)
+        : null;
+    const floorUnderlayTileIndex =
+      typeof sourceContext.floorUnderlayTileIndex === "number" &&
+      Number.isFinite(sourceContext.floorUnderlayTileIndex)
+        ? Math.trunc(sourceContext.floorUnderlayTileIndex)
+        : null;
+    const floorUnderlayMaterialKind =
+      typeof sourceContext.floorUnderlayMaterialKind === "string"
+        ? (sourceContext.floorUnderlayMaterialKind as TileMaterialKind)
+        : null;
     const vultureLookup: VultureWallProjectionLookup | null =
       sourceContext.vultureLookup &&
       typeof sourceContext.vultureLookup.category === "string" &&
@@ -10856,6 +10893,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
         : null;
     const normalizedTileIndex =
       Number.isFinite(tileIndex) && tileIndex >= 0 ? Math.trunc(tileIndex) : -1;
+    if (
+      !applyChromaKey &&
+      (floorUnderlayGlyph !== null ||
+        (floorUnderlayTileIndex !== null && floorUnderlayTileIndex >= 0))
+    ) {
+      const floorUnderlayTexture = this.createTileTexture(
+        floorUnderlayTileIndex ?? -1,
+        1,
+        false,
+        {
+          sourceGlyph: floorUnderlayGlyph,
+          materialKind: floorUnderlayMaterialKind,
+          tileX,
+          tileY,
+        },
+      );
+      const floorUnderlayImage = floorUnderlayTexture.image;
+      if (floorUnderlayImage) {
+        context.drawImage(floorUnderlayImage, 0, 0, size, size);
+      }
+      floorUnderlayTexture.dispose();
+    }
     let resolvedLookup: VultureTileLookup | null = vultureLookup;
     if (
       !applyChromaKey &&
@@ -13565,6 +13624,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(mesh.userData.tileY)
         ? Math.trunc(mesh.userData.tileY)
         : null;
+    const floorUnderlayGlyph =
+      typeof mesh.userData?.floorUnderlaySourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.floorUnderlaySourceGlyph)
+        ? Math.trunc(mesh.userData.floorUnderlaySourceGlyph)
+        : null;
+    const floorUnderlayTileIndex =
+      typeof mesh.userData?.floorUnderlayTileIndex === "number" &&
+      Number.isFinite(mesh.userData.floorUnderlayTileIndex)
+        ? Math.trunc(mesh.userData.floorUnderlayTileIndex)
+        : null;
+    const floorUnderlayMaterialKind =
+      typeof mesh.userData?.floorUnderlayMaterialKind === "string"
+        ? (mesh.userData.floorUnderlayMaterialKind as TileMaterialKind)
+        : null;
     const canUseTranslatedTileWithoutAtlas =
       this.shouldUseVultureTiles() && tileTextureSourceGlyph !== null;
     const vultureTranslator = this.vultureTilesetTranslator;
@@ -13592,6 +13665,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const tileTextureSourceGlyphKey =
       tileTextureSourceGlyph === null ? "none" : String(tileTextureSourceGlyph);
     const tileTextureMaterialKindKey = tileTextureMaterialKind ?? "none";
+    const floorUnderlayGlyphKey =
+      floorUnderlayGlyph === null ? "none" : String(floorUnderlayGlyph);
+    const floorUnderlayTileIndexKey =
+      floorUnderlayTileIndex === null ? "none" : String(floorUnderlayTileIndex);
+    const floorUnderlayMaterialKindKey = floorUnderlayMaterialKind ?? "none";
     const solidWallMaterial =
       useSolidColor && resolvedSolidColorHex
         ? this.getInferredDarkWallSolidColorMaterial(
@@ -13607,7 +13685,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     } else if (useTiles) {
       textureKey = resolvedVultureLookupKey
         ? `vtile:${resolvedVultureLookupKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`
-        : `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|${clampedDarken.toFixed(3)}`;
+        : `tile:${tileIndex}|sg:${tileTextureSourceGlyphKey}|mk:${tileTextureMaterialKindKey}|ug:${floorUnderlayGlyphKey}|ui:${floorUnderlayTileIndexKey}|umk:${floorUnderlayMaterialKindKey}|${clampedDarken.toFixed(3)}`;
     } else {
       textureKey = `${baseColorHex}|${glyphChar}|${textColor}|${clampedDarken.toFixed(3)}|${drawFloorGrid ? 1 : 0}`;
     }
@@ -13636,6 +13714,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
               materialKind: tileTextureMaterialKind,
               tileX: tileTextureX,
               tileY: tileTextureY,
+              floorUnderlayGlyph,
+              floorUnderlayTileIndex,
+              floorUnderlayMaterialKind,
               vultureLookup:
                 resolvedVultureLookup as VultureWallProjectionLookup | null,
             }), // Pass false: map tiles are opaque
@@ -17465,7 +17546,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     const isFpsStepDestinationTile = tileRelation.isStepDestinationTile;
     const shouldSuppressRecentPreviousPlayerTileInFps =
-      tileRelation.isTrailSuppressedTile;
+      tileRelation.isTrailSuppressedTile &&
+      (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
     const isPredictedFpsPlayerTile = tileRelation.isPredictedPlayerTile;
     const shouldSuppressPlayerTileVisualInFps =
       this.isFpsMode() &&
@@ -17552,7 +17634,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
           color: behavior.resolved.color ?? undefined,
           tileIndex: behavior.resolved.tileIndex,
         });
-      } else {
+      } else if (
+        !(
+          this.isFpsMode() &&
+          shouldSuppressPlayerTileVisualInFps &&
+          (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial)
+        )
+      ) {
         this.fpsFlatFeatureUnderPlayerCache.delete(key);
       }
     }
@@ -17869,6 +17957,28 @@ class Nethack3DEngine implements Nethack3DEngineController {
         isInferredDarkCorridorWall,
       );
     mesh.userData.tileIndex = tileTextureIndex;
+    const shouldCompositeFloorUnderFlatRaisedSpecialInFps =
+      this.isFpsMode() &&
+      useTiles &&
+      shouldUseElevatedBillboard &&
+      this.clientOptions.tilesetBackgroundRemovalMode === "none" &&
+      this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior);
+    if (shouldCompositeFloorUnderFlatRaisedSpecialInFps) {
+      const floorUnderlayBehavior = this.resolveRaisedSpecialTileFloorBehavior();
+      mesh.userData.floorUnderlaySourceGlyph =
+        floorUnderlayBehavior.effective.glyph;
+      mesh.userData.floorUnderlayTileIndex =
+        typeof floorUnderlayBehavior.effective.tileIndex === "number" &&
+        Number.isFinite(floorUnderlayBehavior.effective.tileIndex)
+          ? Math.trunc(floorUnderlayBehavior.effective.tileIndex)
+          : -1;
+      mesh.userData.floorUnderlayMaterialKind =
+        floorUnderlayBehavior.materialKind;
+    } else {
+      delete mesh.userData.floorUnderlaySourceGlyph;
+      delete mesh.userData.floorUnderlayTileIndex;
+      delete mesh.userData.floorUnderlayMaterialKind;
+    }
     mesh.userData.fpsWallChamferMask = wallChamferMask;
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     mesh.userData.fpsWallChamferRotateUv = wallChamferRotateUv;
