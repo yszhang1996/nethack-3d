@@ -553,7 +553,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly floorBlockAmbientOcclusionOverlayZ: number = 0.014;
   private fpsWallChamferFloorAmbientOcclusionOverlays: Map<string, THREE.Mesh> =
     new Map();
-  private readonly fpsWallChamferFloorAmbientOcclusionOverlayZ: number = 0.001;
+  private readonly fpsWallChamferFloorAmbientOcclusionOverlayZ: number = 0.014;
   // Fade-in animation state for newly discovered tiles.
   private tileRevealStartMs: Map<string, number> = new Map();
   private tileRevealDurationMs: number = 225;
@@ -15931,7 +15931,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.position.set(
         tileX * TILE_SIZE + strip.centerX,
         -tileY * TILE_SIZE + strip.centerY,
-        this.floorBlockAmbientOcclusionOverlayZ + TILE_SIZE * 0.001,
+        this.fpsWallChamferFloorAmbientOcclusionOverlayZ,
       );
       overlay.scale.set(strip.width / TILE_SIZE, strip.height / TILE_SIZE, 1);
       overlayGroup.add(overlay);
@@ -16002,7 +16002,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         overlay.position.set(
           tileX * TILE_SIZE,
           -tileY * TILE_SIZE,
-          this.floorBlockAmbientOcclusionOverlayZ,
+          this.fpsWallChamferFloorAmbientOcclusionOverlayZ,
         );
         overlay.scale.set(1, 1, 1);
       } else {
