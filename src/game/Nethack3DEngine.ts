@@ -380,6 +380,11 @@ type VultureDoorPlaneOverlay = {
   floorMaterial: THREE.MeshBasicMaterial;
   doorOrientation: VultureWallProjectionFamily;
 };
+type TransparentWallGroundPlaneOverlay = {
+  floorMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  material: THREE.MeshBasicMaterial;
+  textureKey: string;
+};
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
 type ControllerActionSnapshot = {
@@ -1289,6 +1294,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly vultureDoorPlaneGeometry = new THREE.PlaneGeometry(
     TILE_SIZE,
     WALL_HEIGHT,
+  );
+  private readonly transparentWallGroundPlaneGeometry = new THREE.PlaneGeometry(
+    TILE_SIZE,
+    TILE_SIZE,
   );
   private readonly vultureInvisibleSurfaceMaterial =
     new THREE.MeshBasicMaterial({
@@ -3735,6 +3744,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.disposeVultureWallFaceOverlay(mesh);
     this.disposeVultureWallPlaneOverlay(mesh);
     this.disposeVultureDoorPlaneOverlay(mesh);
+    this.disposeTransparentWallGroundPlaneOverlay(mesh);
     this.scene.remove(mesh);
     this.tileMap.delete(key);
     this.tileRevealStartMs.delete(key);
@@ -7686,6 +7696,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return this.isAltarOrTombstoneLikeBehavior(behavior);
   }
 
+  private shouldUseTransparentTileFloorUnderlay(
+    behavior: TileBehaviorResult,
+  ): boolean {
+    return this.shouldUseRaisedSpecialTileBillboardInTiles(behavior);
+  }
+
+  private shouldUseTransparentWallGroundPlaneUnderlay(
+    behavior: TileBehaviorResult,
+  ): boolean {
+    return (
+      behavior.effective.glyph === 2376 || behavior.effective.tileIndex === 867
+    );
+  }
+
   private getPlayerUnderlayRaisedBillboardKey(tileKey: string): string {
     return `${tileKey}|underlay-raised`;
   }
@@ -9525,6 +9549,103 @@ class Nethack3DEngine implements Nethack3DEngineController {
       doorOverlay.backMaterial.opacity = clampedOpacity;
       doorOverlay.floorMaterial.opacity = clampedOpacity;
     }
+    const transparentWallGroundOverlay =
+      mesh.userData?.transparentWallGroundPlaneOverlay as
+        | TransparentWallGroundPlaneOverlay
+        | undefined;
+    if (transparentWallGroundOverlay) {
+      transparentWallGroundOverlay.material.opacity = clampedOpacity;
+    }
+  }
+
+  private disposeTransparentWallGroundPlaneOverlay(mesh: THREE.Mesh): void {
+    const overlay = mesh.userData?.transparentWallGroundPlaneOverlay as
+      | TransparentWallGroundPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+    this.releaseGlyphTexture(overlay.textureKey);
+    mesh.remove(overlay.floorMesh);
+    overlay.material.dispose();
+    delete mesh.userData.transparentWallGroundPlaneOverlay;
+  }
+
+  private ensureTransparentWallGroundPlaneOverlay(
+    mesh: THREE.Mesh,
+  ): TransparentWallGroundPlaneOverlay {
+    let overlay = mesh.userData?.transparentWallGroundPlaneOverlay as
+      | TransparentWallGroundPlaneOverlay
+      | undefined;
+    if (overlay) {
+      return overlay;
+    }
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      depthWrite: true,
+      depthTest: true,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    this.patchMaterialForVignette(material);
+    const floorMesh = new THREE.Mesh(
+      this.transparentWallGroundPlaneGeometry,
+      material,
+    );
+    floorMesh.castShadow = false;
+    floorMesh.receiveShadow = false;
+    mesh.add(floorMesh);
+    overlay = {
+      floorMesh,
+      material,
+      textureKey: "",
+    };
+    mesh.userData.transparentWallGroundPlaneOverlay = overlay;
+    return overlay;
+  }
+
+  private applyTransparentWallGroundPlaneOverlay(
+    mesh: THREE.Mesh,
+    floorGlyph: number,
+    floorTileIndex: number,
+    floorMaterialKind: TileMaterialKind | null,
+    darkenFactor: number,
+    opacity: number,
+  ): void {
+    const overlay = this.ensureTransparentWallGroundPlaneOverlay(mesh);
+    const normalizedFloorGlyph = Number.isFinite(floorGlyph)
+      ? Math.trunc(floorGlyph)
+      : -1;
+    const normalizedFloorTileIndex = Number.isFinite(floorTileIndex)
+      ? Math.trunc(floorTileIndex)
+      : -1;
+    const materialKindKey = floorMaterialKind ?? "none";
+    const textureKey = `wall-ground-plane:${normalizedFloorTileIndex}|sg:${normalizedFloorGlyph}|mk:${materialKindKey}|${darkenFactor.toFixed(3)}`;
+    const needsTextureRefresh =
+      overlay.textureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey);
+    if (needsTextureRefresh) {
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
+      }
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(normalizedFloorTileIndex, darkenFactor, false, {
+          sourceGlyph: normalizedFloorGlyph,
+          materialKind: floorMaterialKind,
+        }),
+      );
+      overlay.material.map = texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
+    }
+    overlay.material.color.set("#ffffff");
+    overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    const planeZ = -WALL_HEIGHT / 2 + 0.002;
+    overlay.floorMesh.rotation.set(0, 0, 0, "XYZ");
+    overlay.floorMesh.position.set(0, 0, planeZ);
+    overlay.floorMesh.renderOrder = mesh.renderOrder - 0.25;
   }
 
   private disposeVultureWallFaceOverlay(
@@ -10140,6 +10261,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallFaceOverlay(mesh);
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
+      this.disposeTransparentWallGroundPlaneOverlay(mesh);
     });
   }
 
@@ -15895,6 +16017,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallFaceOverlay(mesh);
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
+      this.disposeTransparentWallGroundPlaneOverlay(mesh);
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
@@ -17639,6 +17762,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
         this.disposeVultureDoorPlaneOverlay(mesh);
+        this.disposeTransparentWallGroundPlaneOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
@@ -17998,13 +18122,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
       useTiles &&
       this.clientOptions.tilesetBackgroundRemovalMode === "none" &&
       ((shouldUseElevatedBillboard &&
-        this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior)) ||
+        this.shouldUseTransparentTileFloorUnderlay(renderBehavior)) ||
         (this.isFpsMode() &&
           shouldSuppressPlayerTileVisualInFps &&
           this.shouldRenderFlatFeatureUnderFpsPlayer(renderBehavior)));
     if (shouldCompositeFloorUnderFlatFeatureOnTile) {
       const floorUnderlayBehavior =
-        this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior)
+        this.shouldUseTransparentTileFloorUnderlay(renderBehavior)
           ? this.resolveRaisedSpecialTileFloorBehavior()
           : this.resolveFpsFloorUnderlayBehaviorFromCache(key);
       mesh.userData.floorUnderlaySourceGlyph =
@@ -18042,6 +18166,30 @@ class Nethack3DEngine implements Nethack3DEngineController {
       inferredDarkWallSolidColorGridEnabled,
       inferredDarkWallSolidColorGridDarknessPercent,
     );
+    const shouldRenderTransparentWallGroundPlane =
+      useTiles &&
+      !this.shouldUseVultureTiles() &&
+      this.clientOptions.tilesetBackgroundRemovalMode === "none" &&
+      renderBehavior.isWall &&
+      this.shouldUseTransparentWallGroundPlaneUnderlay(renderBehavior);
+    if (shouldRenderTransparentWallGroundPlane) {
+      const floorUnderlayBehavior = this.resolveRaisedSpecialTileFloorBehavior();
+      const overlayOpacity =
+        this.glyphOverlayMap.get(key)?.material.opacity ?? 1;
+      this.applyTransparentWallGroundPlaneOverlay(
+        mesh,
+        floorUnderlayBehavior.effective.glyph,
+        typeof floorUnderlayBehavior.effective.tileIndex === "number" &&
+          Number.isFinite(floorUnderlayBehavior.effective.tileIndex)
+          ? Math.trunc(floorUnderlayBehavior.effective.tileIndex)
+          : -1,
+        floorUnderlayBehavior.materialKind,
+        renderBehavior.darkenFactor,
+        overlayOpacity,
+      );
+    } else {
+      this.disposeTransparentWallGroundPlaneOverlay(mesh);
+    }
     if (createdMesh || restartRevealFade) {
       const overlay = this.glyphOverlayMap.get(key);
       if (overlay) {
