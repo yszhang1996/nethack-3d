@@ -860,12 +860,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly fpsAutoMoveDetectionWindowMs: number = 120;
   private lastManualDirectionalInputAtMs: number = 0;
   private lastRunLikeInputAtMs: number = 0;
-  private fpsPredictedPlayerTile: { x: number; y: number; expiresAtMs: number } | null =
-    null;
-  private asciiPendingPlayerTile: { x: number; y: number; expiresAtMs: number } | null =
-    null;
-  private asciiPlayerTileDebugLastLogAtByKey: Map<string, number> =
-    new Map();
+  private fpsPredictedPlayerTile: {
+    x: number;
+    y: number;
+    expiresAtMs: number;
+  } | null = null;
+  private asciiPendingPlayerTile: {
+    x: number;
+    y: number;
+    expiresAtMs: number;
+  } | null = null;
+  private asciiPlayerTileDebugLastLogAtByKey: Map<string, number> = new Map();
   private fpsAutoMoveDirection: { dx: number; dy: number } | null = null;
   private fpsAutoTurnTargetYaw: number | null = null;
   private readonly fpsAutoTurnSpeedRadPerSec: number = 8.8;
@@ -1240,7 +1245,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly vultureBillboardRenderOrder: number = 915;
   private readonly vultureBackWallPlaneRenderOrder: number = 916;
   private readonly vultureFlattenedBillboardRenderOrder: number = 914.5;
-  private readonly fpsPitchLockedBillboardGeometry = new THREE.PlaneGeometry(1, 1);
+  private readonly fpsPitchLockedBillboardGeometry = new THREE.PlaneGeometry(
+    1,
+    1,
+  );
   private readonly fpsPitchLockedBillboardForward = new THREE.Vector3();
   private readonly fpsPitchLockedBillboardRight = new THREE.Vector3();
   private readonly fpsPitchLockedBillboardLookTarget = new THREE.Vector3();
@@ -7152,12 +7160,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
         console.log(
           `🎯 Received player position update: (${data.x}, ${data.y})`,
         );
-        this.logAsciiPlayerTileDebug("player_position_received", data.x, data.y, {
-          oldPlayerPos: { ...this.playerPos },
-          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
-          playMode: this.playMode,
-          tilesetMode: this.clientOptions.tilesetMode,
-        });
+        this.logAsciiPlayerTileDebug(
+          "player_position_received",
+          data.x,
+          data.y,
+          {
+            oldPlayerPos: { ...this.playerPos },
+            hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+            playMode: this.playMode,
+            tilesetMode: this.clientOptions.tilesetMode,
+          },
+        );
         this.handlePendingLevelTransitionPlayerPosition(data.x, data.y);
         const oldPos = { ...this.playerPos };
         this.fpsPredictedPlayerTile = null;
@@ -7182,11 +7195,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
           this.refreshPlayerCliparoundInputCooldownFromMovement();
         }
         this.playerPos = { x: data.x, y: data.y };
-        this.logAsciiPlayerTileDebug("player_position_applied", data.x, data.y, {
-          oldPos,
-          newPos: { ...this.playerPos },
-          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
-        });
+        this.logAsciiPlayerTileDebug(
+          "player_position_applied",
+          data.x,
+          data.y,
+          {
+            oldPos,
+            newPos: { ...this.playerPos },
+            hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+          },
+        );
         if (oldPos.x !== data.x || oldPos.y !== data.y) {
           this.clearAutomaticGlancePendingState();
         }
@@ -7204,9 +7222,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.isFpsMode()) {
           const playerTileKey = `${data.x},${data.y}`;
           const shouldKeepPlayerTileBillboard =
-            this.getFpsPlayerTileBillboardBehaviorFromCache(
-              playerTileKey,
-            ) !== null;
+            this.getFpsPlayerTileBillboardBehaviorFromCache(playerTileKey) !==
+            null;
           if (!shouldKeepPlayerTileBillboard) {
             this.removeMonsterBillboard(playerTileKey);
           }
@@ -7744,7 +7761,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     ];
     for (const offset of neighborOffsets) {
       const neighborKey = `${tileX + offset.dx},${tileY + offset.dy}`;
-      const snapshot = this.getKnownTerrainSnapshotForInferenceAtKey(neighborKey);
+      const snapshot =
+        this.getKnownTerrainSnapshotForInferenceAtKey(neighborKey);
       if (!snapshot) {
         continue;
       }
@@ -7771,7 +7789,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private resolveStandardBillboardRenderOrder(
     useVultureBillboardGrounding: boolean,
   ): number {
-    return useVultureBillboardGrounding ? this.vultureBillboardRenderOrder : 910;
+    return useVultureBillboardGrounding
+      ? this.vultureBillboardRenderOrder
+      : 910;
   }
 
   private getFpsPlayerTileBillboardBehaviorFromCache(
@@ -7781,15 +7801,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return null;
     }
     const snapshot =
-      this.fpsFlatFeatureUnderPlayerCache.get(key) ?? this.lastKnownTerrain.get(key);
+      this.fpsFlatFeatureUnderPlayerCache.get(key) ??
+      this.lastKnownTerrain.get(key);
     if (!snapshot) {
       return null;
     }
     const behavior = classifyTileBehavior({
       glyph: snapshot.glyph,
       runtimeChar: snapshot.char ?? null,
-      runtimeColor:
-        typeof snapshot.color === "number" ? snapshot.color : null,
+      runtimeColor: typeof snapshot.color === "number" ? snapshot.color : null,
       runtimeTileIndex:
         typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
       priorTerrain: snapshot,
@@ -8649,10 +8669,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const shouldSuppressRecentPreviousPlayerTileInFps =
       tileRelation.isTrailSuppressedTile &&
       (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
-    const fpsPlayerTileBillboardBehavior =
-      tileRelation.isCurrentPlayerTile
-        ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
-        : null;
+    const fpsPlayerTileBillboardBehavior = tileRelation.isCurrentPlayerTile
+      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
+      : null;
     if (
       this.isFpsMode() &&
       this.fpsStepCameraActive &&
@@ -8668,20 +8687,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const signature = this.buildTileStateSignatureFromPayload(tile);
     if (this.tileStateCache.get(key) === signature) {
       const shouldHaveElevatedBillboard =
-        behavior !== null &&
-        !tileRelation.isPlayerGlyph &&
-        !tileRelation.isPlayerMaterial &&
-        !tileRelation.isStepDestinationTile &&
-        !tileRelation.isPredictedPlayerTile &&
-        !shouldSuppressRecentPreviousPlayerTileInFps &&
-        ((this.isMonsterLikeBehavior(behavior) ||
-          this.isLootLikeBehavior(behavior) ||
-          ((this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
-            this.shouldUseRaisedSpecialTileBillboardInTiles(behavior)) ||
-          (this.isFpsMode() &&
-           this.isAltarOrTombstoneLikeBehavior(behavior))) &&
-        (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
-        !tileRelation.isCurrentPlayerTile) ||
+        (behavior !== null &&
+          !tileRelation.isPlayerGlyph &&
+          !tileRelation.isPlayerMaterial &&
+          !tileRelation.isStepDestinationTile &&
+          !tileRelation.isPredictedPlayerTile &&
+          !shouldSuppressRecentPreviousPlayerTileInFps &&
+          (this.isMonsterLikeBehavior(behavior) ||
+            this.isLootLikeBehavior(behavior) ||
+            ((this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
+              this.shouldUseRaisedSpecialTileBillboardInTiles(behavior)) ||
+            (this.isFpsMode() &&
+              this.isAltarOrTombstoneLikeBehavior(behavior))) &&
+          (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
+          !tileRelation.isCurrentPlayerTile) ||
         fpsPlayerTileBillboardBehavior !== null;
       if (shouldHaveElevatedBillboard && !this.monsterBillboards.has(key)) {
         this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
@@ -8832,10 +8851,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.asciiPlayerTileDebugLastLogAtByKey.set(debugKey, nowMs);
     if (this.asciiPlayerTileDebugLastLogAtByKey.size > 256) {
       const cutoffMs = nowMs - this.asciiPlayerTileDebugLogThrottleMs * 6;
-      for (const [
-        key,
-        loggedAtMs,
-      ] of this.asciiPlayerTileDebugLastLogAtByKey) {
+      for (const [key, loggedAtMs] of this.asciiPlayerTileDebugLastLogAtByKey) {
         if (loggedAtMs < cutoffMs) {
           this.asciiPlayerTileDebugLastLogAtByKey.delete(key);
         }
@@ -8874,10 +8890,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         tileX === this.playerPos.x &&
         tileY === this.playerPos.y
       ) {
-        this.logAsciiPlayerTileDebug("refresh_from_cache_missing_snapshot", tileX, tileY, {
-          hasSeenPlayerPosition: this.hasSeenPlayerPosition,
-          tileStateCacheHasKey: this.tileStateCache.has(key),
-        });
+        this.logAsciiPlayerTileDebug(
+          "refresh_from_cache_missing_snapshot",
+          tileX,
+          tileY,
+          {
+            hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+            tileStateCacheHasKey: this.tileStateCache.has(key),
+          },
+        );
       }
       return;
     }
@@ -8888,13 +8909,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileX === this.playerPos.x &&
       tileY === this.playerPos.y
     ) {
-      this.logAsciiPlayerTileDebug("refresh_from_cache_update_tile", tileX, tileY, {
-        glyph: snapshot.glyph,
-        char: snapshot.char ?? null,
-        color: typeof snapshot.color === "number" ? snapshot.color : null,
-        tileIndex:
-          typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
-      });
+      this.logAsciiPlayerTileDebug(
+        "refresh_from_cache_update_tile",
+        tileX,
+        tileY,
+        {
+          glyph: snapshot.glyph,
+          char: snapshot.char ?? null,
+          color: typeof snapshot.color === "number" ? snapshot.color : null,
+          tileIndex:
+            typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
+        },
+      );
     }
     this.updateTile(
       tileX,
@@ -8964,8 +8990,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const pendingTile =
-      this.getActiveAsciiPendingPlayerTile(Date.now()) ?? { x: cursorX, y: cursorY };
+    const pendingTile = this.getActiveAsciiPendingPlayerTile(Date.now()) ?? {
+      x: cursorX,
+      y: cursorY,
+    };
     const tilesToRefresh = new Set<string>();
     const enqueueTile = (tileX: number, tileY: number): void => {
       tilesToRefresh.add(`${tileX},${tileY}`);
@@ -8977,13 +9005,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       enqueueTile(previousPendingTile.x, previousPendingTile.y);
     }
 
-    this.logAsciiPlayerTileDebug("refresh_after_cursor_hint", pendingTile.x, pendingTile.y, {
-      cursor: { x: cursorX, y: cursorY },
-      pendingTile,
-      previousPendingTile: previousPendingTile ?? null,
-      playerPos: { ...this.playerPos },
-      hasSeenPlayerPosition: this.hasSeenPlayerPosition,
-    });
+    this.logAsciiPlayerTileDebug(
+      "refresh_after_cursor_hint",
+      pendingTile.x,
+      pendingTile.y,
+      {
+        cursor: { x: cursorX, y: cursorY },
+        pendingTile,
+        previousPendingTile: previousPendingTile ?? null,
+        playerPos: { ...this.playerPos },
+        hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+      },
+    );
 
     for (const tileKey of tilesToRefresh) {
       const [tileXRaw, tileYRaw] = tileKey.split(",");
@@ -9656,10 +9689,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       doorOverlay.backMaterial.opacity = clampedOpacity;
       doorOverlay.floorMaterial.opacity = clampedOpacity;
     }
-    const transparentWallGroundOverlay =
-      mesh.userData?.transparentWallGroundPlaneOverlay as
-        | TransparentWallGroundPlaneOverlay
-        | undefined;
+    const transparentWallGroundOverlay = mesh.userData
+      ?.transparentWallGroundPlaneOverlay as
+      | TransparentWallGroundPlaneOverlay
+      | undefined;
     if (transparentWallGroundOverlay) {
       transparentWallGroundOverlay.material.opacity = clampedOpacity;
     }
@@ -11325,7 +11358,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(sourceContext.tileY)
         ? Math.trunc(sourceContext.tileY)
         : null;
-    const forceBackgroundRemoval = sourceContext.forceBackgroundRemoval === true;
+    const forceBackgroundRemoval =
+      sourceContext.forceBackgroundRemoval === true;
     const floorUnderlayGlyph =
       typeof sourceContext.floorUnderlayGlyph === "number" &&
       Number.isFinite(sourceContext.floorUnderlayGlyph)
@@ -14357,7 +14391,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const wallFaceSide = shouldDisableWallSideCulling
       ? THREE.DoubleSide
       : THREE.FrontSide;
-    const shouldUseWallAlphaCutout = isWall && tileTextureForceBackgroundRemoval;
+    const shouldUseWallAlphaCutout =
+      isWall && tileTextureForceBackgroundRemoval;
     const shouldUseIronBarsWallPlanes =
       this.isFpsMode() &&
       useTiles &&
@@ -14471,22 +14506,24 @@ class Nethack3DEngine implements Nethack3DEngineController {
             const usedTextureFaces = new Set<VultureWallFaceSlot>();
             const activePlaneDirections = new Set<VultureWallFaceSlot>();
             for (const sliceConfig of wallPlaneConfig.slices) {
-              const innerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
-                mesh,
-                sliceConfig.innerTextureFace,
-                sliceConfig.innerLookup,
-                clampedDarken,
-                overlay.material.opacity,
-              );
+              const innerWallMaterial =
+                this.ensureVultureWallFaceOverlayMaterial(
+                  mesh,
+                  sliceConfig.innerTextureFace,
+                  sliceConfig.innerLookup,
+                  clampedDarken,
+                  overlay.material.opacity,
+                );
               innerWallMaterial.side = THREE.FrontSide;
               innerWallMaterial.transparent = true;
-              const outerWallMaterial = this.ensureVultureWallFaceOverlayMaterial(
-                mesh,
-                sliceConfig.outerTextureFace,
-                sliceConfig.outerLookup,
-                clampedDarken,
-                overlay.material.opacity,
-              );
+              const outerWallMaterial =
+                this.ensureVultureWallFaceOverlayMaterial(
+                  mesh,
+                  sliceConfig.outerTextureFace,
+                  sliceConfig.outerLookup,
+                  clampedDarken,
+                  overlay.material.opacity,
+                );
               outerWallMaterial.side = THREE.FrontSide;
               outerWallMaterial.transparent = true;
               const planeSlice = this.ensureVultureWallPlaneSlice(
@@ -14731,7 +14768,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.applyWallBackSideVisibilityForCurrentPlayMode(mesh);
   }
 
-  private applyWallBackSideVisibilityForCurrentPlayMode(mesh: THREE.Mesh): void {
+  private applyWallBackSideVisibilityForCurrentPlayMode(
+    mesh: THREE.Mesh,
+  ): void {
     const vultureOverlay = mesh.userData?.vultureWallPlaneOverlay as
       | VultureWallPlaneOverlay
       | undefined;
@@ -14871,7 +14910,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh: THREE.Mesh,
     tileX: number,
     tileY: number,
-  ): { scaleX: number; scaleY: number; offsetX: number; offsetY: number } | null {
+  ): {
+    scaleX: number;
+    scaleY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null {
     if (!this.isFpsMode()) {
       return null;
     }
@@ -14887,8 +14931,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof mesh.scale?.y === "number" && Number.isFinite(mesh.scale.y)
         ? mesh.scale.y
         : visualScale;
-    const safeScaleX = Math.abs(visualScale) > 0.0001 ? rawScaleX / visualScale : 1;
-    const safeScaleY = Math.abs(visualScale) > 0.0001 ? rawScaleY / visualScale : 1;
+    const safeScaleX =
+      Math.abs(visualScale) > 0.0001 ? rawScaleX / visualScale : 1;
+    const safeScaleY =
+      Math.abs(visualScale) > 0.0001 ? rawScaleY / visualScale : 1;
     const offsetX = mesh.position.x - tileX * TILE_SIZE;
     const offsetY = mesh.position.y + tileY * TILE_SIZE;
     if (safeScaleX >= 0.9999 && safeScaleY >= 0.9999) {
@@ -14902,29 +14948,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     };
   }
 
-  private isWallTileBlockingFloorAmbientOcclusionEdge(
-    tileX: number,
-    tileY: number,
+  private isTrimmedDoorTransformBlockingFloorAmbientOcclusionEdge(
+    transform: {
+      scaleX: number;
+      scaleY: number;
+      offsetX: number;
+      offsetY: number;
+    },
     edgeDirectionFromCenter: "north" | "east" | "south" | "west",
   ): boolean {
-    const neighbor = this.tileMap.get(`${tileX},${tileY}`);
-    if (!neighbor?.userData?.isWall) {
-      return false;
-    }
-    if (!this.isFpsMode()) {
-      return true;
-    }
-
-    const closedDoorGlyph = this.getClosedDoorGlyphFromMesh(neighbor);
-    if (closedDoorGlyph === null) {
-      return true;
-    }
-
-    const transform = this.getFpsClosedDoorChamferTransform(
-      tileX,
-      tileY,
-      closedDoorGlyph,
-    );
     const hasTrim = transform.scaleX < 0.9999 || transform.scaleY < 0.9999;
     if (!hasTrim) {
       return true;
@@ -14950,6 +14982,92 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     // Neighbor is west of center, so center-adjacent side is neighbor east (maxX).
     return maxX >= half - epsilon;
+  }
+
+  private isOrthogonalEdgeToSingleAxisDoorTrim(
+    transform: {
+      scaleX: number;
+      scaleY: number;
+      offsetX: number;
+      offsetY: number;
+    },
+    edgeDirectionFromCenter: "north" | "east" | "south" | "west",
+  ): boolean {
+    const trimmedAlongX = transform.scaleX < 0.9999;
+    const trimmedAlongY = transform.scaleY < 0.9999;
+    if (trimmedAlongX && !trimmedAlongY) {
+      return edgeDirectionFromCenter === "north" || edgeDirectionFromCenter === "south";
+    }
+    if (trimmedAlongY && !trimmedAlongX) {
+      return edgeDirectionFromCenter === "east" || edgeDirectionFromCenter === "west";
+    }
+    return false;
+  }
+
+  private isWallTileBlockingFloorAmbientOcclusionEdge(
+    tileX: number,
+    tileY: number,
+    edgeDirectionFromCenter: "north" | "east" | "south" | "west",
+  ): boolean {
+    const neighbor = this.tileMap.get(`${tileX},${tileY}`);
+    if (!neighbor?.userData?.isWall) {
+      return false;
+    }
+    if (!this.isFpsMode()) {
+      return true;
+    }
+
+    const hasInsetDoorwayFloor =
+      Boolean(neighbor.userData?.transparentWallGroundPlaneOverlay) &&
+      Boolean(neighbor.userData?.isWall);
+    const appliedTransform = this.getFpsDoorTrimTransformFromMesh(
+      neighbor,
+      tileX,
+      tileY,
+    );
+    if (appliedTransform) {
+      if (
+        hasInsetDoorwayFloor &&
+        this.isOrthogonalEdgeToSingleAxisDoorTrim(
+          appliedTransform,
+          edgeDirectionFromCenter,
+        )
+      ) {
+        return false;
+      }
+      return this.isTrimmedDoorTransformBlockingFloorAmbientOcclusionEdge(
+        appliedTransform,
+        edgeDirectionFromCenter,
+      );
+    }
+
+    const closedDoorGlyph = this.getClosedDoorGlyphFromMesh(neighbor);
+    const materialKind =
+      typeof neighbor.userData?.materialKind === "string"
+        ? (neighbor.userData.materialKind as TileMaterialKind)
+        : null;
+    if (closedDoorGlyph === null && materialKind !== "door") {
+      return true;
+    }
+
+    const transform = this.getFpsClosedDoorChamferTransform(
+      tileX,
+      tileY,
+      closedDoorGlyph,
+    );
+    if (
+      hasInsetDoorwayFloor &&
+      this.isOrthogonalEdgeToSingleAxisDoorTrim(
+        transform,
+        edgeDirectionFromCenter,
+      )
+    ) {
+      return false;
+    }
+    return this.isTrimmedDoorTransformBlockingFloorAmbientOcclusionEdge(
+      transform,
+      edgeDirectionFromCenter,
+    );
   }
 
   private getWallChamferMaskAt(tileX: number, tileY: number): number {
@@ -15683,13 +15801,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (hasTrimmedDoorFloorUnderlay) {
-      const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
       overlay.position.set(
         tileX * TILE_SIZE,
         -tileY * TILE_SIZE,
         this.floorBlockAmbientOcclusionOverlayZ,
       );
-      overlay.scale.set(visualScale, visualScale, 1);
+      overlay.scale.set(1, 1, 1);
     } else {
       overlay.position.set(
         mesh.position.x,
@@ -16005,8 +16122,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const knownTerrain = this.getKnownTerrainSnapshotForInferenceAtKey(key);
     return Boolean(
       knownTerrain &&
-        typeof knownTerrain.glyph === "number" &&
-        isDoorwayCmapGlyph(Math.trunc(knownTerrain.glyph)),
+      typeof knownTerrain.glyph === "number" &&
+      isDoorwayCmapGlyph(Math.trunc(knownTerrain.glyph)),
     );
   }
 
@@ -16018,7 +16135,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return mesh.userData?.materialKind !== "door";
   }
 
-  private getFpsChamferMaskForSolidWallTile(tileX: number, tileY: number): number {
+  private getFpsChamferMaskForSolidWallTile(
+    tileX: number,
+    tileY: number,
+  ): number {
     if (!this.isSolidWallTileForFpsChamfer(tileX, tileY)) {
       return 0;
     }
@@ -16115,7 +16235,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
         };
   }
 
-  private applyFpsClosedDoorChamferTransformAt(tileX: number, tileY: number): void {
+  private applyFpsClosedDoorChamferTransformAt(
+    tileX: number,
+    tileY: number,
+  ): void {
     const mesh = this.tileMap.get(`${tileX},${tileY}`);
     if (!mesh || !mesh.userData?.isWall) {
       return;
@@ -16162,6 +16285,39 @@ class Nethack3DEngine implements Nethack3DEngineController {
       visualScale * transform.scaleY,
       visualScale,
     );
+
+    const hasTrim =
+      transform.scaleX < 0.9999 || transform.scaleY < 0.9999;
+    if (this.clientOptions.tilesetMode === "tiles" && hasTrim) {
+      const floorUnderlayBehavior = this.resolveNormalRoomFloorBehavior();
+      const floorUnderlayDarkenFactor =
+        typeof mesh.userData?.glyphDarkenFactor === "number" &&
+        Number.isFinite(mesh.userData.glyphDarkenFactor)
+          ? mesh.userData.glyphDarkenFactor
+          : 1;
+      const key = `${tileX},${tileY}`;
+      const overlayOpacity =
+        this.glyphOverlayMap.get(key)?.material.opacity ?? 1;
+      this.applyTransparentWallGroundPlaneOverlay(
+        mesh,
+        floorUnderlayBehavior.effective.glyph,
+        typeof floorUnderlayBehavior.effective.tileIndex === "number" &&
+          Number.isFinite(floorUnderlayBehavior.effective.tileIndex)
+          ? Math.trunc(floorUnderlayBehavior.effective.tileIndex)
+          : -1,
+        floorUnderlayBehavior.materialKind,
+        floorUnderlayDarkenFactor,
+        overlayOpacity,
+      );
+      this.setTransparentWallGroundPlaneOverlayOpaqueMode(mesh, true);
+      this.alignTransparentWallGroundPlaneOverlayToTile(
+        mesh,
+        transform.offsetX,
+        transform.offsetY,
+        transform.scaleX,
+        transform.scaleY,
+      );
+    }
   }
 
   private shouldUseChamferedWallGeometry(): boolean {
@@ -17340,7 +17496,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       proxyMaterial.opacity = spriteMaterial.opacity;
       proxyMaterial.color.copy(spriteMaterial.color);
       this.patchMaterialForVignette(proxyMaterial);
-      proxy = new THREE.Mesh(this.fpsPitchLockedBillboardGeometry, proxyMaterial);
+      proxy = new THREE.Mesh(
+        this.fpsPitchLockedBillboardGeometry,
+        proxyMaterial,
+      );
       proxy.castShadow = false;
       proxy.receiveShadow = false;
       proxy.up.set(0, 0, 1);
@@ -18503,7 +18662,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ? `solid:${this.clientOptions.tilesetSolidChromaKeyColorHex}`
         : this.clientOptions.tilesetBackgroundRemovalMode === "none"
           ? "none"
-        : `tile:${this.clientOptions.tilesetBackgroundTileId}`;
+          : `tile:${this.clientOptions.tilesetBackgroundTileId}`;
     const sourceGlyphKey =
       normalizedSourceGlyph === null ? "none" : String(normalizedSourceGlyph);
     const materialKindKey = normalizedMaterialKind ?? "none";
@@ -18749,11 +18908,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       x === pendingAsciiPlayerTile.x &&
       y === pendingAsciiPlayerTile.y;
     const hasPendingAsciiPlayerTile = pendingAsciiPlayerTile !== null;
-    const isPlayerPosCoordinate = x === this.playerPos.x && y === this.playerPos.y;
+    const isPlayerPosCoordinate =
+      x === this.playerPos.x && y === this.playerPos.y;
     const shouldTraceAsciiPlayerTile =
       !this.isFpsMode() &&
       !useTiles &&
-      (isCurrentKnownPlayerTile || isPlayerPosCoordinate || isPendingAsciiPlayerTile);
+      (isCurrentKnownPlayerTile ||
+        isPlayerPosCoordinate ||
+        isPendingAsciiPlayerTile);
     const tileRelation = this.getFpsPlayerTileRelationFlags(
       x,
       y,
@@ -18773,10 +18935,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         isPredictedFpsPlayerTile ||
         tileRelation.isCurrentPlayerTile ||
         shouldSuppressRecentPreviousPlayerTileInFps);
-    const fpsPlayerTileBillboardBehavior =
-      tileRelation.isCurrentPlayerTile
-        ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
-        : null;
+    const fpsPlayerTileBillboardBehavior = tileRelation.isCurrentPlayerTile
+      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
+      : null;
     const shouldKeepFpsPlayerTileBillboard =
       fpsPlayerTileBillboardBehavior !== null;
 
@@ -19206,10 +19367,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
           shouldSuppressPlayerTileVisualInFps &&
           this.shouldRenderFlatFeatureUnderFpsPlayer(renderBehavior)));
     if (shouldCompositeFloorUnderFlatFeatureOnTile) {
-      const floorUnderlayBehavior =
-        this.shouldUseTransparentTileFloorUnderlay(renderBehavior)
-          ? this.resolveRaisedSpecialTileFloorBehavior()
-          : this.resolveFpsFloorUnderlayBehaviorFromCache(key);
+      const floorUnderlayBehavior = this.shouldUseTransparentTileFloorUnderlay(
+        renderBehavior,
+      )
+        ? this.resolveRaisedSpecialTileFloorBehavior()
+        : this.resolveFpsFloorUnderlayBehaviorFromCache(key);
       mesh.userData.floorUnderlaySourceGlyph =
         floorUnderlayBehavior.effective.glyph;
       mesh.userData.floorUnderlayTileIndex =
@@ -19240,15 +19402,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       typeof glyph === "number" && Number.isFinite(glyph)
         ? Math.trunc(glyph)
         : null;
-    const fpsClosedDoorChamferTransform =
-      shouldApplyFpsClosedDoorChamferTrim
-        ? this.getFpsClosedDoorChamferTransform(x, y, closedDoorSourceGlyph)
-        : {
-            scaleX: 1,
-            scaleY: 1,
-            offsetX: 0,
-            offsetY: 0,
-          };
+    const fpsClosedDoorChamferTransform = shouldApplyFpsClosedDoorChamferTrim
+      ? this.getFpsClosedDoorChamferTransform(x, y, closedDoorSourceGlyph)
+      : {
+          scaleX: 1,
+          scaleY: 1,
+          offsetX: 0,
+          offsetY: 0,
+        };
     mesh.position.set(
       x * TILE_SIZE + fpsClosedDoorChamferTransform.offsetX,
       -y * TILE_SIZE + fpsClosedDoorChamferTransform.offsetY,
@@ -19394,8 +19555,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       shouldRenderEntityBillboardFromTileState ||
       shouldKeepBillboardOnFpsPlayerTile;
     const billboardBehavior =
-      shouldKeepBillboardOnFpsPlayerTile &&
-      fpsPlayerTileBillboardBehavior
+      shouldKeepBillboardOnFpsPlayerTile && fpsPlayerTileBillboardBehavior
         ? fpsPlayerTileBillboardBehavior
         : behavior;
     const billboardEntityType = this.isLootLikeBehavior(billboardBehavior)
@@ -19429,7 +19589,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
         });
         const hasDistinctUnderlyingBillboardGlyph =
           floorBehavior.effective.glyph !== billboardBehavior.effective.glyph ||
-          floorBehavior.effective.tileIndex !== billboardBehavior.effective.tileIndex;
+          floorBehavior.effective.tileIndex !==
+            billboardBehavior.effective.tileIndex;
         if (
           this.shouldUseRaisedSpecialTileBillboardInTiles(floorBehavior) &&
           hasDistinctUnderlyingBillboardGlyph
@@ -19448,10 +19609,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
       }
     }
-    const hasEntityUnderlayRaisedBillboard = entityUnderlayRaisedBillboard !== null;
-    const baseTileBillboardRenderOrder = this.resolveStandardBillboardRenderOrder(
-      this.shouldUseVultureTiles() && useTiles,
-    );
+    const hasEntityUnderlayRaisedBillboard =
+      entityUnderlayRaisedBillboard !== null;
+    const baseTileBillboardRenderOrder =
+      this.resolveStandardBillboardRenderOrder(
+        this.shouldUseVultureTiles() && useTiles,
+      );
     if (
       shouldRenderEntityBillboard &&
       (!isFpsPlayerTile || shouldKeepBillboardOnFpsPlayerTile)
@@ -19660,7 +19823,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isFpsMode()) {
       return;
     }
-    if ((dx === 0 && dy === 0) || !Number.isFinite(dx) || !Number.isFinite(dy)) {
+    if (
+      (dx === 0 && dy === 0) ||
+      !Number.isFinite(dx) ||
+      !Number.isFinite(dy)
+    ) {
       return;
     }
     this.fpsPredictedPlayerTile = {
@@ -19709,7 +19876,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.fpsStepCameraActive && !runLikeInputActive && !autoMoveLikely) {
       return;
     }
-    const anchorTiles: Array<{ x: number; y: number }> = [{ ...this.playerPos }];
+    const anchorTiles: Array<{ x: number; y: number }> = [
+      { ...this.playerPos },
+    ];
     if (this.fpsPredictedPlayerTile) {
       anchorTiles.push({
         x: this.fpsPredictedPlayerTile.x,
@@ -19719,9 +19888,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (this.fpsStepCameraTargetTile) {
       anchorTiles.push({ ...this.fpsStepCameraTargetTile });
     }
-    if (
-      !this.isMapCursorHintNearAnyAnchorTile(cursorX, cursorY, anchorTiles)
-    ) {
+    if (!this.isMapCursorHintNearAnyAnchorTile(cursorX, cursorY, anchorTiles)) {
       return;
     }
     this.fpsPredictedPlayerTile = {
@@ -19782,11 +19949,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       y: cursorY,
       expiresAtMs: Date.now() + this.asciiPendingPlayerTileWindowMs,
     };
-    this.logAsciiPlayerTileDebug("pending_tile_from_map_cursor", cursorX, cursorY, {
-      playerPos: { ...this.playerPos },
-      hasSeenPlayerPosition: this.hasSeenPlayerPosition,
-      pendingAsciiPlayerTile: this.asciiPendingPlayerTile,
-    });
+    this.logAsciiPlayerTileDebug(
+      "pending_tile_from_map_cursor",
+      cursorX,
+      cursorY,
+      {
+        playerPos: { ...this.playerPos },
+        hasSeenPlayerPosition: this.hasSeenPlayerPosition,
+        pendingAsciiPlayerTile: this.asciiPendingPlayerTile,
+      },
+    );
   }
 
   private isFpsPredictedPlayerTile(
@@ -19808,7 +19980,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return predicted.x === tileX && predicted.y === tileY;
   }
 
-  private refreshRecentFpsPlayerTrailTileVisual(tileX: number, tileY: number): void {
+  private refreshRecentFpsPlayerTrailTileVisual(
+    tileX: number,
+    tileY: number,
+  ): void {
     if (!this.isFpsMode()) {
       return;
     }
@@ -19850,16 +20025,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Number.isFinite(mesh.userData.tileIndex)
         ? Math.trunc(mesh.userData.tileIndex)
         : undefined;
-    this.updateTile(
-      tileX,
-      tileY,
-      sourceGlyph,
-      undefined,
-      undefined,
-      {
-        runtimeTileIndex,
-      },
-    );
+    this.updateTile(tileX, tileY, sourceGlyph, undefined, undefined, {
+      runtimeTileIndex,
+    });
   }
 
   private recordPlayerMovement(
@@ -20066,9 +20234,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     let nextDurationMs = this.fpsStepCameraBaseDurationMs;
     if (
-      nowMs - this.lastRunLikeInputAtMs <= this.fpsStepCameraRunInputWindowMs
+      nowMs - this.lastRunLikeInputAtMs <=
+      this.fpsStepCameraRunInputWindowMs
     ) {
-      nextDurationMs = Math.min(nextDurationMs, this.fpsStepCameraRunDurationMs);
+      nextDurationMs = Math.min(
+        nextDurationMs,
+        this.fpsStepCameraRunDurationMs,
+      );
     }
     if (this.fpsStepCameraStartMs > 0) {
       const moveCadenceMs = now - this.fpsStepCameraStartMs;
@@ -29057,7 +29229,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private isNormalDirectionPromptOverlayActive(): boolean {
-    return Boolean(this.session && this.isInDirectionQuestion && !this.isFpsMode());
+    return Boolean(
+      this.session && this.isInDirectionQuestion && !this.isFpsMode(),
+    );
   }
 
   private canUseNormalDirectionPromptOverlayMouseInput(
@@ -29377,10 +29551,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.canUseNormalDirectionPromptOverlayMouseInput(event)
     ) {
       event.preventDefault();
-      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
-        event.clientX,
-        event.clientY,
-      );
+      const buttonId =
+        this.getDirectionPromptOverlayButtonFromClientCoordinates(
+          event.clientX,
+          event.clientY,
+        );
       this.directionPromptMouseDownActive = true;
       this.directionPromptPressedButtonId = buttonId;
       this.setHoveredDirectionPromptOverlayButton(buttonId);
@@ -29529,10 +29704,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
 
       const touch = event.changedTouches[0];
-      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
-        touch.clientX,
-        touch.clientY,
-      );
+      const buttonId =
+        this.getDirectionPromptOverlayButtonFromClientCoordinates(
+          touch.clientX,
+          touch.clientY,
+        );
       this.directionPromptTouchId = touch.identifier;
       this.directionPromptPressedButtonId = buttonId;
       this.setHoveredDirectionPromptOverlayButton(buttonId);
@@ -29707,10 +29883,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!touch) {
         return;
       }
-      const buttonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
-        touch.clientX,
-        touch.clientY,
-      );
+      const buttonId =
+        this.getDirectionPromptOverlayButtonFromClientCoordinates(
+          touch.clientX,
+          touch.clientY,
+        );
       this.setHoveredDirectionPromptOverlayButton(buttonId);
       if (event.cancelable) {
         event.preventDefault();
@@ -29936,10 +30113,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (!touch) {
         return;
       }
-      const hoveredButtonId = this.getDirectionPromptOverlayButtonFromClientCoordinates(
-        touch.clientX,
-        touch.clientY,
-      );
+      const hoveredButtonId =
+        this.getDirectionPromptOverlayButtonFromClientCoordinates(
+          touch.clientX,
+          touch.clientY,
+        );
       const shouldConfirm =
         hoveredButtonId !== null &&
         hoveredButtonId === this.directionPromptPressedButtonId;
@@ -30330,13 +30508,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
     if (event.button === 0 && this.directionPromptMouseDownActive) {
-      const hoveredButtonId =
-        this.canUseNormalDirectionPromptOverlayMouseInput(event)
-          ? this.getDirectionPromptOverlayButtonFromClientCoordinates(
-              event.clientX,
-              event.clientY,
-            )
-          : null;
+      const hoveredButtonId = this.canUseNormalDirectionPromptOverlayMouseInput(
+        event,
+      )
+        ? this.getDirectionPromptOverlayButtonFromClientCoordinates(
+            event.clientX,
+            event.clientY,
+          )
+        : null;
       const shouldConfirm =
         hoveredButtonId !== null &&
         hoveredButtonId === this.directionPromptPressedButtonId;
