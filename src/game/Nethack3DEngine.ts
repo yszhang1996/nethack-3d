@@ -9790,11 +9790,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     overlay.material.color.set("#ffffff");
     overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
-    const planeZ = -WALL_HEIGHT / 2;
+    const planeZ = this.getTransparentWallGroundPlaneLocalZForWorldFloor(mesh);
     overlay.floorMesh.rotation.set(0, 0, 0, "XYZ");
     overlay.floorMesh.position.set(0, 0, planeZ);
     overlay.floorMesh.scale.set(1, 1, 1);
     overlay.floorMesh.renderOrder = mesh.renderOrder - 0.25;
+  }
+
+  private getTransparentWallGroundPlaneLocalZForWorldFloor(
+    mesh: THREE.Mesh,
+  ): number {
+    const parentScaleZ =
+      typeof mesh.scale?.z === "number" &&
+      Number.isFinite(mesh.scale.z) &&
+      Math.abs(mesh.scale.z) > 0.0001
+        ? mesh.scale.z
+        : 1;
+    const parentWorldZ =
+      typeof mesh.position?.z === "number" && Number.isFinite(mesh.position.z)
+        ? mesh.position.z
+        : WALL_HEIGHT / 2;
+    return -parentWorldZ / parentScaleZ;
   }
 
   private alignTransparentWallGroundPlaneOverlayToTile(
@@ -9822,14 +9838,37 @@ class Nethack3DEngine implements Nethack3DEngineController {
       Math.abs(scaleY) > 0.0001
         ? scaleY
         : 1;
-    const planeZ = -WALL_HEIGHT / 2 + 0.002;
+    const parentScaleX =
+      typeof mesh.scale?.x === "number" &&
+      Number.isFinite(mesh.scale.x) &&
+      Math.abs(mesh.scale.x) > 0.0001
+        ? mesh.scale.x
+        : safeScaleX;
+    const parentScaleY =
+      typeof mesh.scale?.y === "number" &&
+      Number.isFinite(mesh.scale.y) &&
+      Math.abs(mesh.scale.y) > 0.0001
+        ? mesh.scale.y
+        : safeScaleY;
+    const desiredWorldFloorScale =
+      this.isFpsMode() &&
+      typeof this.tileVisualScaleFps === "number" &&
+      Number.isFinite(this.tileVisualScaleFps) &&
+      Math.abs(this.tileVisualScaleFps) > 0.0001
+        ? this.tileVisualScaleFps
+        : 1;
+    const planeZ = this.getTransparentWallGroundPlaneLocalZForWorldFloor(mesh);
     // Counteract parent door transform so the underlay stays tile-aligned.
     overlay.floorMesh.position.set(
-      -offsetX / safeScaleX,
-      -offsetY / safeScaleY,
+      -offsetX / parentScaleX,
+      -offsetY / parentScaleY,
       planeZ,
     );
-    overlay.floorMesh.scale.set(1 / safeScaleX, 1 / safeScaleY, 1);
+    overlay.floorMesh.scale.set(
+      desiredWorldFloorScale / parentScaleX,
+      desiredWorldFloorScale / parentScaleY,
+      1,
+    );
   }
 
   private setTransparentWallGroundPlaneOverlayOpaqueMode(
