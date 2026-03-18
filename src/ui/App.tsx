@@ -3939,6 +3939,7 @@ async function deleteSavedGame(filename: string): Promise<void> {
 
 type Nh3dElectronBridge = {
   quitGame?: () => Promise<unknown>;
+  signalAppRendered?: () => void;
 };
 
 type Nh3dAndroidBridge = {
@@ -3974,6 +3975,7 @@ export default function App(): JSX.Element {
   );
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
+  const startupRenderSignalSentRef = useRef(false);
   const [characterCreationConfig, setCharacterCreationConfig] =
     useState<CharacterCreationConfig | null>(null);
   const [startupFlowStep, setStartupFlowStep] =
@@ -6266,6 +6268,34 @@ export default function App(): JSX.Element {
   }, [forcedDesktopTouchInterfaceMode, isDesktopTouchInterfaceForced]);
 
   const startup = !isMobileGameRunning && !isDesktopGameRunning;
+  const startupScreenReady =
+    startup &&
+    hasHydratedUserTilesets &&
+    hasHydratedStartupCharacterPreferences &&
+    hasHydratedStartupInitOptions;
+  const startupUiVisible = startupScreenReady;
+  const startupLoadingVisible = startup && !startupScreenReady;
+  const runtimeLoadingVisible =
+    loadingVisible && characterCreationConfig !== null;
+  const loadingSubtitle = startupScreenReady
+    ? "Starting local runtime..."
+    : "Loading startup data...";
+  const startupMenuVisible =
+    startupUiVisible && characterCreationConfig === null;
+
+  useEffect(() => {
+    if (!startupUiVisible || startupRenderSignalSentRef.current) {
+      return;
+    }
+    const bridgeWindow = window as Nh3dWindowBridges;
+    const signalAppRendered = bridgeWindow.nh3dElectron?.signalAppRendered;
+    if (typeof signalAppRendered !== "function") {
+      startupRenderSignalSentRef.current = true;
+      return;
+    }
+    startupRenderSignalSentRef.current = true;
+    signalAppRendered();
+  }, [startupUiVisible]);
 
   useEffect(() => {
     if (!characterSheetInterceptionArmed) {
@@ -6289,7 +6319,7 @@ export default function App(): JSX.Element {
       return;
     }
     const root = document.documentElement;
-    if (!startup) {
+    if (!startupUiVisible) {
       root.style.removeProperty("--nh3d-startup-logo-bottom");
       return;
     }
@@ -6339,7 +6369,7 @@ export default function App(): JSX.Element {
       }
       root.style.removeProperty("--nh3d-startup-logo-bottom");
     };
-  }, [startup]);
+  }, [startupUiVisible]);
 
   const hasGameplayOverlayOpen =
     Boolean(question) ||
@@ -9948,8 +9978,7 @@ export default function App(): JSX.Element {
       return;
     }
 
-    const startupControllerContextActive =
-      startup && characterCreationConfig === null;
+    const startupControllerContextActive = startupMenuVisible;
     if (!startupControllerContextActive) {
       startupControllerPreviousActionActiveRef.current = {};
       startupAccordionConfirmReleaseLatchRef.current = false;
@@ -10339,7 +10368,7 @@ export default function App(): JSX.Element {
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
       {renderPauseMenu()}
-      {startup && (
+      {startupUiVisible && (
         <div className="logo-container">
           <pre className="nethack-ascii-logo">
             {`                
@@ -10410,7 +10439,7 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {characterCreationConfig === null ? (
+      {startupMenuVisible ? (
         <>
           <div
             className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible startup${
@@ -10798,12 +10827,12 @@ export default function App(): JSX.Element {
 
       <div
         className={`loading${
-          loadingVisible && characterCreationConfig !== null ? "" : " is-hidden"
+          startupLoadingVisible || runtimeLoadingVisible ? "" : " is-hidden"
         }`}
         id="loading"
       >
         <div>NetHack 3D</div>
-        <div className="loading-subtitle">Starting local runtime...</div>
+        <div className="loading-subtitle">{loadingSubtitle}</div>
       </div>
 
       {!isMobileViewport && isDesktopGameRunning ? (

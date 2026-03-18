@@ -1,6 +1,6 @@
 {
   "name": "nethack3d",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "main": "electron/main.cjs",
   "scripts": {
     "build": "vite build",
@@ -44,10 +44,15 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@capacitor/core",
+      "!node_modules/@capacitor/core/**",
+      "!node_modules/@capacitor/android",
+      "!node_modules/@capacitor/android/**"
     ],
     "win": {
       "icon": "public/NetHack3D.ico",
+      "executableName": "NetHack 3D",
       "target": [
         {
           "target": "nsis",
@@ -64,7 +69,10 @@
       "allowToChangeInstallationDirectory": true
     },
     "portable": {
-      "artifactName": "NetHack 3D ${version} Portable.${ext}"
+      "artifactName": "NetHack 3D ${version} Portable.${ext}",
+      "useZip": true,
+      "splashImage": "build/NetHack3D-splash.bmp",
+      "unpackDirName": false
     }
   },
   "dependencies": {
