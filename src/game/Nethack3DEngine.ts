@@ -1239,6 +1239,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly vultureBillboardRenderOrder: number = 915;
   private readonly vultureBackWallPlaneRenderOrder: number = 916;
   private readonly vultureFlattenedBillboardRenderOrder: number = 914.5;
+  private readonly fpsPitchLockedBillboardGeometry = new THREE.PlaneGeometry(1, 1);
+  private readonly fpsPitchLockedBillboardForward = new THREE.Vector3();
+  private readonly fpsPitchLockedBillboardLookTarget = new THREE.Vector3();
   private readonly playerDamageNumberGravity: number = 18.4;
   private readonly playerDamageNumberDrag: number = 2.4;
   private readonly playerDamageNumberLifetimeMs: number = 1860;
@@ -7195,7 +7198,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
         );
         this.requestInferredDarkCorridorWallReconcile({ forceImmediate: true });
         if (this.isFpsMode()) {
-          this.removeMonsterBillboard(`${data.x},${data.y}`);
+          const playerTileKey = `${data.x},${data.y}`;
+          const shouldKeepPlayerTileBillboard =
+            this.getFpsVulturePlayerTileBillboardBehaviorFromCache(
+              playerTileKey,
+            ) !== null;
+          if (!shouldKeepPlayerTileBillboard) {
+            this.removeMonsterBillboard(playerTileKey);
+          }
         }
         this.markLightingDirty();
         console.log(
@@ -7758,6 +7768,49 @@ class Nethack3DEngine implements Nethack3DEngineController {
     useVultureBillboardGrounding: boolean,
   ): number {
     return useVultureBillboardGrounding ? this.vultureBillboardRenderOrder : 910;
+  }
+
+  private getFpsVulturePlayerTileBillboardBehaviorFromCache(
+    key: string,
+  ): TileBehaviorResult | null {
+    if (
+      !this.isFpsMode() ||
+      this.clientOptions.tilesetMode !== "tiles" ||
+      !this.shouldUseVultureTiles()
+    ) {
+      return null;
+    }
+    const snapshot =
+      this.fpsFlatFeatureUnderPlayerCache.get(key) ?? this.lastKnownTerrain.get(key);
+    if (!snapshot) {
+      return null;
+    }
+    const behavior = classifyTileBehavior({
+      glyph: snapshot.glyph,
+      runtimeChar: snapshot.char ?? null,
+      runtimeColor:
+        typeof snapshot.color === "number" ? snapshot.color : null,
+      runtimeTileIndex:
+        typeof snapshot.tileIndex === "number" ? snapshot.tileIndex : null,
+      priorTerrain: snapshot,
+    });
+    if (
+      this.isLootLikeBehavior(behavior) ||
+      this.shouldUseRaisedSpecialTileBillboardInTiles(behavior)
+    ) {
+      return behavior;
+    }
+    return null;
+  }
+
+  private resolveFloorBehaviorUnderFpsPlayerTileBillboard(
+    key: string,
+    billboardBehavior: TileBehaviorResult,
+  ): TileBehaviorResult {
+    if (this.shouldUseRaisedSpecialTileBillboardInTiles(billboardBehavior)) {
+      return this.resolveRaisedSpecialTileFloorBehavior();
+    }
+    return this.resolveFpsFloorUnderlayBehaviorFromCache(key);
   }
 
   private resolveRaisedSpecialTileFloorBehavior(): TileBehaviorResult {
@@ -8587,6 +8640,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const shouldSuppressRecentPreviousPlayerTileInFps =
       tileRelation.isTrailSuppressedTile &&
       (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
+    const fpsVulturePlayerTileBillboardBehavior =
+      tileRelation.isCurrentPlayerTile
+        ? this.getFpsVulturePlayerTileBillboardBehaviorFromCache(key)
+        : null;
     if (
       this.isFpsMode() &&
       this.fpsStepCameraActive &&
@@ -8613,9 +8670,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
           ((this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
             this.shouldUseRaisedSpecialTileBillboardInTiles(behavior)) ||
           (this.isFpsMode() &&
-            this.isAltarOrTombstoneLikeBehavior(behavior))) &&
+           this.isAltarOrTombstoneLikeBehavior(behavior))) &&
         (this.clientOptions.tilesetMode === "tiles" || this.isFpsMode()) &&
-        !tileRelation.isCurrentPlayerTile);
+        !tileRelation.isCurrentPlayerTile) ||
+        fpsVulturePlayerTileBillboardBehavior !== null;
       if (shouldHaveElevatedBillboard && !this.monsterBillboards.has(key)) {
         this.updateTile(tile.x, tile.y, tile.glyph, tile.char, tile.color, {
           runtimeTileIndex:
@@ -16710,6 +16768,150 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return backdrop;
   }
 
+  private getMonsterBillboardPitchLockedProxyMesh(
+    sprite: THREE.Sprite,
+  ): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null {
+    const candidate = sprite.userData?.fpsPitchLockedProxyMesh;
+    if (
+      candidate instanceof THREE.Mesh &&
+      candidate.geometry instanceof THREE.PlaneGeometry &&
+      candidate.material instanceof THREE.MeshBasicMaterial
+    ) {
+      return candidate as THREE.Mesh<
+        THREE.PlaneGeometry,
+        THREE.MeshBasicMaterial
+      >;
+    }
+    return null;
+  }
+
+  private disposeMonsterBillboardPitchLockedProxyMesh(
+    sprite: THREE.Sprite,
+  ): void {
+    const proxy = this.getMonsterBillboardPitchLockedProxyMesh(sprite);
+    if (!proxy) {
+      return;
+    }
+    this.scene.remove(proxy);
+    proxy.material.dispose();
+    delete sprite.userData.fpsPitchLockedProxyMesh;
+  }
+
+  private ensureMonsterBillboardPitchLockedProxyMesh(
+    sprite: THREE.Sprite,
+  ): THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial> | null {
+    const spriteMaterial = sprite.material;
+    if (!(spriteMaterial instanceof THREE.SpriteMaterial)) {
+      this.disposeMonsterBillboardPitchLockedProxyMesh(sprite);
+      return null;
+    }
+    let proxy = this.getMonsterBillboardPitchLockedProxyMesh(sprite);
+    if (!proxy) {
+      const proxyMaterial = new THREE.MeshBasicMaterial({
+        map: spriteMaterial.map ?? null,
+        transparent: true,
+        depthWrite: spriteMaterial.depthWrite,
+        depthTest: spriteMaterial.depthTest,
+        alphaTest: spriteMaterial.alphaTest,
+        side: THREE.DoubleSide,
+        toneMapped: false,
+      });
+      proxyMaterial.opacity = spriteMaterial.opacity;
+      proxyMaterial.color.copy(spriteMaterial.color);
+      this.patchMaterialForVignette(proxyMaterial);
+      proxy = new THREE.Mesh(this.fpsPitchLockedBillboardGeometry, proxyMaterial);
+      proxy.castShadow = false;
+      proxy.receiveShadow = false;
+      proxy.up.set(0, 0, 1);
+      this.scene.add(proxy);
+      sprite.userData.fpsPitchLockedProxyMesh = proxy;
+    }
+
+    const proxyMaterial = proxy.material;
+    proxyMaterial.map = spriteMaterial.map ?? null;
+    proxyMaterial.opacity = spriteMaterial.opacity;
+    proxyMaterial.color.copy(spriteMaterial.color);
+    proxyMaterial.depthWrite = spriteMaterial.depthWrite;
+    proxyMaterial.depthTest = spriteMaterial.depthTest;
+    proxyMaterial.alphaTest = spriteMaterial.alphaTest;
+    proxyMaterial.needsUpdate = true;
+    return proxy;
+  }
+
+  private shouldPitchLockMonsterBillboardAtTile(tileX: number, tileY: number): boolean {
+    return (
+      this.isFpsMode() &&
+      this.clientOptions.tilesetMode === "tiles" &&
+      this.shouldUseVultureTiles() &&
+      this.hasSeenPlayerPosition &&
+      tileX === this.playerPos.x &&
+      tileY === this.playerPos.y
+    );
+  }
+
+  private updateMonsterBillboardPitchLockStateForEntry(
+    sprite: THREE.Sprite,
+  ): void {
+    const tileXRaw = Number(sprite.userData?.tileX);
+    const tileYRaw = Number(sprite.userData?.tileY);
+    if (!Number.isFinite(tileXRaw) || !Number.isFinite(tileYRaw)) {
+      this.disposeMonsterBillboardPitchLockedProxyMesh(sprite);
+      sprite.visible = true;
+      return;
+    }
+    const tileX = Math.round(tileXRaw);
+    const tileY = Math.round(tileYRaw);
+    if (!this.shouldPitchLockMonsterBillboardAtTile(tileX, tileY)) {
+      this.disposeMonsterBillboardPitchLockedProxyMesh(sprite);
+      sprite.visible = true;
+      return;
+    }
+
+    const proxy = this.ensureMonsterBillboardPitchLockedProxyMesh(sprite);
+    if (!proxy) {
+      sprite.visible = true;
+      return;
+    }
+
+    this.camera.getWorldDirection(this.fpsPitchLockedBillboardForward);
+    this.fpsPitchLockedBillboardForward.z = 0;
+    if (this.fpsPitchLockedBillboardForward.lengthSq() < 1e-8) {
+      this.fpsPitchLockedBillboardForward.set(
+        -Math.sin(this.cameraYaw),
+        -Math.cos(this.cameraYaw),
+        0,
+      );
+    } else {
+      this.fpsPitchLockedBillboardForward.normalize();
+    }
+
+    proxy.position.copy(sprite.position);
+    proxy.position.addScaledVector(
+      this.fpsPitchLockedBillboardForward,
+      Math.max(this.camera.near + 0.04, TILE_SIZE * 0.08),
+    );
+    proxy.scale.copy(sprite.scale);
+    // Sprites are bottom-anchored (center.y = 0) in Vulture mode, but PlaneGeometry
+    // is centered at origin. Lift by half-height so the proxy stands on the floor.
+    proxy.position.z += Math.max(0, Math.abs(proxy.scale.y) * 0.5);
+    proxy.renderOrder = sprite.renderOrder;
+    this.fpsPitchLockedBillboardLookTarget
+      .copy(proxy.position)
+      .add(this.fpsPitchLockedBillboardForward);
+    proxy.lookAt(this.fpsPitchLockedBillboardLookTarget);
+    proxy.visible = true;
+    sprite.visible = false;
+  }
+
+  private updateMonsterBillboardPitchLockState(): void {
+    if (this.monsterBillboards.size === 0) {
+      return;
+    }
+    for (const sprite of this.monsterBillboards.values()) {
+      this.updateMonsterBillboardPitchLockStateForEntry(sprite);
+    }
+  }
+
   private detachMonsterBillboard(key: string): THREE.Sprite | null {
     this.removeEntityBlobShadow(key);
     this.stopMonsterBillboardDamageFlash(key);
@@ -16733,6 +16935,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!sprite) {
       return;
     }
+    this.disposeMonsterBillboardPitchLockedProxyMesh(sprite);
     this.disposeMonsterBillboardFlattenedBackdropSprite(sprite);
     const material = sprite.material;
     if (material instanceof THREE.SpriteMaterial) {
@@ -17958,6 +18161,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         1.25) /
       (TILE_SIZE * 0.8);
     this.ensureEntityBlobShadow(key, x, y, shadowScale, isWall);
+    this.updateMonsterBillboardPitchLockStateForEntry(sprite);
   }
 
   private updateTile(
@@ -18030,6 +18234,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         isPredictedFpsPlayerTile ||
         tileRelation.isCurrentPlayerTile ||
         shouldSuppressRecentPreviousPlayerTileInFps);
+    const fpsVulturePlayerTileBillboardBehavior =
+      tileRelation.isCurrentPlayerTile
+        ? this.getFpsVulturePlayerTileBillboardBehaviorFromCache(key)
+        : null;
+    const shouldKeepFpsVultureBillboardOnPlayerTile =
+      fpsVulturePlayerTileBillboardBehavior !== null;
 
     const shouldElevateEntity =
       isMonsterLikeCharacter ||
@@ -18163,6 +18373,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
             runtimeColor: null,
             priorTerrain: null,
           });
+        }
+        if (
+          shouldKeepFpsVultureBillboardOnPlayerTile &&
+          fpsVulturePlayerTileBillboardBehavior
+        ) {
+          renderBehavior = this.resolveFloorBehaviorUnderFpsPlayerTileBillboard(
+            key,
+            fpsVulturePlayerTileBillboardBehavior,
+          );
         }
       } else {
         renderBehavior = classifyTileBehavior({
@@ -18517,6 +18736,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.isFpsMode() &&
       this.hasSeenPlayerPosition &&
       shouldSuppressPlayerTileVisualInFps;
+    const shouldKeepVultureBillboardOnFpsPlayerTile =
+      isFpsPlayerTile &&
+      shouldKeepFpsVultureBillboardOnPlayerTile &&
+      tileRelation.isCurrentPlayerTile;
     const shouldRenderPlayerUnderlayRaisedBillboard =
       useTiles &&
       !isFpsPlayerTile &&
@@ -18563,7 +18786,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     // Create or remove a billboard for any entity that should be elevated.
-    const shouldRenderEntityBillboard =
+    const shouldRenderEntityBillboardFromTileState =
       shouldUseElevatedBillboard &&
       !tileRelation.isPlayerGlyph &&
       !tileRelation.isPlayerMaterial &&
@@ -18571,18 +18794,35 @@ class Nethack3DEngine implements Nethack3DEngineController {
       !isPredictedFpsPlayerTile &&
       !shouldSuppressRecentPreviousPlayerTileInFps &&
       !tileRelation.isCurrentPlayerTile;
-    if (shouldRenderEntityBillboard && !isFpsPlayerTile) {
+    const shouldRenderEntityBillboard =
+      shouldRenderEntityBillboardFromTileState ||
+      shouldKeepVultureBillboardOnFpsPlayerTile;
+    const billboardBehavior =
+      shouldKeepVultureBillboardOnFpsPlayerTile &&
+      fpsVulturePlayerTileBillboardBehavior
+        ? fpsVulturePlayerTileBillboardBehavior
+        : behavior;
+    const billboardEntityType = this.isLootLikeBehavior(billboardBehavior)
+      ? "loot"
+      : "monster";
+    const billboardIsWall = shouldKeepVultureBillboardOnFpsPlayerTile
+      ? billboardBehavior.isWall
+      : renderBehavior.isWall;
+    if (
+      shouldRenderEntityBillboard &&
+      (!isFpsPlayerTile || shouldKeepVultureBillboardOnFpsPlayerTile)
+    ) {
       this.ensureMonsterBillboard(
         key,
         x,
         y,
-        behavior.glyphChar,
-        behavior.textColor,
-        behavior.effective.tileIndex,
-        isLootLikeCharacter ? "loot" : "monster",
-        renderBehavior.isWall,
-        behavior.effective.glyph,
-        behavior.materialKind,
+        billboardBehavior.glyphChar,
+        billboardBehavior.textColor,
+        billboardBehavior.effective.tileIndex,
+        billboardEntityType,
+        billboardIsWall,
+        billboardBehavior.effective.glyph,
+        billboardBehavior.materialKind,
       );
     } else {
       this.removeMonsterBillboard(key);
@@ -29797,6 +30037,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateControllerInput(deltaSeconds);
     this.updateCameraPanInertia(deltaSeconds);
     this.updateCamera(deltaSeconds);
+    this.updateMonsterBillboardPitchLockState();
     this.syncDirectionPromptOverlayVisibility();
     this.directionPromptOverlay?.update(
       this.camera,
