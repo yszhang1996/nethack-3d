@@ -17957,14 +17957,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
         isInferredDarkCorridorWall,
       );
     mesh.userData.tileIndex = tileTextureIndex;
-    const shouldCompositeFloorUnderFlatRaisedSpecialInFps =
+    const shouldCompositeFloorUnderFlatFeatureInFps =
       this.isFpsMode() &&
       useTiles &&
-      shouldUseElevatedBillboard &&
       this.clientOptions.tilesetBackgroundRemovalMode === "none" &&
-      this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior);
-    if (shouldCompositeFloorUnderFlatRaisedSpecialInFps) {
-      const floorUnderlayBehavior = this.resolveRaisedSpecialTileFloorBehavior();
+      ((shouldUseElevatedBillboard &&
+        this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior)) ||
+        (shouldSuppressPlayerTileVisualInFps &&
+          this.shouldRenderFlatFeatureUnderFpsPlayer(renderBehavior)));
+    if (shouldCompositeFloorUnderFlatFeatureInFps) {
+      const floorUnderlayBehavior =
+        this.shouldUseRaisedSpecialTileBillboardInTiles(renderBehavior)
+          ? this.resolveRaisedSpecialTileFloorBehavior()
+          : this.resolveFpsFloorUnderlayBehaviorFromCache(key);
       mesh.userData.floorUnderlaySourceGlyph =
         floorUnderlayBehavior.effective.glyph;
       mesh.userData.floorUnderlayTileIndex =
