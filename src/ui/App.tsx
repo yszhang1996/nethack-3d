@@ -1651,6 +1651,7 @@ type ClientOptionToggleKey =
   | "cameraRelativeMovement"
   | "snapCameraYawToNearest45"
   | "invertTouchPanningDirection"
+  | "disableAnimatedTransitions"
   | "uiTileBackgroundRemoval"
   | "minimap"
   | "reduceInventoryMotion"
@@ -2951,6 +2952,13 @@ const clientOptionsConfig: ClientOption[] = [
       { value: "portrait", label: "Use portrait touch UI" },
       { value: "landscape", label: "Use landscape touch UI" },
     ],
+  },
+  {
+    key: "disableAnimatedTransitions",
+    label: "Disable animated transitions",
+    description:
+      "Turn off interface fade, motion, and transition animations for snappier UI changes.",
+    type: "boolean",
   },
   {
     key: "uiTileBackgroundRemoval",
@@ -4400,6 +4408,19 @@ export default function App(): JSX.Element {
     clientOptions.liveMessageLogFontScale,
     clientOptions.minimapScale,
   ]);
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.toggle(
+      "nh3d-disable-animated-transitions",
+      clientOptions.disableAnimatedTransitions,
+    );
+    return () => {
+      root.classList.remove("nh3d-disable-animated-transitions");
+    };
+  }, [clientOptions.disableAnimatedTransitions]);
   useEffect(() => {
     if (typeof window === "undefined" || typeof document === "undefined") {
       return;

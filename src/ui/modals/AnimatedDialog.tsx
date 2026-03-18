@@ -4,6 +4,7 @@ import {
   useEffect,
   useState,
   type AnimationEvent,
+  type CSSProperties,
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
@@ -12,6 +13,7 @@ type AnimatedDialogProps = Omit<ComponentPropsWithoutRef<"div">, "className"> & 
   open: boolean;
   className: string;
   children: ReactNode;
+  disableAnimations?: boolean;
 };
 
 function usePrefersReducedMotion(): boolean {
@@ -47,10 +49,24 @@ function usePrefersReducedMotion(): boolean {
 
 const AnimatedDialog = forwardRef<HTMLDivElement, AnimatedDialogProps>(
   function AnimatedDialog(
-    { open, className, children, onAnimationEnd, ...divProps },
+    {
+      open,
+      className,
+      children,
+      disableAnimations: disableAnimationsProp = false,
+      onAnimationEnd,
+      style,
+      ...divProps
+    },
     ref,
   ): JSX.Element | null {
     const prefersReducedMotion = usePrefersReducedMotion();
+    const disableAnimations =
+      disableAnimationsProp ||
+      (typeof document !== "undefined" &&
+        document.documentElement.classList.contains(
+          "nh3d-disable-animated-transitions",
+        ));
     const [shouldRender, setShouldRender] = useState(open);
     const [isExiting, setIsExiting] = useState(false);
     const [renderedChildren, setRenderedChildren] = useState(children);
@@ -75,14 +91,14 @@ const AnimatedDialog = forwardRef<HTMLDivElement, AnimatedDialogProps>(
         return;
       }
 
-      if (prefersReducedMotion) {
+      if (prefersReducedMotion || disableAnimations) {
         setShouldRender(false);
         setIsExiting(false);
         return;
       }
 
       setIsExiting(true);
-    }, [open, prefersReducedMotion, shouldRender]);
+    }, [disableAnimations, open, prefersReducedMotion, shouldRender]);
 
     const handleAnimationEnd = useCallback(
       (event: AnimationEvent<HTMLDivElement>): void => {
@@ -105,6 +121,13 @@ const AnimatedDialog = forwardRef<HTMLDivElement, AnimatedDialogProps>(
       : isExiting
         ? "is-exiting"
         : "is-visible";
+    const resolvedStyle: CSSProperties | undefined = disableAnimations
+      ? {
+          ...(style ?? {}),
+          animation: "none",
+          opacity: open ? 1 : 0,
+        }
+      : style;
 
     return (
       <div
@@ -112,6 +135,7 @@ const AnimatedDialog = forwardRef<HTMLDivElement, AnimatedDialogProps>(
         ref={ref}
         className={`${renderedClassName} ${visibilityClassName}`.trim()}
         onAnimationEnd={handleAnimationEnd}
+        style={resolvedStyle}
       >
         {renderedChildren}
       </div>

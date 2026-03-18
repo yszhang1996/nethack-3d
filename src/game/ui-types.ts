@@ -168,6 +168,7 @@ export type Nh3dClientOptions = {
   snapCameraYawToNearest45: boolean;
   invertTouchPanningDirection: boolean;
   desktopTouchInterfaceMode: Nh3dDesktopTouchInterfaceMode;
+  disableAnimatedTransitions: boolean;
   uiTileBackgroundRemoval: boolean;
   minimap: boolean;
   minimapScale: number;
@@ -247,6 +248,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   snapCameraYawToNearest45: true,
   invertTouchPanningDirection: true,
   desktopTouchInterfaceMode: "off",
+  disableAnimatedTransitions: false,
   uiTileBackgroundRemoval: true,
   minimap: true,
   minimapScale: 1,
@@ -799,6 +801,10 @@ export function normalizeNh3dClientOptions(
       overrides?.desktopTouchInterfaceMode === "off"
         ? overrides.desktopTouchInterfaceMode
         : defaultNh3dClientOptions.desktopTouchInterfaceMode,
+    disableAnimatedTransitions:
+      typeof overrides?.disableAnimatedTransitions === "boolean"
+        ? overrides.disableAnimatedTransitions
+        : defaultNh3dClientOptions.disableAnimatedTransitions,
     uiTileBackgroundRemoval:
       typeof overrides?.uiTileBackgroundRemoval === "boolean"
         ? overrides.uiTileBackgroundRemoval

@@ -68,6 +68,17 @@ Detailed movement/cursor flow reference: `docs/steering/movement-flow.md`.
 - Mouse zoom/rotate/pan handlers: `src/game/Nethack3DEngine.ts` mouse handlers.
 - Camera transform calculation: `updateCamera`.
 
+## If You Need To Change User Options
+
+- Client option schema, defaults, and normalization source-of-truth:
+  - `src/game/ui-types.ts` (`Nh3dClientOptions`, `defaultNh3dClientOptions`, `normalizeNh3dClientOptions`)
+- Client options dialog UI, option catalog, tab grouping, and draft/apply flows:
+  - `src/ui/App.tsx` (`clientOptionsConfig`, `clientOptionsTabs`, `updateClientOptionDraft`, client-options dialog render block)
+- Persisted client options and localStorage-to-IndexedDB migration:
+  - `src/storage/client-options-storage.ts` (`loadPersistedNh3dClientOptionsWithMigration`, `persistNh3dClientOptionsToIndexedDb`)
+- Engine-side application of options at runtime:
+  - `src/game/Nethack3DEngine.ts` (`setClientOptions`, `applyClientOptions`)
+
 ## If You Need To Change Level Transition Behavior
 
 - Runtime triggers clear on map window reset: `shim_clear_nhwindow` (`src/runtime/LocalNetHackRuntime.ts`).

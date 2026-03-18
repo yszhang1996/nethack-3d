@@ -134,6 +134,16 @@
   --nh3d-mobile-bottom-bar-bottom-offset: 0px;
 }
 
+:root.nh3d-disable-animated-transitions,
+:root.nh3d-disable-animated-transitions *,
+:root.nh3d-disable-animated-transitions *::before,
+:root.nh3d-disable-animated-transitions *::after {
+  animation-duration: 0ms !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0ms !important;
+  transition-delay: 0ms !important;
+}
+
 @media (orientation: landscape) and (pointer: coarse) {
   :root {
     --nh3d-mobile-bottom-bar-bottom-offset: calc(

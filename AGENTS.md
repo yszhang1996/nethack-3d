@@ -20,6 +20,13 @@ Start here before making changes.
 - Worker bridge: `src/runtime/WorkerRuntimeBridge.ts`.
 - Runtime message typing: `src/runtime/types.ts`.
 
+## User Options Hotspots
+
+- Option schema/defaults/normalization: `src/game/ui-types.ts` (`Nh3dClientOptions`, `defaultNh3dClientOptions`, `normalizeNh3dClientOptions`)
+- Client options UI and draft/apply flows: `src/ui/App.tsx` (`clientOptionsConfig`, `clientOptionsTabs`, client-options dialog section)
+- Persistence + migration: `src/storage/client-options-storage.ts`
+- Engine option application: `src/game/Nethack3DEngine.ts` (`setClientOptions`, `applyClientOptions`)
+
 ## Steering Documents
 
 - Architecture and file map: `docs/steering/project-structure.md`
@@ -74,3 +81,7 @@ Start here before making changes.
 ## Do not run the build
 
 - The user will run the build and validate all went well.
+
+## Suggested Post-Task Check
+
+- Run `npm run check` after completing code changes to catch TS/TSX type regressions without formatting/prettier noise.
