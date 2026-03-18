@@ -7832,6 +7832,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     });
   }
 
+  private resolveNormalRoomFloorBehavior(): TileBehaviorResult {
+    return classifyTileBehavior({
+      glyph: getDefaultFloorGlyph(),
+      runtimeChar: ".",
+      runtimeColor: null,
+      priorTerrain: null,
+    });
+  }
+
   private isGoldLikeBehavior(behavior: TileBehaviorResult): boolean {
     if (behavior.effective.kind !== "obj") {
       return false;
@@ -9746,10 +9755,72 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
     overlay.material.color.set("#ffffff");
     overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
-    const planeZ = -WALL_HEIGHT / 2 + 0.002;
+    const planeZ = -WALL_HEIGHT / 2;
     overlay.floorMesh.rotation.set(0, 0, 0, "XYZ");
     overlay.floorMesh.position.set(0, 0, planeZ);
+    overlay.floorMesh.scale.set(1, 1, 1);
     overlay.floorMesh.renderOrder = mesh.renderOrder - 0.25;
+  }
+
+  private alignTransparentWallGroundPlaneOverlayToTile(
+    mesh: THREE.Mesh,
+    offsetX: number,
+    offsetY: number,
+    scaleX: number,
+    scaleY: number,
+  ): void {
+    const overlay = mesh.userData?.transparentWallGroundPlaneOverlay as
+      | TransparentWallGroundPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+    const safeScaleX =
+      typeof scaleX === "number" &&
+      Number.isFinite(scaleX) &&
+      Math.abs(scaleX) > 0.0001
+        ? scaleX
+        : 1;
+    const safeScaleY =
+      typeof scaleY === "number" &&
+      Number.isFinite(scaleY) &&
+      Math.abs(scaleY) > 0.0001
+        ? scaleY
+        : 1;
+    const planeZ = -WALL_HEIGHT / 2 + 0.002;
+    // Counteract parent door transform so the underlay stays tile-aligned.
+    overlay.floorMesh.position.set(
+      -offsetX / safeScaleX,
+      -offsetY / safeScaleY,
+      planeZ,
+    );
+    overlay.floorMesh.scale.set(1 / safeScaleX, 1 / safeScaleY, 1);
+  }
+
+  private setTransparentWallGroundPlaneOverlayOpaqueMode(
+    mesh: THREE.Mesh,
+    opaque: boolean,
+  ): void {
+    const overlay = mesh.userData?.transparentWallGroundPlaneOverlay as
+      | TransparentWallGroundPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+    const material = overlay.material;
+    const nextTransparent = !opaque;
+    let needsUpdate = false;
+    if (material.transparent !== nextTransparent) {
+      material.transparent = nextTransparent;
+      needsUpdate = true;
+    }
+    const nextOpacity = opaque ? 1 : material.opacity;
+    if (Math.abs(material.opacity - nextOpacity) > 0.0001) {
+      material.opacity = nextOpacity;
+    }
+    if (needsUpdate) {
+      material.needsUpdate = true;
+    }
   }
 
   private disposeIronBarsWallPlaneOverlay(mesh: THREE.Mesh): void {
@@ -14772,6 +14843,115 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return Boolean(neighbor?.userData?.isWall);
   }
 
+  private getClosedDoorGlyphFromMesh(mesh: THREE.Mesh): number | null {
+    const sourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.sourceGlyph)
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    const tileTextureSourceGlyph =
+      typeof mesh.userData?.tileTextureSourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.tileTextureSourceGlyph)
+        ? Math.trunc(mesh.userData.tileTextureSourceGlyph)
+        : null;
+    const glyphCandidates = [sourceGlyph, tileTextureSourceGlyph];
+    for (const candidate of glyphCandidates) {
+      if (candidate === null || !isDoorwayCmapGlyph(candidate)) {
+        continue;
+      }
+      if (getOpenDoorGlyphFrom(candidate) === candidate) {
+        continue;
+      }
+      return candidate;
+    }
+    return null;
+  }
+
+  private getFpsDoorTrimTransformFromMesh(
+    mesh: THREE.Mesh,
+    tileX: number,
+    tileY: number,
+  ): { scaleX: number; scaleY: number; offsetX: number; offsetY: number } | null {
+    if (!this.isFpsMode()) {
+      return null;
+    }
+    if (!mesh.userData?.isWall) {
+      return null;
+    }
+    const visualScale = this.tileVisualScaleFps;
+    const rawScaleX =
+      typeof mesh.scale?.x === "number" && Number.isFinite(mesh.scale.x)
+        ? mesh.scale.x
+        : visualScale;
+    const rawScaleY =
+      typeof mesh.scale?.y === "number" && Number.isFinite(mesh.scale.y)
+        ? mesh.scale.y
+        : visualScale;
+    const safeScaleX = Math.abs(visualScale) > 0.0001 ? rawScaleX / visualScale : 1;
+    const safeScaleY = Math.abs(visualScale) > 0.0001 ? rawScaleY / visualScale : 1;
+    const offsetX = mesh.position.x - tileX * TILE_SIZE;
+    const offsetY = mesh.position.y + tileY * TILE_SIZE;
+    if (safeScaleX >= 0.9999 && safeScaleY >= 0.9999) {
+      return null;
+    }
+    return {
+      scaleX: safeScaleX,
+      scaleY: safeScaleY,
+      offsetX,
+      offsetY,
+    };
+  }
+
+  private isWallTileBlockingFloorAmbientOcclusionEdge(
+    tileX: number,
+    tileY: number,
+    edgeDirectionFromCenter: "north" | "east" | "south" | "west",
+  ): boolean {
+    const neighbor = this.tileMap.get(`${tileX},${tileY}`);
+    if (!neighbor?.userData?.isWall) {
+      return false;
+    }
+    if (!this.isFpsMode()) {
+      return true;
+    }
+
+    const closedDoorGlyph = this.getClosedDoorGlyphFromMesh(neighbor);
+    if (closedDoorGlyph === null) {
+      return true;
+    }
+
+    const transform = this.getFpsClosedDoorChamferTransform(
+      tileX,
+      tileY,
+      closedDoorGlyph,
+    );
+    const hasTrim = transform.scaleX < 0.9999 || transform.scaleY < 0.9999;
+    if (!hasTrim) {
+      return true;
+    }
+
+    const half = TILE_SIZE / 2;
+    const epsilon = TILE_SIZE * 0.005;
+    const minX = -half * transform.scaleX + transform.offsetX;
+    const maxX = half * transform.scaleX + transform.offsetX;
+    const minY = -half * transform.scaleY + transform.offsetY;
+    const maxY = half * transform.scaleY + transform.offsetY;
+    if (edgeDirectionFromCenter === "north") {
+      // Neighbor is north of center, so center-adjacent side is neighbor south (minY).
+      return minY <= -half + epsilon;
+    }
+    if (edgeDirectionFromCenter === "south") {
+      // Neighbor is south of center, so center-adjacent side is neighbor north (maxY).
+      return maxY >= half - epsilon;
+    }
+    if (edgeDirectionFromCenter === "east") {
+      // Neighbor is east of center, so center-adjacent side is neighbor west (minX).
+      return minX <= -half + epsilon;
+    }
+    // Neighbor is west of center, so center-adjacent side is neighbor east (maxX).
+    return maxX >= half - epsilon;
+  }
+
   private getWallChamferMaskAt(tileX: number, tileY: number): number {
     const mesh = this.tileMap.get(`${tileX},${tileY}`);
     if (!mesh?.userData?.isWall) {
@@ -14797,10 +14977,26 @@ class Nethack3DEngine implements Nethack3DEngineController {
   } {
     let edgeMask = 0;
     // Bit layout: 1 = north, 2 = east, 4 = south, 8 = west.
-    const hasNorth = this.isWallTileAt(tileX, tileY - 1);
-    const hasEast = this.isWallTileAt(tileX + 1, tileY);
-    const hasSouth = this.isWallTileAt(tileX, tileY + 1);
-    const hasWest = this.isWallTileAt(tileX - 1, tileY);
+    const hasNorth = this.isWallTileBlockingFloorAmbientOcclusionEdge(
+      tileX,
+      tileY - 1,
+      "north",
+    );
+    const hasEast = this.isWallTileBlockingFloorAmbientOcclusionEdge(
+      tileX + 1,
+      tileY,
+      "east",
+    );
+    const hasSouth = this.isWallTileBlockingFloorAmbientOcclusionEdge(
+      tileX,
+      tileY + 1,
+      "south",
+    );
+    const hasWest = this.isWallTileBlockingFloorAmbientOcclusionEdge(
+      tileX - 1,
+      tileY,
+      "west",
+    );
     if (hasNorth) {
       edgeMask |= 1;
     }
@@ -14926,6 +15122,150 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     return { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask };
+  }
+
+  private computeTrimmedDoorUnderlayAmbientOcclusionMasks(
+    tileX: number,
+    tileY: number,
+    doorTransform: {
+      scaleX: number;
+      scaleY: number;
+      offsetX: number;
+      offsetY: number;
+    },
+  ): {
+    edgeMask: number;
+    cornerMask: number;
+    edgeCutMask: number;
+    edgeTerminalMask: number;
+  } {
+    let edgeMask = 0;
+    let edgeCutMask = 0;
+    let edgeTerminalMask = 0;
+
+    const trimmedAlongX = doorTransform.scaleX < 0.9999;
+    const trimmedAlongY = doorTransform.scaleY < 0.9999;
+
+    if (trimmedAlongX) {
+      const hasEast = this.isWallTileAt(tileX + 1, tileY);
+      const hasWest = this.isWallTileAt(tileX - 1, tileY);
+      if (hasEast) {
+        edgeMask |= 2;
+      }
+      if (hasWest) {
+        edgeMask |= 8;
+      }
+      const eastChamferMask = hasEast
+        ? this.getWallChamferMaskAt(tileX + 1, tileY)
+        : 0;
+      const westChamferMask = hasWest
+        ? this.getWallChamferMaskAt(tileX - 1, tileY)
+        : 0;
+      if (eastChamferMask & 1) {
+        edgeCutMask |= 4;
+      }
+      if (eastChamferMask & 8) {
+        edgeCutMask |= 8;
+      }
+      if (westChamferMask & 4) {
+        edgeCutMask |= 64;
+      }
+      if (westChamferMask & 2) {
+        edgeCutMask |= 128;
+      }
+      if (
+        hasEast &&
+        !this.isWallTileAt(tileX + 1, tileY - 1) &&
+        (edgeCutMask & 4) === 0
+      ) {
+        edgeTerminalMask |= 4;
+      }
+      if (
+        hasEast &&
+        !this.isWallTileAt(tileX + 1, tileY + 1) &&
+        (edgeCutMask & 8) === 0
+      ) {
+        edgeTerminalMask |= 8;
+      }
+      if (
+        hasWest &&
+        !this.isWallTileAt(tileX - 1, tileY + 1) &&
+        (edgeCutMask & 64) === 0
+      ) {
+        edgeTerminalMask |= 64;
+      }
+      if (
+        hasWest &&
+        !this.isWallTileAt(tileX - 1, tileY - 1) &&
+        (edgeCutMask & 128) === 0
+      ) {
+        edgeTerminalMask |= 128;
+      }
+    }
+
+    if (trimmedAlongY) {
+      const hasNorth = this.isWallTileAt(tileX, tileY - 1);
+      const hasSouth = this.isWallTileAt(tileX, tileY + 1);
+      if (hasNorth) {
+        edgeMask |= 1;
+      }
+      if (hasSouth) {
+        edgeMask |= 4;
+      }
+      const northChamferMask = hasNorth
+        ? this.getWallChamferMaskAt(tileX, tileY - 1)
+        : 0;
+      const southChamferMask = hasSouth
+        ? this.getWallChamferMaskAt(tileX, tileY + 1)
+        : 0;
+      if (northChamferMask & 8) {
+        edgeCutMask |= 1;
+      }
+      if (northChamferMask & 4) {
+        edgeCutMask |= 2;
+      }
+      if (southChamferMask & 2) {
+        edgeCutMask |= 16;
+      }
+      if (southChamferMask & 1) {
+        edgeCutMask |= 32;
+      }
+      if (
+        hasNorth &&
+        !this.isWallTileAt(tileX - 1, tileY - 1) &&
+        (edgeCutMask & 1) === 0
+      ) {
+        edgeTerminalMask |= 1;
+      }
+      if (
+        hasNorth &&
+        !this.isWallTileAt(tileX + 1, tileY - 1) &&
+        (edgeCutMask & 2) === 0
+      ) {
+        edgeTerminalMask |= 2;
+      }
+      if (
+        hasSouth &&
+        !this.isWallTileAt(tileX + 1, tileY + 1) &&
+        (edgeCutMask & 16) === 0
+      ) {
+        edgeTerminalMask |= 16;
+      }
+      if (
+        hasSouth &&
+        !this.isWallTileAt(tileX - 1, tileY + 1) &&
+        (edgeCutMask & 32) === 0
+      ) {
+        edgeTerminalMask |= 32;
+      }
+    }
+
+    return {
+      edgeMask,
+      cornerMask: 0,
+      edgeCutMask,
+      edgeTerminalMask,
+    };
   }
 
   private createFloorBlockAmbientOcclusionTexture(
@@ -15288,7 +15628,17 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
       return;
     }
-    if (mesh.userData?.isWall) {
+    const closedDoorGlyph = this.getClosedDoorGlyphFromMesh(mesh);
+    const doorTransform =
+      closedDoorGlyph !== null
+        ? this.getFpsClosedDoorChamferTransform(tileX, tileY, closedDoorGlyph)
+        : null;
+    const hasTrimmedDoorFloorUnderlay =
+      this.isFpsMode() &&
+      Boolean(mesh.userData?.transparentWallGroundPlaneOverlay) &&
+      doorTransform !== null &&
+      (doorTransform.scaleX < 0.9999 || doorTransform.scaleY < 0.9999);
+    if (mesh.userData?.isWall && !hasTrimmedDoorFloorUnderlay) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
       return;
     }
@@ -15332,12 +15682,22 @@ class Nethack3DEngine implements Nethack3DEngineController {
       overlay.material.needsUpdate = true;
     }
 
-    overlay.position.set(
-      mesh.position.x,
-      mesh.position.y,
-      mesh.position.z + this.floorBlockAmbientOcclusionOverlayZ,
-    );
-    overlay.scale.copy(mesh.scale);
+    if (hasTrimmedDoorFloorUnderlay) {
+      const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
+      overlay.position.set(
+        tileX * TILE_SIZE,
+        -tileY * TILE_SIZE,
+        this.floorBlockAmbientOcclusionOverlayZ,
+      );
+      overlay.scale.set(visualScale, visualScale, 1);
+    } else {
+      overlay.position.set(
+        mesh.position.x,
+        mesh.position.y,
+        mesh.position.z + this.floorBlockAmbientOcclusionOverlayZ,
+      );
+      overlay.scale.copy(mesh.scale);
+    }
   }
 
   private refreshFloorBlockAmbientOcclusionNear(
@@ -15679,10 +16039,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.isFpsMode()) {
       return identity;
     }
-    if (sourceGlyph === null || !isDoorwayCmapGlyph(sourceGlyph)) {
-      return identity;
-    }
-    if (getOpenDoorGlyphFrom(sourceGlyph) === sourceGlyph) {
+    if (
+      sourceGlyph !== null &&
+      isDoorwayCmapGlyph(sourceGlyph) &&
+      getOpenDoorGlyphFrom(sourceGlyph) === sourceGlyph
+    ) {
       // Open doors are rendered as floor tiles in FPS, so no wall-block trim.
       return identity;
     }
@@ -15693,46 +16054,53 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return identity;
     }
 
-    const family: VultureWallProjectionFamily = isVerticalDoorCmapGlyph(
-      sourceGlyph,
-    )
-      ? "ew"
-      : "sn";
-    let cutNegative = 0;
-    let cutPositive = 0;
+    const resolveNeighborMask = (x: number, y: number): number => {
+      if (!this.isSolidWallTileForFpsChamfer(x, y)) {
+        return 0;
+      }
+      const appliedMask = this.getWallChamferMaskAt(x, y);
+      if (appliedMask > 0) {
+        return appliedMask;
+      }
+      // Fallback for update-order cases where neighbors have not been refreshed yet.
+      return this.getFpsChamferMaskForSolidWallTile(x, y);
+    };
 
-    if (family === "ew") {
-      // Doorway direction runs along X; side walls are north/south.
-      const northMask = this.getFpsChamferMaskForSolidWallTile(tileX, tileY - 1);
-      const southMask = this.getFpsChamferMaskForSolidWallTile(tileX, tileY + 1);
-      if (northMask === 0 || southMask === 0) {
-        return identity;
-      }
-      const westCut = (northMask & 8) !== 0 || (southMask & 1) !== 0;
-      const eastCut = (northMask & 4) !== 0 || (southMask & 2) !== 0;
-      cutNegative = westCut ? inset : 0;
-      cutPositive = eastCut ? inset : 0;
-    } else {
-      // Doorway direction runs along Y; side walls are east/west.
-      const eastMask = this.getFpsChamferMaskForSolidWallTile(tileX + 1, tileY);
-      const westMask = this.getFpsChamferMaskForSolidWallTile(tileX - 1, tileY);
-      if (eastMask === 0 || westMask === 0) {
-        return identity;
-      }
-      const southCut = (eastMask & 8) !== 0 || (westMask & 4) !== 0;
-      const northCut = (eastMask & 1) !== 0 || (westMask & 2) !== 0;
-      cutNegative = southCut ? inset : 0;
-      cutPositive = northCut ? inset : 0;
+    const northMask = resolveNeighborMask(tileX, tileY - 1);
+    const southMask = resolveNeighborMask(tileX, tileY + 1);
+    const eastMask = resolveNeighborMask(tileX + 1, tileY);
+    const westMask = resolveNeighborMask(tileX - 1, tileY);
+
+    // X-axis trimming (west/east ends) driven by north/south side walls.
+    const cutWest = (northMask & 8) !== 0 || (southMask & 1) !== 0 ? inset : 0;
+    const cutEast = (northMask & 4) !== 0 || (southMask & 2) !== 0 ? inset : 0;
+    // Y-axis trimming (south/north ends) driven by east/west side walls.
+    const cutSouth = (eastMask & 8) !== 0 || (westMask & 4) !== 0 ? inset : 0;
+    const cutNorth = (eastMask & 1) !== 0 || (westMask & 2) !== 0 ? inset : 0;
+
+    const totalCutX = cutWest + cutEast;
+    const totalCutY = cutSouth + cutNorth;
+    if (totalCutX <= 0 && totalCutY <= 0) {
+      return identity;
     }
 
+    const useXAxis =
+      totalCutX > totalCutY
+        ? true
+        : totalCutY > totalCutX
+          ? false
+          : sourceGlyph !== null && isDoorwayCmapGlyph(sourceGlyph)
+            ? isVerticalDoorCmapGlyph(sourceGlyph)
+            : totalCutX > 0;
+    const cutNegative = useXAxis ? cutWest : cutSouth;
+    const cutPositive = useXAxis ? cutEast : cutNorth;
     const doorLength = TILE_SIZE - cutNegative - cutPositive;
     if (!(doorLength > 0) || doorLength >= TILE_SIZE - 0.0001) {
       return identity;
     }
-
     const alongScale = THREE.MathUtils.clamp(doorLength / TILE_SIZE, 0.01, 1);
     const alongOffset = (cutNegative - cutPositive) / 2;
-    return family === "ew"
+    return useXAxis
       ? {
           scaleX: alongScale,
           scaleY: 1,
@@ -15745,6 +16113,55 @@ class Nethack3DEngine implements Nethack3DEngineController {
           offsetX: 0,
           offsetY: alongOffset,
         };
+  }
+
+  private applyFpsClosedDoorChamferTransformAt(tileX: number, tileY: number): void {
+    const mesh = this.tileMap.get(`${tileX},${tileY}`);
+    if (!mesh || !mesh.userData?.isWall) {
+      return;
+    }
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const runtimeSourceGlyph =
+      typeof mesh.userData?.sourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.sourceGlyph)
+        ? Math.trunc(mesh.userData.sourceGlyph)
+        : null;
+    const textureSourceGlyph =
+      typeof mesh.userData?.tileTextureSourceGlyph === "number" &&
+      Number.isFinite(mesh.userData.tileTextureSourceGlyph)
+        ? Math.trunc(mesh.userData.tileTextureSourceGlyph)
+        : null;
+    const sourceGlyph =
+      runtimeSourceGlyph !== null && isDoorwayCmapGlyph(runtimeSourceGlyph)
+        ? runtimeSourceGlyph
+        : textureSourceGlyph !== null && isDoorwayCmapGlyph(textureSourceGlyph)
+          ? textureSourceGlyph
+          : runtimeSourceGlyph;
+    if (
+      sourceGlyph === null ||
+      !isDoorwayCmapGlyph(sourceGlyph) ||
+      getOpenDoorGlyphFrom(sourceGlyph) === sourceGlyph
+    ) {
+      return;
+    }
+    const visualScale = this.tileVisualScaleFps;
+    const transform = this.getFpsClosedDoorChamferTransform(
+      tileX,
+      tileY,
+      sourceGlyph,
+    );
+    mesh.position.set(
+      tileX * TILE_SIZE + transform.offsetX,
+      -tileY * TILE_SIZE + transform.offsetY,
+      mesh.position.z,
+    );
+    mesh.scale.set(
+      visualScale * transform.scaleX,
+      visualScale * transform.scaleY,
+      visualScale,
+    );
   }
 
   private shouldUseChamferedWallGeometry(): boolean {
@@ -16454,6 +16871,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     for (let dy = -1; dy <= 1; dy += 1) {
       for (let dx = -1; dx <= 1; dx += 1) {
         this.refreshFpsWallChamferGeometryAt(tileX + dx, tileY + dy);
+      }
+    }
+    // Door trims depend on neighboring wall chamfer masks; re-apply after masks settle.
+    for (let dy = -2; dy <= 2; dy += 1) {
+      for (let dx = -2; dx <= 2; dx += 1) {
+        this.applyFpsClosedDoorChamferTransformAt(tileX + dx, tileY + dy);
       }
     }
   }
@@ -18805,13 +19228,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
     mesh.userData.fpsWallChamferMaterialKind = wallChamferMaterialKind;
     mesh.userData.fpsWallChamferRotateUv = wallChamferRotateUv;
     const visualScale = this.isFpsMode() ? this.tileVisualScaleFps : 1;
+    const isClosedDoorWallFromGlyph =
+      typeof glyph === "number" &&
+      Number.isFinite(glyph) &&
+      isDoorwayCmapGlyph(Math.trunc(glyph)) &&
+      getOpenDoorGlyphFrom(Math.trunc(glyph)) !== Math.trunc(glyph);
+    const shouldApplyFpsClosedDoorChamferTrim =
+      renderBehavior.isWall &&
+      (renderBehavior.materialKind === "door" || isClosedDoorWallFromGlyph);
+    const closedDoorSourceGlyph =
+      typeof glyph === "number" && Number.isFinite(glyph)
+        ? Math.trunc(glyph)
+        : null;
     const fpsClosedDoorChamferTransform =
-      renderBehavior.isWall && renderBehavior.materialKind === "door"
-        ? this.getFpsClosedDoorChamferTransform(
-            x,
-            y,
-            renderBehavior.effective.glyph,
-          )
+      shouldApplyFpsClosedDoorChamferTrim
+        ? this.getFpsClosedDoorChamferTransform(x, y, closedDoorSourceGlyph)
         : {
             scaleX: 1,
             scaleY: 1,
@@ -18844,13 +19275,23 @@ class Nethack3DEngine implements Nethack3DEngineController {
       inferredDarkWallSolidColorGridEnabled,
       inferredDarkWallSolidColorGridDarknessPercent,
     );
+    const hasFpsClosedDoorChamferTrim =
+      this.isFpsMode() &&
+      (fpsClosedDoorChamferTransform.scaleX < 0.9999 ||
+        fpsClosedDoorChamferTransform.scaleY < 0.9999);
+    const shouldRenderClosedDoorChamferExposedFloor =
+      useTiles && hasFpsClosedDoorChamferTrim;
     const shouldRenderTransparentWallGroundPlane =
       useTiles &&
-      !this.shouldUseVultureTiles() &&
       renderBehavior.isWall &&
-      this.shouldUseTransparentWallGroundPlaneUnderlay(renderBehavior);
+      ((!this.shouldUseVultureTiles() &&
+        this.shouldUseTransparentWallGroundPlaneUnderlay(renderBehavior)) ||
+        shouldRenderClosedDoorChamferExposedFloor);
     if (shouldRenderTransparentWallGroundPlane) {
-      const floorUnderlayBehavior = this.resolveRaisedSpecialTileFloorBehavior();
+      const floorUnderlayBehavior = shouldRenderClosedDoorChamferExposedFloor
+        ? this.resolveNormalRoomFloorBehavior()
+        : this.resolveRaisedSpecialTileFloorBehavior();
+      const floorUnderlayDarkenFactor = renderBehavior.darkenFactor;
       const overlayOpacity =
         this.glyphOverlayMap.get(key)?.material.opacity ?? 1;
       this.applyTransparentWallGroundPlaneOverlay(
@@ -18861,9 +19302,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
           ? Math.trunc(floorUnderlayBehavior.effective.tileIndex)
           : -1,
         floorUnderlayBehavior.materialKind,
-        renderBehavior.darkenFactor,
+        floorUnderlayDarkenFactor,
         overlayOpacity,
       );
+      if (shouldRenderClosedDoorChamferExposedFloor) {
+        this.setTransparentWallGroundPlaneOverlayOpaqueMode(mesh, true);
+        this.alignTransparentWallGroundPlaneOverlayToTile(
+          mesh,
+          fpsClosedDoorChamferTransform.offsetX,
+          fpsClosedDoorChamferTransform.offsetY,
+          fpsClosedDoorChamferTransform.scaleX,
+          fpsClosedDoorChamferTransform.scaleY,
+        );
+      } else {
+        this.setTransparentWallGroundPlaneOverlayOpaqueMode(mesh, false);
+      }
     } else {
       this.disposeTransparentWallGroundPlaneOverlay(mesh);
     }
