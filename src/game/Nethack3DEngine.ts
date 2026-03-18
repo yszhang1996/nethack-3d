@@ -548,6 +548,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   > = new Map();
   private floorBlockAmbientOcclusionOverlays: Map<string, THREE.Mesh> =
     new Map();
+  private trimmedDoorInsetAmbientOcclusionOverlays: Map<string, THREE.Group> =
+    new Map();
   private readonly floorBlockAmbientOcclusionOverlayZ: number = 0.014;
   private fpsWallChamferFloorAmbientOcclusionOverlays: Map<string, THREE.Mesh> =
     new Map();
@@ -14984,26 +14986,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return maxX >= half - epsilon;
   }
 
-  private isOrthogonalEdgeToSingleAxisDoorTrim(
-    transform: {
-      scaleX: number;
-      scaleY: number;
-      offsetX: number;
-      offsetY: number;
-    },
-    edgeDirectionFromCenter: "north" | "east" | "south" | "west",
-  ): boolean {
-    const trimmedAlongX = transform.scaleX < 0.9999;
-    const trimmedAlongY = transform.scaleY < 0.9999;
-    if (trimmedAlongX && !trimmedAlongY) {
-      return edgeDirectionFromCenter === "north" || edgeDirectionFromCenter === "south";
-    }
-    if (trimmedAlongY && !trimmedAlongX) {
-      return edgeDirectionFromCenter === "east" || edgeDirectionFromCenter === "west";
-    }
-    return false;
-  }
-
   private isWallTileBlockingFloorAmbientOcclusionEdge(
     tileX: number,
     tileY: number,
@@ -15017,24 +14999,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return true;
     }
 
-    const hasInsetDoorwayFloor =
-      Boolean(neighbor.userData?.transparentWallGroundPlaneOverlay) &&
-      Boolean(neighbor.userData?.isWall);
     const appliedTransform = this.getFpsDoorTrimTransformFromMesh(
       neighbor,
       tileX,
       tileY,
     );
     if (appliedTransform) {
-      if (
-        hasInsetDoorwayFloor &&
-        this.isOrthogonalEdgeToSingleAxisDoorTrim(
-          appliedTransform,
-          edgeDirectionFromCenter,
-        )
-      ) {
-        return false;
-      }
       return this.isTrimmedDoorTransformBlockingFloorAmbientOcclusionEdge(
         appliedTransform,
         edgeDirectionFromCenter,
@@ -15055,15 +15025,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileY,
       closedDoorGlyph,
     );
-    if (
-      hasInsetDoorwayFloor &&
-      this.isOrthogonalEdgeToSingleAxisDoorTrim(
-        transform,
-        edgeDirectionFromCenter,
-      )
-    ) {
-      return false;
-    }
     return this.isTrimmedDoorTransformBlockingFloorAmbientOcclusionEdge(
       transform,
       edgeDirectionFromCenter,
@@ -15736,6 +15697,138 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.floorBlockAmbientOcclusionOverlays.delete(key);
   }
 
+  private removeTrimmedDoorInsetAmbientOcclusionOverlay(key: string): void {
+    const overlayGroup = this.trimmedDoorInsetAmbientOcclusionOverlays.get(key);
+    if (!overlayGroup) {
+      return;
+    }
+    this.scene.remove(overlayGroup);
+    for (const child of overlayGroup.children) {
+      if (
+        child instanceof THREE.Mesh &&
+        child.material instanceof THREE.MeshBasicMaterial
+      ) {
+        child.material.dispose();
+      }
+    }
+    this.trimmedDoorInsetAmbientOcclusionOverlays.delete(key);
+  }
+
+  private refreshTrimmedDoorInsetAmbientOcclusionAt(
+    tileX: number,
+    tileY: number,
+    doorTransform: {
+      scaleX: number;
+      scaleY: number;
+      offsetX: number;
+      offsetY: number;
+    },
+  ): void {
+    const key = `${tileX},${tileY}`;
+    const half = TILE_SIZE / 2;
+    const epsilon = TILE_SIZE * 0.005;
+    const minX = -half * doorTransform.scaleX + doorTransform.offsetX;
+    const maxX = half * doorTransform.scaleX + doorTransform.offsetX;
+    const minY = -half * doorTransform.scaleY + doorTransform.offsetY;
+    const maxY = half * doorTransform.scaleY + doorTransform.offsetY;
+    const strips: Array<{
+      centerX: number;
+      centerY: number;
+      width: number;
+      height: number;
+      edgeMask: number;
+    }> = [];
+
+    const westWidth = minX + half;
+    if (westWidth > epsilon) {
+      strips.push({
+        centerX: (-half + minX) / 2,
+        centerY: 0,
+        width: westWidth,
+        height: TILE_SIZE,
+        edgeMask: 2,
+      });
+    }
+    const eastWidth = half - maxX;
+    if (eastWidth > epsilon) {
+      strips.push({
+        centerX: (maxX + half) / 2,
+        centerY: 0,
+        width: eastWidth,
+        height: TILE_SIZE,
+        edgeMask: 8,
+      });
+    }
+    const southHeight = minY + half;
+    if (southHeight > epsilon) {
+      strips.push({
+        centerX: 0,
+        centerY: (-half + minY) / 2,
+        width: TILE_SIZE,
+        height: southHeight,
+        edgeMask: 1,
+      });
+    }
+    const northHeight = half - maxY;
+    if (northHeight > epsilon) {
+      strips.push({
+        centerX: 0,
+        centerY: (maxY + half) / 2,
+        width: TILE_SIZE,
+        height: northHeight,
+        edgeMask: 4,
+      });
+    }
+
+    if (strips.length === 0) {
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
+      return;
+    }
+
+    let overlayGroup = this.trimmedDoorInsetAmbientOcclusionOverlays.get(key);
+    if (!overlayGroup) {
+      overlayGroup = new THREE.Group();
+      this.scene.add(overlayGroup);
+      this.trimmedDoorInsetAmbientOcclusionOverlays.set(key, overlayGroup);
+    } else {
+      for (const child of overlayGroup.children) {
+        if (
+          child instanceof THREE.Mesh &&
+          child.material instanceof THREE.MeshBasicMaterial
+        ) {
+          child.material.dispose();
+        }
+      }
+      overlayGroup.clear();
+    }
+
+    for (const strip of strips) {
+      const texture = this.getFloorBlockAmbientOcclusionTexture(
+        strip.edgeMask,
+        0,
+        0,
+        0,
+      );
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+      });
+      this.patchMaterialForVignette(material);
+      const overlay = new THREE.Mesh(this.floorGeometry, material);
+      overlay.castShadow = false;
+      overlay.receiveShadow = false;
+      overlay.renderOrder = 113;
+      overlay.position.set(
+        tileX * TILE_SIZE + strip.centerX,
+        -tileY * TILE_SIZE + strip.centerY,
+        this.floorBlockAmbientOcclusionOverlayZ + TILE_SIZE * 0.001,
+      );
+      overlay.scale.set(strip.width / TILE_SIZE, strip.height / TILE_SIZE, 1);
+      overlayGroup.add(overlay);
+    }
+  }
+
   private refreshFloorBlockAmbientOcclusionAt(
     tileX: number,
     tileY: number,
@@ -15744,6 +15837,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const mesh = this.tileMap.get(key);
     if (!mesh || this.clientOptions.blockAmbientOcclusion !== true) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
       return;
     }
     const closedDoorGlyph = this.getClosedDoorGlyphFromMesh(mesh);
@@ -15758,62 +15852,68 @@ class Nethack3DEngine implements Nethack3DEngineController {
       (doorTransform.scaleX < 0.9999 || doorTransform.scaleY < 0.9999);
     if (mesh.userData?.isWall && !hasTrimmedDoorFloorUnderlay) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
       return;
     }
-    const materialKind =
-      typeof mesh.userData?.materialKind === "string"
-        ? (mesh.userData.materialKind as TileMaterialKind)
-        : null;
 
     const { edgeMask, cornerMask, edgeCutMask, edgeTerminalMask } =
       this.computeFloorBlockAmbientOcclusionMasks(tileX, tileY);
     if (edgeMask === 0 && cornerMask === 0) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
-      return;
-    }
-
-    const texture = this.getFloorBlockAmbientOcclusionTexture(
-      edgeMask,
-      cornerMask,
-      edgeCutMask,
-      edgeTerminalMask,
-    );
-    let overlay = this.floorBlockAmbientOcclusionOverlays.get(key);
-    if (!overlay) {
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        transparent: true,
-        depthWrite: false,
-      });
-      this.patchMaterialForVignette(material);
-      overlay = new THREE.Mesh(this.floorGeometry, material);
-      overlay.castShadow = false;
-      overlay.receiveShadow = false;
-      overlay.renderOrder = 112;
-      this.scene.add(overlay);
-      this.floorBlockAmbientOcclusionOverlays.set(key, overlay);
-    } else if (
-      overlay.material instanceof THREE.MeshBasicMaterial &&
-      overlay.material.map !== texture
-    ) {
-      overlay.material.map = texture;
-      overlay.material.needsUpdate = true;
-    }
-
-    if (hasTrimmedDoorFloorUnderlay) {
-      overlay.position.set(
-        tileX * TILE_SIZE,
-        -tileY * TILE_SIZE,
-        this.floorBlockAmbientOcclusionOverlayZ,
-      );
-      overlay.scale.set(1, 1, 1);
     } else {
-      overlay.position.set(
-        mesh.position.x,
-        mesh.position.y,
-        mesh.position.z + this.floorBlockAmbientOcclusionOverlayZ,
+      const texture = this.getFloorBlockAmbientOcclusionTexture(
+        edgeMask,
+        cornerMask,
+        edgeCutMask,
+        edgeTerminalMask,
       );
-      overlay.scale.copy(mesh.scale);
+      let overlay = this.floorBlockAmbientOcclusionOverlays.get(key);
+      if (!overlay) {
+        const material = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          depthWrite: false,
+        });
+        this.patchMaterialForVignette(material);
+        overlay = new THREE.Mesh(this.floorGeometry, material);
+        overlay.castShadow = false;
+        overlay.receiveShadow = false;
+        overlay.renderOrder = 112;
+        this.scene.add(overlay);
+        this.floorBlockAmbientOcclusionOverlays.set(key, overlay);
+      } else if (
+        overlay.material instanceof THREE.MeshBasicMaterial &&
+        overlay.material.map !== texture
+      ) {
+        overlay.material.map = texture;
+        overlay.material.needsUpdate = true;
+      }
+
+      if (hasTrimmedDoorFloorUnderlay) {
+        overlay.position.set(
+          tileX * TILE_SIZE,
+          -tileY * TILE_SIZE,
+          this.floorBlockAmbientOcclusionOverlayZ,
+        );
+        overlay.scale.set(1, 1, 1);
+      } else {
+        overlay.position.set(
+          mesh.position.x,
+          mesh.position.y,
+          mesh.position.z + this.floorBlockAmbientOcclusionOverlayZ,
+        );
+        overlay.scale.copy(mesh.scale);
+      }
+    }
+
+    if (hasTrimmedDoorFloorUnderlay && doorTransform) {
+      this.refreshTrimmedDoorInsetAmbientOcclusionAt(
+        tileX,
+        tileY,
+        doorTransform,
+      );
+    } else {
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
     }
   }
 
@@ -15930,6 +16030,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.removeFloorBlockAmbientOcclusionOverlay(key);
       }
       for (const key of Array.from(
+        this.trimmedDoorInsetAmbientOcclusionOverlays.keys(),
+      )) {
+        this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
+      }
+      for (const key of Array.from(
         this.fpsWallChamferFloorAmbientOcclusionOverlays.keys(),
       )) {
         this.removeFpsWallChamferFloorAmbientOcclusionOverlay(key);
@@ -15966,6 +16071,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.floorBlockAmbientOcclusionOverlays.keys(),
     )) {
       this.removeFloorBlockAmbientOcclusionOverlay(key);
+    }
+    for (const key of Array.from(
+      this.trimmedDoorInsetAmbientOcclusionOverlays.keys(),
+    )) {
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
     }
     for (const key of Array.from(
       this.fpsWallChamferFloorAmbientOcclusionOverlays.keys(),
@@ -16318,6 +16428,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
         transform.scaleY,
       );
     }
+
+    // Door trims are applied after nearby wall/chamfer masks settle, so refresh
+    // AO now to ensure neighbors sample the final inset footprint.
+    this.refreshFloorBlockAmbientOcclusionNear(tileX, tileY);
+    this.refreshFpsWallChamferFloorAmbientOcclusionNear(tileX, tileY);
   }
 
   private shouldUseChamferedWallGeometry(): boolean {
@@ -18985,6 +19100,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.tileMap.delete(key);
       }
       this.removeFloorBlockAmbientOcclusionOverlay(key);
+      this.removeTrimmedDoorInsetAmbientOcclusionOverlay(key);
       this.fpsFlatFeatureUnderPlayerCache.delete(key);
       this.removeMonsterBillboard(key);
       this.activeEffectTileKeys.delete(key);
