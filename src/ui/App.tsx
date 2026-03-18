@@ -90,6 +90,7 @@ import { CastSpellMenu, parseCastSpellMenu } from "./modals/cast-menu";
 import { useConfirmationDialog } from "./modals/useConfirmationDialog";
 import StartupInitOptionsAccordion from "./componenets/StartupInitOptionsAccordion";
 import ConfirmationModal from "./modals/ConfirmationModal";
+import AnimatedDialog from "./modals/AnimatedDialog";
 import {
   normalizeStartupCreateCharacterSelection,
   pickRandomStartupGenderForRole,
@@ -10325,106 +10326,100 @@ export default function App(): JSX.Element {
   ]);
 
   const renderPauseMenu = () => {
-    if (!isPauseMenuVisible) {
-      return null;
-    }
-
-    if (isExitConfirmationVisible) {
-      return (
-        <div
-          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
-          id="exit-confirmation-dialog"
-        >
-          <div className="nh3d-question-text">
-            Do you want to save before quitting?
-          </div>
-          <div className="nh3d-menu-actions">
-            <button
-              className="nh3d-menu-action-button nh3d-menu-action-confirm"
-              onClick={() => {
-                controller?.sendInput("S");
-                setTimeout(() => window.location.reload(), 1000);
-              }}
-              type="button"
-            >
-              Yes
-            </button>
-            <button
-              className="nh3d-menu-action-button"
-              onClick={() => {
-                window.location.reload();
-              }}
-              type="button"
-            >
-              No
-            </button>
-            <button
-              className="nh3d-menu-action-button nh3d-menu-action-cancel"
-              onClick={() => setIsExitConfirmationVisible(false)}
-              type="button"
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      );
-    }
-
     return (
-      <div
-        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions"
+        open={isPauseMenuVisible}
         id="pause-menu-dialog"
       >
-        <div className="nh3d-options-title">Game Paused</div>
-        <div className="nh3d-overflow-glow-frame">
-          <div
-            className="nh3d-choice-list"
-            data-nh3d-overflow-glow
-            data-nh3d-overflow-glow-host="parent"
-          >
-            <button
-              className="nh3d-choice-button"
-              onClick={() => setIsPauseMenuVisible(false)}
-              type="button"
-            >
-              Resume
-            </button>
-            <button
-              className="nh3d-choice-button"
-              onClick={openClientOptionsDialog}
-              type="button"
-            >
-              Options
-            </button>
-            <button
-              className="nh3d-choice-button"
-              onClick={() => {
-                controller?.sendInput("S");
-                setIsPauseMenuVisible(false);
-              }}
-              type="button"
-            >
-              Save game
-            </button>
-            <button
-              className="nh3d-choice-button"
-              onClick={() => setIsExitConfirmationVisible(true)}
-              type="button"
-            >
-              Exit to main menu
-            </button>
-            <button
-              className="nh3d-choice-button"
-              onClick={() => {
-                void requestGameQuit();
-              }}
-              type="button"
-            >
-              Quit Game
-            </button>
-          </div>
-        </div>
-      </div>
+        {isExitConfirmationVisible ? (
+          <>
+            <div className="nh3d-question-text">
+              Do you want to save before quitting?
+            </div>
+            <div className="nh3d-menu-actions">
+              <button
+                className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                onClick={() => {
+                  controller?.sendInput("S");
+                  setTimeout(() => window.location.reload(), 1000);
+                }}
+                type="button"
+              >
+                Yes
+              </button>
+              <button
+                className="nh3d-menu-action-button"
+                onClick={() => {
+                  window.location.reload();
+                }}
+                type="button"
+              >
+                No
+              </button>
+              <button
+                className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                onClick={() => setIsExitConfirmationVisible(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="nh3d-options-title">Game Paused</div>
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                className="nh3d-choice-list"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => setIsPauseMenuVisible(false)}
+                  type="button"
+                >
+                  Resume
+                </button>
+                <button
+                  className="nh3d-choice-button"
+                  onClick={openClientOptionsDialog}
+                  type="button"
+                >
+                  Options
+                </button>
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => {
+                    controller?.sendInput("S");
+                    setIsPauseMenuVisible(false);
+                  }}
+                  type="button"
+                >
+                  Save game
+                </button>
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => setIsExitConfirmationVisible(true)}
+                  type="button"
+                >
+                  Exit to main menu
+                </button>
+                <button
+                  className="nh3d-choice-button"
+                  onClick={() => {
+                    void requestGameQuit();
+                  }}
+                  type="button"
+                >
+                  Quit Game
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </AnimatedDialog>
     );
   };
 
@@ -10503,21 +10498,20 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {startupMenuVisible ? (
-        <>
-          <div
-            className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible startup${
-              startupInitOptionsExpanded &&
-              (startupFlowStep === "random" || startupFlowStep === "create")
-                ? " nh3d-startup-init-expanded"
-                : ""
-            }`}
-            id="character-setup-dialog"
-            onBlurCapture={handleStartupMainMenuBlurCapture}
-            onChangeCapture={handleStartupMainMenuChangeCapture}
-            onKeyDown={handleStartupMainMenuKeyDown}
-            onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
-          >
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup${
+          startupInitOptionsExpanded &&
+          (startupFlowStep === "random" || startupFlowStep === "create")
+            ? " nh3d-startup-init-expanded"
+            : ""
+        }`}
+        open={startupMenuVisible}
+        id="character-setup-dialog"
+        onBlurCapture={handleStartupMainMenuBlurCapture}
+        onChangeCapture={handleStartupMainMenuChangeCapture}
+        onKeyDown={handleStartupMainMenuKeyDown}
+        onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
+      >
             {startupFlowStep === "choose" ? (
               <>
                 <div className="nh3d-question-text">
@@ -10885,9 +10879,7 @@ export default function App(): JSX.Element {
                 </div>
               </>
             )}
-          </div>
-        </>
-      ) : null}
+      </AnimatedDialog>
 
       {loadingOverlayVisible && typeof document !== "undefined"
         ? createPortal(
@@ -11114,15 +11106,15 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {isClientOptionsVisible ? (
-        <div
-          className={`nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible`}
-          id="nh3d-client-options-dialog"
-          onBlurCapture={handleClientOptionsDialogBlurCapture}
-          onChangeCapture={handleClientOptionsDialogChangeCapture}
-          onKeyDown={handleClientOptionsDialogKeyDown}
-          onPointerDownCapture={handleClientOptionsDialogPointerDownCapture}
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close"
+        open={isClientOptionsVisible}
+        id="nh3d-client-options-dialog"
+        onBlurCapture={handleClientOptionsDialogBlurCapture}
+        onChangeCapture={handleClientOptionsDialogChangeCapture}
+        onKeyDown={handleClientOptionsDialogKeyDown}
+        onPointerDownCapture={handleClientOptionsDialogPointerDownCapture}
+      >
           {renderMobileDialogCloseButton(
             requestCloseClientOptionsDialog,
             "Close NetHack 3D options",
@@ -11651,14 +11643,13 @@ export default function App(): JSX.Element {
               Reset to Defaults
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
-      {isClientOptionsVisible && isResetClientOptionsConfirmationVisible ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
-          id="nh3d-reset-client-options-confirmation-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions"
+        open={isClientOptionsVisible && isResetClientOptionsConfirmationVisible}
+        id="nh3d-reset-client-options-confirmation-dialog"
+      >
           <div className="nh3d-question-text">
             Reset NetHack 3D options to defaults? Custom tile sets will be kept.
           </div>
@@ -11678,14 +11669,13 @@ export default function App(): JSX.Element {
               No
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
-      {isClientOptionsVisible && isControllerRemapVisible ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-dialog-controller-remap"
-          id="nh3d-controller-remap-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-controller-remap"
+        open={isClientOptionsVisible && isControllerRemapVisible}
+        id="nh3d-controller-remap-dialog"
+      >
           {renderMobileDialogCloseButton(
             closeControllerRemapDialog,
             "Close controller remap",
@@ -11816,14 +11806,13 @@ export default function App(): JSX.Element {
               Reset Controller Defaults
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
-      {isClientOptionsVisible && isTilesetManagerVisible ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-dialog-tileset-manager"
-          id="nh3d-tileset-manager-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-options nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-tileset-manager"
+        open={isClientOptionsVisible && isTilesetManagerVisible}
+        id="nh3d-tileset-manager-dialog"
+      >
           {renderMobileDialogCloseButton(
             closeTilesetManager,
             "Close tileset manager",
@@ -12168,8 +12157,7 @@ export default function App(): JSX.Element {
               Done
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
       <TilesetTilePickerDialog
         closeLabel="Close dark wall tile picker"
@@ -12268,11 +12256,13 @@ export default function App(): JSX.Element {
         }
       />
 
-      {textInputRequest ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-text nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible"
-          id="text-input-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-text nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close"
+        open={Boolean(textInputRequest)}
+        id="text-input-dialog"
+      >
+        {textInputRequest ? (
+          <>
           {renderMobileDialogCloseButton(
             () => submitTextInput(""),
             "Cancel text input",
@@ -12313,20 +12303,23 @@ export default function App(): JSX.Element {
               Cancel
             </button>
           </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </AnimatedDialog>
 
-      {question ? (
-        <div
-          className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible${
-            question.menuItems.length === 0 && isYesNoQuestionChoices
-              ? " nh3d-dialog-question-yes-no"
-              : ""
-          }${enhanceMenuData ? " nh3d-dialog-question-enhance" : ""}${
-            castMenuData ? " nh3d-dialog-question-cast" : ""
-          }`}
-          id="question-dialog"
-        >
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close${
+          question?.menuItems.length === 0 && isYesNoQuestionChoices
+            ? " nh3d-dialog-question-yes-no"
+            : ""
+        }${enhanceMenuData ? " nh3d-dialog-question-enhance" : ""}${
+          castMenuData ? " nh3d-dialog-question-cast" : ""
+        }`}
+        open={Boolean(question)}
+        id="question-dialog"
+      >
+        {question ? (
+          <>
           {renderMobileDialogCloseButton(
             () => controller?.cancelActivePrompt(),
             "Cancel prompt",
@@ -12613,7 +12606,7 @@ export default function App(): JSX.Element {
                     className={`nh3d-menu-action-button nh3d-menu-action-cancel${
                       question.activeActionButton === "cancel"
                         ? " nh3d-action-button-active"
-                        : ""
+                      : ""
                     }`}
                     onClick={() => controller?.cancelActivePrompt()}
                     type="button"
@@ -12853,15 +12846,16 @@ export default function App(): JSX.Element {
               ? "Use < and > to change pages. Press ESC to cancel"
               : "Press ESC to cancel"}
           </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </AnimatedDialog>
 
-      {newGamePrompt.visible && !infoMenu && !question ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game is-visible"
-          id="new-game-dialog"
-          onKeyDown={handleNewGamePromptKeyDown}
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game"
+        open={newGamePrompt.visible && !infoMenu && !question}
+        id="new-game-dialog"
+        onKeyDown={handleNewGamePromptKeyDown}
+      >
           {renderMobileDialogCloseButton(
             () => setNewGamePrompt({ visible: false, reason: null }),
             "Close new game prompt",
@@ -12885,14 +12879,15 @@ export default function App(): JSX.Element {
               No
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
-      {directionQuestion ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close is-visible"
-          id="direction-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-direction nh3d-dialog-direction-fps nh3d-dialog-has-mobile-close"
+        open={Boolean(directionQuestion)}
+        id="direction-dialog"
+      >
+        {directionQuestion ? (
+          <>
           {renderMobileDialogCloseButton(
             () => controller?.cancelActivePrompt(),
             "Cancel direction prompt",
@@ -12906,19 +12901,22 @@ export default function App(): JSX.Element {
                   clientOptions.controllerEnabled,
                 )}
           </div>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </AnimatedDialog>
 
-      {infoMenu ? (
-        <div
-          className={`nh3d-dialog ${
-            isCharacterSheetVisible
-              ? "nh3d-dialog-character"
-              : "nh3d-dialog-info"
-          } nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible nh3d-overflow-glow-frame`}
-          id={isCharacterSheetVisible ? "character-dialog" : "info-menu-dialog"}
-          onKeyDown={handleInfoMenuDialogKeyDown}
-        >
+      <AnimatedDialog
+        className={`nh3d-dialog ${
+          isCharacterSheetVisible
+            ? "nh3d-dialog-character"
+            : "nh3d-dialog-info"
+        } nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-overflow-glow-frame`}
+        open={Boolean(infoMenu)}
+        id={isCharacterSheetVisible ? "character-dialog" : "info-menu-dialog"}
+        onKeyDown={handleInfoMenuDialogKeyDown}
+      >
+        {infoMenu ? (
+          <>
           {renderMobileDialogCloseButton(
             closeInfoMenuDialog,
             isCharacterSheetVisible
@@ -13248,26 +13246,27 @@ export default function App(): JSX.Element {
                   type="button"
                 >
                   Close
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      ) : null}
+                  </button>
+                </div>
+              </>
+            )}
+          </>
+        ) : null}
+      </AnimatedDialog>
 
-      {inventory.visible ? (
-        <div
-          className={`nh3d-dialog nh3d-dialog-inventory nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close is-visible${
-            inventoryReducedMotionEnabled
-              ? " nh3d-dialog-inventory-reduced-motion"
-              : ""
-          }${inventoryAsciiModeEnabled ? " nh3d-dialog-inventory-ascii" : ""}${
-            inventoryTileOnlyMotionEnabled
-              ? " nh3d-dialog-inventory-tile-motion-only"
-              : ""
-          }`}
-          id="inventory-dialog"
-        >
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-dialog-inventory nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close${
+          inventoryReducedMotionEnabled
+            ? " nh3d-dialog-inventory-reduced-motion"
+            : ""
+        }${inventoryAsciiModeEnabled ? " nh3d-dialog-inventory-ascii" : ""}${
+          inventoryTileOnlyMotionEnabled
+            ? " nh3d-dialog-inventory-tile-motion-only"
+            : ""
+        }`}
+        open={inventory.visible}
+        id="inventory-dialog"
+      >
           {renderMobileDialogCloseButton(
             () => controller?.closeInventoryDialog(),
             "Close inventory",
@@ -13601,8 +13600,7 @@ export default function App(): JSX.Element {
               Close
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
       {inventoryContextMenu && inventoryContextActionsEnabled ? (
         <div
@@ -13746,14 +13744,14 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {isControllerActionWheelVisible ? (
-        <div
-          className={`nh3d-dialog is-visible nh3d-controller-action-wheel-dialog ${
-            controllerActionWheelMode === "quick" ? "is-quick" : "is-extended"
-          }`}
-          id="nh3d-controller-action-wheel-dialog"
-          ref={controllerActionWheelDialogRef}
-        >
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-controller-action-wheel-dialog ${
+          controllerActionWheelMode === "quick" ? "is-quick" : "is-extended"
+        }`}
+        open={isControllerActionWheelVisible}
+        id="nh3d-controller-action-wheel-dialog"
+        ref={controllerActionWheelDialogRef}
+      >
           {controllerActionWheelMode === "quick" ? (
             <div
               className="nh3d-controller-action-wheel-ring is-on"
@@ -13857,8 +13855,7 @@ export default function App(): JSX.Element {
               </div>
             </Fragment>
           )}
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
       {isMobileGameRunning && isMobileActionSheetVisible ? (
         <div className="nh3d-mobile-actions-sheet">
@@ -14222,11 +14219,11 @@ export default function App(): JSX.Element {
         </div>
       </div>
 
-      {isControllerSupportPromptVisible ? (
-        <div
-          className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions is-visible"
-          id="nh3d-controller-support-dialog"
-        >
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions"
+        open={isControllerSupportPromptVisible}
+        id="nh3d-controller-support-dialog"
+      >
           <div className="nh3d-question-text">
             Controller detected. Enable controller support?
           </div>
@@ -14246,8 +14243,7 @@ export default function App(): JSX.Element {
               No
             </button>
           </div>
-        </div>
-      ) : null}
+      </AnimatedDialog>
 
       <ConfirmationModal
         dialog={globalConfirmationDialog}
