@@ -1679,7 +1679,7 @@ canvas {
   }
 }
 
-#character-setup-dialog {
+.nh3d-character-setup-dialog {
   --nh3d-character-setup-control-width: min(320px, 100%);
   --nh3d-character-setup-control-height: 40px;
   --nh3d-startup-fixed-actions-reserve: 104px;
@@ -1925,7 +1925,7 @@ canvas {
 }
 
 @media not (pointer: coarse) {
-  #character-setup-dialog.nh3d-startup-init-expanded {
+  .nh3d-character-setup-dialog.nh3d-startup-init-expanded {
     --nh3d-startup-expanded-overflow-shift-y: min(
       0px,
       calc(
@@ -3957,7 +3957,7 @@ canvas {
   }
 }
 
-#character-setup-dialog .nh3d-choice-list-startup-choose {
+.nh3d-character-setup-dialog .nh3d-choice-list-startup-choose {
   max-height: none;
   overflow-y: visible;
   padding-bottom: 25px;

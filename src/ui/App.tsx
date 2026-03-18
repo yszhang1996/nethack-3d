@@ -6273,6 +6273,14 @@ export default function App(): JSX.Element {
       : "Starting local runtime...";
   const startupMenuVisible =
     startupUiVisible && characterCreationConfig === null;
+  const startupChooseDialogVisible =
+    startupMenuVisible && startupFlowStep === "choose";
+  const startupResumeDialogVisible =
+    startupMenuVisible && startupFlowStep === "resume";
+  const startupRandomDialogVisible =
+    startupMenuVisible && startupFlowStep === "random";
+  const startupCreateDialogVisible =
+    startupMenuVisible && startupFlowStep === "create";
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -10499,386 +10507,378 @@ export default function App(): JSX.Element {
       )}
 
       <AnimatedDialog
-        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup${
-          startupInitOptionsExpanded &&
-          (startupFlowStep === "random" || startupFlowStep === "create")
-            ? " nh3d-startup-init-expanded"
-            : ""
-        }`}
-        open={startupMenuVisible}
-        id="character-setup-dialog"
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
+        open={startupChooseDialogVisible}
+        id="character-setup-dialog-choose"
         onBlurCapture={handleStartupMainMenuBlurCapture}
         onChangeCapture={handleStartupMainMenuChangeCapture}
         onKeyDown={handleStartupMainMenuKeyDown}
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
-            {startupFlowStep === "choose" ? (
-              <>
-                <div className="nh3d-question-text">
-                  Choose your character setup:
-                </div>
-                <div className="nh3d-overflow-glow-frame">
+        <div className="nh3d-question-text">Choose your character setup:</div>
+        <div className="nh3d-overflow-glow-frame">
+          <div
+            className="nh3d-choice-list nh3d-choice-list-startup-choose"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+          >
+            <div className="nh3d-startup-config-grid centered">
+              <label className="nh3d-startup-config-field">
+                <span>NetHack Version</span>
+                <select
+                  className="nh3d-startup-config-select"
+                  onChange={(event) =>
+                    setRuntimeVersion(event.target.value as NethackRuntimeVersion)
+                  }
+                  value={runtimeVersion}
+                >
+                  <option value="3.6.7">3.6.x (3.6.7)</option>
+                  {import.meta.env.DEV && <option value="3.7">3.7</option>}
+                </select>
+              </label>
+            </div>
+            <button
+              className="nh3d-choice-button nh3d-character-setup-choice-button"
+              onClick={() => setStartupFlowStep("random")}
+              type="button"
+            >
+              Random character
+            </button>
+            <button
+              className="nh3d-choice-button nh3d-character-setup-choice-button"
+              onClick={() => setStartupFlowStep("create")}
+              type="button"
+            >
+              Create character
+            </button>
+            <button
+              className="nh3d-choice-button nh3d-character-setup-choice-button"
+              onClick={handleResumeClick}
+              type="button"
+            >
+              Load game
+            </button>
+            <button
+              className="nh3d-choice-button nh3d-character-setup-choice-button"
+              onClick={openClientOptionsDialog}
+              type="button"
+            >
+              NetHack 3D Options
+            </button>
+            <button
+              className="nh3d-choice-button nh3d-character-setup-choice-button"
+              onClick={() => {
+                void requestGameQuit();
+              }}
+              type="button"
+            >
+              Quit Game
+            </button>
+          </div>
+        </div>
+      </AnimatedDialog>
+
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
+        open={startupResumeDialogVisible}
+        id="character-setup-dialog-resume"
+        onBlurCapture={handleStartupMainMenuBlurCapture}
+        onChangeCapture={handleStartupMainMenuChangeCapture}
+        onKeyDown={handleStartupMainMenuKeyDown}
+        onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
+      >
+        <div className="nh3d-question-text">Select a saved game:</div>
+        <div className="nh3d-overflow-glow-frame">
+          <div
+            className="nh3d-choice-list"
+            data-nh3d-overflow-glow
+            data-nh3d-overflow-glow-host="parent"
+            style={{ width: "100%" }}
+          >
+            {isLoadingSaves ? (
+              <div
+                style={{
+                  padding: "20px",
+                  color: "var(--nh3d-ui-text-muted)",
+                }}
+              >
+                Loading saves...
+              </div>
+            ) : savedGames.length > 0 ? (
+              savedGames.map((save) => (
+                <button
+                  key={save.name}
+                  className="nh3d-choice-button nh3d-character-setup-choice-button"
+                  style={{
+                    flexDirection: "column",
+                    alignItems: "flex-start",
+                    padding: "12px",
+                    width: "100%",
+                  }}
+                  onClick={() => {
+                    setCharacterCreationConfig({
+                      mode: "resume" as any,
+                      playMode: clientOptions.fpsMode ? "fps" : "normal",
+                      runtimeVersion,
+                      name: save.name,
+                    });
+                  }}
+                  type="button"
+                >
                   <div
-                    className="nh3d-choice-list nh3d-choice-list-startup-choose"
-                    data-nh3d-overflow-glow
-                    data-nh3d-overflow-glow-host="parent"
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      width: "100%",
+                      alignItems: "center",
+                    }}
                   >
-                    <div className="nh3d-startup-config-grid centered">
-                      <label className="nh3d-startup-config-field">
-                        <span>NetHack Version</span>
-                        <select
-                          className="nh3d-startup-config-select"
-                          onChange={(event) =>
-                            setRuntimeVersion(
-                              event.target.value as NethackRuntimeVersion,
-                            )
-                          }
-                          value={runtimeVersion}
-                        >
-                          <option value="3.6.7">3.6.x (3.6.7)</option>
-                          {import.meta.env.DEV && (
-                            <option value="3.7">3.7</option>
-                          )}
-                        </select>
-                      </label>
+                    <div style={{ flex: 1 }}>
+                      <div
+                        style={{
+                          fontWeight: "bold",
+                          fontSize: "calc(16px * var(--nh3d-ui-font-scale, 1))",
+                        }}
+                      >
+                        {save.name}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: "calc(12px * var(--nh3d-ui-font-scale, 1))",
+                          color: "var(--nh3d-ui-text-muted)",
+                          marginTop: "4px",
+                          fontWeight: "normal",
+                        }}
+                      >
+                        Saved: {save.dateFormatted}
+                      </div>
                     </div>
                     <button
-                      className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={() => setStartupFlowStep("random")}
-                      type="button"
+                      className="delete-button"
+                      onClick={(e) => handleDeleteSave(e, save)}
                     >
-                      Random character
-                    </button>
-                    <button
-                      className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={() => setStartupFlowStep("create")}
-                      type="button"
-                    >
-                      Create character
-                    </button>
-                    <button
-                      className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={handleResumeClick}
-                      type="button"
-                    >
-                      Load game
-                    </button>
-                    <button
-                      className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={openClientOptionsDialog}
-                      type="button"
-                    >
-                      NetHack 3D Options
-                    </button>
-                    <button
-                      className="nh3d-choice-button nh3d-character-setup-choice-button"
-                      onClick={() => {
-                        void requestGameQuit();
-                      }}
-                      type="button"
-                    >
-                      Quit Game
+                      X
                     </button>
                   </div>
-                </div>
-              </>
-            ) : startupFlowStep === "resume" ? (
-              <>
-                <div className="nh3d-question-text">Select a saved game:</div>
-                <div className="nh3d-overflow-glow-frame">
-                  <div
-                    className="nh3d-choice-list"
-                    data-nh3d-overflow-glow
-                    data-nh3d-overflow-glow-host="parent"
-                    style={{ width: "100%" }}
-                  >
-                    {isLoadingSaves ? (
-                      <div
-                        style={{
-                          padding: "20px",
-                          color: "var(--nh3d-ui-text-muted)",
-                        }}
-                      >
-                        Loading saves...
-                      </div>
-                    ) : savedGames.length > 0 ? (
-                      savedGames.map((save) => (
-                        <button
-                          key={save.name}
-                          className="nh3d-choice-button nh3d-character-setup-choice-button"
-                          style={{
-                            flexDirection: "column",
-                            alignItems: "flex-start",
-                            padding: "12px",
-                            width: "100%",
-                          }}
-                          onClick={() => {
-                            setCharacterCreationConfig({
-                              mode: "resume" as any,
-                              playMode: clientOptions.fpsMode
-                                ? "fps"
-                                : "normal",
-                              runtimeVersion,
-                              name: save.name,
-                            });
-                          }}
-                          type="button"
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              width: "100%",
-                              alignItems: "center",
-                            }}
-                          >
-                            <div style={{ flex: 1 }}>
-                              <div
-                                style={{
-                                  fontWeight: "bold",
-                                  fontSize:
-                                    "calc(16px * var(--nh3d-ui-font-scale, 1))",
-                                }}
-                              >
-                                {save.name}
-                              </div>
-                              <div
-                                style={{
-                                  fontSize:
-                                    "calc(12px * var(--nh3d-ui-font-scale, 1))",
-                                  color: "var(--nh3d-ui-text-muted)",
-                                  marginTop: "4px",
-                                  fontWeight: "normal",
-                                }}
-                              >
-                                Saved: {save.dateFormatted}
-                              </div>
-                            </div>
-                            <button
-                              className="delete-button"
-                              onClick={(e) => handleDeleteSave(e, save)}
-                            >
-                              X
-                            </button>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div
-                        style={{
-                          padding: "20px",
-                          color: "var(--nh3d-ui-text-muted)",
-                        }}
-                      >
-                        No saved games found.
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="nh3d-menu-actions">
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                    onClick={() => setStartupFlowStep("choose")}
-                    type="button"
-                  >
-                    Back
-                  </button>
-                </div>
-              </>
-            ) : startupFlowStep === "random" ? (
-              <>
-                <div className="nh3d-question-text">
-                  Enter a name for your random character:
-                </div>
-                <div className="nh3d-startup-config-grid centered">
-                  <label className="nh3d-startup-config-field">
-                    <span>Name</span>
-                    <input
-                      className="nh3d-startup-config-input"
-                      maxLength={30}
-                      onChange={(event) =>
-                        setRandomCharacterName(event.target.value)
-                      }
-                      placeholder={startupDefaultCharacterName}
-                      type="text"
-                      value={randomCharacterName}
-                    />
-                  </label>
-                </div>
-                <StartupInitOptionsAccordion
-                  expanded={startupInitOptionsExpanded}
-                  onExpandedChange={setStartupInitOptionsExpanded}
-                  onOptionValueChange={updateStartupInitOptionValue}
-                  onResetDefaults={resetStartupInitOptionValues}
-                  values={startupInitOptionValues}
-                />
-                <div className="nh3d-menu-actions">
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                    onClick={() => {
-                      const randomRole = pickRandomStartupRole();
-                      const randomGender =
-                        pickRandomStartupGenderForRole(randomRole);
-                      handleStartNewGame({
-                        mode: "random",
-                        playMode: clientOptions.fpsMode ? "fps" : "normal",
-                        runtimeVersion,
-                        name: normalizeStartupCharacterName(
-                          randomCharacterName,
-                        ),
-                        role: randomRole,
-                        gender: randomGender,
-                        initOptions: startupInitOptionTokens,
-                      });
-                    }}
-                    type="button"
-                  >
-                    Start game
-                  </button>
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                    onClick={() => setStartupFlowStep("choose")}
-                    type="button"
-                  >
-                    Back
-                  </button>
-                  <button
-                    className="nh3d-menu-action-button"
-                    onClick={openClientOptionsDialog}
-                    type="button"
-                  >
-                    NetHack 3D Options
-                  </button>
-                </div>
-              </>
+                </button>
+              ))
             ) : (
-              <>
-                <div className="nh3d-question-text">Create your character:</div>
-                <div className="nh3d-startup-config-grid">
-                  <label className="nh3d-startup-config-field">
-                    <span>Name</span>
-                    <input
-                      className="nh3d-startup-config-input"
-                      maxLength={30}
-                      onChange={(event) =>
-                        setCreateCharacterName(event.target.value)
-                      }
-                      placeholder={startupDefaultCharacterName}
-                      type="text"
-                      value={createCharacterName}
-                    />
-                  </label>
-                  <label className="nh3d-startup-config-field">
-                    <span>Role</span>
-                    <select
-                      className="nh3d-startup-config-select"
-                      onChange={(event) => setCreateRole(event.target.value)}
-                      value={normalizedCreateCharacterSelection.role}
-                    >
-                      {startupCreateCharacterOptionSet.roleOptions.map(
-                        (role) => (
-                          <option key={role} value={role}>
-                            {role}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label className="nh3d-startup-config-field">
-                    <span>Race</span>
-                    <select
-                      className="nh3d-startup-config-select"
-                      onChange={(event) => setCreateRace(event.target.value)}
-                      value={normalizedCreateCharacterSelection.race}
-                    >
-                      {startupCreateCharacterOptionSet.raceOptions.map(
-                        (race) => (
-                          <option key={race} value={race}>
-                            {race}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label className="nh3d-startup-config-field">
-                    <span>Gender</span>
-                    <select
-                      className="nh3d-startup-config-select"
-                      onChange={(event) => setCreateGender(event.target.value)}
-                      value={normalizedCreateCharacterSelection.gender}
-                    >
-                      {startupCreateCharacterOptionSet.genderOptions.map(
-                        (gender) => (
-                          <option key={gender} value={gender}>
-                            {gender}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                  <label className="nh3d-startup-config-field">
-                    <span>Alignment</span>
-                    <select
-                      className="nh3d-startup-config-select"
-                      onChange={(event) => setCreateAlign(event.target.value)}
-                      value={normalizedCreateCharacterSelection.align}
-                    >
-                      {startupCreateCharacterOptionSet.alignOptions.map(
-                        (align) => (
-                          <option key={align} value={align}>
-                            {align}
-                          </option>
-                        ),
-                      )}
-                    </select>
-                  </label>
-                </div>
-                <StartupInitOptionsAccordion
-                  expanded={startupInitOptionsExpanded}
-                  onExpandedChange={setStartupInitOptionsExpanded}
-                  onOptionValueChange={updateStartupInitOptionValue}
-                  onResetDefaults={resetStartupInitOptionValues}
-                  values={startupInitOptionValues}
-                />
-                <div className="nh3d-menu-actions">
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                    onClick={() =>
-                      handleStartNewGame({
-                        mode: "create",
-                        playMode: clientOptions.fpsMode ? "fps" : "normal",
-                        runtimeVersion,
-                        name: normalizeStartupCharacterName(
-                          createCharacterName,
-                        ),
-                        role: normalizedCreateCharacterSelection.role,
-                        race: normalizedCreateCharacterSelection.race,
-                        gender: normalizedCreateCharacterSelection.gender,
-                        align: normalizedCreateCharacterSelection.align,
-                        initOptions: startupInitOptionTokens,
-                      })
-                    }
-                    type="button"
-                  >
-                    Start game
-                  </button>
-                  <button
-                    className="nh3d-menu-action-button nh3d-menu-action-cancel"
-                    onClick={() => setStartupFlowStep("choose")}
-                    type="button"
-                  >
-                    Back
-                  </button>
-                  <button
-                    className="nh3d-menu-action-button"
-                    onClick={openClientOptionsDialog}
-                    type="button"
-                  >
-                    NetHack 3D Options
-                  </button>
-                </div>
-              </>
+              <div
+                style={{
+                  padding: "20px",
+                  color: "var(--nh3d-ui-text-muted)",
+                }}
+              >
+                No saved games found.
+              </div>
             )}
+          </div>
+        </div>
+        <div className="nh3d-menu-actions">
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-cancel"
+            onClick={() => setStartupFlowStep("choose")}
+            type="button"
+          >
+            Back
+          </button>
+        </div>
+      </AnimatedDialog>
+
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog${
+          startupInitOptionsExpanded ? " nh3d-startup-init-expanded" : ""
+        }`}
+        open={startupRandomDialogVisible}
+        id="character-setup-dialog-random"
+        onBlurCapture={handleStartupMainMenuBlurCapture}
+        onChangeCapture={handleStartupMainMenuChangeCapture}
+        onKeyDown={handleStartupMainMenuKeyDown}
+        onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
+      >
+        <div className="nh3d-question-text">
+          Enter a name for your random character:
+        </div>
+        <div className="nh3d-startup-config-grid centered">
+          <label className="nh3d-startup-config-field">
+            <span>Name</span>
+            <input
+              className="nh3d-startup-config-input"
+              maxLength={30}
+              onChange={(event) => setRandomCharacterName(event.target.value)}
+              placeholder={startupDefaultCharacterName}
+              type="text"
+              value={randomCharacterName}
+            />
+          </label>
+        </div>
+        <StartupInitOptionsAccordion
+          expanded={startupInitOptionsExpanded}
+          onExpandedChange={setStartupInitOptionsExpanded}
+          onOptionValueChange={updateStartupInitOptionValue}
+          onResetDefaults={resetStartupInitOptionValues}
+          values={startupInitOptionValues}
+        />
+        <div className="nh3d-menu-actions">
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-confirm"
+            onClick={() => {
+              const randomRole = pickRandomStartupRole();
+              const randomGender = pickRandomStartupGenderForRole(randomRole);
+              handleStartNewGame({
+                mode: "random",
+                playMode: clientOptions.fpsMode ? "fps" : "normal",
+                runtimeVersion,
+                name: normalizeStartupCharacterName(randomCharacterName),
+                role: randomRole,
+                gender: randomGender,
+                initOptions: startupInitOptionTokens,
+              });
+            }}
+            type="button"
+          >
+            Start game
+          </button>
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-cancel"
+            onClick={() => setStartupFlowStep("choose")}
+            type="button"
+          >
+            Back
+          </button>
+          <button
+            className="nh3d-menu-action-button"
+            onClick={openClientOptionsDialog}
+            type="button"
+          >
+            NetHack 3D Options
+          </button>
+        </div>
+      </AnimatedDialog>
+
+      <AnimatedDialog
+        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog${
+          startupInitOptionsExpanded ? " nh3d-startup-init-expanded" : ""
+        }`}
+        open={startupCreateDialogVisible}
+        id="character-setup-dialog-create"
+        onBlurCapture={handleStartupMainMenuBlurCapture}
+        onChangeCapture={handleStartupMainMenuChangeCapture}
+        onKeyDown={handleStartupMainMenuKeyDown}
+        onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
+      >
+        <div className="nh3d-question-text">Create your character:</div>
+        <div className="nh3d-startup-config-grid">
+          <label className="nh3d-startup-config-field">
+            <span>Name</span>
+            <input
+              className="nh3d-startup-config-input"
+              maxLength={30}
+              onChange={(event) => setCreateCharacterName(event.target.value)}
+              placeholder={startupDefaultCharacterName}
+              type="text"
+              value={createCharacterName}
+            />
+          </label>
+          <label className="nh3d-startup-config-field">
+            <span>Role</span>
+            <select
+              className="nh3d-startup-config-select"
+              onChange={(event) => setCreateRole(event.target.value)}
+              value={normalizedCreateCharacterSelection.role}
+            >
+              {startupCreateCharacterOptionSet.roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {role}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="nh3d-startup-config-field">
+            <span>Race</span>
+            <select
+              className="nh3d-startup-config-select"
+              onChange={(event) => setCreateRace(event.target.value)}
+              value={normalizedCreateCharacterSelection.race}
+            >
+              {startupCreateCharacterOptionSet.raceOptions.map((race) => (
+                <option key={race} value={race}>
+                  {race}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="nh3d-startup-config-field">
+            <span>Gender</span>
+            <select
+              className="nh3d-startup-config-select"
+              onChange={(event) => setCreateGender(event.target.value)}
+              value={normalizedCreateCharacterSelection.gender}
+            >
+              {startupCreateCharacterOptionSet.genderOptions.map((gender) => (
+                <option key={gender} value={gender}>
+                  {gender}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="nh3d-startup-config-field">
+            <span>Alignment</span>
+            <select
+              className="nh3d-startup-config-select"
+              onChange={(event) => setCreateAlign(event.target.value)}
+              value={normalizedCreateCharacterSelection.align}
+            >
+              {startupCreateCharacterOptionSet.alignOptions.map((align) => (
+                <option key={align} value={align}>
+                  {align}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <StartupInitOptionsAccordion
+          expanded={startupInitOptionsExpanded}
+          onExpandedChange={setStartupInitOptionsExpanded}
+          onOptionValueChange={updateStartupInitOptionValue}
+          onResetDefaults={resetStartupInitOptionValues}
+          values={startupInitOptionValues}
+        />
+        <div className="nh3d-menu-actions">
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-confirm"
+            onClick={() =>
+              handleStartNewGame({
+                mode: "create",
+                playMode: clientOptions.fpsMode ? "fps" : "normal",
+                runtimeVersion,
+                name: normalizeStartupCharacterName(createCharacterName),
+                role: normalizedCreateCharacterSelection.role,
+                race: normalizedCreateCharacterSelection.race,
+                gender: normalizedCreateCharacterSelection.gender,
+                align: normalizedCreateCharacterSelection.align,
+                initOptions: startupInitOptionTokens,
+              })
+            }
+            type="button"
+          >
+            Start game
+          </button>
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-cancel"
+            onClick={() => setStartupFlowStep("choose")}
+            type="button"
+          >
+            Back
+          </button>
+          <button
+            className="nh3d-menu-action-button"
+            onClick={openClientOptionsDialog}
+            type="button"
+          >
+            NetHack 3D Options
+          </button>
+        </div>
       </AnimatedDialog>
 
       {loadingOverlayVisible && typeof document !== "undefined"
