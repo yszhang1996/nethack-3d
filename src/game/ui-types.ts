@@ -148,7 +148,7 @@ export type DarkCorridorWallSolidColorGridDarknessPercentByTileset = Record<
   number
 >;
 export type TilesetBackgroundTileByTileset = Record<string, number>;
-export type TilesetBackgroundRemovalMode = "tile" | "solid";
+export type TilesetBackgroundRemovalMode = "none" | "tile" | "solid";
 export type TilesetBackgroundRemovalModeByTileset = Record<
   string,
   TilesetBackgroundRemovalMode
@@ -448,7 +448,13 @@ function normalizeTilesetBackgroundTileIdByTileset(
 function normalizeTilesetBackgroundRemovalMode(
   rawValue: unknown,
 ): TilesetBackgroundRemovalMode {
-  return rawValue === "solid" ? "solid" : "tile";
+  if (rawValue === "solid") {
+    return "solid";
+  }
+  if (rawValue === "none") {
+    return "none";
+  }
+  return "tile";
 }
 
 function normalizeTilesetBackgroundRemovalModeByTileset(

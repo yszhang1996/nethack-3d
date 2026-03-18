@@ -1378,7 +1378,7 @@ function createIsolatedAtlasTilePreviewDataUrl(
   tileRows: number,
   backgroundRemoval?: {
     enabled: boolean;
-    mode: "tile" | "solid";
+    mode: TilesetBackgroundRemovalMode;
     solidChromaKeyColorHex: string;
     backgroundTilePixels: Uint8ClampedArray | null;
   },
@@ -5385,7 +5385,11 @@ export default function App(): JSX.Element {
     const mappedMode = tilesetPath
       ? clientOptionsDraft.tilesetBackgroundRemovalModeByTileset[tilesetPath]
       : undefined;
-    if (mappedMode === "solid" || mappedMode === "tile") {
+    if (
+      mappedMode === "none" ||
+      mappedMode === "solid" ||
+      mappedMode === "tile"
+    ) {
       return mappedMode;
     }
     return "tile";
@@ -5539,7 +5543,7 @@ export default function App(): JSX.Element {
       return previewByTileId;
     }
     const tilePreviewBackgroundRemoval = {
-      enabled: true,
+      enabled: clientOptions.tilesetBackgroundRemovalMode !== "none",
       mode: clientOptions.tilesetBackgroundRemovalMode,
       solidChromaKeyColorHex: clientOptions.tilesetSolidChromaKeyColorHex,
       backgroundTilePixels:
@@ -8736,7 +8740,11 @@ export default function App(): JSX.Element {
           ? Math.max(0, Math.trunc(mappedBackgroundTileId))
           : resolveDefaultNh3dTilesetBackgroundTileId(tilesetPath);
       const nextBackgroundRemovalMode: TilesetBackgroundRemovalMode =
-        mappedBackgroundRemovalMode === "solid" ? "solid" : "tile";
+        mappedBackgroundRemovalMode === "solid"
+          ? "solid"
+          : mappedBackgroundRemovalMode === "none"
+            ? "none"
+            : "tile";
       const nextSolidColorHex = normalizeSolidChromaKeyHex(
         typeof mappedSolidColorHex === "string"
           ? mappedSolidColorHex
@@ -9063,7 +9071,7 @@ export default function App(): JSX.Element {
     rawTilesetPath?: string,
   ): void => {
     const resolvedMode: TilesetBackgroundRemovalMode =
-      mode === "solid" ? "solid" : "tile";
+      mode === "solid" ? "solid" : mode === "none" ? "none" : "tile";
     setClientOptionsDraft((previous) => {
       const selectedTilesetPath = String(previous.tilesetPath || "").trim();
       const tilesetPath = String(rawTilesetPath || selectedTilesetPath).trim();
@@ -12067,331 +12075,345 @@ export default function App(): JSX.Element {
           <div className="nh3d-option-description">
             Add tile sets and edit per-tileset background/chroma settings.
           </div>
-          <div className="nh3d-overflow-glow-frame">
-            <div
-              className="nh3d-tileset-manager-upload"
-              data-nh3d-overflow-glow
-              data-nh3d-overflow-glow-host="parent"
-            >
-              <div className="nh3d-tileset-manager-header">
-                <div className="nh3d-option-label">
-                  {tilesetManagerInNewMode
-                    ? "Create New Tile Set"
-                    : selectedTilesetManagerEditEntry
-                      ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
-                      : "Edit Tile Set"}
-                </div>
-              </div>
-              <div className="nh3d-tileset-manager-upload-row">
-                <label
-                  className="nh3d-option-label"
-                  htmlFor="nh3d-tileset-name"
+          <div className="nh3d-tileset-manager-content-shell">
+            <div className="nh3d-tileset-manager-content">
+              <div className="nh3d-overflow-glow-frame nh3d-tileset-manager-editor-shell">
+                <div
+                  className="nh3d-tileset-manager-upload"
+                  data-nh3d-overflow-glow
+                  data-nh3d-overflow-glow-host="parent"
                 >
-                  Tile Set Name
-                </label>
-                <input
-                  className="nh3d-text-input nh3d-tileset-manager-input"
-                  id="nh3d-tileset-name"
-                  onChange={(event) =>
-                    setTilesetManagerName(event.target.value)
-                  }
-                  placeholder="My Tileset"
-                  readOnly={tilesetManagerNameInputDisabled}
-                  type="text"
-                  value={tilesetManagerName}
-                />
-                {tilesetManagerNameInputDisabled ? (
-                  <div className="nh3d-option-description">
-                    Built-in tile set names cannot be changed.
+                  <div className="nh3d-tileset-manager-header">
+                    <div className="nh3d-option-label">
+                      {tilesetManagerInNewMode
+                        ? "Create New Tile Set"
+                        : selectedTilesetManagerEditEntry
+                          ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
+                          : "Edit Tile Set"}
+                    </div>
                   </div>
-                ) : null}
-              </div>
-              {tilesetManagerInNewMode ||
-              selectedTilesetManagerEditUserRecord ? (
-                <div className="nh3d-tileset-manager-upload-row">
-                  <label
-                    className="nh3d-option-label"
-                    htmlFor="nh3d-tileset-upload-file"
-                  >
-                    {tilesetManagerInNewMode
-                      ? "Tileset Image"
-                      : "Tileset Image (optional replacement)"}
-                  </label>
-                  <input
-                    accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
-                    className="nh3d-tileset-manager-file-input"
-                    id="nh3d-tileset-upload-file"
-                    onChange={handleTilesetManagerFileChange}
-                    ref={tilesetManagerFileInputRef}
-                    type="file"
-                  />
-                  <div className="nh3d-option-description">
-                    {tilesetManagerFile
-                      ? `Selected: ${tilesetManagerFile.name}`
-                      : tilesetManagerInNewMode
-                        ? "Choose a tileset image file."
-                        : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
-                  </div>
-                </div>
-              ) : null}
-              {selectedTilesetManagerEditEntry ? (
-                <Fragment>
-                  <div className="nh3d-option-description">
-                    Configure billboard background removal for this tileset.
-                  </div>
-                  <div
-                    className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                      tilesetManagerBackgroundRemovalMode === "tile"
-                        ? ""
-                        : " nh3d-option-row-mode-inactive"
-                    }`}
-                  >
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">
-                        Background Tile Removal
-                      </div>
+                  <div className="nh3d-tileset-manager-upload-row">
+                    <label
+                      className="nh3d-option-label"
+                      htmlFor="nh3d-tileset-name"
+                    >
+                      Tile Set Name
+                    </label>
+                    <input
+                      className="nh3d-text-input nh3d-tileset-manager-input"
+                      id="nh3d-tileset-name"
+                      onChange={(event) =>
+                        setTilesetManagerName(event.target.value)
+                      }
+                      placeholder="My Tileset"
+                      readOnly={tilesetManagerNameInputDisabled}
+                      type="text"
+                      value={tilesetManagerName}
+                    />
+                    {tilesetManagerNameInputDisabled ? (
                       <div className="nh3d-option-description">
-                        Use a selected atlas tile for billboard background
-                        removal.
+                        Built-in tile set names cannot be changed.
+                      </div>
+                    ) : null}
+                  </div>
+                  {tilesetManagerInNewMode ||
+                  selectedTilesetManagerEditUserRecord ? (
+                    <div className="nh3d-tileset-manager-upload-row">
+                      <label
+                        className="nh3d-option-label"
+                        htmlFor="nh3d-tileset-upload-file"
+                      >
+                        {tilesetManagerInNewMode
+                          ? "Tileset Image"
+                          : "Tileset Image (optional replacement)"}
+                      </label>
+                      <input
+                        accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
+                        className="nh3d-tileset-manager-file-input"
+                        id="nh3d-tileset-upload-file"
+                        onChange={handleTilesetManagerFileChange}
+                        ref={tilesetManagerFileInputRef}
+                        type="file"
+                      />
+                      <div className="nh3d-option-description">
+                        {tilesetManagerFile
+                          ? `Selected: ${tilesetManagerFile.name}`
+                          : tilesetManagerInNewMode
+                            ? "Choose a tileset image file."
+                            : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
                       </div>
                     </div>
-                    <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                      <button
-                        className={`nh3d-option-tile-picker-button${
+                  ) : null}
+                  {selectedTilesetManagerEditEntry ? (
+                    <Fragment>
+                      <div className="nh3d-option-description">
+                        Configure billboard background removal for this tileset,
+                        or leave both modes off to keep atlas backgrounds
+                        intact.
+                      </div>
+                      <div
+                        className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
                           tilesetManagerBackgroundRemovalMode === "tile"
                             ? ""
-                            : " is-disabled"
+                            : " nh3d-option-row-mode-inactive"
                         }`}
-                        disabled={
-                          tilesetManagerBackgroundRemovalMode !== "tile"
-                        }
-                        onClick={() =>
-                          setIsTilesetBackgroundTilePickerVisible(true)
-                        }
-                        type="button"
                       >
-                        <span className="nh3d-option-tile-picker-preview">
-                          {renderTilesetManagerTilePreviewImage(
-                            tilesetManagerBackgroundTileId,
-                          )}
-                        </span>
-                        <span className="nh3d-option-tile-picker-copy">
-                          <span className="nh3d-option-tile-picker-glyph">
-                            {tilesetManagerBackgroundGlyphLabel}
-                          </span>
-                          <span className="nh3d-option-tile-picker-id">
-                            tile #{tilesetManagerBackgroundTileId}
-                          </span>
-                        </span>
-                      </button>
-                    </div>
-                    <button
-                      aria-checked={
-                        tilesetManagerBackgroundRemovalMode === "tile"
-                      }
-                      className={`nh3d-option-switch nh3d-option-inline-switch${
-                        tilesetManagerBackgroundRemovalMode === "tile"
-                          ? " is-on"
-                          : ""
-                      }`}
-                      onClick={() =>
-                        updateTilesetBackgroundRemovalModeDraft(
-                          "tile",
-                          selectedTilesetManagerEditPath,
-                        )
-                      }
-                      role="switch"
-                      type="button"
-                    >
-                      <span className="nh3d-option-switch-thumb" />
-                    </button>
-                  </div>
-                  <div
-                    className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
-                      tilesetManagerBackgroundRemovalMode === "solid"
-                        ? ""
-                        : " nh3d-option-row-mode-inactive"
-                    }`}
-                  >
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">
-                        Solid Color Chroma Key
-                      </div>
-                      <div className="nh3d-option-description">
-                        Use a single solid RGB color for billboard background
-                        removal.
-                      </div>
-                    </div>
-                    <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                      <button
-                        className={`nh3d-option-tile-picker-button${
-                          tilesetManagerBackgroundRemovalMode === "solid"
-                            ? ""
-                            : " is-disabled"
-                        }`}
-                        disabled={
-                          tilesetManagerBackgroundRemovalMode !== "solid"
-                        }
-                        onClick={() =>
-                          setIsTilesetSolidColorPickerVisible(true)
-                        }
-                        type="button"
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="nh3d-option-solid-color-preview"
-                          style={{
-                            backgroundColor: normalizeSolidChromaKeyHex(
-                              tilesetManagerSolidChromaKeyColorHex,
-                            ),
-                          }}
-                        />
-                        <span className="nh3d-option-tile-picker-copy">
-                          <span className="nh3d-option-tile-picker-glyph">
-                            {formatSolidChromaKeyHex(
-                              tilesetManagerSolidChromaKeyColorHex,
-                            )}
-                          </span>
-                          <span className="nh3d-option-tile-picker-id">
-                            click to pick from atlas
-                          </span>
-                        </span>
-                      </button>
-                      <input
-                        className="nh3d-option-solid-color-input"
-                        readOnly
-                        type="text"
-                        value={formatSolidChromaKeyHex(
-                          tilesetManagerSolidChromaKeyColorHex,
-                        )}
-                      />
-                    </div>
-                    <button
-                      aria-checked={
-                        tilesetManagerBackgroundRemovalMode === "solid"
-                      }
-                      className={`nh3d-option-switch nh3d-option-inline-switch${
-                        tilesetManagerBackgroundRemovalMode === "solid"
-                          ? " is-on"
-                          : ""
-                      }`}
-                      onClick={() =>
-                        updateTilesetBackgroundRemovalModeDraft(
-                          "solid",
-                          selectedTilesetManagerEditPath,
-                        )
-                      }
-                      role="switch"
-                      type="button"
-                    >
-                      <span className="nh3d-option-switch-thumb" />
-                    </button>
-                  </div>
-                </Fragment>
-              ) : (
-                <div className="nh3d-option-description">
-                  Save the new tile set first, then edit background/chroma
-                  settings.
-                </div>
-              )}
-              <div className="nh3d-tileset-manager-upload-actions">
-                <button
-                  className="nh3d-menu-action-button nh3d-menu-action-confirm"
-                  disabled={tilesetManagerBusy}
-                  onClick={() => {
-                    void saveTilesetManager();
-                  }}
-                  type="button"
-                >
-                  {tilesetManagerInNewMode
-                    ? "Create Tile Set"
-                    : selectedTilesetManagerEditUserRecord
-                      ? "Save Tile Set"
-                      : "Save Tile Settings"}
-                </button>
-              </div>
-            </div>
-          </div>
-          {tilesetManagerError ? (
-            <div className="nh3d-tileset-manager-error">
-              {tilesetManagerError}
-            </div>
-          ) : null}
-          <div className="nh3d-tileset-manager-divider" />
-          <button
-            className="nh3d-menu-action-button"
-            disabled={tilesetManagerBusy}
-            onClick={openTilesetManagerNewEditor}
-            type="button"
-          >
-            + Import New Tile Set
-          </button>
-          <div className="nh3d-overflow-glow-frame">
-            <div
-              className="nh3d-tileset-manager-list"
-              data-nh3d-overflow-glow
-              data-nh3d-overflow-glow-host="parent"
-            >
-              {tilesetManagerListTilesets.length === 0 ? (
-                <div className="nh3d-option-description">
-                  No uploaded tilesets available.
-                </div>
-              ) : (
-                tilesetManagerListTilesets.map((tileset) => {
-                  const tilesetPath = String(tileset.path || "").trim();
-                  const isSelected =
-                    clientOptionsDraft.tilesetPath === tilesetPath;
-                  const isEditing =
-                    !tilesetManagerInNewMode &&
-                    selectedTilesetManagerEditPath === tilesetPath;
-                  const userRecord = userTilesetRecordByPath.get(tilesetPath);
-                  const isUserTileset = tileset.source === "user";
-                  return (
-                    <div
-                      className="nh3d-tileset-manager-item"
-                      key={tilesetPath}
-                    >
-                      <div className="nh3d-tileset-manager-item-copy">
-                        <div className="nh3d-option-label">
-                          {tileset.label}
-                          {isSelected ? " (selected)" : ""}
-                          {isEditing ? " (editing)" : ""}
+                        <div className="nh3d-option-copy">
+                          <div className="nh3d-option-label">
+                            Background Tile Removal
+                          </div>
+                          <div className="nh3d-option-description">
+                            Use a selected atlas tile for billboard background
+                            removal.
+                          </div>
                         </div>
-                        <div className="nh3d-option-description">
-                          {isUserTileset
-                            ? `${userRecord?.fileName || tilesetPath} | uploaded`
-                            : `${tilesetPath} | built-in`}
-                        </div>
-                      </div>
-                      <div className="nh3d-tileset-manager-item-actions">
-                        <button
-                          className="nh3d-menu-action-button"
-                          onClick={() => openTilesetManagerEditor(tilesetPath)}
-                          type="button"
-                        >
-                          Edit
-                        </button>
-                        {isUserTileset ? (
+                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
                           <button
-                            aria-label={`Delete ${tileset.label}`}
-                            className="delete-button"
-                            disabled={tilesetManagerBusy || !userRecord}
-                            onClick={() => {
-                              if (!userRecord) {
-                                return;
-                              }
-                              void removeUserTileset(userRecord);
-                            }}
+                            className={`nh3d-option-tile-picker-button${
+                              tilesetManagerBackgroundRemovalMode === "tile"
+                                ? ""
+                                : " is-disabled"
+                            }`}
+                            disabled={
+                              tilesetManagerBackgroundRemovalMode !== "tile"
+                            }
+                            onClick={() =>
+                              setIsTilesetBackgroundTilePickerVisible(true)
+                            }
                             type="button"
                           >
-                            X
+                            <span className="nh3d-option-tile-picker-preview">
+                              {renderTilesetManagerTilePreviewImage(
+                                tilesetManagerBackgroundTileId,
+                              )}
+                            </span>
+                            <span className="nh3d-option-tile-picker-copy">
+                              <span className="nh3d-option-tile-picker-glyph">
+                                {tilesetManagerBackgroundGlyphLabel}
+                              </span>
+                              <span className="nh3d-option-tile-picker-id">
+                                tile #{tilesetManagerBackgroundTileId}
+                              </span>
+                            </span>
                           </button>
-                        ) : null}
+                        </div>
+                        <button
+                          aria-checked={
+                            tilesetManagerBackgroundRemovalMode === "tile"
+                          }
+                          className={`nh3d-option-switch nh3d-option-inline-switch${
+                            tilesetManagerBackgroundRemovalMode === "tile"
+                              ? " is-on"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            updateTilesetBackgroundRemovalModeDraft(
+                              tilesetManagerBackgroundRemovalMode === "tile"
+                                ? "none"
+                                : "tile",
+                              selectedTilesetManagerEditPath,
+                            )
+                          }
+                          role="switch"
+                          type="button"
+                        >
+                          <span className="nh3d-option-switch-thumb" />
+                        </button>
                       </div>
+                      <div
+                        className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
+                          tilesetManagerBackgroundRemovalMode === "solid"
+                            ? ""
+                            : " nh3d-option-row-mode-inactive"
+                        }`}
+                      >
+                        <div className="nh3d-option-copy">
+                          <div className="nh3d-option-label">
+                            Solid Color Chroma Key
+                          </div>
+                          <div className="nh3d-option-description">
+                            Use a single solid RGB color for billboard
+                            background removal.
+                          </div>
+                        </div>
+                        <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                          <button
+                            className={`nh3d-option-tile-picker-button${
+                              tilesetManagerBackgroundRemovalMode === "solid"
+                                ? ""
+                                : " is-disabled"
+                            }`}
+                            disabled={
+                              tilesetManagerBackgroundRemovalMode !== "solid"
+                            }
+                            onClick={() =>
+                              setIsTilesetSolidColorPickerVisible(true)
+                            }
+                            type="button"
+                          >
+                            <span
+                              aria-hidden="true"
+                              className="nh3d-option-solid-color-preview"
+                              style={{
+                                backgroundColor: normalizeSolidChromaKeyHex(
+                                  tilesetManagerSolidChromaKeyColorHex,
+                                ),
+                              }}
+                            />
+                            <span className="nh3d-option-tile-picker-copy">
+                              <span className="nh3d-option-tile-picker-glyph">
+                                {formatSolidChromaKeyHex(
+                                  tilesetManagerSolidChromaKeyColorHex,
+                                )}
+                              </span>
+                              <span className="nh3d-option-tile-picker-id">
+                                click to pick from atlas
+                              </span>
+                            </span>
+                          </button>
+                          <input
+                            className="nh3d-option-solid-color-input"
+                            readOnly
+                            type="text"
+                            value={formatSolidChromaKeyHex(
+                              tilesetManagerSolidChromaKeyColorHex,
+                            )}
+                          />
+                        </div>
+                        <button
+                          aria-checked={
+                            tilesetManagerBackgroundRemovalMode === "solid"
+                          }
+                          className={`nh3d-option-switch nh3d-option-inline-switch${
+                            tilesetManagerBackgroundRemovalMode === "solid"
+                              ? " is-on"
+                              : ""
+                          }`}
+                          onClick={() =>
+                            updateTilesetBackgroundRemovalModeDraft(
+                              tilesetManagerBackgroundRemovalMode === "solid"
+                                ? "none"
+                                : "solid",
+                              selectedTilesetManagerEditPath,
+                            )
+                          }
+                          role="switch"
+                          type="button"
+                        >
+                          <span className="nh3d-option-switch-thumb" />
+                        </button>
+                      </div>
+                    </Fragment>
+                  ) : (
+                    <div className="nh3d-option-description">
+                      Save the new tile set first, then edit background/chroma
+                      settings.
                     </div>
-                  );
-                })
-              )}
+                  )}
+                  <div className="nh3d-tileset-manager-upload-actions">
+                    <button
+                      className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                      disabled={tilesetManagerBusy}
+                      onClick={() => {
+                        void saveTilesetManager();
+                      }}
+                      type="button"
+                    >
+                      {tilesetManagerInNewMode
+                        ? "Create Tile Set"
+                        : selectedTilesetManagerEditUserRecord
+                          ? "Save Tile Set"
+                          : "Save Tile Settings"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              {tilesetManagerError ? (
+                <div className="nh3d-tileset-manager-error">
+                  {tilesetManagerError}
+                </div>
+              ) : null}
+              <div className="nh3d-tileset-manager-divider" />
+              <button
+                className="nh3d-menu-action-button"
+                disabled={tilesetManagerBusy}
+                onClick={openTilesetManagerNewEditor}
+                type="button"
+              >
+                + Import New Tile Set
+              </button>
+              <div className="nh3d-overflow-glow-frame nh3d-tileset-manager-list-shell">
+                <div
+                  className="nh3d-tileset-manager-list"
+                  data-nh3d-overflow-glow
+                  data-nh3d-overflow-glow-host="parent"
+                >
+                  {tilesetManagerListTilesets.length === 0 ? (
+                    <div className="nh3d-option-description">
+                      No uploaded tilesets available.
+                    </div>
+                  ) : (
+                    tilesetManagerListTilesets.map((tileset) => {
+                      const tilesetPath = String(tileset.path || "").trim();
+                      const isSelected =
+                        clientOptionsDraft.tilesetPath === tilesetPath;
+                      const isEditing =
+                        !tilesetManagerInNewMode &&
+                        selectedTilesetManagerEditPath === tilesetPath;
+                      const userRecord = userTilesetRecordByPath.get(
+                        tilesetPath,
+                      );
+                      const isUserTileset = tileset.source === "user";
+                      return (
+                        <div
+                          className="nh3d-tileset-manager-item"
+                          key={tilesetPath}
+                        >
+                          <div className="nh3d-tileset-manager-item-copy">
+                            <div className="nh3d-option-label">
+                              {tileset.label}
+                              {isSelected ? " (selected)" : ""}
+                              {isEditing ? " (editing)" : ""}
+                            </div>
+                            <div className="nh3d-option-description">
+                              {isUserTileset
+                                ? `${userRecord?.fileName || tilesetPath} | uploaded`
+                                : `${tilesetPath} | built-in`}
+                            </div>
+                          </div>
+                          <div className="nh3d-tileset-manager-item-actions">
+                            <button
+                              className="nh3d-menu-action-button"
+                              onClick={() =>
+                                openTilesetManagerEditor(tilesetPath)
+                              }
+                              type="button"
+                            >
+                              Edit
+                            </button>
+                            {isUserTileset ? (
+                              <button
+                                aria-label={`Delete ${tileset.label}`}
+                                className="delete-button"
+                                disabled={tilesetManagerBusy || !userRecord}
+                                onClick={() => {
+                                  if (!userRecord) {
+                                    return;
+                                  }
+                                  void removeUserTileset(userRecord);
+                                }}
+                                type="button"
+                              >
+                                X
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
             </div>
           </div>
           <div className="nh3d-menu-actions">
