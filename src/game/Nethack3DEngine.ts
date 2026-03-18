@@ -385,6 +385,12 @@ type TransparentWallGroundPlaneOverlay = {
   material: THREE.MeshBasicMaterial;
   textureKey: string;
 };
+type IronBarsWallPlaneOverlay = {
+  frontMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  backMesh: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  material: THREE.MeshBasicMaterial;
+  textureKey: string;
+};
 type FpsChamferWallUvRotation = "none" | "lr_ccw" | "fb_ccw";
 
 type ControllerActionSnapshot = {
@@ -3745,6 +3751,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.disposeVultureWallPlaneOverlay(mesh);
     this.disposeVultureDoorPlaneOverlay(mesh);
     this.disposeTransparentWallGroundPlaneOverlay(mesh);
+    this.disposeIronBarsWallPlaneOverlay(mesh);
     this.scene.remove(mesh);
     this.tileMap.delete(key);
     this.tileRevealStartMs.delete(key);
@@ -9589,6 +9596,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (transparentWallGroundOverlay) {
       transparentWallGroundOverlay.material.opacity = clampedOpacity;
     }
+    const ironBarsOverlay = mesh.userData?.ironBarsWallPlaneOverlay as
+      | IronBarsWallPlaneOverlay
+      | undefined;
+    if (ironBarsOverlay) {
+      ironBarsOverlay.material.opacity = clampedOpacity;
+    }
   }
 
   private disposeTransparentWallGroundPlaneOverlay(mesh: THREE.Mesh): void {
@@ -9679,6 +9692,105 @@ class Nethack3DEngine implements Nethack3DEngineController {
     overlay.floorMesh.rotation.set(0, 0, 0, "XYZ");
     overlay.floorMesh.position.set(0, 0, planeZ);
     overlay.floorMesh.renderOrder = mesh.renderOrder - 0.25;
+  }
+
+  private disposeIronBarsWallPlaneOverlay(mesh: THREE.Mesh): void {
+    const overlay = mesh.userData?.ironBarsWallPlaneOverlay as
+      | IronBarsWallPlaneOverlay
+      | undefined;
+    if (!overlay) {
+      return;
+    }
+    this.releaseGlyphTexture(overlay.textureKey);
+    mesh.remove(overlay.frontMesh);
+    mesh.remove(overlay.backMesh);
+    overlay.material.dispose();
+    delete mesh.userData.ironBarsWallPlaneOverlay;
+  }
+
+  private ensureIronBarsWallPlaneOverlay(
+    mesh: THREE.Mesh,
+  ): IronBarsWallPlaneOverlay {
+    const existing = mesh.userData?.ironBarsWallPlaneOverlay as
+      | IronBarsWallPlaneOverlay
+      | undefined;
+    if (existing) {
+      return existing;
+    }
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 1,
+      side: THREE.DoubleSide,
+      depthWrite: true,
+      depthTest: true,
+      alphaTest: 0.01,
+      toneMapped: false,
+    });
+    this.patchMaterialForVignette(material);
+    const frontMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, material);
+    const backMesh = new THREE.Mesh(this.vultureDoorPlaneGeometry, material);
+    frontMesh.castShadow = false;
+    frontMesh.receiveShadow = false;
+    backMesh.castShadow = false;
+    backMesh.receiveShadow = false;
+    mesh.add(frontMesh);
+    mesh.add(backMesh);
+    const overlay: IronBarsWallPlaneOverlay = {
+      frontMesh,
+      backMesh,
+      material,
+      textureKey: "",
+    };
+    mesh.userData.ironBarsWallPlaneOverlay = overlay;
+    return overlay;
+  }
+
+  private applyIronBarsWallPlaneOverlay(
+    mesh: THREE.Mesh,
+    tileIndex: number,
+    sourceGlyph: number | null,
+    materialKind: TileMaterialKind | null,
+    darkenFactor: number,
+    opacity: number,
+  ): void {
+    const overlay = this.ensureIronBarsWallPlaneOverlay(mesh);
+    const normalizedSourceGlyph =
+      typeof sourceGlyph === "number" && Number.isFinite(sourceGlyph)
+        ? Math.trunc(sourceGlyph)
+        : null;
+    const normalizedTileIndex =
+      Number.isFinite(tileIndex) && tileIndex >= 0 ? Math.trunc(tileIndex) : -1;
+    const materialKindKey = materialKind ?? "none";
+    const textureKey = `iron-bars-plane:${normalizedTileIndex}|sg:${normalizedSourceGlyph ?? "none"}|mk:${materialKindKey}|${darkenFactor.toFixed(3)}|bg:${this.clientOptions.tilesetBackgroundRemovalMode}`;
+    if (
+      overlay.textureKey !== textureKey ||
+      !this.glyphTextureCache.has(textureKey)
+    ) {
+      if (overlay.textureKey) {
+        this.releaseGlyphTexture(overlay.textureKey);
+      }
+      const texture = this.acquireGlyphTexture(textureKey, () =>
+        this.createTileTexture(normalizedTileIndex, darkenFactor, false, {
+          sourceGlyph: normalizedSourceGlyph,
+          materialKind,
+          forceBackgroundRemoval:
+            this.clientOptions.tilesetBackgroundRemovalMode !== "none",
+        }),
+      );
+      overlay.material.map = texture;
+      overlay.material.needsUpdate = true;
+      overlay.textureKey = textureKey;
+    }
+    overlay.material.opacity = THREE.MathUtils.clamp(opacity, 0, 1);
+    overlay.material.color.set("#ffffff");
+    const epsilon = TILE_SIZE * 0.003;
+    overlay.frontMesh.rotation.set(-Math.PI / 2, 0, 0, "XYZ");
+    overlay.backMesh.rotation.set(Math.PI / 2, 0, 0, "XYZ");
+    overlay.frontMesh.position.set(0, -TILE_SIZE / 2 + epsilon, 0);
+    overlay.backMesh.position.set(0, TILE_SIZE / 2 - epsilon, 0);
+    overlay.frontMesh.renderOrder = mesh.renderOrder + 0.1;
+    overlay.backMesh.renderOrder = mesh.renderOrder + 0.1;
   }
 
   private disposeVultureWallFaceOverlay(
@@ -10298,6 +10410,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
       this.disposeTransparentWallGroundPlaneOverlay(mesh);
+      this.disposeIronBarsWallPlaneOverlay(mesh);
     });
   }
 
@@ -14116,6 +14229,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
       ? THREE.DoubleSide
       : THREE.FrontSide;
     const shouldUseWallAlphaCutout = isWall && tileTextureForceBackgroundRemoval;
+    const shouldUseIronBarsWallPlanes =
+      this.isFpsMode() &&
+      useTiles &&
+      !this.shouldUseVultureTiles() &&
+      isWall &&
+      this.isIronBarsLikeBehavior(
+        classifyTileBehavior({
+          glyph: tileTextureSourceGlyph ?? sourceGlyph ?? -1,
+          runtimeChar: glyphChar,
+          runtimeColor: null,
+          runtimeTileIndex: tileIndex >= 0 ? tileIndex : null,
+          priorTerrain: null,
+        }),
+      );
     this.setMaterialFaceSide(overlay.material, wallFaceSide);
     this.setMaterialFaceSide(wallSideOverrideMaterial, wallFaceSide);
     this.setMaterialFaceSide(wallSideFrontBackOverrideMaterial, wallFaceSide);
@@ -14139,6 +14266,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallFaceOverlay(mesh);
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
+      this.disposeIronBarsWallPlaneOverlay(mesh);
       if (useTiles) {
         // Chamfered wall geometry uses groups: cap (0), straight walls (1), cut corners (2).
         // In tileset mode, cap uses wall tile while side groups may use the vertical-wall override.
@@ -14168,6 +14296,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
     } else if (isWall) {
       if (shouldUseVultureWallFaceMaterials && useTiles) {
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         const wallX =
           typeof mesh.userData?.tileX === "number" &&
           Number.isFinite(mesh.userData.tileX)
@@ -14269,6 +14398,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           }
         }
       } else if (shouldUseVultureDoorPlane && useTiles) {
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
         const doorWallX =
@@ -14321,6 +14451,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
               ];
         }
       } else if (isDoorWall && useTiles) {
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
         this.disposeVultureDoorPlaneOverlay(mesh);
@@ -14352,24 +14483,54 @@ class Nethack3DEngine implements Nethack3DEngineController {
           (shouldRotateHorizontalWallSideTiles
             ? overlay.material
             : leftRightWallMaterial);
-        mesh.material = wallSideOverrideMaterial
-          ? [
-              leftRightWallMaterial,
-              leftRightWallMaterial,
-              frontBackWallMaterial,
-              frontBackWallMaterial,
-              overlay.material,
-              baseMaterial,
-            ]
-          : [
-              overlay.material,
-              overlay.material,
-              overlay.material,
-              overlay.material,
-              overlay.material,
-              baseMaterial,
-            ];
+        if (shouldUseIronBarsWallPlanes) {
+          this.applyIronBarsWallPlaneOverlay(
+            mesh,
+            tileIndex,
+            tileTextureSourceGlyph ?? sourceGlyph,
+            tileTextureMaterialKind,
+            clampedDarken,
+            overlay.material.opacity,
+          );
+          mesh.material = wallSideOverrideMaterial
+            ? [
+                leftRightWallMaterial,
+                leftRightWallMaterial,
+                this.vultureInvisibleSurfaceMaterial,
+                this.vultureInvisibleSurfaceMaterial,
+                overlay.material,
+                baseMaterial,
+              ]
+            : [
+                overlay.material,
+                overlay.material,
+                this.vultureInvisibleSurfaceMaterial,
+                this.vultureInvisibleSurfaceMaterial,
+                overlay.material,
+                baseMaterial,
+              ];
+        } else {
+          this.disposeIronBarsWallPlaneOverlay(mesh);
+          mesh.material = wallSideOverrideMaterial
+            ? [
+                leftRightWallMaterial,
+                leftRightWallMaterial,
+                frontBackWallMaterial,
+                frontBackWallMaterial,
+                overlay.material,
+                baseMaterial,
+              ]
+            : [
+                overlay.material,
+                overlay.material,
+                overlay.material,
+                overlay.material,
+                overlay.material,
+                baseMaterial,
+              ];
+        }
       } else if (solidWallMaterial) {
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
         this.disposeVultureDoorPlaneOverlay(mesh);
@@ -14382,6 +14543,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           solidWallMaterial,
         ];
       } else {
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         this.disposeVultureWallFaceOverlay(mesh);
         this.disposeVultureWallPlaneOverlay(mesh);
         this.disposeVultureDoorPlaneOverlay(mesh);
@@ -14395,6 +14557,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ];
       }
     } else if (shouldUseVultureOpenDoorPlane && useTiles) {
+      this.disposeIronBarsWallPlaneOverlay(mesh);
       this.disposeWallSideTileOverlay(mesh);
       this.disposeVultureWallFaceOverlay(mesh);
       this.disposeVultureWallPlaneOverlay(mesh);
@@ -14429,6 +14592,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         mesh.material = overlay.material;
       }
     } else {
+      this.disposeIronBarsWallPlaneOverlay(mesh);
       this.disposeWallSideTileOverlay(mesh);
       this.disposeVultureWallFaceOverlay(mesh);
       this.disposeVultureWallPlaneOverlay(mesh);
@@ -14452,6 +14616,48 @@ class Nethack3DEngine implements Nethack3DEngineController {
         slice.frontMesh.visible = true;
         slice.backMesh.visible = showBackWallPlanes;
       }
+      return;
+    }
+    const ironBarsOverlay = mesh.userData?.ironBarsWallPlaneOverlay as
+      | IronBarsWallPlaneOverlay
+      | undefined;
+    if (ironBarsOverlay) {
+      if (!this.isFpsMode()) {
+        ironBarsOverlay.frontMesh.visible = true;
+        ironBarsOverlay.backMesh.visible = true;
+        return;
+      }
+      const tileX =
+        typeof mesh.userData?.tileX === "number" &&
+        Number.isFinite(mesh.userData.tileX)
+          ? Math.trunc(mesh.userData.tileX)
+          : null;
+      const tileY =
+        typeof mesh.userData?.tileY === "number" &&
+        Number.isFinite(mesh.userData.tileY)
+          ? Math.trunc(mesh.userData.tileY)
+          : null;
+      if (tileX === null || tileY === null) {
+        ironBarsOverlay.frontMesh.visible = true;
+        ironBarsOverlay.backMesh.visible = false;
+        return;
+      }
+      const centerY = -tileY * TILE_SIZE;
+      const axisEpsilon = TILE_SIZE * 0.06;
+      const cameraAxisDelta = this.camera.position.y - centerY;
+      const playerAxisDelta = this.playerPos.y * -TILE_SIZE - centerY;
+      const resolvedSide =
+        cameraAxisDelta > axisEpsilon
+          ? 1
+          : cameraAxisDelta < -axisEpsilon
+            ? -1
+            : playerAxisDelta > axisEpsilon
+              ? 1
+              : playerAxisDelta < -axisEpsilon
+                ? -1
+                : -1;
+      ironBarsOverlay.frontMesh.visible = resolvedSide <= 0;
+      ironBarsOverlay.backMesh.visible = resolvedSide >= 0;
       return;
     }
   }
@@ -16118,6 +16324,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.disposeVultureWallPlaneOverlay(mesh);
       this.disposeVultureDoorPlaneOverlay(mesh);
       this.disposeTransparentWallGroundPlaneOverlay(mesh);
+      this.disposeIronBarsWallPlaneOverlay(mesh);
       this.scene.remove(mesh);
     });
     this.tileMap.clear();
@@ -17863,6 +18070,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.disposeVultureWallPlaneOverlay(mesh);
         this.disposeVultureDoorPlaneOverlay(mesh);
         this.disposeTransparentWallGroundPlaneOverlay(mesh);
+        this.disposeIronBarsWallPlaneOverlay(mesh);
         this.scene.remove(mesh);
         this.tileMap.delete(key);
       }
@@ -29569,6 +29777,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
   }
 
+  private updateIronBarsWallPlaneVisibility(): void {
+    for (const mesh of this.tileMap.values()) {
+      if (!mesh.userData?.ironBarsWallPlaneOverlay) {
+        continue;
+      }
+      this.applyWallBackSideVisibilityForCurrentPlayMode(mesh);
+    }
+  }
+
   private animate(timeMs: number = performance.now()): void {
     requestAnimationFrame(this.animateFrameCallback);
     const rawDeltaMs =
@@ -29603,6 +29820,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateDamageEffects(deltaSeconds);
     this.updateTileRevealFades(timeMs);
     this.updateVultureDoorPlaneRenderOrdering();
+    this.updateIronBarsWallPlaneVisibility();
     if (this.composer) {
       this.updateTaaState();
       this.composer.render(deltaSeconds);
