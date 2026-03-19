@@ -1,15 +1,26 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T21:23:47.249Z",
+  "generatedAt": "2026-03-19T21:30:21.945Z",
   "latest": {
-    "buildId": "1a2df5bf55eaf3e6d502",
-    "commitSha": "633503a6792779a779b5105057722103a6b08c66",
-    "createdAt": "2026-03-19T21:23:47.249Z",
+    "buildId": "9f09218ddb4e3c0ec295",
+    "commitSha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
+    "createdAt": "2026-03-19T21:30:21.945Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
-    "commits": [],
+    "commits": [
+      {
+        "sha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
+        "authoredAt": "2026-03-19T17:28:51-04:00",
+        "message": "Added option to disable update checking on launch"
+      },
+      {
+        "sha": "d38f43d7147bbc40318bda02013234e2c28a94f0",
+        "authoredAt": "2026-03-19T17:24:46-04:00",
+        "message": "Fixes to update system"
+      }
+    ],
     "filesBasePath": "latest",
     "files": [
       {
@@ -53,9 +64,9 @@
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
       },
       {
-        "path": "assets/index-DsjqfLnn.js",
-        "size": 2094483,
-        "sha256": "05c9212b41b2ec74dca7fea16bec0791552272101816636f722cb11b50ebde71"
+        "path": "assets/index-C5VAJnsZ.js",
+        "size": 2095390,
+        "sha256": "84cfd88ae6c2a9eede6120b5873457258ed674a1fc9876c5f3ae9ecaecde2ed6"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13080,7 +13091,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "f75bee6445321b613544ef36b9964a10c3e2705618db058dfd7d590e935f6e8f"
+        "sha256": "30b6fefc533121f5560cbafd0a8ab597d30b490e22d0765153a0928f237529b6"
       },
       {
         "path": "nethack-367.wasm",
@@ -13110,6 +13121,26 @@
     ]
   },
   "history": [
+    {
+      "buildId": "9f09218ddb4e3c0ec295",
+      "commitSha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
+      "createdAt": "2026-03-19T21:30:21.945Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
+          "authoredAt": "2026-03-19T17:28:51-04:00",
+          "message": "Added option to disable update checking on launch"
+        },
+        {
+          "sha": "d38f43d7147bbc40318bda02013234e2c28a94f0",
+          "authoredAt": "2026-03-19T17:24:46-04:00",
+          "message": "Fixes to update system"
+        }
+      ]
+    },
     {
       "buildId": "1a2df5bf55eaf3e6d502",
       "commitSha": "633503a6792779a779b5105057722103a6b08c66",
