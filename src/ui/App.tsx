@@ -1670,7 +1670,8 @@ type ClientOptionsTabId =
   | "controls"
   | "sound"
   | "combat"
-  | "compatibility";
+  | "compatibility"
+  | "updates";
 
 type ClientOptionsTab = {
   id: ClientOptionsTabId;
@@ -3324,6 +3325,12 @@ const clientOptionsTabs: ClientOptionsTab[] = [
     description: "Runtime compatibility and NetHack behavior toggles.",
     groupKey: "group-compatibility",
   },
+  {
+    id: "updates",
+    label: "Updates",
+    description: "Check for online game updates and review pending changes.",
+    groupKey: "group-updates",
+  },
 ];
 
 function getClientOptionsForGroup(groupKey: string): ClientOption[] {
@@ -4293,6 +4300,11 @@ export default function App(): JSX.Element {
   const [isClientOptionsVisible, setIsClientOptionsVisible] = useState(false);
   const [activeClientOptionsTab, setActiveClientOptionsTab] =
     useState<ClientOptionsTabId>(clientOptionsDefaultTabId);
+  const [optionsUpdateCheckBusy, setOptionsUpdateCheckBusy] = useState(false);
+  const [optionsUpdateCheckResult, setOptionsUpdateCheckResult] =
+    useState<Nh3dClientUpdateCheckResult | null>(null);
+  const [optionsUpdateCheckStatus, setOptionsUpdateCheckStatus] =
+    useState("");
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
   const [
@@ -6810,6 +6822,58 @@ export default function App(): JSX.Element {
       setStartupUpdateBusy(false);
     }
   }, [startupUpdateBusy, startupUpdateCheck]);
+
+  const checkForUpdatesFromOptions = useCallback(async (): Promise<void> => {
+    if (optionsUpdateCheckBusy) {
+      return;
+    }
+    setOptionsUpdateCheckBusy(true);
+    setOptionsUpdateCheckStatus("Checking for updates...");
+
+    try {
+      const result = await checkForNh3dClientUpdates();
+      setOptionsUpdateCheckResult(result);
+
+      if (!result.supported) {
+        setOptionsUpdateCheckStatus(
+          "This platform does not support online game updates.",
+        );
+        return;
+      }
+      if (result.error) {
+        setOptionsUpdateCheckStatus(`Update check failed: ${result.error}`);
+        return;
+      }
+
+      setStartupUpdateCheck(result);
+      if (!result.hasUpdate) {
+        setOptionsUpdateCheckStatus("You already have the latest game update.");
+        if (startupMenuVisible) {
+          setStartupUpdateDetailsVisible(false);
+          setStartupUpdateError("");
+          setIsStartupUpdateDialogVisible(false);
+        }
+        return;
+      }
+
+      setOptionsUpdateCheckStatus(
+        result.pendingCount === 1
+          ? "1 game update is available."
+          : `${result.pendingCount} game updates are available.`,
+      );
+      if (startupMenuVisible) {
+        setStartupUpdateError("");
+        setStartupUpdateDetailsVisible(false);
+        setIsStartupUpdateDialogVisible(true);
+      }
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Unexpected update check failure.";
+      setOptionsUpdateCheckStatus(`Update check failed: ${errorMessage}`);
+    } finally {
+      setOptionsUpdateCheckBusy(false);
+    }
+  }, [optionsUpdateCheckBusy, startupMenuVisible]);
 
   useEffect(() => {
     if (!characterSheetInterceptionArmed) {
@@ -11822,6 +11886,56 @@ export default function App(): JSX.Element {
                 </div>
               </div>
               <div className="nh3d-options-list">
+                {selectedClientOptionsTab.id === "updates" ? (
+                  <div className="nh3d-option-row nh3d-option-row-updates">
+                    <div className="nh3d-option-copy">
+                      <div className="nh3d-option-label">Game Updates</div>
+                      <div className="nh3d-option-description">
+                        Check the published online manifest and compare it to
+                        your installed build.
+                      </div>
+                      {optionsUpdateCheckStatus ? (
+                        <div className="nh3d-updates-status">
+                          {optionsUpdateCheckStatus}
+                        </div>
+                      ) : (
+                        <div className="nh3d-updates-status">
+                          Press Check for Updates to verify your current game
+                          files are up to date.
+                        </div>
+                      )}
+                      {optionsUpdateCheckResult &&
+                      optionsUpdateCheckResult.supported &&
+                      !optionsUpdateCheckResult.error &&
+                      optionsUpdateCheckResult.hasUpdate &&
+                      optionsUpdateCheckResult.pendingCommits.length > 0 ? (
+                        <ul className="nh3d-updates-pending-list">
+                          {optionsUpdateCheckResult.pendingCommits.map(
+                            (entry, index) => (
+                              <li key={`${entry.sha || "commit"}-${index}`}>
+                                {entry.message}
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      ) : null}
+                    </div>
+                    <div className="nh3d-option-select-controls">
+                      <button
+                        className="nh3d-menu-action-button"
+                        disabled={optionsUpdateCheckBusy}
+                        onClick={() => {
+                          void checkForUpdatesFromOptions();
+                        }}
+                        type="button"
+                      >
+                        {optionsUpdateCheckBusy
+                          ? "Checking..."
+                          : "Check for Updates"}
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
                 {visibleClientOptions.map((option) => {
                   if (option.developerOnly && !showDeveloperClientSettings) {
                     return null;
