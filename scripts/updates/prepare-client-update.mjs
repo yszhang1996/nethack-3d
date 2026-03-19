@@ -9,7 +9,7 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..", "..");
 const distDirPath = path.join(projectRoot, "dist");
 const outputRootPath = path.join(projectRoot, "build", "client-updates");
-const outputBuildsPath = path.join(outputRootPath, "builds");
+const outputLatestPath = path.join(outputRootPath, "latest");
 const manifestPath = path.join(outputRootPath, "manifest.json");
 const channelConfigPath = path.join(scriptDir, "channel-config.json");
 const packageJsonPath = path.join(projectRoot, "package.json");
@@ -48,6 +48,64 @@ function parseCommitLines(lines) {
       };
     })
     .filter((entry) => entry.message.length > 0);
+}
+
+function normalizeHistoryEntry(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const payload = value;
+  const buildId = typeof payload.buildId === "string" ? payload.buildId.trim() : "";
+  if (!buildId) {
+    return null;
+  }
+
+  const rawCommits = Array.isArray(payload.commits) ? payload.commits : [];
+  const commits = rawCommits
+    .map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return null;
+      }
+      const commitPayload = entry;
+      const message = sanitizeCommitMessage(commitPayload.message);
+      if (!message) {
+        return null;
+      }
+      return {
+        sha:
+          typeof commitPayload.sha === "string"
+            ? commitPayload.sha.trim()
+            : "",
+        authoredAt:
+          typeof commitPayload.authoredAt === "string"
+            ? commitPayload.authoredAt.trim() || null
+            : null,
+        message,
+      };
+    })
+    .filter((entry) => entry !== null);
+
+  return {
+    buildId,
+    commitSha:
+      typeof payload.commitSha === "string"
+        ? payload.commitSha.trim() || null
+        : null,
+    createdAt:
+      typeof payload.createdAt === "string"
+        ? payload.createdAt.trim() || null
+        : null,
+    clientVersion:
+      typeof payload.clientVersion === "string"
+        ? payload.clientVersion.trim() || null
+        : null,
+    requiresClientUpgrade: payload.requiresClientUpgrade === true,
+    clientUpgradeMessage:
+      typeof payload.clientUpgradeMessage === "string"
+        ? payload.clientUpgradeMessage.trim()
+        : "",
+    commits,
+  };
 }
 
 async function ensureDirectoryExists(targetPath) {
@@ -107,60 +165,17 @@ async function buildFileManifest(buildRootPath) {
   return files;
 }
 
-function normalizeHistoryEntry(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
+function resolveBuildStateId(files) {
+  const hash = createHash("sha256");
+  for (const fileEntry of files) {
+    hash.update(fileEntry.path);
+    hash.update("\0");
+    hash.update(String(fileEntry.size));
+    hash.update("\0");
+    hash.update(fileEntry.sha256);
+    hash.update("\n");
   }
-  const payload = value;
-  const buildId = typeof payload.buildId === "string" ? payload.buildId.trim() : "";
-  if (!buildId) {
-    return null;
-  }
-  const rawCommits = Array.isArray(payload.commits) ? payload.commits : [];
-  const commits = rawCommits
-    .map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
-        return null;
-      }
-      const commitPayload = entry;
-      const message = sanitizeCommitMessage(commitPayload.message);
-      if (!message) {
-        return null;
-      }
-      return {
-        sha:
-          typeof commitPayload.sha === "string"
-            ? commitPayload.sha.trim()
-            : "",
-        authoredAt:
-          typeof commitPayload.authoredAt === "string"
-            ? commitPayload.authoredAt.trim() || null
-            : null,
-        message,
-      };
-    })
-    .filter((entry) => entry !== null);
-  return {
-    buildId,
-    commitSha:
-      typeof payload.commitSha === "string"
-        ? payload.commitSha.trim() || null
-        : null,
-    createdAt:
-      typeof payload.createdAt === "string"
-        ? payload.createdAt.trim() || null
-        : null,
-    clientVersion:
-      typeof payload.clientVersion === "string"
-        ? payload.clientVersion.trim() || null
-        : null,
-    requiresClientUpgrade: payload.requiresClientUpgrade === true,
-    clientUpgradeMessage:
-      typeof payload.clientUpgradeMessage === "string"
-        ? payload.clientUpgradeMessage.trim()
-        : "",
-    commits,
-  };
+  return hash.digest("hex").slice(0, 20);
 }
 
 async function loadChannelConfig() {
@@ -173,7 +188,7 @@ async function loadChannelConfig() {
     };
   }
 
-  const normalized = {
+  return {
     channel:
       typeof payload.channel === "string" && payload.channel.trim()
         ? payload.channel.trim()
@@ -184,7 +199,6 @@ async function loadChannelConfig() {
         ? payload.clientUpgradeMessage.trim()
         : "",
   };
-  return normalized;
 }
 
 function resolveCommitRange(previousCommitSha) {
@@ -195,37 +209,13 @@ function resolveCommitRange(previousCommitSha) {
     );
   }
   const rangeOutput = runGitCommand(
-    [
-      "log",
-      "--pretty=format:%H%x09%cI%x09%s",
-      `${previousCommitSha}..HEAD`,
-    ],
+    ["log", "--pretty=format:%H%x09%cI%x09%s", `${previousCommitSha}..HEAD`],
     "",
   );
   if (rangeOutput.trim().length > 0) {
     return rangeOutput;
   }
   return runGitCommand(["log", "-1", "--pretty=format:%H%x09%cI%x09%s"], "");
-}
-
-async function pruneBuildDirectories(historyEntries) {
-  const keepBuildIds = new Set(historyEntries.map((entry) => entry.buildId));
-  let directoryEntries = [];
-  try {
-    directoryEntries = await fs.readdir(outputBuildsPath, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of directoryEntries) {
-    if (!entry.isDirectory()) {
-      continue;
-    }
-    if (keepBuildIds.has(entry.name)) {
-      continue;
-    }
-    const obsoletePath = path.join(outputBuildsPath, entry.name);
-    await fs.rm(obsoletePath, { recursive: true, force: true });
-  }
 }
 
 async function main() {
@@ -257,39 +247,31 @@ async function main() {
     existingLatest && typeof existingLatest.commitSha === "string"
       ? existingLatest.commitSha.trim() || null
       : null;
-
-  const fullCommitSha = runGitCommand(["rev-parse", "HEAD"], "");
-  const shortCommitSha =
-    runGitCommand(["rev-parse", "--short=12", "HEAD"], "") || "unknown";
-  const timestamp = new Date()
-    .toISOString()
-    .replace(/[-:TZ.]/g, "")
-    .slice(0, 14);
-  const buildId = `${timestamp}-${shortCommitSha}`;
-
   const channelConfig = await loadChannelConfig();
+  const fullCommitSha = runGitCommand(["rev-parse", "HEAD"], "") || null;
   const commitLines = resolveCommitRange(previousCommitSha);
   const commits = parseCommitLines(commitLines);
 
-  const buildOutputPath = path.join(outputBuildsPath, buildId);
-  await fs.rm(buildOutputPath, { recursive: true, force: true });
-  await ensureDirectoryExists(outputBuildsPath);
-  await fs.cp(distDirPath, buildOutputPath, {
+  await fs.rm(outputLatestPath, { recursive: true, force: true });
+  await ensureDirectoryExists(outputRootPath);
+  await fs.cp(distDirPath, outputLatestPath, {
     recursive: true,
     force: true,
   });
-  const files = await buildFileManifest(buildOutputPath);
 
+  const files = await buildFileManifest(outputLatestPath);
   const createdAt = new Date().toISOString();
+  const buildId = resolveBuildStateId(files);
+
   const latestEntry = {
     buildId,
-    commitSha: fullCommitSha || null,
+    commitSha: fullCommitSha,
     createdAt,
     clientVersion,
     requiresClientUpgrade: channelConfig.requireClientUpgrade,
     clientUpgradeMessage: channelConfig.clientUpgradeMessage,
     commits,
-    filesBasePath: `builds/${buildId}`,
+    filesBasePath: "latest",
     files,
   };
 
@@ -320,12 +302,11 @@ async function main() {
   };
 
   await writeJsonFile(manifestPath, nextManifest);
-  await pruneBuildDirectories(nextHistory);
 
-  console.log(`Prepared client update build: ${buildId}`);
+  console.log(`Prepared client update state: ${buildId}`);
   console.log(`Manifest: ${path.relative(projectRoot, manifestPath)}`);
   console.log(
-    `Files in package: ${files.length} (client update required: ${channelConfig.requireClientUpgrade})`,
+    `Files in rolling payload: ${files.length} (client update required: ${channelConfig.requireClientUpgrade})`,
   );
 }
 

@@ -18,13 +18,12 @@ const updaterActivateIpcChannel = "nh3d:updater-activate";
 const mainWindowStateById = new Map();
 
 const updateRootDirPath = path.join(app.getPath("userData"), "game-updates");
-const updateBuildsDirPath = path.join(updateRootDirPath, "builds");
+const updateCurrentFilesDirPath = path.join(updateRootDirPath, "current");
 const updateStagingDirPath = path.join(updateRootDirPath, "staging");
 const activeUpdateMetadataPath = path.join(
   updateRootDirPath,
   "active-update.json",
 );
-const maxStoredUpdateBuilds = 3;
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -185,41 +184,6 @@ async function removeDirectoryIfPresent(targetPath) {
   await fsp.rm(targetPath, { recursive: true, force: true });
 }
 
-async function pruneStoredUpdateBuilds(activeBuildId) {
-  try {
-    const directoryEntries = await fsp.readdir(updateBuildsDirPath, {
-      withFileTypes: true,
-    });
-    const buildEntries = [];
-    for (const entry of directoryEntries) {
-      if (!entry.isDirectory()) {
-        continue;
-      }
-      const buildPath = path.join(updateBuildsDirPath, entry.name);
-      const stats = await fsp.stat(buildPath);
-      buildEntries.push({
-        buildId: entry.name,
-        buildPath,
-        modifiedAtMs: stats.mtimeMs,
-      });
-    }
-    buildEntries.sort((a, b) => b.modifiedAtMs - a.modifiedAtMs);
-
-    let keptCount = 0;
-    for (const entry of buildEntries) {
-      const shouldKeep =
-        entry.buildId === activeBuildId || keptCount < maxStoredUpdateBuilds;
-      if (shouldKeep) {
-        keptCount += 1;
-        continue;
-      }
-      await removeDirectoryIfPresent(entry.buildPath);
-    }
-  } catch {
-    // Ignore cleanup failures.
-  }
-}
-
 function resolveManifestFileUrl(manifestUrl, latestManifestEntry, fileEntry) {
   if (fileEntry.url) {
     return new URL(fileEntry.url, manifestUrl).toString();
@@ -335,8 +299,8 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
     };
   }
 
-  const stagingBuildDirPath = path.join(updateStagingDirPath, latest.buildId);
-  const targetBuildDirPath = path.join(updateBuildsDirPath, latest.buildId);
+  const stagingBuildDirPath = path.join(updateStagingDirPath, "current");
+  const targetBuildDirPath = updateCurrentFilesDirPath;
   await removeDirectoryIfPresent(stagingBuildDirPath);
   await fsp.mkdir(stagingBuildDirPath, { recursive: true });
 
@@ -365,7 +329,7 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
       throw new Error("Update package is missing index.html.");
     }
 
-    await fsp.mkdir(updateBuildsDirPath, { recursive: true });
+    await fsp.mkdir(updateRootDirPath, { recursive: true });
     await removeDirectoryIfPresent(targetBuildDirPath);
     await fsp.rename(stagingBuildDirPath, targetBuildDirPath);
 
@@ -379,7 +343,6 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
       clientVersion: latest.clientVersion,
     };
     await writeJsonFile(activeUpdateMetadataPath, nextMetadata);
-    await pruneStoredUpdateBuilds(latest.buildId);
 
     return {
       ok: true,

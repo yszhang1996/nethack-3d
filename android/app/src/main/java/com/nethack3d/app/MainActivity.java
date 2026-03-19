@@ -27,18 +27,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
 import java.util.TimeZone;
 
 public class MainActivity extends BridgeActivity {
 
     private static final String UPDATE_ROOT_DIR_NAME = "nh3d-game-updates";
-    private static final String UPDATE_BUILDS_DIR_NAME = "builds";
+    private static final String UPDATE_CURRENT_DIR_NAME = "current";
     private static final String UPDATE_STAGING_DIR_NAME = "staging";
     private static final String ACTIVE_UPDATE_FILE_NAME = "active-update.json";
-    private static final int MAX_STORED_BUILDS = 3;
     private static final int NETWORK_CONNECT_TIMEOUT_MS = 30000;
     private static final int NETWORK_READ_TIMEOUT_MS = 30000;
 
@@ -55,8 +51,8 @@ public class MainActivity extends BridgeActivity {
         return new File(getFilesDir(), UPDATE_ROOT_DIR_NAME);
     }
 
-    private File getUpdateBuildsDir() {
-        return new File(getUpdateRootDir(), UPDATE_BUILDS_DIR_NAME);
+    private File getUpdateCurrentDir() {
+        return new File(getUpdateRootDir(), UPDATE_CURRENT_DIR_NAME);
     }
 
     private File getUpdateStagingDir() {
@@ -318,38 +314,6 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
-    private void pruneStoredBuilds(String activeBuildId) {
-        File buildsDir = getUpdateBuildsDir();
-        if (!buildsDir.exists()) {
-            return;
-        }
-        File[] entries = buildsDir.listFiles();
-        if (entries == null || entries.length == 0) {
-            return;
-        }
-        List<File> buildDirectories = new ArrayList<>();
-        for (File entry : entries) {
-            if (entry.isDirectory()) {
-                buildDirectories.add(entry);
-            }
-        }
-        Collections.sort(
-            buildDirectories,
-            (left, right) -> Long.compare(right.lastModified(), left.lastModified())
-        );
-
-        int keptCount = 0;
-        for (File buildDir : buildDirectories) {
-            boolean shouldKeep =
-                buildDir.getName().equals(activeBuildId) || keptCount < MAX_STORED_BUILDS;
-            if (shouldKeep) {
-                keptCount += 1;
-                continue;
-            }
-            deleteRecursively(buildDir);
-        }
-    }
-
     private static JSONObject createApplyResult(
         boolean ok,
         boolean applied,
@@ -451,7 +415,7 @@ public class MainActivity extends BridgeActivity {
                 );
             }
 
-            stagingBuildDir = new File(getUpdateStagingDir(), buildId);
+            stagingBuildDir = new File(getUpdateStagingDir(), UPDATE_CURRENT_DIR_NAME);
             deleteRecursively(stagingBuildDir);
             if (!stagingBuildDir.mkdirs() && !stagingBuildDir.exists()) {
                 throw new IOException(
@@ -492,11 +456,11 @@ public class MainActivity extends BridgeActivity {
                 throw new IOException("Downloaded update does not include index.html.");
             }
 
-            File buildsDir = getUpdateBuildsDir();
-            if (!buildsDir.exists() && !buildsDir.mkdirs()) {
-                throw new IOException("Unable to create update builds directory.");
+            File updateRootDir = getUpdateRootDir();
+            if (!updateRootDir.exists() && !updateRootDir.mkdirs()) {
+                throw new IOException("Unable to create update root directory.");
             }
-            File targetBuildDir = new File(buildsDir, buildId);
+            File targetBuildDir = getUpdateCurrentDir();
             deleteRecursively(targetBuildDir);
             if (!stagingBuildDir.renameTo(targetBuildDir)) {
                 copyRecursively(stagingBuildDir, targetBuildDir);
@@ -515,7 +479,6 @@ public class MainActivity extends BridgeActivity {
             writeTextFile(getActiveUpdateMetadataFile(), nextActiveUpdate.toString(2));
             persistServerBasePath(targetBuildDir.getAbsolutePath());
             applyServerBasePath(targetBuildDir.getAbsolutePath());
-            pruneStoredBuilds(buildId);
 
             return createApplyResult(
                 true,
