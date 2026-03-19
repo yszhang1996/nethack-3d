@@ -1673,6 +1673,7 @@ type ClientOptionsTab = {
 
 type ClientOptionToggleKey =
   | "fpsMode"
+  | "fpsFlattenEntityBillboards"
   | "controllerEnabled"
   | "invertLookYAxis"
   | "cameraRelativeMovement"
@@ -2950,6 +2951,13 @@ const clientOptionsConfig: ClientOption[] = [
     key: "fpsMode",
     label: "First-person mode",
     description: "Use first-person controls and mouselook.",
+    type: "boolean",
+  },
+  {
+    key: "fpsFlattenEntityBillboards",
+    label: "Flatten FPS entity billboards",
+    description:
+      "Use legacy flattened billboards for ASCII/non-Vulture tiles in FPS. Vulture FPS always uses standing overlay billboards.",
     type: "boolean",
   },
   {

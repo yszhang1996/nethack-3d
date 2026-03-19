@@ -4105,6 +4105,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isUsingVultureTiles = this.isVultureTilesActive(normalized);
     const playModeChanged = previous.fpsMode !== normalized.fpsMode;
     const fpsFovChanged = previous.fpsFov !== normalized.fpsFov;
+    const fpsFlattenEntityBillboardsChanged =
+      previous.fpsFlattenEntityBillboards !==
+      normalized.fpsFlattenEntityBillboards;
     const minimapChanged = previous.minimap !== normalized.minimap;
     const damageNumbersChanged =
       previous.damageNumbers !== normalized.damageNumbers;
@@ -4194,6 +4197,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (tilesetModeChanged) {
       this.clearMenuTilePreviewCache();
       this.refreshTilesFromStateCache();
+    }
+    if (fpsFlattenEntityBillboardsChanged && !tilesetModeChanged) {
+      this.refreshTilesFromStateCache();
+    }
+    if (fpsFlattenEntityBillboardsChanged) {
+      this.updateMonsterBillboardPitchLockState();
     }
     if (tilesetPathChanged || tilesetModeChanged) {
       this.refreshMenuTilePreviewStateForUi();
@@ -7859,10 +7868,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
       : 910;
   }
 
+  private shouldUseFpsStandingBillboardOverlayMode(): boolean {
+    return (
+      this.isFpsMode() &&
+      (this.shouldUseVultureTiles() ||
+        !this.clientOptions.fpsFlattenEntityBillboards)
+    );
+  }
+
   private getFpsPlayerTileBillboardBehaviorFromCache(
     key: string,
   ): TileBehaviorResult | null {
-    if (!this.isFpsMode() || this.clientOptions.tilesetMode !== "tiles") {
+    if (
+      !this.shouldUseFpsStandingBillboardOverlayMode() ||
+      this.clientOptions.tilesetMode !== "tiles"
+    ) {
       return null;
     }
     const snapshot =
@@ -17808,7 +17828,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private updateMonsterBillboardPitchLockStateForEntry(
     sprite: THREE.Sprite,
   ): void {
-    if (!this.isFpsMode()) {
+    if (!this.shouldUseFpsStandingBillboardOverlayMode()) {
       this.disposeMonsterBillboardPitchLockedProxyMesh(sprite);
       sprite.visible = true;
       return;

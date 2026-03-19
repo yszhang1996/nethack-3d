@@ -160,6 +160,7 @@ export type Nh3dClientOptions = {
   fpsFov: number;
   fpsLookSensitivityX: number;
   fpsLookSensitivityY: number;
+  fpsFlattenEntityBillboards: boolean;
   controllerEnabled: boolean;
   controllerFpsMoveRepeatMs: number;
   controllerBindings: Nh3dControllerBindings;
@@ -239,6 +240,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   fpsFov: isMobilePortrait ? 95 : 62,
   fpsLookSensitivityX: isMobile ? 1.5 : 1,
   fpsLookSensitivityY: isMobile ? 1.5 : 1,
+  fpsFlattenEntityBillboards: true,
   controllerEnabled: false,
   controllerFpsMoveRepeatMs: 190,
   controllerBindings: normalizeNh3dControllerBindings(
@@ -789,6 +791,10 @@ export function normalizeNh3dClientOptions(
     fpsFov,
     fpsLookSensitivityX,
     fpsLookSensitivityY,
+    fpsFlattenEntityBillboards:
+      typeof overrides?.fpsFlattenEntityBillboards === "boolean"
+        ? overrides.fpsFlattenEntityBillboards
+        : defaultNh3dClientOptions.fpsFlattenEntityBillboards,
     controllerEnabled:
       typeof overrides?.controllerEnabled === "boolean"
         ? overrides.controllerEnabled
