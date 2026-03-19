@@ -1,18 +1,33 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T21:49:25.040Z",
+  "generatedAt": "2026-03-19T22:16:48.034Z",
   "latest": {
-    "buildId": "7d8851d281465e31441a",
-    "commitSha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
-    "createdAt": "2026-03-19T21:49:25.040Z",
+    "buildId": "db1eb4a9ef2bfac8b93f",
+    "commitSha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
+    "createdAt": "2026-03-19T22:16:48.034Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
-        "authoredAt": "2026-03-19T17:46:45-04:00",
+        "sha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
+        "authoredAt": "2026-03-19T18:15:24-04:00",
+        "message": "Testing game updates"
+      },
+      {
+        "sha": "f80f5dc77a19ad3611f18fa2d33d0caeadc96c2f",
+        "authoredAt": "2026-03-19T18:12:02-04:00",
+        "message": "Added log dump key combo"
+      },
+      {
+        "sha": "1b807ab3f0a4e66987aaaac4f0ee0e429a363bd5",
+        "authoredAt": "2026-03-19T17:49:29-04:00",
+        "message": "Another game update test"
+      },
+      {
+        "sha": "a16459d40de7b7a1a66da86121abe2593eed068c",
+        "authoredAt": "2026-03-19T17:48:10-04:00",
         "message": "Testing updates"
       }
     ],
@@ -54,14 +69,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-B6JaiGdf.js",
-        "size": 2095394,
-        "sha256": "8ec448b891cf6f4e8792e8c032f3039a592dbae3f8ae5624317f0bbe137796e3"
-      },
-      {
         "path": "assets/index-B7LVk5F6.css",
         "size": 140171,
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
+      },
+      {
+        "path": "assets/index-mV7_hTXw.js",
+        "size": 2097027,
+        "sha256": "cf96856c73dbe5c5597de50f8d8290caff9352355b76312c281c4db876fca987"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13086,7 +13101,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "f76cebc6f6d47c185b88d3731f5cc8a374c383a8522145e5901dbc1aff035758"
+        "sha256": "0286d92107b30e5002d8a2016467d026072ffda2a035d52b72ffb42813d64cc9"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13131,36 @@
     ]
   },
   "history": [
+    {
+      "buildId": "db1eb4a9ef2bfac8b93f",
+      "commitSha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
+      "createdAt": "2026-03-19T22:16:48.034Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
+          "authoredAt": "2026-03-19T18:15:24-04:00",
+          "message": "Testing game updates"
+        },
+        {
+          "sha": "f80f5dc77a19ad3611f18fa2d33d0caeadc96c2f",
+          "authoredAt": "2026-03-19T18:12:02-04:00",
+          "message": "Added log dump key combo"
+        },
+        {
+          "sha": "1b807ab3f0a4e66987aaaac4f0ee0e429a363bd5",
+          "authoredAt": "2026-03-19T17:49:29-04:00",
+          "message": "Another game update test"
+        },
+        {
+          "sha": "a16459d40de7b7a1a66da86121abe2593eed068c",
+          "authoredAt": "2026-03-19T17:48:10-04:00",
+          "message": "Testing updates"
+        }
+      ]
+    },
     {
       "buildId": "7d8851d281465e31441a",
       "commitSha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
