@@ -1,21 +1,15 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T21:07:58.858Z",
+  "generatedAt": "2026-03-19T21:23:47.249Z",
   "latest": {
-    "buildId": "99ea0d2b1f18ae2a728a",
-    "commitSha": "10bf13d28cf698edea6c14b26447f5ad1d0a7d57",
-    "createdAt": "2026-03-19T21:07:58.858Z",
+    "buildId": "1a2df5bf55eaf3e6d502",
+    "commitSha": "633503a6792779a779b5105057722103a6b08c66",
+    "createdAt": "2026-03-19T21:23:47.249Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
-    "commits": [
-      {
-        "sha": "10bf13d28cf698edea6c14b26447f5ad1d0a7d57",
-        "authoredAt": "2026-03-19T17:02:37-04:00",
-        "message": "Testing game updates"
-      }
-    ],
+    "commits": [],
     "filesBasePath": "latest",
     "files": [
       {
@@ -59,9 +53,9 @@
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
       },
       {
-        "path": "assets/index-DEaf6pdz.js",
-        "size": 2094474,
-        "sha256": "923a299c57a99102d7175e426605b49df7560795ac66fd78a7f956e26bd0c284"
+        "path": "assets/index-DsjqfLnn.js",
+        "size": 2094483,
+        "sha256": "05c9212b41b2ec74dca7fea16bec0791552272101816636f722cb11b50ebde71"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -90,23 +84,23 @@
       },
       {
         "path": "assets/ui/arrow.svg",
-        "size": 492,
-        "sha256": "e12e5a406234c29b250a30669ed6569f45b948799b049cd63cef0fa8586bbfd0"
+        "size": 482,
+        "sha256": "aa18e9b25e59d81b5d4ce018b3f9600bca6997fb4f027a1f1b2b4a907bfc2bfe"
       },
       {
         "path": "assets/ui/circle.svg",
-        "size": 582,
-        "sha256": "24c780483e8a8f1ae58bc4caff178f946220899636b15e7f024e833b60600d19"
+        "size": 575,
+        "sha256": "a0d7f0d72c84c83a18d892a2d04e659898b67a8dd877bda1bd190498705040fd"
       },
       {
         "path": "assets/vulture/win/vulture/gamedata/config/vulture_tiles.conf",
-        "size": 270444,
-        "sha256": "164356f26326fa0d70594886dec23345fc0027fdd0509c5ce3a3ade3bed405d0"
+        "size": 266883,
+        "sha256": "22ef6764c8506ffdfbd9fbc3e268f7c3ba44bb964bc1fde16c5f098fec9e20b4"
       },
       {
         "path": "assets/vulture/win/vulture/gamedata/prebaked/projection-manifest.json",
-        "size": 28029,
-        "sha256": "42a9819a9c9abb56b034f07bf1024cce09bf8342413cb506a75a768b50b62d04"
+        "size": 27670,
+        "sha256": "d0a54323210e00c2ee16abacba9378935f92829a5184a9a205f1e417b72f1fbf"
       },
       {
         "path": "assets/vulture/win/vulture/gamedata/prebaked/projection/floor/FLOOR_AIR_0_0__floor__none.png",
@@ -13075,8 +13069,8 @@
       },
       {
         "path": "fmod/fmodstudio.js",
-        "size": 131453,
-        "sha256": "4cd932cf11511e9e5d9b6454a4fc71e9b6b5fe925ed9cc39f11c3bb706fe1b8b"
+        "size": 131434,
+        "sha256": "7497a63744b940b2d5c9ff494e5017bf991aee8dd26739edcf86e1954f6e93e9"
       },
       {
         "path": "fmod/fmodstudio.wasm",
@@ -13086,7 +13080,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "35ce5d8bf21b8222fbaf67eee0d46ec0ca5af4422230ffbd7a6c4cfe6ddd6e82"
+        "sha256": "f75bee6445321b613544ef36b9964a10c3e2705618db058dfd7d590e935f6e8f"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13110,30 @@
     ]
   },
   "history": [
+    {
+      "buildId": "1a2df5bf55eaf3e6d502",
+      "commitSha": "633503a6792779a779b5105057722103a6b08c66",
+      "createdAt": "2026-03-19T21:23:47.249Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": []
+    },
+    {
+      "buildId": "7a3fb45e07d21bd4ed10",
+      "commitSha": "633503a6792779a779b5105057722103a6b08c66",
+      "createdAt": "2026-03-19T21:16:38.802Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "633503a6792779a779b5105057722103a6b08c66",
+          "authoredAt": "2026-03-19T17:08:59-04:00",
+          "message": "Added Check for Updates button in Options menu"
+        }
+      ]
+    },
     {
       "buildId": "99ea0d2b1f18ae2a728a",
       "commitSha": "10bf13d28cf698edea6c14b26447f5ad1d0a7d57",

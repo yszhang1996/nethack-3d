@@ -319,11 +319,14 @@ export async function checkForNh3dClientUpdates(
       bundledUpdateCommitMatchesLatest ||
       bundledCommitMatchesLatest
     );
+    const effectiveLocalBuildId = localBuildId ?? bundledUpdateBuildId;
+    const effectiveLocalCommitSha =
+      localCommitSha ?? bundledUpdateCommitSha ?? bundledBuildCommitSha;
     const pendingCommits = hasUpdate
       ? resolveNh3dPendingUpdateCommits(
           manifest,
-          localBuildId,
-          localCommitSha,
+          effectiveLocalBuildId,
+          effectiveLocalCommitSha,
         )
       : [];
     const pendingCount = resolveNh3dPendingUpdateCount(

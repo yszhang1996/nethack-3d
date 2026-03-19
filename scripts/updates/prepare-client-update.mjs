@@ -48,6 +48,53 @@ function runGitCommand(args, fallbackValue = "") {
   return result.stdout.trim();
 }
 
+function readGitCanonicalFileBytes(absolutePath, repoRelativePath) {
+  const normalizedRepoRelativePath = String(repoRelativePath || "").replace(
+    /\\/g,
+    "/",
+  );
+  if (!normalizedRepoRelativePath) {
+    return null;
+  }
+
+  const hashResult = spawnSync(
+    "git",
+    [
+      "hash-object",
+      "-w",
+      `--path=${normalizedRepoRelativePath}`,
+      absolutePath,
+    ],
+    {
+      cwd: projectRoot,
+      encoding: "utf8",
+      shell: false,
+    },
+  );
+  if (hashResult.error || hashResult.status !== 0) {
+    return null;
+  }
+
+  const blobSha = String(hashResult.stdout || "").trim();
+  if (!blobSha) {
+    return null;
+  }
+
+  const blobResult = spawnSync("git", ["cat-file", "blob", blobSha], {
+    cwd: projectRoot,
+    encoding: null,
+    shell: false,
+    maxBuffer: 512 * 1024 * 1024,
+  });
+  if (blobResult.error || blobResult.status !== 0) {
+    return null;
+  }
+  if (!Buffer.isBuffer(blobResult.stdout)) {
+    return null;
+  }
+  return blobResult.stdout;
+}
+
 function sanitizeCommitMessage(value) {
   if (typeof value !== "string") {
     return "";
@@ -208,17 +255,30 @@ async function collectRelativeFilePaths(rootPath, currentPath = rootPath) {
 async function buildFileManifest(buildRootPath) {
   const relativeFilePaths = await collectRelativeFilePaths(buildRootPath);
   const files = [];
+  let warnedCanonicalFallback = false;
   for (const relativePath of relativeFilePaths) {
     if (excludedManifestRelativePaths.has(relativePath)) {
       continue;
     }
     const absolutePath = path.join(buildRootPath, relativePath);
-    const fileBytes = await fs.readFile(absolutePath);
+    const repoRelativePath = path
+      .relative(projectRoot, absolutePath)
+      .replace(/\\/g, "/");
+    const canonicalFileBytes = readGitCanonicalFileBytes(
+      absolutePath,
+      repoRelativePath,
+    );
+    const fileBytes = canonicalFileBytes ?? (await fs.readFile(absolutePath));
+    if (!canonicalFileBytes && !warnedCanonicalFallback) {
+      warnedCanonicalFallback = true;
+      console.warn(
+        "Warning: unable to read canonical Git bytes for one or more files; falling back to raw file bytes.",
+      );
+    }
     const digest = createHash("sha256").update(fileBytes).digest("hex");
-    const stats = await fs.stat(absolutePath);
     files.push({
       path: relativePath,
-      size: stats.size,
+      size: fileBytes.length,
       sha256: digest,
     });
   }
