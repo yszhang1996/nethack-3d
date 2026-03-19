@@ -87,8 +87,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - `npm run android:open` - Open the Android project in Android Studio.
 - `npm run android:run` - Build web assets and run on a connected Android device/emulator.
 - `npm run updates:package` - Create `build/client-updates/manifest.json` + build payload from `dist/` for in-app client updates.
-- `npm run updates:build-package` - Build + package the latest client-update payload in one command.
-- `npm run hooks:install` - Configure git to use the repo-local hooks in `.githooks/`.
+- `npm run update` - Build + package the latest client-update payload in one command.
 - `npm run glyphs:generate` - Regenerate glyph catalog from runtime artifacts.
 - `npm run glyphs:check` - Verify checked-in glyph catalog is up to date.
 
@@ -100,8 +99,8 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Update channel switches live in `scripts/updates/channel-config.json`:
   - Set `requireClientUpgrade` to `true` to force a full native client upgrade warning while still allowing web build download.
   - Use `clientUpgradeMessage` for custom upgrade guidance text shown in the startup update dialog.
-- A repo-local `pre-commit` hook builds web assets (`npm run build`), and a `commit-msg` hook packages update payloads + stages `build/client-updates/` using the in-flight commit message.
-- Exact SHA for the same in-flight commit cannot be embedded in `manifest.json` (self-referential hash). The manifest therefore includes the pending commit message immediately, while `commitSha` reflects the most recently finalized commit hash at hook time.
+- Update packaging is intentional/manual:
+  - Run `npm run update` when you want to prepare and publish a new online update from current source.
 
 ## Architecture
 
