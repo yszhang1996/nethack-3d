@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T21:41:17.703Z",
+  "generatedAt": "2026-03-19T21:46:34.467Z",
   "latest": {
-    "buildId": "c09a3d6fcb2e4188945f",
-    "commitSha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",
-    "createdAt": "2026-03-19T21:41:17.703Z",
+    "buildId": "483b0ecb1dcc601131c4",
+    "commitSha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
+    "createdAt": "2026-03-19T21:46:34.467Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",
-        "authoredAt": "2026-03-19T17:30:37-04:00",
-        "message": "Game update"
+        "sha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
+        "authoredAt": "2026-03-19T17:43:14-04:00",
+        "message": "Added logging to the update system"
       }
     ],
     "filesBasePath": "latest",
@@ -59,9 +59,9 @@
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
       },
       {
-        "path": "assets/index-d6BEL_NJ.js",
+        "path": "assets/index-Bywd0Xxt.js",
         "size": 2095390,
-        "sha256": "5a8389c85f6527f11f713382f1924fbb9475d173f65493b5204f7234cde50a7c"
+        "sha256": "72ae41140e3cda3198f7745012d27868ff0fca763f568fef72a0a47f669d2015"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13086,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "06416a82cd81fe50da859b74574f566a5093848d6387e3eb37a46524c7b7cdd6"
+        "sha256": "16c78b573dea3e515f82fb2a17ac983ca4383753f7d076a73ec42465ed540e6f"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "483b0ecb1dcc601131c4",
+      "commitSha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
+      "createdAt": "2026-03-19T21:46:34.467Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
+          "authoredAt": "2026-03-19T17:43:14-04:00",
+          "message": "Added logging to the update system"
+        }
+      ]
+    },
     {
       "buildId": "c09a3d6fcb2e4188945f",
       "commitSha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",

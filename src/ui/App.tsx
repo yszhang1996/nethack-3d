@@ -4304,8 +4304,7 @@ export default function App(): JSX.Element {
   const [optionsUpdateCheckBusy, setOptionsUpdateCheckBusy] = useState(false);
   const [optionsUpdateCheckResult, setOptionsUpdateCheckResult] =
     useState<Nh3dClientUpdateCheckResult | null>(null);
-  const [optionsUpdateCheckStatus, setOptionsUpdateCheckStatus] =
-    useState("");
+  const [optionsUpdateCheckStatus, setOptionsUpdateCheckStatus] = useState("");
   const [isDarkWallTilePickerVisible, setIsDarkWallTilePickerVisible] =
     useState(false);
   const [
@@ -6873,7 +6872,9 @@ export default function App(): JSX.Element {
       }
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : "Unexpected update check failure.";
+        error instanceof Error
+          ? error.message
+          : "Unexpected update check failure.";
       setOptionsUpdateCheckStatus(`Update check failed: ${errorMessage}`);
     } finally {
       setOptionsUpdateCheckBusy(false);
@@ -11296,7 +11297,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Exit Game
+              Quit Game
             </button>
           </div>
         </div>
@@ -11906,7 +11907,9 @@ export default function App(): JSX.Element {
                       <button
                         aria-checked={clientOptionsDraft.checkUpdatesOnLaunch}
                         className={`nh3d-option-switch nh3d-option-inline-switch${
-                          clientOptionsDraft.checkUpdatesOnLaunch ? " is-on" : ""
+                          clientOptionsDraft.checkUpdatesOnLaunch
+                            ? " is-on"
+                            : ""
                         }`}
                         onClick={() =>
                           updateClientOptionDraft(
