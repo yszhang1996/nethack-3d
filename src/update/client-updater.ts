@@ -8,6 +8,7 @@ import type {
   Nh3dClientUpdateApplyResult,
   Nh3dClientUpdateCancelResult,
   Nh3dClientUpdateCheckResult,
+  Nh3dClientUpdateLogExportResult,
 } from "./types";
 
 const fallbackUpdateManifestUrl =
@@ -18,6 +19,7 @@ type Nh3dElectronUpdaterBridge = {
   getActiveUpdateInfo?: () => Promise<unknown>;
   applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
   cancelGameUpdate?: () => Promise<unknown>;
+  exportUpdateLogs?: () => Promise<unknown>;
   activateInstalledUpdate?: () => Promise<unknown>;
 };
 
@@ -29,6 +31,7 @@ type Nh3dAndroidBridge = {
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
   cancelGameUpdate?: () => string;
+  exportUpdateLogs?: () => string;
 };
 
 type Nh3dUpdateWindow = Window & {
@@ -139,6 +142,22 @@ function parseCancelResult(value: unknown): Nh3dClientUpdateCancelResult {
   return {
     ok: normalizeBoolean(payload.ok),
     canceled: normalizeBoolean(payload.canceled),
+    error: normalizeNullableString(payload.error),
+  };
+}
+
+function parseLogExportResult(value: unknown): Nh3dClientUpdateLogExportResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ok: false,
+      path: null,
+      error: "Client update host returned an invalid log export response.",
+    };
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    ok: normalizeBoolean(payload.ok),
+    path: normalizeNullableString(payload.path),
     error: normalizeNullableString(payload.error),
   };
 }
@@ -475,6 +494,52 @@ export async function cancelNh3dClientUpdate(): Promise<Nh3dClientUpdateCancelRe
     ok: false,
     canceled: false,
     error: "This platform does not support canceling client updates.",
+  };
+}
+
+export async function exportNh3dClientUpdateLogs(): Promise<Nh3dClientUpdateLogExportResult> {
+  const electronBridge = getUpdateWindow().nh3dElectron?.updater;
+  if (electronBridge && typeof electronBridge.exportUpdateLogs === "function") {
+    try {
+      const rawResult = await electronBridge.exportUpdateLogs();
+      return parseLogExportResult(rawResult);
+    } catch (error) {
+      return {
+        ok: false,
+        path: null,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to export updater logs.",
+      };
+    }
+  }
+
+  const androidBridge = getUpdateWindow().nh3dAndroid;
+  if (androidBridge && typeof androidBridge.exportUpdateLogs === "function") {
+    try {
+      const rawResult = androidBridge.exportUpdateLogs();
+      const parsedResult =
+        typeof rawResult === "string" && rawResult.trim()
+          ? JSON.parse(rawResult)
+          : null;
+      return parseLogExportResult(parsedResult);
+    } catch (error) {
+      return {
+        ok: false,
+        path: null,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to export updater logs.",
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    path: null,
+    error: "This platform does not support exporting updater logs.",
   };
 }
 

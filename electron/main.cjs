@@ -15,6 +15,7 @@ const appRenderedIpcChannel = "nh3d:app-rendered";
 const updaterGetActiveInfoIpcChannel = "nh3d:updater-get-active-info";
 const updaterApplyIpcChannel = "nh3d:updater-apply";
 const updaterCancelIpcChannel = "nh3d:updater-cancel";
+const updaterExportLogsIpcChannel = "nh3d:updater-export-logs";
 const updaterActivateIpcChannel = "nh3d:updater-activate";
 const mainWindowStateById = new Map();
 const activeUpdateJobBySenderId = new Map();
@@ -306,6 +307,14 @@ function resolveUpdateFailureLogPath(timestampIsoUtc) {
   return path.join(updateFailureLogsDirPath, `update-failure-${suffix}.json`);
 }
 
+function resolveUpdateExportLogPath(timestampIsoUtc) {
+  const safeTimestamp = String(timestampIsoUtc || "")
+    .replace(/[:.]/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+  const suffix = safeTimestamp || String(Date.now());
+  return path.join(updateFailureLogsDirPath, `update-export-${suffix}.json`);
+}
+
 async function persistUpdateFailureTrace(updateTrace, error) {
   if (!updateTrace) {
     return null;
@@ -325,6 +334,43 @@ async function persistUpdateFailureTrace(updateTrace, error) {
     console.warn("Failed to persist update failure trace:", writeError);
     return null;
   }
+}
+
+async function exportCurrentUpdateTraceSnapshot(requestedBySenderId = null) {
+  const exportedAt = new Date().toISOString();
+  const activeJobs = [];
+  for (const [senderId, job] of activeUpdateJobBySenderId.entries()) {
+    const activeTrace = isPlainObject(job?.updateTrace)
+      ? job.updateTrace
+      : null;
+    if (activeTrace) {
+      appendUpdateTraceEvent(activeTrace, "manual-export", {
+        requestedBySenderId,
+      });
+    }
+    activeJobs.push({
+      senderId,
+      isAborted: job?.abortController?.signal?.aborted === true,
+      trace: activeTrace,
+    });
+  }
+
+  const snapshotPayload = {
+    schemaVersion: 1,
+    exportedAt,
+    requestedBySenderId,
+    activeJobCount: activeJobs.length,
+    activeJobs,
+    lastFailure: readJsonFileSync(updateLastFailureLogPath),
+  };
+
+  const logPath = resolveUpdateExportLogPath(exportedAt);
+  await writeJsonFile(logPath, snapshotPayload);
+  return {
+    ok: true,
+    path: logPath,
+    error: null,
+  };
 }
 
 function createUpdateAbortError() {
@@ -508,6 +554,7 @@ async function downloadFileWithValidation(
 async function applyGameUpdateFromManifestUrl(
   manifestUrl,
   cancellationSignal = null,
+  updateTraceOverride = null,
 ) {
   if (!app.isPackaged) {
     return {
@@ -536,7 +583,10 @@ async function applyGameUpdateFromManifestUrl(
     };
   }
 
-  const updateTrace = createUpdateAttemptTrace(normalizedManifestUrl);
+  const updateTrace =
+    updateTraceOverride && isPlainObject(updateTraceOverride)
+      ? updateTraceOverride
+      : createUpdateAttemptTrace(normalizedManifestUrl);
   appendUpdateTraceEvent(updateTrace, "apply-started");
   const stagingBuildDirPath = path.join(updateStagingDirPath, "current");
   const targetBuildDirPath = updateCurrentFilesDirPath;
@@ -746,7 +796,8 @@ ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {
   }
 
   const abortController = new AbortController();
-  const activeJob = { abortController };
+  const updateTrace = createUpdateAttemptTrace(manifestUrl);
+  const activeJob = { abortController, updateTrace };
   activeUpdateJobBySenderId.set(senderId, activeJob);
   const handleSenderDestroyed = () => {
     abortController.abort(createUpdateAbortError());
@@ -757,6 +808,7 @@ ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {
     return await applyGameUpdateFromManifestUrl(
       manifestUrl,
       abortController.signal,
+      updateTrace,
     );
   } finally {
     event.sender.removeListener("destroyed", handleSenderDestroyed);
@@ -782,6 +834,21 @@ ipcMain.handle(updaterCancelIpcChannel, (event) => {
     canceled: true,
     error: null,
   };
+});
+
+ipcMain.handle(updaterExportLogsIpcChannel, async (event) => {
+  try {
+    return await exportCurrentUpdateTraceSnapshot(event.sender.id);
+  } catch (error) {
+    return {
+      ok: false,
+      path: null,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to export updater trace logs.",
+    };
+  }
 });
 
 ipcMain.handle(updaterActivateIpcChannel, async (event) => {

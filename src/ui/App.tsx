@@ -87,6 +87,7 @@ import {
   applyNh3dClientUpdate,
   cancelNh3dClientUpdate,
   checkForNh3dClientUpdates,
+  exportNh3dClientUpdateLogs,
   supportsNh3dClientUpdateCancellation,
 } from "../update/client-updater";
 import type { Nh3dClientUpdateCheckResult } from "../update/types";
@@ -4068,6 +4069,7 @@ type Nh3dElectronBridge = {
     getActiveUpdateInfo?: () => Promise<unknown>;
     applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
     cancelGameUpdate?: () => Promise<unknown>;
+    exportUpdateLogs?: () => Promise<unknown>;
     activateInstalledUpdate?: () => Promise<unknown>;
   };
 };
@@ -4077,6 +4079,7 @@ type Nh3dAndroidBridge = {
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
   cancelGameUpdate?: () => string;
+  exportUpdateLogs?: () => string;
 };
 
 type Nh3dWindowBridges = Window & {
@@ -6880,6 +6883,54 @@ export default function App(): JSX.Element {
       setOptionsUpdateCheckBusy(false);
     }
   }, [optionsUpdateCheckBusy, startupMenuVisible]);
+
+  const exportUpdaterLogsSnapshot = useCallback(async (): Promise<void> => {
+    const exportResult = await exportNh3dClientUpdateLogs();
+    if (!exportResult.ok || !exportResult.path) {
+      const errorMessage =
+        exportResult.error ?? "Failed to export updater debug logs.";
+      setOptionsUpdateCheckStatus(`Updater log export failed: ${errorMessage}`);
+      useGameStore.getState().pushFloatingMessage(
+        "Updater log export failed.",
+      );
+      return;
+    }
+
+    const successMessage = `Updater debug log exported: ${exportResult.path}`;
+    setOptionsUpdateCheckStatus(successMessage);
+    useGameStore.getState().pushFloatingMessage(
+      "Updater debug log exported.",
+    );
+    console.info(successMessage);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handleUpdaterLogExportHotkey = (event: KeyboardEvent): void => {
+      if (
+        event.key.toLowerCase() !== "u" ||
+        !event.ctrlKey ||
+        !event.altKey ||
+        !event.shiftKey
+      ) {
+        return;
+      }
+      if (event.repeat) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void exportUpdaterLogsSnapshot();
+    };
+
+    window.addEventListener("keydown", handleUpdaterLogExportHotkey, true);
+    return () => {
+      window.removeEventListener("keydown", handleUpdaterLogExportHotkey, true);
+    };
+  }, [exportUpdaterLogsSnapshot]);
 
   useEffect(() => {
     if (!characterSheetInterceptionArmed) {
@@ -11930,19 +11981,23 @@ export default function App(): JSX.Element {
                           Check the published online manifest and compare it to
                           your installed build.
                         </div>
-                        {optionsUpdateCheckStatus ? (
-                          <div className="nh3d-updates-status">
-                            {optionsUpdateCheckStatus}
-                          </div>
-                        ) : (
+                      {optionsUpdateCheckStatus ? (
+                        <div className="nh3d-updates-status">
+                          {optionsUpdateCheckStatus}
+                        </div>
+                      ) : (
                           <div className="nh3d-updates-status">
                             Press Check for Updates to verify your current game
-                            files are up to date.
-                          </div>
-                        )}
-                        {optionsUpdateCheckResult &&
-                        optionsUpdateCheckResult.supported &&
-                        !optionsUpdateCheckResult.error &&
+                          files are up to date.
+                        </div>
+                      )}
+                      <div className="nh3d-option-description">
+                        Hotkey: Ctrl+Alt+Shift+U exports an updater debug
+                        snapshot at the current state.
+                      </div>
+                      {optionsUpdateCheckResult &&
+                      optionsUpdateCheckResult.supported &&
+                      !optionsUpdateCheckResult.error &&
                         optionsUpdateCheckResult.hasUpdate &&
                         optionsUpdateCheckResult.pendingCommits.length > 0 ? (
                           <ul className="nh3d-updates-pending-list">

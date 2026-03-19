@@ -69,3 +69,9 @@ export type Nh3dClientUpdateCancelResult = {
   canceled: boolean;
   error: string | null;
 };
+
+export type Nh3dClientUpdateLogExportResult = {
+  ok: boolean;
+  path: string | null;
+  error: string | null;
+};
