@@ -1,15 +1,21 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T23:54:48.899Z",
+  "generatedAt": "2026-03-19T23:58:22.028Z",
   "latest": {
-    "buildId": "efa2ddc6ad2b5afbab5f",
-    "commitSha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
-    "createdAt": "2026-03-19T23:54:48.899Z",
+    "buildId": "b84e6d8c5eefbfa62722",
+    "commitSha": "df4025288ac246459859cd9add79f1db1d0c0d9a",
+    "createdAt": "2026-03-19T23:58:22.028Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
-    "commits": [],
+    "commits": [
+      {
+        "sha": "df4025288ac246459859cd9add79f1db1d0c0d9a",
+        "authoredAt": "2026-03-19T19:56:21-04:00",
+        "message": "Fixed broken updates causing black screen"
+      }
+    ],
     "filesBasePath": "latest",
     "files": [
       {
@@ -58,14 +64,14 @@
         "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
       },
       {
+        "path": "assets/index-CG5KdxU5.js",
+        "size": 2101236,
+        "sha256": "8e47ffec09467d42d2aa372780f6de54d1d7ffd95debbbb7f37b71433fef509f"
+      },
+      {
         "path": "assets/index-Du_r9Vxv.js",
         "size": 63090,
         "sha256": "dbcb1639d3d34900933ca29aa63dd738f8675adc15bf75f54efb73428aca451b"
-      },
-      {
-        "path": "assets/index-PmkdPvAR.js",
-        "size": 2101232,
-        "sha256": "f14b35a9f264a10066c75cfaa63826f6533a1cd65d5a2ecef96eae95131374a4"
       },
       {
         "path": "assets/nethack-COBuHcyY.wasm",
@@ -13080,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1195,
-        "sha256": "5b009352d2a24b60bfbc3657f3161dd2b08d2856065b5f7855e89030c147ac30"
+        "sha256": "5adecdd93cc3cbc23d64e0009c7438972ed2f3acf3d29c4f377c967f0470728d"
       },
       {
         "path": "nethack-367.wasm",
@@ -13110,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "b84e6d8c5eefbfa62722",
+      "commitSha": "df4025288ac246459859cd9add79f1db1d0c0d9a",
+      "createdAt": "2026-03-19T23:58:22.028Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "df4025288ac246459859cd9add79f1db1d0c0d9a",
+          "authoredAt": "2026-03-19T19:56:21-04:00",
+          "message": "Fixed broken updates causing black screen"
+        }
+      ]
+    },
     {
       "buildId": "efa2ddc6ad2b5afbab5f",
       "commitSha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
@@ -13414,21 +13435,6 @@
           "sha": "009eb7756c8d43518a266b6e03cd9f03cd7fc39f",
           "authoredAt": "2026-03-19T14:30:20-04:00",
           "message": "Moved setting within group"
-        }
-      ]
-    },
-    {
-      "buildId": "ae5a3d807cbea6ff1f03",
-      "commitSha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-      "createdAt": "2026-03-19T18:27:00.622Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-          "authoredAt": "2026-03-19T14:00:26-04:00",
-          "message": "Updated package-lock.json"
         }
       ]
     }
