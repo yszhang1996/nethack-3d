@@ -8,7 +8,8 @@ import type {
   Nh3dClientUpdateApplyResult,
   Nh3dClientUpdateCancelResult,
   Nh3dClientUpdateCheckResult,
-  Nh3dClientUpdateLogExportResult,
+  Nh3dClientUpdateProgressEvent,
+  Nh3dClientUpdateProgressStatus,
 } from "./types";
 
 const fallbackUpdateManifestUrl =
@@ -19,7 +20,8 @@ type Nh3dElectronUpdaterBridge = {
   getActiveUpdateInfo?: () => Promise<unknown>;
   applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
   cancelGameUpdate?: () => Promise<unknown>;
-  exportUpdateLogs?: () => Promise<unknown>;
+  onUpdateProgress?: (listener: (payload: unknown) => void) => boolean;
+  offUpdateProgress?: (listener: (payload: unknown) => void) => boolean;
   activateInstalledUpdate?: () => Promise<unknown>;
 };
 
@@ -31,7 +33,6 @@ type Nh3dAndroidBridge = {
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
   cancelGameUpdate?: () => string;
-  exportUpdateLogs?: () => string;
 };
 
 type Nh3dUpdateWindow = Window & {
@@ -84,6 +85,72 @@ function normalizeNullableString(value: unknown): string | null {
 
 function normalizeBoolean(value: unknown): boolean {
   return value === true;
+}
+
+function normalizeProgressStatus(
+  value: unknown,
+): Nh3dClientUpdateProgressStatus {
+  if (typeof value !== "string") {
+    return "info";
+  }
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "info" ||
+    normalized === "success" ||
+    normalized === "warning" ||
+    normalized === "error"
+  ) {
+    return normalized;
+  }
+  return "info";
+}
+
+function normalizeProgressPercent(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeProgressCount(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const normalized = Math.max(0, Math.trunc(value));
+  return normalized > 0 ? normalized : null;
+}
+
+function parseUpdateProgressEvent(value: unknown): Nh3dClientUpdateProgressEvent {
+  const fallback: Nh3dClientUpdateProgressEvent = {
+    at: null,
+    phase: "unknown",
+    status: "info",
+    message: "Updater status changed.",
+    detail: null,
+    progressPercent: null,
+    fileIndex: null,
+    fileCount: null,
+    filePath: null,
+  };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return fallback;
+  }
+
+  const payload = value as Record<string, unknown>;
+  const phase = normalizeNullableString(payload.phase) ?? "unknown";
+  const message =
+    normalizeNullableString(payload.message) ?? fallback.message;
+  return {
+    at: normalizeNullableString(payload.at),
+    phase,
+    status: normalizeProgressStatus(payload.status),
+    message,
+    detail: normalizeNullableString(payload.detail),
+    progressPercent: normalizeProgressPercent(payload.progressPercent),
+    fileIndex: normalizeProgressCount(payload.fileIndex),
+    fileCount: normalizeProgressCount(payload.fileCount),
+    filePath: normalizeNullableString(payload.filePath),
+  };
 }
 
 function parseActiveBuildInfo(value: unknown): Nh3dActiveBuildInfo {
@@ -142,22 +209,6 @@ function parseCancelResult(value: unknown): Nh3dClientUpdateCancelResult {
   return {
     ok: normalizeBoolean(payload.ok),
     canceled: normalizeBoolean(payload.canceled),
-    error: normalizeNullableString(payload.error),
-  };
-}
-
-function parseLogExportResult(value: unknown): Nh3dClientUpdateLogExportResult {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {
-      ok: false,
-      path: null,
-      error: "Client update host returned an invalid log export response.",
-    };
-  }
-  const payload = value as Record<string, unknown>;
-  return {
-    ok: normalizeBoolean(payload.ok),
-    path: normalizeNullableString(payload.path),
     error: normalizeNullableString(payload.error),
   };
 }
@@ -497,49 +548,35 @@ export async function cancelNh3dClientUpdate(): Promise<Nh3dClientUpdateCancelRe
   };
 }
 
-export async function exportNh3dClientUpdateLogs(): Promise<Nh3dClientUpdateLogExportResult> {
+export function subscribeNh3dClientUpdateProgress(
+  listener: (event: Nh3dClientUpdateProgressEvent) => void,
+): () => void {
+  if (typeof listener !== "function") {
+    return () => {};
+  }
   const electronBridge = getUpdateWindow().nh3dElectron?.updater;
-  if (electronBridge && typeof electronBridge.exportUpdateLogs === "function") {
-    try {
-      const rawResult = await electronBridge.exportUpdateLogs();
-      return parseLogExportResult(rawResult);
-    } catch (error) {
-      return {
-        ok: false,
-        path: null,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to export updater logs.",
-      };
-    }
+  if (
+    !electronBridge ||
+    typeof electronBridge.onUpdateProgress !== "function" ||
+    typeof electronBridge.offUpdateProgress !== "function"
+  ) {
+    return () => {};
   }
 
-  const androidBridge = getUpdateWindow().nh3dAndroid;
-  if (androidBridge && typeof androidBridge.exportUpdateLogs === "function") {
-    try {
-      const rawResult = androidBridge.exportUpdateLogs();
-      const parsedResult =
-        typeof rawResult === "string" && rawResult.trim()
-          ? JSON.parse(rawResult)
-          : null;
-      return parseLogExportResult(parsedResult);
-    } catch (error) {
-      return {
-        ok: false,
-        path: null,
-        error:
-          error instanceof Error
-            ? error.message
-            : "Failed to export updater logs.",
-      };
-    }
+  const wrappedListener = (payload: unknown): void => {
+    listener(parseUpdateProgressEvent(payload));
+  };
+  const attached = electronBridge.onUpdateProgress(wrappedListener);
+  if (!attached) {
+    return () => {};
   }
 
-  return {
-    ok: false,
-    path: null,
-    error: "This platform does not support exporting updater logs.",
+  return () => {
+    try {
+      electronBridge.offUpdateProgress?.(wrappedListener);
+    } catch {
+      // Ignore listener cleanup failures in host bridge.
+    }
   };
 }
 

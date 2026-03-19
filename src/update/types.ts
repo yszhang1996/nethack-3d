@@ -70,8 +70,20 @@ export type Nh3dClientUpdateCancelResult = {
   error: string | null;
 };
 
-export type Nh3dClientUpdateLogExportResult = {
-  ok: boolean;
-  path: string | null;
-  error: string | null;
+export type Nh3dClientUpdateProgressStatus =
+  | "info"
+  | "success"
+  | "warning"
+  | "error";
+
+export type Nh3dClientUpdateProgressEvent = {
+  at: string | null;
+  phase: string;
+  status: Nh3dClientUpdateProgressStatus;
+  message: string;
+  detail: string | null;
+  progressPercent: number | null;
+  fileIndex: number | null;
+  fileCount: number | null;
+  filePath: string | null;
 };

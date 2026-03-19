@@ -4241,6 +4241,161 @@ canvas {
     color: #d6f0ff;
   }
 
+  .nh3d-startup-update-progress-pane {
+    border: 1px solid rgba(118, 192, 233, 0.72);
+    border-radius: 8px;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(16, 53, 82, 0.7) 0%,
+        rgba(8, 28, 45, 0.86) 100%
+      );
+    margin-top: 10px;
+    max-width: min(560px, 100%);
+    padding: 10px 12px;
+    text-align: left;
+  }
+
+  .nh3d-startup-update-progress-pane-header {
+    align-items: baseline;
+    display: flex;
+    gap: 8px;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .nh3d-startup-update-progress-pane-title {
+    color: #b8e6ff;
+    font-size: nh3d-scale-font(14px);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .nh3d-startup-update-progress-pane-percent {
+    color: #defffb;
+    font-size: nh3d-scale-font(14px);
+    font-weight: 700;
+  }
+
+  .nh3d-startup-update-progress-pane-summary {
+    color: #d6f0ff;
+    font-size: nh3d-scale-font(13px);
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+
+  .nh3d-startup-update-progress-bar-shell {
+    border: 1px solid rgba(119, 188, 233, 0.6);
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.36);
+    height: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .nh3d-startup-update-progress-bar-fill {
+    background:
+      linear-gradient(90deg, rgba(61, 174, 255, 0.9) 0%, rgba(95, 255, 214, 0.88) 100%);
+    border-radius: inherit;
+    box-shadow:
+      inset 0 0 0 1px rgba(209, 255, 255, 0.22),
+      0 0 10px rgba(99, 225, 255, 0.28);
+    height: 100%;
+    min-width: 0;
+    position: relative;
+    transition: width 220ms ease-out;
+  }
+
+  .nh3d-startup-update-progress-bar-fill.is-animated::after {
+    animation: nh3d-update-progress-stripes 1.1s linear infinite;
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        rgba(255, 255, 255, 0.32) 0px,
+        rgba(255, 255, 255, 0.32) 8px,
+        rgba(255, 255, 255, 0.05) 8px,
+        rgba(255, 255, 255, 0.05) 16px
+      );
+    content: "";
+    inset: 0;
+    position: absolute;
+  }
+
+  .nh3d-startup-update-progress-pane-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+  }
+
+  .nh3d-startup-update-progress-pane-meta span {
+    color: rgba(203, 237, 255, 0.9);
+    font-size: nh3d-scale-font(12px);
+    line-height: 1.35;
+  }
+
+  .nh3d-startup-update-progress-log {
+    @extend %custom-scrollbar;
+    border: 1px solid rgba(84, 128, 171, 0.56);
+    border-radius: 8px;
+    background: rgba(6, 19, 32, 0.86);
+    margin-top: 8px;
+    max-height: min(25vh, 220px);
+    overflow-y: auto;
+    padding: 8px 10px;
+    width: min(560px, 100%);
+  }
+
+  .nh3d-startup-update-progress-log-entry {
+    align-items: flex-start;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: auto 1fr;
+    margin: 0 0 6px;
+
+    &:last-child {
+      margin-bottom: 0;
+    }
+  }
+
+  .nh3d-startup-update-progress-log-time {
+    color: rgba(164, 203, 227, 0.92);
+    font-size: nh3d-scale-font(11px);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .nh3d-startup-update-progress-log-message {
+    color: #d8f4ff;
+    font-size: nh3d-scale-font(12px);
+    line-height: 1.35;
+    word-break: break-word;
+  }
+
+  .nh3d-startup-update-progress-log-detail {
+    color: rgba(182, 221, 244, 0.9);
+    font-size: nh3d-scale-font(11px);
+    grid-column: 2;
+    line-height: 1.35;
+    margin-top: -2px;
+    word-break: break-word;
+  }
+
+  .nh3d-startup-update-progress-log-entry.is-success
+    .nh3d-startup-update-progress-log-message {
+    color: #b6ffd7;
+  }
+
+  .nh3d-startup-update-progress-log-entry.is-warning
+    .nh3d-startup-update-progress-log-message {
+    color: #ffe7a8;
+  }
+
+  .nh3d-startup-update-progress-log-entry.is-error
+    .nh3d-startup-update-progress-log-message {
+    color: #ffd0d0;
+  }
+
   .nh3d-startup-update-details {
     @extend %custom-scrollbar;
     border: 1px solid rgba(75, 118, 165, 0.62);
@@ -4271,6 +4426,16 @@ canvas {
     font-size: nh3d-scale-font(13px);
     line-height: 1.45;
     margin-bottom: 6px;
+  }
+}
+
+@keyframes nh3d-update-progress-stripes {
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: 32px 0;
   }
 }
 

@@ -87,10 +87,13 @@ import {
   applyNh3dClientUpdate,
   cancelNh3dClientUpdate,
   checkForNh3dClientUpdates,
-  exportNh3dClientUpdateLogs,
+  subscribeNh3dClientUpdateProgress,
   supportsNh3dClientUpdateCancellation,
 } from "../update/client-updater";
-import type { Nh3dClientUpdateCheckResult } from "../update/types";
+import type {
+  Nh3dClientUpdateCheckResult,
+  Nh3dClientUpdateProgressEvent,
+} from "../update/types";
 import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-pack-storage";
 import SoundPackSettings, {
   type SoundPackDialogActions,
@@ -4069,7 +4072,8 @@ type Nh3dElectronBridge = {
     getActiveUpdateInfo?: () => Promise<unknown>;
     applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
     cancelGameUpdate?: () => Promise<unknown>;
-    exportUpdateLogs?: () => Promise<unknown>;
+    onUpdateProgress?: (listener: (payload: unknown) => void) => boolean;
+    offUpdateProgress?: (listener: (payload: unknown) => void) => boolean;
     activateInstalledUpdate?: () => Promise<unknown>;
   };
 };
@@ -4079,12 +4083,15 @@ type Nh3dAndroidBridge = {
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
   cancelGameUpdate?: () => string;
-  exportUpdateLogs?: () => string;
 };
 
 type Nh3dWindowBridges = Window & {
   nh3dElectron?: Nh3dElectronBridge;
   nh3dAndroid?: Nh3dAndroidBridge;
+};
+
+type StartupUpdateProgressEntry = Nh3dClientUpdateProgressEvent & {
+  id: number;
 };
 
 async function requestGameQuit(): Promise<void> {
@@ -4160,6 +4167,85 @@ export default function App(): JSX.Element {
   const [startupUpdateBusy, setStartupUpdateBusy] = useState(false);
   const [startupUpdateCancelBusy, setStartupUpdateCancelBusy] = useState(false);
   const [startupUpdateError, setStartupUpdateError] = useState("");
+  const startupUpdateProgressEntryIdRef = useRef(0);
+  const [startupUpdateProgressEntries, setStartupUpdateProgressEntries] =
+    useState<StartupUpdateProgressEntry[]>([]);
+  const [startupUpdateProgressMessage, setStartupUpdateProgressMessage] =
+    useState("");
+  const [startupUpdateProgressPercent, setStartupUpdateProgressPercent] =
+    useState<number | null>(null);
+  const [startupUpdateProgressFileIndex, setStartupUpdateProgressFileIndex] =
+    useState<number | null>(null);
+  const [startupUpdateProgressFileCount, setStartupUpdateProgressFileCount] =
+    useState<number | null>(null);
+  const appendStartupUpdateProgressEntry = useCallback(
+    (
+      partialEvent: Partial<Nh3dClientUpdateProgressEvent> & {
+        message: string;
+      },
+    ): void => {
+      const normalizedEvent: Nh3dClientUpdateProgressEvent = {
+        at:
+          typeof partialEvent.at === "string" && partialEvent.at.trim()
+            ? partialEvent.at
+            : new Date().toISOString(),
+        phase:
+          typeof partialEvent.phase === "string" && partialEvent.phase.trim()
+            ? partialEvent.phase.trim()
+            : "local",
+        status:
+          partialEvent.status === "success" ||
+          partialEvent.status === "warning" ||
+          partialEvent.status === "error"
+            ? partialEvent.status
+            : "info",
+        message: partialEvent.message,
+        detail:
+          typeof partialEvent.detail === "string" && partialEvent.detail.trim()
+            ? partialEvent.detail.trim()
+            : null,
+        progressPercent:
+          typeof partialEvent.progressPercent === "number" &&
+          Number.isFinite(partialEvent.progressPercent)
+            ? Math.max(0, Math.min(100, Math.round(partialEvent.progressPercent)))
+            : null,
+        fileIndex:
+          typeof partialEvent.fileIndex === "number" &&
+          Number.isFinite(partialEvent.fileIndex) &&
+          partialEvent.fileIndex > 0
+            ? Math.trunc(partialEvent.fileIndex)
+            : null,
+        fileCount:
+          typeof partialEvent.fileCount === "number" &&
+          Number.isFinite(partialEvent.fileCount) &&
+          partialEvent.fileCount > 0
+            ? Math.trunc(partialEvent.fileCount)
+            : null,
+        filePath:
+          typeof partialEvent.filePath === "string" && partialEvent.filePath.trim()
+            ? partialEvent.filePath.trim()
+            : null,
+      };
+
+      startupUpdateProgressEntryIdRef.current += 1;
+      const nextEntry: StartupUpdateProgressEntry = {
+        ...normalizedEvent,
+        id: startupUpdateProgressEntryIdRef.current,
+      };
+      setStartupUpdateProgressEntries((previous) => [...previous, nextEntry]);
+      setStartupUpdateProgressMessage(normalizedEvent.message);
+      if (typeof normalizedEvent.progressPercent === "number") {
+        setStartupUpdateProgressPercent(normalizedEvent.progressPercent);
+      }
+      if (typeof normalizedEvent.fileIndex === "number") {
+        setStartupUpdateProgressFileIndex(normalizedEvent.fileIndex);
+      }
+      if (typeof normalizedEvent.fileCount === "number") {
+        setStartupUpdateProgressFileCount(normalizedEvent.fileCount);
+      }
+    },
+    [],
+  );
   const startupCreateCharacterOptionSet = useMemo(
     () =>
       resolveStartupCreateCharacterOptionSet({
@@ -6627,6 +6713,28 @@ export default function App(): JSX.Element {
   const startupClientUpdateMessage =
     startupUpdateCheck?.clientUpdateMessage ?? "";
   const startupCanCancelUpdateDownload = supportsNh3dClientUpdateCancellation();
+  const startupLatestUpdateProgressEntry =
+    startupUpdateProgressEntries.length > 0
+      ? startupUpdateProgressEntries[startupUpdateProgressEntries.length - 1]
+      : null;
+  const startupUpdateProgressVisible =
+    startupUpdateBusy || startupUpdateProgressEntries.length > 0;
+  const startupUpdateProgressPercentValue =
+    typeof startupUpdateProgressPercent === "number"
+      ? startupUpdateProgressPercent
+      : startupUpdateBusy
+        ? 0
+        : null;
+  const startupUpdateProgressSummary =
+    startupUpdateProgressMessage ||
+    (startupUpdateBusy
+      ? "Preparing game update download..."
+      : "Update status is idle.");
+  const startupUpdateProgressFileSummary =
+    typeof startupUpdateProgressFileIndex === "number" &&
+    typeof startupUpdateProgressFileCount === "number"
+      ? `File ${startupUpdateProgressFileIndex} of ${startupUpdateProgressFileCount}`
+      : null;
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -6735,12 +6843,24 @@ export default function App(): JSX.Element {
     };
   }, [clientOptions.checkUpdatesOnLaunch, startupUiVisible]);
 
+  useEffect(() => {
+    return subscribeNh3dClientUpdateProgress((event) => {
+      appendStartupUpdateProgressEntry(event);
+    });
+  }, [appendStartupUpdateProgressEntry]);
+
   const closeStartupUpdateDialog = useCallback((): void => {
     if (startupUpdateBusy) {
       return;
     }
     setStartupUpdateDetailsVisible(false);
     setStartupUpdateError("");
+    startupUpdateProgressEntryIdRef.current = 0;
+    setStartupUpdateProgressEntries([]);
+    setStartupUpdateProgressMessage("");
+    setStartupUpdateProgressPercent(null);
+    setStartupUpdateProgressFileIndex(null);
+    setStartupUpdateProgressFileCount(null);
     setIsStartupUpdateDialogVisible(false);
   }, [startupUpdateBusy]);
 
@@ -6762,18 +6882,36 @@ export default function App(): JSX.Element {
 
     setStartupUpdateCancelBusy(true);
     setStartupUpdateError("");
+    appendStartupUpdateProgressEntry({
+      phase: "cancel",
+      status: "warning",
+      message: "Cancel requested.",
+      detail: "Stopping active download task.",
+    });
     const cancelResult = await cancelNh3dClientUpdate();
     if (!cancelResult.ok) {
       if (cancelResult.error) {
         setStartupUpdateError(cancelResult.error);
+        appendStartupUpdateProgressEntry({
+          phase: "cancel",
+          status: "error",
+          message: "Unable to cancel update download.",
+          detail: cancelResult.error,
+        });
       }
       setStartupUpdateCancelBusy(false);
       return;
     }
     if (!cancelResult.canceled) {
       setStartupUpdateCancelBusy(false);
+      appendStartupUpdateProgressEntry({
+        phase: "cancel",
+        status: "warning",
+        message: "No active update download to cancel.",
+      });
     }
   }, [
+    appendStartupUpdateProgressEntry,
     startupCanCancelUpdateDownload,
     startupUpdateBusy,
     startupUpdateCancelBusy,
@@ -6792,6 +6930,17 @@ export default function App(): JSX.Element {
     setStartupUpdateBusy(true);
     setStartupUpdateCancelBusy(false);
     setStartupUpdateError("");
+    startupUpdateProgressEntryIdRef.current = 0;
+    setStartupUpdateProgressEntries([]);
+    setStartupUpdateProgressMessage("Starting game update download.");
+    setStartupUpdateProgressPercent(0);
+    setStartupUpdateProgressFileIndex(null);
+    setStartupUpdateProgressFileCount(null);
+    appendStartupUpdateProgressEntry({
+      phase: "start",
+      status: "info",
+      message: "Starting game update download.",
+    });
 
     try {
       const applyResult = await applyNh3dClientUpdate(
@@ -6800,15 +6949,35 @@ export default function App(): JSX.Element {
       if (!applyResult.ok) {
         if (applyResult.canceled) {
           setStartupUpdateError("Update download was canceled.");
+          appendStartupUpdateProgressEntry({
+            phase: "cancel",
+            status: "warning",
+            message: "Update download was canceled.",
+            progressPercent: startupUpdateProgressPercent ?? null,
+          });
           return;
         }
         setStartupUpdateError(
           applyResult.error || "Unable to download and apply updates.",
         );
+        appendStartupUpdateProgressEntry({
+          phase: "error",
+          status: "error",
+          message: "Update failed.",
+          detail: applyResult.error || "Unable to download and apply updates.",
+        });
         return;
       }
 
       if (applyResult.applied || applyResult.alreadyInstalled) {
+        appendStartupUpdateProgressEntry({
+          phase: "complete",
+          status: "success",
+          message: applyResult.alreadyInstalled
+            ? "Latest update already installed."
+            : "Update download complete.",
+          progressPercent: 100,
+        });
         const activated = await activateNh3dClientUpdateIfNeeded();
         if (!activated && !applyResult.reloadTriggered) {
           window.location.reload();
@@ -6820,15 +6989,31 @@ export default function App(): JSX.Element {
       setStartupUpdateError(
         "No updates were applied. Please try checking again.",
       );
+      appendStartupUpdateProgressEntry({
+        phase: "warning",
+        status: "warning",
+        message: "No update files were applied.",
+      });
     } catch (error) {
       setStartupUpdateError(
         error instanceof Error ? error.message : "Unexpected update failure.",
       );
+      appendStartupUpdateProgressEntry({
+        phase: "error",
+        status: "error",
+        message: "Unexpected update failure.",
+        detail: error instanceof Error ? error.message : null,
+      });
     } finally {
       setStartupUpdateCancelBusy(false);
       setStartupUpdateBusy(false);
     }
-  }, [startupUpdateBusy, startupUpdateCheck]);
+  }, [
+    appendStartupUpdateProgressEntry,
+    startupUpdateBusy,
+    startupUpdateCheck,
+    startupUpdateProgressPercent,
+  ]);
 
   const checkForUpdatesFromOptions = useCallback(async (): Promise<void> => {
     if (optionsUpdateCheckBusy) {
@@ -6883,50 +7068,6 @@ export default function App(): JSX.Element {
       setOptionsUpdateCheckBusy(false);
     }
   }, [optionsUpdateCheckBusy, startupMenuVisible]);
-
-  const exportUpdaterLogsSnapshot = useCallback(async (): Promise<void> => {
-    const exportResult = await exportNh3dClientUpdateLogs();
-    if (!exportResult.ok || !exportResult.path) {
-      const errorMessage =
-        exportResult.error ?? "Failed to export updater debug logs.";
-      setOptionsUpdateCheckStatus(`Updater log export failed: ${errorMessage}`);
-      useGameStore.getState().pushFloatingMessage("Updater log export failed.");
-      return;
-    }
-
-    const successMessage = `Updater debug log exported: ${exportResult.path}`;
-    setOptionsUpdateCheckStatus(successMessage);
-    useGameStore.getState().pushFloatingMessage("Updater debug log exported.");
-    console.info(successMessage);
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    const handleUpdaterLogExportHotkey = (event: KeyboardEvent): void => {
-      if (
-        event.key.toLowerCase() !== "u" ||
-        !event.ctrlKey ||
-        !event.altKey ||
-        !event.shiftKey
-      ) {
-        return;
-      }
-      if (event.repeat) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      void exportUpdaterLogsSnapshot();
-    };
-
-    window.addEventListener("keydown", handleUpdaterLogExportHotkey, true);
-    return () => {
-      window.removeEventListener("keydown", handleUpdaterLogExportHotkey, true);
-    };
-  }, [exportUpdaterLogsSnapshot]);
 
   useEffect(() => {
     if (!characterSheetInterceptionArmed) {
@@ -11202,11 +11343,96 @@ export default function App(): JSX.Element {
         {startupUpdateError ? (
           <div className="nh3d-startup-update-error">{startupUpdateError}</div>
         ) : null}
-        {startupUpdateBusy ? (
-          <div className="nh3d-startup-update-progress">
-            {startupUpdateCancelBusy
-              ? "Canceling update download..."
-              : "Downloading update files and applying build..."}
+        {startupUpdateProgressVisible ? (
+          <div className="nh3d-startup-update-progress-pane">
+            <div className="nh3d-startup-update-progress-pane-header">
+              <div className="nh3d-startup-update-progress-pane-title">
+                Update Download Status
+              </div>
+              <div className="nh3d-startup-update-progress-pane-percent">
+                {typeof startupUpdateProgressPercentValue === "number"
+                  ? `${startupUpdateProgressPercentValue}%`
+                  : "--"}
+              </div>
+            </div>
+            <div className="nh3d-startup-update-progress-pane-summary">
+              {startupUpdateCancelBusy
+                ? "Canceling update download..."
+                : startupUpdateProgressSummary}
+            </div>
+            <div
+              aria-valuemax={100}
+              aria-valuemin={0}
+              aria-valuenow={
+                typeof startupUpdateProgressPercentValue === "number"
+                  ? startupUpdateProgressPercentValue
+                  : undefined
+              }
+              className="nh3d-startup-update-progress-bar-shell"
+              role="progressbar"
+            >
+              <div
+                className={`nh3d-startup-update-progress-bar-fill${
+                  startupUpdateBusy ? " is-animated" : ""
+                }`}
+                style={{
+                  width: `${
+                    typeof startupUpdateProgressPercentValue === "number"
+                      ? startupUpdateProgressPercentValue
+                      : 0
+                  }%`,
+                }}
+              />
+            </div>
+            <div className="nh3d-startup-update-progress-pane-meta">
+              {startupUpdateProgressFileSummary ? (
+                <span>{startupUpdateProgressFileSummary}</span>
+              ) : (
+                <span>No active file transfer.</span>
+              )}
+              {startupLatestUpdateProgressEntry?.detail ? (
+                <span>{startupLatestUpdateProgressEntry.detail}</span>
+              ) : null}
+            </div>
+            <div className="nh3d-overflow-glow-frame">
+              <div
+                className="nh3d-startup-update-progress-log"
+                data-nh3d-overflow-glow
+                data-nh3d-overflow-glow-host="parent"
+              >
+                {startupUpdateProgressEntries.length > 0 ? (
+                  startupUpdateProgressEntries.map((entry) => (
+                    <div
+                      className={`nh3d-startup-update-progress-log-entry is-${entry.status}`}
+                      key={entry.id}
+                    >
+                      <span className="nh3d-startup-update-progress-log-time">
+                        {entry.at ? new Date(entry.at).toLocaleTimeString() : "--:--:--"}
+                      </span>
+                      <span className="nh3d-startup-update-progress-log-message">
+                        {entry.message}
+                      </span>
+                      {entry.filePath || entry.detail ? (
+                        <span className="nh3d-startup-update-progress-log-detail">
+                          {entry.filePath ? `${entry.filePath}` : ""}
+                          {entry.filePath && entry.detail ? " - " : ""}
+                          {entry.detail ?? ""}
+                        </span>
+                      ) : null}
+                    </div>
+                  ))
+                ) : (
+                  <div className="nh3d-startup-update-progress-log-entry is-info">
+                    <span className="nh3d-startup-update-progress-log-time">
+                      --:--:--
+                    </span>
+                    <span className="nh3d-startup-update-progress-log-message">
+                      Waiting for updater activity.
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         ) : null}
         {startupUpdateDetailsVisible ? (
@@ -11987,10 +12213,6 @@ export default function App(): JSX.Element {
                             files are up to date.
                           </div>
                         )}
-                        <div className="nh3d-option-description">
-                          Hotkey: Ctrl+Alt+Shift+U exports an updater debug
-                          snapshot at the current state.
-                        </div>
                         {optionsUpdateCheckResult &&
                         optionsUpdateCheckResult.supported &&
                         !optionsUpdateCheckResult.error &&

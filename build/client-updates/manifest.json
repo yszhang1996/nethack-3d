@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T22:31:45.030Z",
+  "generatedAt": "2026-03-19T23:09:37.108Z",
   "latest": {
-    "buildId": "86abf474486ec0a49394",
-    "commitSha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
-    "createdAt": "2026-03-19T22:31:45.030Z",
+    "buildId": "9c87aac5f4f17fb13c13",
+    "commitSha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
+    "createdAt": "2026-03-19T23:09:37.108Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
-        "authoredAt": "2026-03-19T18:17:16-04:00",
-        "message": "Publishing test game update"
+        "sha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
+        "authoredAt": "2026-03-19T18:31:52-04:00",
+        "message": "Testing game updates again"
       }
     ],
     "filesBasePath": "latest",
@@ -54,14 +54,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-B7LVk5F6.css",
-        "size": 140171,
-        "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
+        "path": "assets/index-AuPo3HSF.js",
+        "size": 2101019,
+        "sha256": "20bc562b32a6ce066dc1468bc5472cb95fad8fe0be579b2248addad8c9a75938"
       },
       {
-        "path": "assets/index-D0q1J9ia.js",
-        "size": 2097027,
-        "sha256": "7e6e3331a94e2958c5f1dbee5a3d80d7296989d5b107208a636a5edfb9acc586"
+        "path": "assets/index-CdHFIQ6x.css",
+        "size": 144283,
+        "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13086,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "2eca1efd5db3f0644241cd89ac0356475487c1c59b0478f0fc74c0b8aa4707f0"
+        "sha256": "ac2497318e3837673f894136be504a2d53e252b25d11351f1babc74dd69fa07a"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "9c87aac5f4f17fb13c13",
+      "commitSha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
+      "createdAt": "2026-03-19T23:09:37.108Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
+          "authoredAt": "2026-03-19T18:31:52-04:00",
+          "message": "Testing game updates again"
+        }
+      ]
+    },
     {
       "buildId": "86abf474486ec0a49394",
       "commitSha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",

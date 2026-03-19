@@ -15,7 +15,7 @@ const appRenderedIpcChannel = "nh3d:app-rendered";
 const updaterGetActiveInfoIpcChannel = "nh3d:updater-get-active-info";
 const updaterApplyIpcChannel = "nh3d:updater-apply";
 const updaterCancelIpcChannel = "nh3d:updater-cancel";
-const updaterExportLogsIpcChannel = "nh3d:updater-export-logs";
+const updaterProgressIpcChannel = "nh3d:updater-progress";
 const updaterActivateIpcChannel = "nh3d:updater-activate";
 const mainWindowStateById = new Map();
 const activeUpdateJobBySenderId = new Map();
@@ -29,6 +29,8 @@ const updateLastFailureLogPath = path.join(
   "last-update-failure.json",
 );
 const updateFetchTimeoutMs = 30000;
+const updateDownloadProgressStartPercent = 12;
+const updateDownloadProgressEndPercent = 90;
 const activeUpdateMetadataPath = path.join(
   updateRootDirPath,
   "active-update.json",
@@ -117,6 +119,87 @@ function parseUpdateManifest(payload) {
     return null;
   }
   return { latest };
+}
+
+function normalizePositiveInteger(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  const normalized = Math.max(0, Math.trunc(value));
+  return normalized > 0 ? normalized : null;
+}
+
+function normalizeProgressPercent(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function normalizeProgressStatus(value) {
+  const normalized = normalizeString(value).toLowerCase();
+  if (
+    normalized === "info" ||
+    normalized === "success" ||
+    normalized === "warning" ||
+    normalized === "error"
+  ) {
+    return normalized;
+  }
+  return "info";
+}
+
+function normalizeUpdateProgressPayload(payload) {
+  const source = isPlainObject(payload) ? payload : {};
+  const phase = normalizeNullableString(source.phase) ?? "unknown";
+  const message =
+    normalizeNullableString(source.message) ?? "Updater status changed.";
+  return {
+    at: new Date().toISOString(),
+    phase,
+    status: normalizeProgressStatus(source.status),
+    message,
+    detail: normalizeNullableString(source.detail),
+    progressPercent: normalizeProgressPercent(source.progressPercent),
+    fileIndex: normalizePositiveInteger(source.fileIndex),
+    fileCount: normalizePositiveInteger(source.fileCount),
+    filePath: normalizeNullableString(source.filePath),
+  };
+}
+
+function emitUpdateProgress(progressReporter, payload) {
+  if (typeof progressReporter !== "function") {
+    return;
+  }
+  progressReporter(normalizeUpdateProgressPayload(payload));
+}
+
+function resolveUpdateDownloadProgressPercent(completedFiles, totalFiles) {
+  const normalizedTotal = normalizePositiveInteger(totalFiles);
+  if (!normalizedTotal) {
+    return normalizeProgressPercent(updateDownloadProgressStartPercent);
+  }
+  const completed = Math.max(0, Math.min(normalizedTotal, Math.trunc(completedFiles)));
+  const span = updateDownloadProgressEndPercent - updateDownloadProgressStartPercent;
+  return normalizeProgressPercent(
+    updateDownloadProgressStartPercent + (completed / normalizedTotal) * span,
+  );
+}
+
+function createUpdateProgressReporter(webContents) {
+  if (!webContents || typeof webContents.send !== "function") {
+    return null;
+  }
+  return (payload) => {
+    if (webContents.isDestroyed?.()) {
+      return;
+    }
+    try {
+      webContents.send(updaterProgressIpcChannel, payload);
+    } catch (error) {
+      console.warn("Failed to dispatch updater progress event:", error);
+    }
+  };
 }
 
 function readJsonFileSync(filePath) {
@@ -307,14 +390,6 @@ function resolveUpdateFailureLogPath(timestampIsoUtc) {
   return path.join(updateFailureLogsDirPath, `update-failure-${suffix}.json`);
 }
 
-function resolveUpdateExportLogPath(timestampIsoUtc) {
-  const safeTimestamp = String(timestampIsoUtc || "")
-    .replace(/[:.]/g, "-")
-    .replace(/[^a-zA-Z0-9_-]/g, "");
-  const suffix = safeTimestamp || String(Date.now());
-  return path.join(updateFailureLogsDirPath, `update-export-${suffix}.json`);
-}
-
 async function persistUpdateFailureTrace(updateTrace, error) {
   if (!updateTrace) {
     return null;
@@ -336,61 +411,78 @@ async function persistUpdateFailureTrace(updateTrace, error) {
   }
 }
 
-async function exportCurrentUpdateTraceSnapshot(requestedBySenderId = null) {
-  const exportedAt = new Date().toISOString();
-  const activeJobs = [];
-  for (const [senderId, job] of activeUpdateJobBySenderId.entries()) {
-    const activeTrace = isPlainObject(job?.updateTrace)
-      ? job.updateTrace
-      : null;
-    if (activeTrace) {
-      appendUpdateTraceEvent(activeTrace, "manual-export", {
-        requestedBySenderId,
-      });
-    }
-    activeJobs.push({
-      senderId,
-      isAborted: job?.abortController?.signal?.aborted === true,
-      trace: activeTrace,
-    });
-  }
-
-  const snapshotPayload = {
-    schemaVersion: 1,
-    exportedAt,
-    requestedBySenderId,
-    activeJobCount: activeJobs.length,
-    activeJobs,
-    lastFailure: readJsonFileSync(updateLastFailureLogPath),
-  };
-
-  const logPath = resolveUpdateExportLogPath(exportedAt);
-  await writeJsonFile(logPath, snapshotPayload);
-  return {
-    ok: true,
-    path: logPath,
-    error: null,
-  };
-}
-
 function createUpdateAbortError() {
   const error = new Error("Update download canceled.");
   error.name = "AbortError";
   return error;
 }
 
-function resolveUpdateFetchSignal(cancellationSignal) {
-  if (
-    typeof AbortSignal !== "function" ||
-    typeof AbortSignal.timeout !== "function"
-  ) {
-    return cancellationSignal ?? undefined;
+function createUpdateTimeoutError() {
+  const error = new Error("Update download timed out.");
+  error.name = "TimeoutError";
+  return error;
+}
+
+function resolveAbortReasonAsError(reason) {
+  if (reason instanceof Error) {
+    return reason;
   }
-  const timeoutSignal = AbortSignal.timeout(updateFetchTimeoutMs);
-  if (cancellationSignal && typeof AbortSignal.any === "function") {
-    return AbortSignal.any([cancellationSignal, timeoutSignal]);
+  const normalizedReason =
+    reason === undefined || reason === null ? "" : normalizeString(String(reason));
+  if (normalizedReason) {
+    const error = new Error(normalizedReason);
+    error.name = "AbortError";
+    return error;
   }
-  return cancellationSignal ?? timeoutSignal;
+  return createUpdateAbortError();
+}
+
+function createUpdateFetchScope(cancellationSignal = null) {
+  const abortController = new AbortController();
+  let timeoutHandle = null;
+  let cancelListener = null;
+  const abortIfNeeded = (reason) => {
+    if (!abortController.signal.aborted) {
+      abortController.abort(resolveAbortReasonAsError(reason));
+    }
+  };
+
+  if (cancellationSignal) {
+    if (cancellationSignal.aborted) {
+      abortIfNeeded(cancellationSignal.reason);
+    } else {
+      cancelListener = () => {
+        abortIfNeeded(cancellationSignal.reason);
+      };
+      cancellationSignal.addEventListener("abort", cancelListener, {
+        once: true,
+      });
+    }
+  }
+
+  timeoutHandle = setTimeout(() => {
+    abortIfNeeded(createUpdateTimeoutError());
+  }, updateFetchTimeoutMs);
+
+  return {
+    signal: abortController.signal,
+    cleanup: () => {
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
+      }
+      if (cancellationSignal && cancelListener) {
+        cancellationSignal.removeEventListener("abort", cancelListener);
+      }
+    },
+  };
+}
+
+function normalizeUpdateFetchError(error, fetchSignal) {
+  if (fetchSignal?.aborted) {
+    return resolveAbortReasonAsError(fetchSignal.reason);
+  }
+  return error;
 }
 
 function resolveUpdateFailureMessage(error) {
@@ -430,10 +522,11 @@ async function fetchJsonFromUrl(
     url,
   });
   throwIfUpdateCanceled(cancellationSignal);
+  const fetchScope = createUpdateFetchScope(cancellationSignal);
   try {
     const response = await fetch(url, {
       cache: "no-store",
-      signal: resolveUpdateFetchSignal(cancellationSignal),
+      signal: fetchScope.signal,
     });
     if (traceCall) {
       traceCall.entry.httpStatus = response.status;
@@ -449,18 +542,25 @@ async function fetchJsonFromUrl(
     completeUpdateTraceCall(traceCall, {
       outcome: "ok",
     });
-    return payload;
+    return {
+      payload,
+      httpStatus: response.status,
+      httpStatusText: normalizeNullableString(response.statusText),
+    };
   } catch (error) {
-    const outcome = cancellationSignal?.aborted
+    const normalizedError = normalizeUpdateFetchError(error, fetchScope.signal);
+    const outcome = normalizedError instanceof Error && normalizedError.name === "AbortError"
       ? "canceled"
-      : error instanceof Error && error.name === "TimeoutError"
+      : normalizedError instanceof Error && normalizedError.name === "TimeoutError"
         ? "timeout"
         : "error";
     completeUpdateTraceCall(traceCall, {
       outcome,
-      error: normalizeErrorForLog(error),
+      error: normalizeErrorForLog(normalizedError),
     });
-    throw error;
+    throw normalizedError;
+  } finally {
+    fetchScope.cleanup();
   }
 }
 
@@ -484,10 +584,11 @@ async function downloadFileWithValidation(
     expectedSha256,
   });
   throwIfUpdateCanceled(cancellationSignal);
+  const fetchScope = createUpdateFetchScope(cancellationSignal);
   try {
     const response = await fetch(fileUrl, {
       cache: "no-store",
-      signal: resolveUpdateFetchSignal(cancellationSignal),
+      signal: fetchScope.signal,
     });
     if (traceCall) {
       traceCall.entry.httpStatus = response.status;
@@ -511,13 +612,14 @@ async function downloadFileWithValidation(
     }
 
     const fileBytes = Buffer.from(await response.arrayBuffer());
+    const bytesReceived = fileBytes.length;
     if (traceCall) {
-      traceCall.entry.bytesReceived = fileBytes.length;
+      traceCall.entry.bytesReceived = bytesReceived;
     }
     throwIfUpdateCanceled(cancellationSignal);
-    if (typeof expectedSize === "number" && fileBytes.length !== expectedSize) {
+    if (typeof expectedSize === "number" && bytesReceived !== expectedSize) {
       throw new Error(
-        `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${fileBytes.length}.`,
+        `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${bytesReceived}.`,
       );
     }
     if (expectedSha256) {
@@ -537,17 +639,25 @@ async function downloadFileWithValidation(
     completeUpdateTraceCall(traceCall, {
       outcome: "ok",
     });
+    return {
+      httpStatus: response.status,
+      httpStatusText: normalizeNullableString(response.statusText),
+      bytesReceived,
+    };
   } catch (error) {
-    const outcome = cancellationSignal?.aborted
+    const normalizedError = normalizeUpdateFetchError(error, fetchScope.signal);
+    const outcome = normalizedError instanceof Error && normalizedError.name === "AbortError"
       ? "canceled"
-      : error instanceof Error && error.name === "TimeoutError"
+      : normalizedError instanceof Error && normalizedError.name === "TimeoutError"
         ? "timeout"
         : "error";
     completeUpdateTraceCall(traceCall, {
       outcome,
-      error: normalizeErrorForLog(error),
+      error: normalizeErrorForLog(normalizedError),
     });
-    throw error;
+    throw normalizedError;
+  } finally {
+    fetchScope.cleanup();
   }
 }
 
@@ -555,6 +665,7 @@ async function applyGameUpdateFromManifestUrl(
   manifestUrl,
   cancellationSignal = null,
   updateTraceOverride = null,
+  progressReporter = null,
 ) {
   if (!app.isPackaged) {
     return {
@@ -588,17 +699,30 @@ async function applyGameUpdateFromManifestUrl(
       ? updateTraceOverride
       : createUpdateAttemptTrace(normalizedManifestUrl);
   appendUpdateTraceEvent(updateTrace, "apply-started");
+  emitUpdateProgress(progressReporter, {
+    phase: "start",
+    status: "info",
+    message: "Starting game update download.",
+    detail: "Preparing update workflow.",
+    progressPercent: 1,
+  });
   const stagingBuildDirPath = path.join(updateStagingDirPath, "current");
   const targetBuildDirPath = updateCurrentFilesDirPath;
 
   try {
-    const parsedManifest = parseUpdateManifest(
-      await fetchJsonFromUrl(
-        normalizedManifestUrl,
-        cancellationSignal,
-        updateTrace,
-      ),
+    emitUpdateProgress(progressReporter, {
+      phase: "manifest",
+      status: "info",
+      message: "Fetching update manifest.",
+      detail: normalizedManifestUrl,
+      progressPercent: 3,
+    });
+    const manifestResponse = await fetchJsonFromUrl(
+      normalizedManifestUrl,
+      cancellationSignal,
+      updateTrace,
     );
+    const parsedManifest = parseUpdateManifest(manifestResponse.payload);
     if (!parsedManifest?.latest) {
       throw new Error("Update manifest payload is invalid.");
     }
@@ -608,10 +732,25 @@ async function applyGameUpdateFromManifestUrl(
     });
 
     const latest = parsedManifest.latest;
+    emitUpdateProgress(progressReporter, {
+      phase: "manifest",
+      status: "success",
+      message: "Update manifest loaded.",
+      detail: `HTTP ${manifestResponse.httpStatus} ${manifestResponse.httpStatusText ?? ""}`.trim(),
+      progressPercent: 8,
+      fileCount: latest.files.length,
+    });
     const activeMetadata = readActiveUpdateMetadataSync();
     if (activeMetadata?.buildId === latest.buildId) {
       appendUpdateTraceEvent(updateTrace, "already-installed", {
         buildId: latest.buildId,
+      });
+      emitUpdateProgress(progressReporter, {
+        phase: "complete",
+        status: "success",
+        message: "Latest game update is already installed.",
+        detail: `Build ${latest.buildId}`,
+        progressPercent: 100,
       });
       return {
         ok: true,
@@ -626,23 +765,52 @@ async function applyGameUpdateFromManifestUrl(
     }
 
     appendUpdateTraceEvent(updateTrace, "prepare-staging");
+    emitUpdateProgress(progressReporter, {
+      phase: "staging",
+      status: "info",
+      message: "Preparing staging folder.",
+      detail: "Clearing previous staged files.",
+      progressPercent: 10,
+      fileCount: latest.files.length,
+    });
     await removeDirectoryIfPresent(stagingBuildDirPath);
     await fsp.mkdir(stagingBuildDirPath, { recursive: true });
+    emitUpdateProgress(progressReporter, {
+      phase: "staging",
+      status: "success",
+      message: "Staging folder is ready.",
+      detail: `Expecting ${latest.files.length} files.`,
+      progressPercent: 12,
+      fileCount: latest.files.length,
+    });
 
     throwIfUpdateCanceled(cancellationSignal);
-    for (const fileEntry of latest.files) {
+    for (let fileIndex = 0; fileIndex < latest.files.length; fileIndex += 1) {
+      const fileEntry = latest.files[fileIndex];
       throwIfUpdateCanceled(cancellationSignal);
       const relativePath = normalizeRelativePath(fileEntry.path);
       if (!relativePath) {
         throw new Error(`Unsafe update file path: ${String(fileEntry.path)}`);
       }
+      const oneBasedFileIndex = fileIndex + 1;
+      const totalFiles = latest.files.length;
+      emitUpdateProgress(progressReporter, {
+        phase: "download",
+        status: "info",
+        message: `Downloading file ${oneBasedFileIndex}/${totalFiles}.`,
+        detail: relativePath,
+        filePath: relativePath,
+        fileIndex: oneBasedFileIndex,
+        fileCount: totalFiles,
+        progressPercent: resolveUpdateDownloadProgressPercent(fileIndex, totalFiles),
+      });
       const sourceUrl = resolveManifestFileUrl(
         normalizedManifestUrl,
         latest,
         fileEntry,
       );
       const destinationPath = path.join(stagingBuildDirPath, relativePath);
-      await downloadFileWithValidation(
+      const downloadResult = await downloadFileWithValidation(
         sourceUrl,
         destinationPath,
         fileEntry.size,
@@ -651,8 +819,30 @@ async function applyGameUpdateFromManifestUrl(
         relativePath,
         updateTrace,
       );
+      const expectedSizeDetail =
+        typeof fileEntry.size === "number" ? `expected ${fileEntry.size} bytes` : "expected size unknown";
+      emitUpdateProgress(progressReporter, {
+        phase: "download",
+        status: "success",
+        message: `Validated file ${oneBasedFileIndex}/${totalFiles}.`,
+        detail: `${relativePath} (${downloadResult.bytesReceived} bytes, ${expectedSizeDetail}, HTTP ${downloadResult.httpStatus} ${downloadResult.httpStatusText ?? ""})`.trim(),
+        filePath: relativePath,
+        fileIndex: oneBasedFileIndex,
+        fileCount: totalFiles,
+        progressPercent: resolveUpdateDownloadProgressPercent(
+          oneBasedFileIndex,
+          totalFiles,
+        ),
+      });
     }
 
+    emitUpdateProgress(progressReporter, {
+      phase: "verify",
+      status: "info",
+      message: "Verifying staged update package.",
+      detail: "Checking required launch files.",
+      progressPercent: 92,
+    });
     throwIfUpdateCanceled(cancellationSignal);
     const stagedIndexHtmlPath = path.join(stagingBuildDirPath, "index.html");
     if (!fs.existsSync(stagedIndexHtmlPath)) {
@@ -660,6 +850,13 @@ async function applyGameUpdateFromManifestUrl(
     }
 
     appendUpdateTraceEvent(updateTrace, "activate-staged-build");
+    emitUpdateProgress(progressReporter, {
+      phase: "activate",
+      status: "info",
+      message: "Activating staged game update.",
+      detail: "Replacing current update files.",
+      progressPercent: 95,
+    });
     await fsp.mkdir(updateRootDirPath, { recursive: true });
     await removeDirectoryIfPresent(targetBuildDirPath);
     await fsp.rename(stagingBuildDirPath, targetBuildDirPath);
@@ -678,6 +875,14 @@ async function applyGameUpdateFromManifestUrl(
       buildId: latest.buildId,
       updatedAt,
     });
+    emitUpdateProgress(progressReporter, {
+      phase: "complete",
+      status: "success",
+      message: "Game update applied successfully.",
+      detail: `Build ${latest.buildId} is ready.`,
+      progressPercent: 100,
+      fileCount: latest.files.length,
+    });
 
     return {
       ok: true,
@@ -695,6 +900,12 @@ async function applyGameUpdateFromManifestUrl(
     });
     await removeDirectoryIfPresent(stagingBuildDirPath);
     if (cancellationSignal?.aborted) {
+      emitUpdateProgress(progressReporter, {
+        phase: "cancel",
+        status: "warning",
+        message: "Update download canceled.",
+        detail: "Canceled before completion.",
+      });
       return {
         ok: false,
         applied: false,
@@ -706,11 +917,16 @@ async function applyGameUpdateFromManifestUrl(
         error: "Update download canceled.",
       };
     }
-    const failureLogPath = await persistUpdateFailureTrace(updateTrace, error);
-    const baseErrorMessage = resolveUpdateFailureMessage(error);
-    const errorMessage = failureLogPath
-      ? `${baseErrorMessage} Debug log: ${failureLogPath}`
-      : baseErrorMessage;
+    const normalizedErrorMessage = resolveUpdateFailureMessage(error);
+    emitUpdateProgress(progressReporter, {
+      phase: "error",
+      status: "error",
+      message: "Failed to apply game update.",
+      detail: normalizedErrorMessage,
+    });
+    await persistUpdateFailureTrace(updateTrace, error);
+    const baseErrorMessage = normalizedErrorMessage;
+    const errorMessage = baseErrorMessage;
     return {
       ok: false,
       applied: false,
@@ -758,7 +974,7 @@ function showMainWindowIfReady(mainWindow, state) {
   if (state.shown || mainWindow.isDestroyed()) {
     return;
   }
-  if (!state.readyToShow || (!state.appRendered && !state.didFinishLoad)) {
+  if (!state.readyToShow || !state.appRendered) {
     return;
   }
   state.shown = true;
@@ -797,6 +1013,7 @@ ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {
 
   const abortController = new AbortController();
   const updateTrace = createUpdateAttemptTrace(manifestUrl);
+  const reportProgress = createUpdateProgressReporter(event.sender);
   const activeJob = { abortController, updateTrace };
   activeUpdateJobBySenderId.set(senderId, activeJob);
   const handleSenderDestroyed = () => {
@@ -809,6 +1026,7 @@ ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {
       manifestUrl,
       abortController.signal,
       updateTrace,
+      reportProgress,
     );
   } finally {
     event.sender.removeListener("destroyed", handleSenderDestroyed);
@@ -834,21 +1052,6 @@ ipcMain.handle(updaterCancelIpcChannel, (event) => {
     canceled: true,
     error: null,
   };
-});
-
-ipcMain.handle(updaterExportLogsIpcChannel, async (event) => {
-  try {
-    return await exportCurrentUpdateTraceSnapshot(event.sender.id);
-  } catch (error) {
-    return {
-      ok: false,
-      path: null,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Failed to export updater trace logs.",
-    };
-  }
 });
 
 ipcMain.handle(updaterActivateIpcChannel, async (event) => {
@@ -938,18 +1141,12 @@ function createMainWindow() {
   const state = {
     readyToShow: false,
     appRendered: false,
-    didFinishLoad: false,
     shown: false,
   };
   mainWindowStateById.set(mainWindow.id, state);
 
   mainWindow.once("ready-to-show", () => {
     state.readyToShow = true;
-    showMainWindowIfReady(mainWindow, state);
-  });
-
-  mainWindow.webContents.on("did-finish-load", () => {
-    state.didFinishLoad = true;
     showMainWindowIfReady(mainWindow, state);
   });
 
