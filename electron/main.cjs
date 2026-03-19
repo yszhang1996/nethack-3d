@@ -22,6 +22,11 @@ const activeUpdateJobBySenderId = new Map();
 const updateRootDirPath = path.join(app.getPath("userData"), "game-updates");
 const updateCurrentFilesDirPath = path.join(updateRootDirPath, "current");
 const updateStagingDirPath = path.join(updateRootDirPath, "staging");
+const updateFailureLogsDirPath = path.join(updateRootDirPath, "failure-logs");
+const updateLastFailureLogPath = path.join(
+  updateRootDirPath,
+  "last-update-failure.json",
+);
 const updateFetchTimeoutMs = 30000;
 const activeUpdateMetadataPath = path.join(
   updateRootDirPath,
@@ -196,6 +201,132 @@ function resolveManifestFileUrl(manifestUrl, latestManifestEntry, fileEntry) {
   return new URL(`${basePath}/${relativePath}`, manifestUrl).toString();
 }
 
+function normalizeErrorForLog(error) {
+  if (error instanceof Error) {
+    return {
+      name: normalizeNullableString(error.name),
+      message: normalizeNullableString(error.message),
+      stack: normalizeNullableString(error.stack),
+      code: normalizeNullableString(error.code),
+    };
+  }
+  return {
+    name: null,
+    message: normalizeNullableString(String(error ?? "")),
+    stack: null,
+    code: null,
+  };
+}
+
+function createUpdateAttemptTrace(manifestUrl) {
+  return {
+    schemaVersion: 1,
+    startedAt: new Date().toISOString(),
+    manifestUrl,
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    versions: {
+      node: normalizeNullableString(process.versions?.node ?? process.version),
+      electron: normalizeNullableString(process.versions?.electron),
+      chrome: normalizeNullableString(process.versions?.chrome),
+    },
+    events: [],
+    calls: [],
+  };
+}
+
+function appendUpdateTraceEvent(updateTrace, stage, details = null) {
+  if (!updateTrace || !normalizeString(stage)) {
+    return;
+  }
+  const entry = {
+    at: new Date().toISOString(),
+    stage,
+  };
+  if (details !== null && details !== undefined) {
+    entry.details = details;
+  }
+  updateTrace.events.push(entry);
+}
+
+function beginUpdateTraceCall(updateTrace, call) {
+  if (!updateTrace || !isPlainObject(call)) {
+    return null;
+  }
+  const startedAt = new Date();
+  const entry = {
+    index: updateTrace.calls.length + 1,
+    type: normalizeString(call.type) || "unknown",
+    url: normalizeNullableString(call.url),
+    path: normalizeNullableString(call.path),
+    expectedSize:
+      typeof call.expectedSize === "number" && Number.isFinite(call.expectedSize)
+        ? Math.max(0, Math.trunc(call.expectedSize))
+        : null,
+    expectedSha256: normalizeNullableString(call.expectedSha256),
+    startedAt: startedAt.toISOString(),
+    completedAt: null,
+    durationMs: null,
+    outcome: "pending",
+    httpStatus: null,
+    httpStatusText: null,
+    responseContentLength: null,
+    bytesReceived: null,
+    error: null,
+  };
+  updateTrace.calls.push(entry);
+  return {
+    entry,
+    startedAtMs: startedAt.getTime(),
+  };
+}
+
+function completeUpdateTraceCall(traceHandle, patch) {
+  if (!traceHandle) {
+    return;
+  }
+  const completedAt = new Date();
+  traceHandle.entry.completedAt = completedAt.toISOString();
+  traceHandle.entry.durationMs = Math.max(
+    0,
+    completedAt.getTime() - traceHandle.startedAtMs,
+  );
+  if (isPlainObject(patch)) {
+    for (const [key, value] of Object.entries(patch)) {
+      traceHandle.entry[key] = value;
+    }
+  }
+}
+
+function resolveUpdateFailureLogPath(timestampIsoUtc) {
+  const safeTimestamp = String(timestampIsoUtc || "")
+    .replace(/[:.]/g, "-")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+  const suffix = safeTimestamp || String(Date.now());
+  return path.join(updateFailureLogsDirPath, `update-failure-${suffix}.json`);
+}
+
+async function persistUpdateFailureTrace(updateTrace, error) {
+  if (!updateTrace) {
+    return null;
+  }
+  const failedAt = new Date().toISOString();
+  const payload = {
+    ...updateTrace,
+    failedAt,
+    error: normalizeErrorForLog(error),
+  };
+  const logPath = resolveUpdateFailureLogPath(failedAt);
+  try {
+    await writeJsonFile(logPath, payload);
+    await writeJsonFile(updateLastFailureLogPath, payload);
+    return logPath;
+  } catch (writeError) {
+    console.warn("Failed to persist update failure trace:", writeError);
+    return null;
+  }
+}
+
 function createUpdateAbortError() {
   const error = new Error("Update download canceled.");
   error.name = "AbortError";
@@ -240,22 +371,51 @@ function throwIfUpdateCanceled(cancellationSignal) {
   throw createUpdateAbortError();
 }
 
-async function fetchJsonFromUrl(url, cancellationSignal = null) {
+async function fetchJsonFromUrl(
+  url,
+  cancellationSignal = null,
+  updateTrace = null,
+) {
   if (typeof fetch !== "function") {
     throw new Error("Fetch API is not available in the Electron host.");
   }
-  throwIfUpdateCanceled(cancellationSignal);
-  const response = await fetch(url, {
-    cache: "no-store",
-    signal: resolveUpdateFetchSignal(cancellationSignal),
+  const traceCall = beginUpdateTraceCall(updateTrace, {
+    type: "manifest-fetch",
+    url,
   });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch update manifest (${response.status} ${response.statusText}).`,
-    );
-  }
   throwIfUpdateCanceled(cancellationSignal);
-  return response.json();
+  try {
+    const response = await fetch(url, {
+      cache: "no-store",
+      signal: resolveUpdateFetchSignal(cancellationSignal),
+    });
+    if (traceCall) {
+      traceCall.entry.httpStatus = response.status;
+      traceCall.entry.httpStatusText = response.statusText;
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch update manifest (${response.status} ${response.statusText}).`,
+      );
+    }
+    throwIfUpdateCanceled(cancellationSignal);
+    const payload = await response.json();
+    completeUpdateTraceCall(traceCall, {
+      outcome: "ok",
+    });
+    return payload;
+  } catch (error) {
+    const outcome = cancellationSignal?.aborted
+      ? "canceled"
+      : error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "error";
+    completeUpdateTraceCall(traceCall, {
+      outcome,
+      error: normalizeErrorForLog(error),
+    });
+    throw error;
+  }
 }
 
 async function downloadFileWithValidation(
@@ -264,42 +424,85 @@ async function downloadFileWithValidation(
   expectedSize,
   expectedSha256,
   cancellationSignal = null,
+  tracePath = null,
+  updateTrace = null,
 ) {
   if (typeof fetch !== "function") {
     throw new Error("Fetch API is not available in the Electron host.");
   }
-  throwIfUpdateCanceled(cancellationSignal);
-  const response = await fetch(fileUrl, {
-    cache: "no-store",
-    signal: resolveUpdateFetchSignal(cancellationSignal),
+  const traceCall = beginUpdateTraceCall(updateTrace, {
+    type: "file-download",
+    url: fileUrl,
+    path: tracePath,
+    expectedSize,
+    expectedSha256,
   });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to download ${fileUrl} (${response.status} ${response.statusText}).`,
-    );
-  }
-
-  const fileBytes = Buffer.from(await response.arrayBuffer());
   throwIfUpdateCanceled(cancellationSignal);
-  if (typeof expectedSize === "number" && fileBytes.length !== expectedSize) {
-    throw new Error(
-      `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${fileBytes.length}.`,
-    );
-  }
-  if (expectedSha256) {
-    const actualSha256 = crypto
-      .createHash("sha256")
-      .update(fileBytes)
-      .digest("hex");
-    if (actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+  try {
+    const response = await fetch(fileUrl, {
+      cache: "no-store",
+      signal: resolveUpdateFetchSignal(cancellationSignal),
+    });
+    if (traceCall) {
+      traceCall.entry.httpStatus = response.status;
+      traceCall.entry.httpStatusText = response.statusText;
+      const contentLengthValue = response.headers.get("content-length");
+      const parsedContentLength =
+        typeof contentLengthValue === "string" &&
+        /^\d+$/.test(contentLengthValue.trim())
+          ? Number.parseInt(contentLengthValue, 10)
+          : null;
+      traceCall.entry.responseContentLength =
+        typeof parsedContentLength === "number" &&
+        Number.isFinite(parsedContentLength)
+          ? parsedContentLength
+          : null;
+    }
+    if (!response.ok) {
       throw new Error(
-        `SHA256 mismatch for ${fileUrl}: expected ${expectedSha256}, got ${actualSha256}.`,
+        `Failed to download ${fileUrl} (${response.status} ${response.statusText}).`,
       );
     }
-  }
 
-  await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
-  await fsp.writeFile(destinationPath, fileBytes);
+    const fileBytes = Buffer.from(await response.arrayBuffer());
+    if (traceCall) {
+      traceCall.entry.bytesReceived = fileBytes.length;
+    }
+    throwIfUpdateCanceled(cancellationSignal);
+    if (typeof expectedSize === "number" && fileBytes.length !== expectedSize) {
+      throw new Error(
+        `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${fileBytes.length}.`,
+      );
+    }
+    if (expectedSha256) {
+      const actualSha256 = crypto
+        .createHash("sha256")
+        .update(fileBytes)
+        .digest("hex");
+      if (actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+        throw new Error(
+          `SHA256 mismatch for ${fileUrl}: expected ${expectedSha256}, got ${actualSha256}.`,
+        );
+      }
+    }
+
+    await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
+    await fsp.writeFile(destinationPath, fileBytes);
+    completeUpdateTraceCall(traceCall, {
+      outcome: "ok",
+    });
+  } catch (error) {
+    const outcome = cancellationSignal?.aborted
+      ? "canceled"
+      : error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "error";
+    completeUpdateTraceCall(traceCall, {
+      outcome,
+      error: normalizeErrorForLog(error),
+    });
+    throw error;
+  }
 }
 
 async function applyGameUpdateFromManifestUrl(
@@ -333,43 +536,49 @@ async function applyGameUpdateFromManifestUrl(
     };
   }
 
-  const parsedManifest = parseUpdateManifest(
-    await fetchJsonFromUrl(normalizedManifestUrl, cancellationSignal),
-  );
-  if (!parsedManifest?.latest) {
-    return {
-      ok: false,
-      applied: false,
-      alreadyInstalled: false,
-      canceled: false,
-      buildId: null,
-      reloadTriggered: false,
-      clientUpdateRequired: false,
-      error: "Update manifest payload is invalid.",
-    };
-  }
-
-  const latest = parsedManifest.latest;
-  const activeMetadata = readActiveUpdateMetadataSync();
-  if (activeMetadata?.buildId === latest.buildId) {
-    return {
-      ok: true,
-      applied: false,
-      alreadyInstalled: true,
-      canceled: false,
-      buildId: latest.buildId,
-      reloadTriggered: false,
-      clientUpdateRequired: latest.requiresClientUpgrade,
-      error: null,
-    };
-  }
-
+  const updateTrace = createUpdateAttemptTrace(normalizedManifestUrl);
+  appendUpdateTraceEvent(updateTrace, "apply-started");
   const stagingBuildDirPath = path.join(updateStagingDirPath, "current");
   const targetBuildDirPath = updateCurrentFilesDirPath;
-  await removeDirectoryIfPresent(stagingBuildDirPath);
-  await fsp.mkdir(stagingBuildDirPath, { recursive: true });
 
   try {
+    const parsedManifest = parseUpdateManifest(
+      await fetchJsonFromUrl(
+        normalizedManifestUrl,
+        cancellationSignal,
+        updateTrace,
+      ),
+    );
+    if (!parsedManifest?.latest) {
+      throw new Error("Update manifest payload is invalid.");
+    }
+    appendUpdateTraceEvent(updateTrace, "manifest-parsed", {
+      buildId: parsedManifest.latest.buildId,
+      fileCount: parsedManifest.latest.files.length,
+    });
+
+    const latest = parsedManifest.latest;
+    const activeMetadata = readActiveUpdateMetadataSync();
+    if (activeMetadata?.buildId === latest.buildId) {
+      appendUpdateTraceEvent(updateTrace, "already-installed", {
+        buildId: latest.buildId,
+      });
+      return {
+        ok: true,
+        applied: false,
+        alreadyInstalled: true,
+        canceled: false,
+        buildId: latest.buildId,
+        reloadTriggered: false,
+        clientUpdateRequired: latest.requiresClientUpgrade,
+        error: null,
+      };
+    }
+
+    appendUpdateTraceEvent(updateTrace, "prepare-staging");
+    await removeDirectoryIfPresent(stagingBuildDirPath);
+    await fsp.mkdir(stagingBuildDirPath, { recursive: true });
+
     throwIfUpdateCanceled(cancellationSignal);
     for (const fileEntry of latest.files) {
       throwIfUpdateCanceled(cancellationSignal);
@@ -389,6 +598,8 @@ async function applyGameUpdateFromManifestUrl(
         fileEntry.size,
         fileEntry.sha256,
         cancellationSignal,
+        relativePath,
+        updateTrace,
       );
     }
 
@@ -398,6 +609,7 @@ async function applyGameUpdateFromManifestUrl(
       throw new Error("Update package is missing index.html.");
     }
 
+    appendUpdateTraceEvent(updateTrace, "activate-staged-build");
     await fsp.mkdir(updateRootDirPath, { recursive: true });
     await removeDirectoryIfPresent(targetBuildDirPath);
     await fsp.rename(stagingBuildDirPath, targetBuildDirPath);
@@ -412,6 +624,10 @@ async function applyGameUpdateFromManifestUrl(
       clientVersion: latest.clientVersion,
     };
     await writeJsonFile(activeUpdateMetadataPath, nextMetadata);
+    appendUpdateTraceEvent(updateTrace, "metadata-written", {
+      buildId: latest.buildId,
+      updatedAt,
+    });
 
     return {
       ok: true,
@@ -424,6 +640,9 @@ async function applyGameUpdateFromManifestUrl(
       error: null,
     };
   } catch (error) {
+    appendUpdateTraceEvent(updateTrace, "apply-failed", {
+      error: normalizeErrorForLog(error),
+    });
     await removeDirectoryIfPresent(stagingBuildDirPath);
     if (cancellationSignal?.aborted) {
       return {
@@ -437,6 +656,11 @@ async function applyGameUpdateFromManifestUrl(
         error: "Update download canceled.",
       };
     }
+    const failureLogPath = await persistUpdateFailureTrace(updateTrace, error);
+    const baseErrorMessage = resolveUpdateFailureMessage(error);
+    const errorMessage = failureLogPath
+      ? `${baseErrorMessage} Debug log: ${failureLogPath}`
+      : baseErrorMessage;
     return {
       ok: false,
       applied: false,
@@ -445,7 +669,7 @@ async function applyGameUpdateFromManifestUrl(
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
-      error: resolveUpdateFailureMessage(error),
+      error: errorMessage,
     };
   }
 }
