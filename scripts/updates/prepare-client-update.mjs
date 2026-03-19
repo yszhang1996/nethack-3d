@@ -231,6 +231,37 @@ async function writeJsonFile(filePath, payload) {
   await fs.writeFile(filePath, raw, "utf8");
 }
 
+function findRootRelativeUrlAttributes(indexHtmlRaw) {
+  if (typeof indexHtmlRaw !== "string" || !indexHtmlRaw) {
+    return [];
+  }
+  const matches = indexHtmlRaw.match(/\b(?:src|href)=["']\/(?!\/)[^"']+/gi);
+  return Array.isArray(matches) ? matches : [];
+}
+
+async function assertDistUpdateFilesAreFileSchemeCompatible() {
+  const distIndexHtmlPath = path.join(distDirPath, "index.html");
+  let indexHtmlRaw = "";
+  try {
+    indexHtmlRaw = await fs.readFile(distIndexHtmlPath, "utf8");
+  } catch {
+    throw new Error(
+      "dist/index.html is missing. Run npm run build:electron before preparing client update files.",
+    );
+  }
+
+  const rootRelativeUrlAttributes = findRootRelativeUrlAttributes(indexHtmlRaw);
+  if (rootRelativeUrlAttributes.length === 0) {
+    return;
+  }
+
+  const sampleAttributes = rootRelativeUrlAttributes.slice(0, 3).join(", ");
+  throw new Error(
+    `dist/index.html contains root-relative URLs (${sampleAttributes}). ` +
+      "Run npm run build:electron (or set BUILD_TARGET=electron) before npm run updates:package.",
+  );
+}
+
 async function collectRelativeFilePaths(rootPath, currentPath = rootPath) {
   const entries = await fs.readdir(currentPath, { withFileTypes: true });
   const filePaths = [];
@@ -364,6 +395,7 @@ async function main() {
       "dist/ is missing. Run npm run build before preparing client update files.",
     );
   }
+  await assertDistUpdateFilesAreFileSchemeCompatible();
 
   const packageJson = await readJsonFile(packageJsonPath);
   const clientVersion =

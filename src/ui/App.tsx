@@ -4207,7 +4207,10 @@ export default function App(): JSX.Element {
         progressPercent:
           typeof partialEvent.progressPercent === "number" &&
           Number.isFinite(partialEvent.progressPercent)
-            ? Math.max(0, Math.min(100, Math.round(partialEvent.progressPercent)))
+            ? Math.max(
+                0,
+                Math.min(100, Math.round(partialEvent.progressPercent)),
+              )
             : null,
         fileIndex:
           typeof partialEvent.fileIndex === "number" &&
@@ -4222,7 +4225,8 @@ export default function App(): JSX.Element {
             ? Math.trunc(partialEvent.fileCount)
             : null,
         filePath:
-          typeof partialEvent.filePath === "string" && partialEvent.filePath.trim()
+          typeof partialEvent.filePath === "string" &&
+          partialEvent.filePath.trim()
             ? partialEvent.filePath.trim()
             : null,
       };
@@ -11407,7 +11411,9 @@ export default function App(): JSX.Element {
                       key={entry.id}
                     >
                       <span className="nh3d-startup-update-progress-log-time">
-                        {entry.at ? new Date(entry.at).toLocaleTimeString() : "--:--:--"}
+                        {entry.at
+                          ? new Date(entry.at).toLocaleTimeString()
+                          : "--:--:--"}
                       </span>
                       <span className="nh3d-startup-update-progress-log-message">
                         {entry.message}
@@ -11570,7 +11576,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Quit Game
+              Exit Game
             </button>
           </div>
         </div>

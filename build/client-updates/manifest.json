@@ -1,21 +1,15 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T23:09:37.108Z",
+  "generatedAt": "2026-03-19T23:54:48.899Z",
   "latest": {
-    "buildId": "9c87aac5f4f17fb13c13",
-    "commitSha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
-    "createdAt": "2026-03-19T23:09:37.108Z",
+    "buildId": "efa2ddc6ad2b5afbab5f",
+    "commitSha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
+    "createdAt": "2026-03-19T23:54:48.899Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
-    "commits": [
-      {
-        "sha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
-        "authoredAt": "2026-03-19T18:31:52-04:00",
-        "message": "Testing game updates again"
-      }
-    ],
+    "commits": [],
     "filesBasePath": "latest",
     "files": [
       {
@@ -54,9 +48,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-AuPo3HSF.js",
-        "size": 2101019,
-        "sha256": "20bc562b32a6ce066dc1468bc5472cb95fad8fe0be579b2248addad8c9a75938"
+        "path": "assets/index-BxsyR-HD.js",
+        "size": 61402,
+        "sha256": "6f96f3d04a9a3907b18e85a4e86bcef5fc639cad55f4915d0bf22c8241f47e03"
       },
       {
         "path": "assets/index-CdHFIQ6x.css",
@@ -64,14 +58,14 @@
         "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
       },
       {
-        "path": "assets/index-tLCNBeHQ.js",
-        "size": 63065,
-        "sha256": "4bb2a2e87e647db63c82c9fb84ed4a279b2da1aee9199bcaeab9ca1462a8532f"
+        "path": "assets/index-Du_r9Vxv.js",
+        "size": 63090,
+        "sha256": "dbcb1639d3d34900933ca29aa63dd738f8675adc15bf75f54efb73428aca451b"
       },
       {
-        "path": "assets/index-tNt0L3Wz.js",
-        "size": 61377,
-        "sha256": "0b2eff0c0a466ed988a95e4fd52ff8d05d7fcabab5109a319db1990af546a515"
+        "path": "assets/index-PmkdPvAR.js",
+        "size": 2101232,
+        "sha256": "f14b35a9f264a10066c75cfaa63826f6533a1cd65d5a2ecef96eae95131374a4"
       },
       {
         "path": "assets/nethack-COBuHcyY.wasm",
@@ -84,9 +78,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-WuCBq3NG.js",
-        "size": 181075,
-        "sha256": "648ad8037acd772db3977872ae7a07ce9c8a88750bbdff946b280b76e06470bb"
+        "path": "assets/runtime-worker-B4wZUJvH.js",
+        "size": 181183,
+        "sha256": "a2f5604f14727a5bc16a5633c87b28d8ffb3fbb2221c680a9f05761e16b89c24"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13085,8 +13079,8 @@
       },
       {
         "path": "index.html",
-        "size": 1193,
-        "sha256": "ac2497318e3837673f894136be504a2d53e252b25d11351f1babc74dd69fa07a"
+        "size": 1195,
+        "sha256": "5b009352d2a24b60bfbc3657f3161dd2b08d2856065b5f7855e89030c147ac30"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13110,30 @@
     ]
   },
   "history": [
+    {
+      "buildId": "efa2ddc6ad2b5afbab5f",
+      "commitSha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
+      "createdAt": "2026-03-19T23:54:48.899Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": []
+    },
+    {
+      "buildId": "b2b23cd2b2c58f3af970",
+      "commitSha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
+      "createdAt": "2026-03-19T23:51:35.861Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "51f76daf443ae4702a4b01b696d0f1600b11e6c2",
+          "authoredAt": "2026-03-19T19:10:30-04:00",
+          "message": "Show download progress as it happens, with progress bar"
+        }
+      ]
+    },
     {
       "buildId": "9c87aac5f4f17fb13c13",
       "commitSha": "ab15a20204f3a05e8f0f050022bcdea859f56ed1",
@@ -13411,131 +13429,6 @@
           "sha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
           "authoredAt": "2026-03-19T14:00:26-04:00",
           "message": "Updated package-lock.json"
-        }
-      ]
-    },
-    {
-      "buildId": "20260319180412-94ea7bbbbfee",
-      "commitSha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-      "createdAt": "2026-03-19T18:04:18.502Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-          "authoredAt": "2026-03-19T14:00:26-04:00",
-          "message": "Updated package-lock.json"
-        }
-      ]
-    },
-    {
-      "buildId": "20260319180031-88e94c5db853",
-      "commitSha": "88e94c5db853c2dd373ac4a3000569ae0c5d1896",
-      "createdAt": "2026-03-19T18:00:40.798Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "88e94c5db853c2dd373ac4a3000569ae0c5d1896",
-          "authoredAt": "2026-03-19T13:58:31-04:00",
-          "message": "Added game live update system for Windows, Android and Linux clients"
-        },
-        {
-          "sha": "2f32fe7828c54cd4a5083ddc586508820d0a0a67",
-          "authoredAt": "2026-03-19T13:28:29-04:00",
-          "message": "Updated option description"
-        },
-        {
-          "sha": "0ce6a9f82997b846fd20b22a4e9990de9966d600",
-          "authoredAt": "2026-03-19T11:58:31-04:00",
-          "message": "Restored tile flattening in FPS mode with new option to use raised sprite billboards in FPS mode instead (default to flattening sprites when player stands on them)"
-        },
-        {
-          "sha": "a7907c6871db87791f7c3335f05910dec717ed75",
-          "authoredAt": "2026-03-19T11:39:08-04:00",
-          "message": "Added option for Message log scale, refactored Display options with groupings, refactored Controls option section with groupings, Return to Main Menu now properly returns instead of reloading the page"
-        },
-        {
-          "sha": "25eecf04aa538e6097626bb264fd91c834f42ad7",
-          "authoredAt": "2026-03-19T10:31:27-04:00",
-          "message": "README updates"
-        },
-        {
-          "sha": "b6d4779449db459545d355deb9efcb405cb9f97f",
-          "authoredAt": "2026-03-19T10:26:03-04:00",
-          "message": "Fixed Steam Deck Game Mode for Linux AppImage"
-        },
-        {
-          "sha": "b70fd38cd07b6bcfadc11d0441db3b99485ce713",
-          "authoredAt": "2026-03-18T21:08:32-04:00",
-          "message": "Added Linux AppImage script"
-        },
-        {
-          "sha": "5c994b315aa4f2bfe443ecd80c1682e38b3f4cf1",
-          "authoredAt": "2026-03-18T19:17:13-04:00",
-          "message": "Fixed inset door floor strip AO by unifying all AO z-offset height"
-        },
-        {
-          "sha": "1cf4988988e5d4eff882ae5427fa63c9a7eccb08",
-          "authoredAt": "2026-03-18T19:00:48-04:00",
-          "message": "Fixes black lines on the floor strip near inset doors"
-        },
-        {
-          "sha": "7039e4b69aa38668d51036223cfccbb38ca317cc",
-          "authoredAt": "2026-03-18T18:54:32-04:00",
-          "message": "Fixed AO on the floor strip for inset doors"
-        },
-        {
-          "sha": "429fa65aab80945a9f2a857d354739c433951fe1",
-          "authoredAt": "2026-03-18T18:37:22-04:00",
-          "message": "Progress on AO for the floor plane"
-        },
-        {
-          "sha": "6b17ce2e9cd3cac4a3faaed421254adb4f628409",
-          "authoredAt": "2026-03-18T18:10:33-04:00",
-          "message": "Fixed AO around inset doors"
-        },
-        {
-          "sha": "2e7a872db59be9b148c88da6ed6e7ca6ea15c0a1",
-          "authoredAt": "2026-03-18T17:55:45-04:00",
-          "message": "Added floor plane in front of inset doorways, with AO"
-        },
-        {
-          "sha": "a8737fe181c00c659799fa2b2d4b99780a4d1b31",
-          "authoredAt": "2026-03-18T16:36:56-04:00",
-          "message": "Render billboards as standing up when player or pet or monsters walk on them"
-        },
-        {
-          "sha": "b997d833278634c90c88583377c10aa2b2d6e75e",
-          "authoredAt": "2026-03-18T15:56:04-04:00",
-          "message": "Make vulture-mode FPS billboards show when the player moves on them"
-        },
-        {
-          "sha": "4804c366c65f3da69570ea9dc6403ca518f0e109",
-          "authoredAt": "2026-03-18T15:21:09-04:00",
-          "message": "Fixed iron bars in FPS mode"
-        },
-        {
-          "sha": "43b01cfd57e1dbb42962da6c409dd7cd4b8142e3",
-          "authoredAt": "2026-03-18T15:08:55-04:00",
-          "message": "Fixed iron bars showing blank wall faces in adjacent wall tiles in FPS mode"
-        },
-        {
-          "sha": "c4d2a523fdcca6676028a42838cdb57536ac0f0a",
-          "authoredAt": "2026-03-18T14:50:52-04:00",
-          "message": "Added floor plan under iron bars"
-        },
-        {
-          "sha": "20b671c248fa0dca28ac23faa484363bffd31a91",
-          "authoredAt": "2026-03-18T14:34:24-04:00",
-          "message": "Fixed edge case in floor flattening logic"
-        },
-        {
-          "sha": "21679a4d5d077e8bf62ef7762b59ed6c722cb9a4",
-          "authoredAt": "2026-03-18T14:32:04-04:00",
-          "message": "Fixed loot not appearing under the player in FPS mode"
         }
       ]
     }

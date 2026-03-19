@@ -8,7 +8,7 @@
     "build:capacitor": "npm run ensure:rollup-native && cross-env VITE_DEPLOY_TARGET=capacitor vite build",
     "build:electron": "npm run ensure:rollup-native && cross-env BUILD_TARGET=electron VITE_DEPLOY_TARGET=electron vite build",
     "updates:package": "node scripts/updates/prepare-client-update.mjs",
-    "update": "npm run build && npm run updates:package",
+    "update": "npm run build:electron && npm run updates:package",
     "dev": "npm run ensure:rollup-native && vite",
     "dev:isolated": "npm run ensure:rollup-native && cross-env NH3D_ENABLE_CROSS_ORIGIN_ISOLATION=true vite",
     "android:add": "cap add android",

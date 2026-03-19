@@ -216,6 +216,13 @@ async function writeJsonFile(filePath, payload) {
   await fsp.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
+function hasRootRelativeUrlReferences(indexHtmlRaw) {
+  if (typeof indexHtmlRaw !== "string" || !indexHtmlRaw) {
+    return false;
+  }
+  return /\b(?:src|href)=["']\/(?!\/)/i.test(indexHtmlRaw);
+}
+
 function parseActiveUpdateMetadata(value) {
   if (!isPlainObject(value)) {
     return null;
@@ -246,6 +253,22 @@ function readActiveUpdateMetadataSync() {
   }
   const indexHtmlPath = path.join(parsed.buildRootPath, "index.html");
   if (!fs.existsSync(indexHtmlPath)) {
+    return null;
+  }
+  try {
+    const indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
+    if (hasRootRelativeUrlReferences(indexHtml)) {
+      console.warn(
+        "Ignoring active game update because index.html contains root-relative URLs that are incompatible with file:// launches.",
+      );
+      try {
+        fs.rmSync(activeUpdateMetadataPath, { force: true });
+      } catch {
+        // Ignore cleanup errors and continue launching the bundled build.
+      }
+      return null;
+    }
+  } catch {
     return null;
   }
   return parsed;
@@ -949,6 +972,9 @@ function hasLaunchArgument(...switchNames) {
 }
 
 function resolveWindowMode() {
+  if (process.platform === "win32") {
+    return "borderless";
+  }
   if (hasLaunchArgument("windowed", "window")) {
     return "windowed";
   }
@@ -961,7 +987,7 @@ function resolveWindowMode() {
   ) {
     return "borderless";
   }
-  return process.platform === "win32" ? "borderless" : "fullscreen";
+  return "fullscreen";
 }
 
 if (process.platform === "linux") {
@@ -974,7 +1000,7 @@ function showMainWindowIfReady(mainWindow, state) {
   if (state.shown || mainWindow.isDestroyed()) {
     return;
   }
-  if (!state.readyToShow || !state.appRendered) {
+  if (!state.readyToShow || (!state.appRendered && !state.didFinishLoad)) {
     return;
   }
   state.shown = true;
@@ -1141,12 +1167,18 @@ function createMainWindow() {
   const state = {
     readyToShow: false,
     appRendered: false,
+    didFinishLoad: false,
     shown: false,
   };
   mainWindowStateById.set(mainWindow.id, state);
 
   mainWindow.once("ready-to-show", () => {
     state.readyToShow = true;
+    showMainWindowIfReady(mainWindow, state);
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    state.didFinishLoad = true;
     showMainWindowIfReady(mainWindow, state);
   });
 
