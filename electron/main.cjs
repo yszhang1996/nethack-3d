@@ -1,12 +1,408 @@
 const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const fsp = fs.promises;
 const path = require("node:path");
+const packageJson = require("../package.json");
 
-app.setVersion("0.9.1");
+if (typeof packageJson.version === "string") {
+  app.setVersion(packageJson.version);
+}
 
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const quitIpcChannel = "nh3d:quit-app";
 const appRenderedIpcChannel = "nh3d:app-rendered";
+const updaterGetActiveInfoIpcChannel = "nh3d:updater-get-active-info";
+const updaterApplyIpcChannel = "nh3d:updater-apply";
+const updaterActivateIpcChannel = "nh3d:updater-activate";
 const mainWindowStateById = new Map();
+
+const updateRootDirPath = path.join(app.getPath("userData"), "game-updates");
+const updateBuildsDirPath = path.join(updateRootDirPath, "builds");
+const updateStagingDirPath = path.join(updateRootDirPath, "staging");
+const activeUpdateMetadataPath = path.join(
+  updateRootDirPath,
+  "active-update.json",
+);
+const maxStoredUpdateBuilds = 3;
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function normalizeString(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeNullableString(value) {
+  const normalized = normalizeString(value);
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeBoolean(value) {
+  return value === true;
+}
+
+function normalizeRelativePath(value) {
+  const normalized = normalizeString(value).replace(/\\/g, "/");
+  if (!normalized) {
+    return null;
+  }
+  if (normalized.startsWith("/") || normalized.includes("..")) {
+    return null;
+  }
+  return normalized;
+}
+
+function parseManifestFileEntry(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  const relativePath = normalizeRelativePath(value.path);
+  if (!relativePath) {
+    return null;
+  }
+  const size =
+    typeof value.size === "number" && Number.isFinite(value.size)
+      ? Math.max(0, Math.trunc(value.size))
+      : null;
+  const sha256 = normalizeNullableString(value.sha256);
+  const url = normalizeNullableString(value.url);
+  return {
+    path: relativePath,
+    size,
+    sha256,
+    url,
+  };
+}
+
+function parseManifestLatestEntry(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  const buildId = normalizeString(value.buildId);
+  const filesBasePath = normalizeRelativePath(value.filesBasePath);
+  const rawFiles = Array.isArray(value.files) ? value.files : [];
+  const files = rawFiles
+    .map((entry) => parseManifestFileEntry(entry))
+    .filter(Boolean);
+  if (!buildId || !filesBasePath || files.length === 0) {
+    return null;
+  }
+
+  return {
+    buildId,
+    commitSha: normalizeNullableString(value.commitSha),
+    clientVersion: normalizeNullableString(value.clientVersion),
+    requiresClientUpgrade: normalizeBoolean(value.requiresClientUpgrade),
+    filesBasePath,
+    files,
+  };
+}
+
+function parseUpdateManifest(payload) {
+  if (!isPlainObject(payload)) {
+    return null;
+  }
+  const latest = parseManifestLatestEntry(payload.latest);
+  if (!latest) {
+    return null;
+  }
+  return { latest };
+}
+
+function readJsonFileSync(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function writeJsonFile(filePath, payload) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+function parseActiveUpdateMetadata(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  const buildId = normalizeNullableString(value.buildId);
+  const buildRootPath = normalizeNullableString(value.buildRootPath);
+  const commitSha = normalizeNullableString(value.commitSha);
+  const updatedAt = normalizeNullableString(value.updatedAt);
+  const manifestUrl = normalizeNullableString(value.manifestUrl);
+  const clientVersion = normalizeNullableString(value.clientVersion);
+  if (!buildId || !buildRootPath) {
+    return null;
+  }
+  return {
+    buildId,
+    buildRootPath,
+    commitSha,
+    updatedAt,
+    manifestUrl,
+    clientVersion,
+  };
+}
+
+function readActiveUpdateMetadataSync() {
+  const parsed = parseActiveUpdateMetadata(readJsonFileSync(activeUpdateMetadataPath));
+  if (!parsed) {
+    return null;
+  }
+  const indexHtmlPath = path.join(parsed.buildRootPath, "index.html");
+  if (!fs.existsSync(indexHtmlPath)) {
+    return null;
+  }
+  return parsed;
+}
+
+function toPublicActiveUpdateInfo(metadata) {
+  if (!metadata) {
+    return null;
+  }
+  return {
+    buildId: metadata.buildId,
+    commitSha: metadata.commitSha,
+    updatedAt: metadata.updatedAt,
+    clientVersion: metadata.clientVersion,
+    manifestUrl: metadata.manifestUrl,
+  };
+}
+
+function resolveLaunchIndexHtmlPath() {
+  const activeUpdate = readActiveUpdateMetadataSync();
+  if (activeUpdate) {
+    return path.join(activeUpdate.buildRootPath, "index.html");
+  }
+  return path.join(__dirname, "..", "dist", "index.html");
+}
+
+async function removeDirectoryIfPresent(targetPath) {
+  await fsp.rm(targetPath, { recursive: true, force: true });
+}
+
+async function pruneStoredUpdateBuilds(activeBuildId) {
+  try {
+    const directoryEntries = await fsp.readdir(updateBuildsDirPath, {
+      withFileTypes: true,
+    });
+    const buildEntries = [];
+    for (const entry of directoryEntries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const buildPath = path.join(updateBuildsDirPath, entry.name);
+      const stats = await fsp.stat(buildPath);
+      buildEntries.push({
+        buildId: entry.name,
+        buildPath,
+        modifiedAtMs: stats.mtimeMs,
+      });
+    }
+    buildEntries.sort((a, b) => b.modifiedAtMs - a.modifiedAtMs);
+
+    let keptCount = 0;
+    for (const entry of buildEntries) {
+      const shouldKeep =
+        entry.buildId === activeBuildId || keptCount < maxStoredUpdateBuilds;
+      if (shouldKeep) {
+        keptCount += 1;
+        continue;
+      }
+      await removeDirectoryIfPresent(entry.buildPath);
+    }
+  } catch {
+    // Ignore cleanup failures.
+  }
+}
+
+function resolveManifestFileUrl(manifestUrl, latestManifestEntry, fileEntry) {
+  if (fileEntry.url) {
+    return new URL(fileEntry.url, manifestUrl).toString();
+  }
+  const basePath = latestManifestEntry.filesBasePath.replace(/\/+$/, "");
+  const relativePath = fileEntry.path.replace(/^\/+/, "");
+  return new URL(`${basePath}/${relativePath}`, manifestUrl).toString();
+}
+
+async function fetchJsonFromUrl(url) {
+  if (typeof fetch !== "function") {
+    throw new Error("Fetch API is not available in the Electron host.");
+  }
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch update manifest (${response.status} ${response.statusText}).`,
+    );
+  }
+  return response.json();
+}
+
+async function downloadFileWithValidation(
+  fileUrl,
+  destinationPath,
+  expectedSize,
+  expectedSha256,
+) {
+  if (typeof fetch !== "function") {
+    throw new Error("Fetch API is not available in the Electron host.");
+  }
+  const response = await fetch(fileUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to download ${fileUrl} (${response.status} ${response.statusText}).`,
+    );
+  }
+
+  const fileBytes = Buffer.from(await response.arrayBuffer());
+  if (typeof expectedSize === "number" && fileBytes.length !== expectedSize) {
+    throw new Error(
+      `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${fileBytes.length}.`,
+    );
+  }
+  if (expectedSha256) {
+    const actualSha256 = crypto
+      .createHash("sha256")
+      .update(fileBytes)
+      .digest("hex");
+    if (actualSha256.toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(
+        `SHA256 mismatch for ${fileUrl}: expected ${expectedSha256}, got ${actualSha256}.`,
+      );
+    }
+  }
+
+  await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fsp.writeFile(destinationPath, fileBytes);
+}
+
+async function applyGameUpdateFromManifestUrl(manifestUrl) {
+  if (!app.isPackaged) {
+    return {
+      ok: false,
+      applied: false,
+      alreadyInstalled: false,
+      buildId: null,
+      reloadTriggered: false,
+      clientUpdateRequired: false,
+      error: "Updater is disabled in development builds.",
+    };
+  }
+
+  const normalizedManifestUrl = normalizeNullableString(manifestUrl);
+  if (!normalizedManifestUrl) {
+    return {
+      ok: false,
+      applied: false,
+      alreadyInstalled: false,
+      buildId: null,
+      reloadTriggered: false,
+      clientUpdateRequired: false,
+      error: "Update manifest URL is required.",
+    };
+  }
+
+  const parsedManifest = parseUpdateManifest(
+    await fetchJsonFromUrl(normalizedManifestUrl),
+  );
+  if (!parsedManifest?.latest) {
+    return {
+      ok: false,
+      applied: false,
+      alreadyInstalled: false,
+      buildId: null,
+      reloadTriggered: false,
+      clientUpdateRequired: false,
+      error: "Update manifest payload is invalid.",
+    };
+  }
+
+  const latest = parsedManifest.latest;
+  const activeMetadata = readActiveUpdateMetadataSync();
+  if (activeMetadata?.buildId === latest.buildId) {
+    return {
+      ok: true,
+      applied: false,
+      alreadyInstalled: true,
+      buildId: latest.buildId,
+      reloadTriggered: false,
+      clientUpdateRequired: latest.requiresClientUpgrade,
+      error: null,
+    };
+  }
+
+  const stagingBuildDirPath = path.join(updateStagingDirPath, latest.buildId);
+  const targetBuildDirPath = path.join(updateBuildsDirPath, latest.buildId);
+  await removeDirectoryIfPresent(stagingBuildDirPath);
+  await fsp.mkdir(stagingBuildDirPath, { recursive: true });
+
+  try {
+    for (const fileEntry of latest.files) {
+      const relativePath = normalizeRelativePath(fileEntry.path);
+      if (!relativePath) {
+        throw new Error(`Unsafe update file path: ${String(fileEntry.path)}`);
+      }
+      const sourceUrl = resolveManifestFileUrl(
+        normalizedManifestUrl,
+        latest,
+        fileEntry,
+      );
+      const destinationPath = path.join(stagingBuildDirPath, relativePath);
+      await downloadFileWithValidation(
+        sourceUrl,
+        destinationPath,
+        fileEntry.size,
+        fileEntry.sha256,
+      );
+    }
+
+    const stagedIndexHtmlPath = path.join(stagingBuildDirPath, "index.html");
+    if (!fs.existsSync(stagedIndexHtmlPath)) {
+      throw new Error("Update package is missing index.html.");
+    }
+
+    await fsp.mkdir(updateBuildsDirPath, { recursive: true });
+    await removeDirectoryIfPresent(targetBuildDirPath);
+    await fsp.rename(stagingBuildDirPath, targetBuildDirPath);
+
+    const updatedAt = new Date().toISOString();
+    const nextMetadata = {
+      buildId: latest.buildId,
+      buildRootPath: targetBuildDirPath,
+      commitSha: latest.commitSha,
+      updatedAt,
+      manifestUrl: normalizedManifestUrl,
+      clientVersion: latest.clientVersion,
+    };
+    await writeJsonFile(activeUpdateMetadataPath, nextMetadata);
+    await pruneStoredUpdateBuilds(latest.buildId);
+
+    return {
+      ok: true,
+      applied: true,
+      alreadyInstalled: false,
+      buildId: latest.buildId,
+      reloadTriggered: false,
+      clientUpdateRequired: latest.requiresClientUpgrade,
+      error: null,
+    };
+  } catch (error) {
+    await removeDirectoryIfPresent(stagingBuildDirPath);
+    return {
+      ok: false,
+      applied: false,
+      alreadyInstalled: false,
+      buildId: null,
+      reloadTriggered: false,
+      clientUpdateRequired: false,
+      error: error instanceof Error ? error.message : "Failed to apply update.",
+    };
+  }
+}
 
 function hasLaunchArgument(...switchNames) {
   return switchNames.some(
@@ -55,6 +451,33 @@ ipcMain.handle(quitIpcChannel, () => {
     window.destroy();
   }
   app.quit();
+});
+
+ipcMain.handle(updaterGetActiveInfoIpcChannel, () => {
+  return toPublicActiveUpdateInfo(readActiveUpdateMetadataSync());
+});
+
+ipcMain.handle(updaterApplyIpcChannel, async (_event, payload) => {
+  const manifestUrl = isPlainObject(payload)
+    ? normalizeNullableString(payload.manifestUrl)
+    : null;
+  return applyGameUpdateFromManifestUrl(manifestUrl);
+});
+
+ipcMain.handle(updaterActivateIpcChannel, async (event) => {
+  const mainWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return { activated: false };
+  }
+
+  if (!app.isPackaged && devServerUrl) {
+    await mainWindow.loadURL(devServerUrl);
+    return { activated: true };
+  }
+
+  const indexHtmlPath = resolveLaunchIndexHtmlPath();
+  await mainWindow.loadFile(indexHtmlPath);
+  return { activated: true };
 });
 
 ipcMain.on(appRenderedIpcChannel, (event) => {
@@ -167,7 +590,7 @@ function createMainWindow() {
     return;
   }
 
-  const indexHtmlPath = path.join(__dirname, "..", "dist", "index.html");
+  const indexHtmlPath = resolveLaunchIndexHtmlPath();
   mainWindow.loadFile(indexHtmlPath);
 }
 

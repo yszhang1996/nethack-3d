@@ -980,11 +980,7 @@ canvas {
     .nh3d-stats-core-row-primary,
     .nh3d-stats-core-row-secondary {
       flex-wrap: nowrap;
-      gap: clamp(
-        3px,
-        calc(8px * var(--nh3d-mobile-stats-core-scale, 1)),
-        8px
-      );
+      gap: clamp(3px, calc(8px * var(--nh3d-mobile-stats-core-scale, 1)), 8px);
       font-size: nh3d-scale-font(
         calc(13px * var(--nh3d-mobile-stats-core-scale, 1))
       );
@@ -4177,6 +4173,77 @@ canvas {
 
   .nh3d-startup-init-options-actions .nh3d-menu-action-button {
     width: 100%;
+  }
+}
+
+.nh3d-startup-update-dialog {
+  .nh3d-startup-update-summary {
+    color: var(--nh3d-ui-text-muted);
+    font-size: nh3d-scale-font(14px);
+    line-height: 1.45;
+    margin: 4px auto 0;
+    max-width: min(560px, 100%);
+    text-align: left;
+  }
+
+  .nh3d-startup-update-client-warning,
+  .nh3d-startup-update-error,
+  .nh3d-startup-update-progress {
+    border-radius: 6px;
+    margin-top: 10px;
+    max-width: min(560px, 100%);
+    padding: 10px 12px;
+    text-align: left;
+  }
+
+  .nh3d-startup-update-client-warning {
+    border: 1px solid rgba(188, 161, 90, 0.74);
+    background: rgba(92, 68, 22, 0.36);
+    color: #ffe2a5;
+  }
+
+  .nh3d-startup-update-error {
+    border: 1px solid rgba(203, 97, 97, 0.76);
+    background: rgba(94, 23, 23, 0.46);
+    color: #ffd4d4;
+  }
+
+  .nh3d-startup-update-progress {
+    border: 1px solid rgba(118, 192, 233, 0.76);
+    background: rgba(19, 54, 79, 0.48);
+    color: #d6f0ff;
+  }
+
+  .nh3d-startup-update-details {
+    @extend %custom-scrollbar;
+    border: 1px solid rgba(75, 118, 165, 0.62);
+    border-radius: 8px;
+    background: rgba(8, 20, 34, 0.84);
+    margin-top: 10px;
+    max-height: min(30vh, 280px);
+    overflow-y: auto;
+    padding: 10px 12px;
+    text-align: left;
+    width: min(560px, 100%);
+  }
+
+  .nh3d-startup-update-details-title {
+    color: var(--nh3d-ui-accent-soft);
+    font-size: nh3d-scale-font(14px);
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .nh3d-startup-update-details-list {
+    margin: 0;
+    padding-left: 20px;
+  }
+
+  .nh3d-startup-update-details-list li {
+    color: var(--nh3d-ui-text);
+    font-size: nh3d-scale-font(13px);
+    line-height: 1.45;
+    margin-bottom: 6px;
   }
 }
 

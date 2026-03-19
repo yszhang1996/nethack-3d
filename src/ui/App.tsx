@@ -82,6 +82,12 @@ import {
   persistNh3dStartupInitOptionsToIndexedDb,
   type StartupCharacterPreferences,
 } from "../storage/client-options-storage";
+import {
+  activateNh3dClientUpdateIfNeeded,
+  applyNh3dClientUpdate,
+  checkForNh3dClientUpdates,
+} from "../update/client-updater";
+import type { Nh3dClientUpdateCheckResult } from "../update/types";
 import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-pack-storage";
 import SoundPackSettings, {
   type SoundPackDialogActions,
@@ -4048,10 +4054,17 @@ async function deleteSavedGame(filename: string): Promise<void> {
 type Nh3dElectronBridge = {
   quitGame?: () => Promise<unknown>;
   signalAppRendered?: () => void;
+  updater?: {
+    getActiveUpdateInfo?: () => Promise<unknown>;
+    applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
+    activateInstalledUpdate?: () => Promise<unknown>;
+  };
 };
 
 type Nh3dAndroidBridge = {
   quitGame?: () => void;
+  getActiveGameUpdateInfo?: () => string;
+  applyGameUpdate?: (manifestUrl: string) => string;
 };
 
 type Nh3dWindowBridges = Window & {
@@ -4122,6 +4135,15 @@ export default function App(): JSX.Element {
     useState(false);
   const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
   const [isLoadingSaves, setIsLoadingSaves] = useState(false);
+  const startupUpdateCheckStartedRef = useRef(false);
+  const [startupUpdateCheck, setStartupUpdateCheck] =
+    useState<Nh3dClientUpdateCheckResult | null>(null);
+  const [isStartupUpdateDialogVisible, setIsStartupUpdateDialogVisible] =
+    useState(false);
+  const [startupUpdateDetailsVisible, setStartupUpdateDetailsVisible] =
+    useState(false);
+  const [startupUpdateBusy, setStartupUpdateBusy] = useState(false);
+  const [startupUpdateError, setStartupUpdateError] = useState("");
   const startupCreateCharacterOptionSet = useMemo(
     () =>
       resolveStartupCreateCharacterOptionSet({
@@ -6566,14 +6588,26 @@ export default function App(): JSX.Element {
       : "Starting local runtime...";
   const startupMenuVisible =
     startupUiVisible && characterCreationConfig === null;
+  const startupUpdateDialogOpen =
+    startupMenuVisible && isStartupUpdateDialogVisible;
   const startupChooseDialogVisible =
-    startupMenuVisible && startupFlowStep === "choose";
+    startupMenuVisible &&
+    startupFlowStep === "choose" &&
+    !startupUpdateDialogOpen;
   const startupResumeDialogVisible =
     startupMenuVisible && startupFlowStep === "resume";
   const startupRandomDialogVisible =
     startupMenuVisible && startupFlowStep === "random";
   const startupCreateDialogVisible =
     startupMenuVisible && startupFlowStep === "create";
+  const startupPendingUpdateCount =
+    startupUpdateCheck?.pendingCount ?? 0;
+  const startupPendingUpdateCommits =
+    startupUpdateCheck?.pendingCommits ?? [];
+  const startupClientUpdateRequired =
+    startupUpdateCheck?.clientUpdateRequired ?? false;
+  const startupClientUpdateMessage =
+    startupUpdateCheck?.clientUpdateMessage ?? "";
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -6619,6 +6653,95 @@ export default function App(): JSX.Element {
     startupRenderSignalSentRef.current = true;
     signalAppRendered();
   }, [startupUiVisible]);
+
+  useEffect(() => {
+    if (!startupUiVisible || startupUpdateCheckStartedRef.current) {
+      return;
+    }
+    startupUpdateCheckStartedRef.current = true;
+    let canceled = false;
+    (async () => {
+      const result = await checkForNh3dClientUpdates();
+      if (canceled) {
+        return;
+      }
+      if (!result.supported) {
+        setStartupUpdateCheck(result);
+        return;
+      }
+      if (result.error) {
+        console.warn("Failed to check for client updates:", result.error);
+        setStartupUpdateCheck(result);
+        return;
+      }
+      setStartupUpdateCheck(result);
+      if (result.hasUpdate) {
+        setStartupUpdateError("");
+        setStartupUpdateDetailsVisible(false);
+        setIsStartupUpdateDialogVisible(true);
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [startupUiVisible]);
+
+  const closeStartupUpdateDialog = useCallback((): void => {
+    if (startupUpdateBusy) {
+      return;
+    }
+    setStartupUpdateDetailsVisible(false);
+    setStartupUpdateError("");
+    setIsStartupUpdateDialogVisible(false);
+  }, [startupUpdateBusy]);
+
+  const toggleStartupUpdateDetails = useCallback((): void => {
+    if (startupUpdateBusy || startupPendingUpdateCommits.length === 0) {
+      return;
+    }
+    setStartupUpdateDetailsVisible((previous) => !previous);
+  }, [startupPendingUpdateCommits.length, startupUpdateBusy]);
+
+  const downloadStartupUpdates = useCallback(async (): Promise<void> => {
+    if (
+      startupUpdateBusy ||
+      !startupUpdateCheck ||
+      !startupUpdateCheck.supported ||
+      !startupUpdateCheck.hasUpdate
+    ) {
+      return;
+    }
+
+    setStartupUpdateBusy(true);
+    setStartupUpdateError("");
+
+    try {
+      const applyResult = await applyNh3dClientUpdate(
+        startupUpdateCheck.manifestUrl ?? undefined,
+      );
+      if (!applyResult.ok) {
+        setStartupUpdateError(
+          applyResult.error || "Unable to download and apply updates.",
+        );
+        return;
+      }
+
+      if (applyResult.applied || applyResult.alreadyInstalled) {
+        const activated = await activateNh3dClientUpdateIfNeeded();
+        if (!activated && !applyResult.reloadTriggered) {
+          window.location.reload();
+          return;
+        }
+        return;
+      }
+
+      setStartupUpdateError(
+        "No updates were applied. Please try checking again.",
+      );
+    } finally {
+      setStartupUpdateBusy(false);
+    }
+  }, [startupUpdateBusy, startupUpdateCheck]);
 
   useEffect(() => {
     if (!characterSheetInterceptionArmed) {
@@ -10866,6 +10989,92 @@ export default function App(): JSX.Element {
           </pre>
         </div>
       )}
+
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog nh3d-startup-update-dialog"
+        open={startupUpdateDialogOpen}
+        id="nh3d-startup-update-dialog"
+        onBlurCapture={handleStartupMainMenuBlurCapture}
+        onChangeCapture={handleStartupMainMenuChangeCapture}
+        onKeyDown={handleStartupMainMenuKeyDown}
+        onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
+      >
+        <div className="nh3d-question-text">
+          {startupPendingUpdateCount === 1
+            ? "1 game update is available."
+            : `${startupPendingUpdateCount} game updates are available.`}
+        </div>
+        <div className="nh3d-startup-update-summary">
+          Download the latest build files now and refresh into the updated game.
+        </div>
+        {startupClientUpdateRequired ? (
+          <div className="nh3d-startup-update-client-warning">
+            A full client upgrade is also required for the newest platform
+            enhancements.
+            {startupClientUpdateMessage ? ` ${startupClientUpdateMessage}` : ""}
+          </div>
+        ) : null}
+        {startupUpdateError ? (
+          <div className="nh3d-startup-update-error">{startupUpdateError}</div>
+        ) : null}
+        {startupUpdateBusy ? (
+          <div className="nh3d-startup-update-progress">
+            Downloading update files and applying build...
+          </div>
+        ) : null}
+        {startupUpdateDetailsVisible ? (
+          <div className="nh3d-overflow-glow-frame">
+            <div
+              className="nh3d-startup-update-details"
+              data-nh3d-overflow-glow
+              data-nh3d-overflow-glow-host="parent"
+            >
+              <div className="nh3d-startup-update-details-title">
+                Pending Updates
+              </div>
+              <ul className="nh3d-startup-update-details-list">
+                {startupPendingUpdateCommits.length > 0 ? (
+                  startupPendingUpdateCommits.map((entry, index) => (
+                    <li key={`${entry.sha || "commit"}-${index}`}>
+                      {entry.message}
+                    </li>
+                  ))
+                ) : (
+                  <li>Update payload is available.</li>
+                )}
+              </ul>
+            </div>
+          </div>
+        ) : null}
+        <div className="nh3d-menu-actions">
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-confirm"
+            disabled={startupUpdateBusy}
+            onClick={() => {
+              void downloadStartupUpdates();
+            }}
+            type="button"
+          >
+            {startupUpdateBusy ? "Downloading..." : "Download Updates"}
+          </button>
+          <button
+            className="nh3d-menu-action-button"
+            disabled={startupUpdateBusy || startupPendingUpdateCount <= 0}
+            onClick={toggleStartupUpdateDetails}
+            type="button"
+          >
+            {startupUpdateDetailsVisible ? "Hide Details" : "More Details"}
+          </button>
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-cancel"
+            disabled={startupUpdateBusy}
+            onClick={closeStartupUpdateDialog}
+            type="button"
+          >
+            Later
+          </button>
+        </div>
+      </AnimatedDialog>
 
       <AnimatedDialog
         className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
