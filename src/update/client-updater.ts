@@ -6,15 +6,18 @@ import {
 import type {
   Nh3dActiveBuildInfo,
   Nh3dClientUpdateApplyResult,
+  Nh3dClientUpdateCancelResult,
   Nh3dClientUpdateCheckResult,
 } from "./types";
 
 const fallbackUpdateManifestUrl =
   "https://raw.githubusercontent.com/JamesIV4/nethack-3d/main/build/client-updates/manifest.json";
+const manifestFetchTimeoutMs = 20000;
 
 type Nh3dElectronUpdaterBridge = {
   getActiveUpdateInfo?: () => Promise<unknown>;
   applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
+  cancelGameUpdate?: () => Promise<unknown>;
   activateInstalledUpdate?: () => Promise<unknown>;
 };
 
@@ -25,6 +28,7 @@ type Nh3dElectronBridge = {
 type Nh3dAndroidBridge = {
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
+  cancelGameUpdate?: () => string;
 };
 
 type Nh3dUpdateWindow = Window & {
@@ -47,6 +51,22 @@ function resolveBundledBuildCommitSha(): string | null {
   const envValue =
     typeof import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA === "string"
       ? import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA.trim()
+      : "";
+  return envValue.length > 0 ? envValue : null;
+}
+
+function resolveBundledUpdateBuildId(): string | null {
+  const envValue =
+    typeof import.meta.env.VITE_NH3D_BUNDLED_UPDATE_BUILD_ID === "string"
+      ? import.meta.env.VITE_NH3D_BUNDLED_UPDATE_BUILD_ID.trim()
+      : "";
+  return envValue.length > 0 ? envValue : null;
+}
+
+function resolveBundledUpdateCommitSha(): string | null {
+  const envValue =
+    typeof import.meta.env.VITE_NH3D_BUNDLED_UPDATE_COMMIT_SHA === "string"
+      ? import.meta.env.VITE_NH3D_BUNDLED_UPDATE_COMMIT_SHA.trim()
       : "";
   return envValue.length > 0 ? envValue : null;
 }
@@ -87,6 +107,7 @@ function parseApplyResult(value: unknown): Nh3dClientUpdateApplyResult {
       ok: false,
       applied: false,
       alreadyInstalled: false,
+      canceled: false,
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
@@ -98,9 +119,26 @@ function parseApplyResult(value: unknown): Nh3dClientUpdateApplyResult {
     ok: normalizeBoolean(payload.ok),
     applied: normalizeBoolean(payload.applied),
     alreadyInstalled: normalizeBoolean(payload.alreadyInstalled),
+    canceled: normalizeBoolean(payload.canceled),
     buildId: normalizeNullableString(payload.buildId),
     reloadTriggered: normalizeBoolean(payload.reloadTriggered),
     clientUpdateRequired: normalizeBoolean(payload.clientUpdateRequired),
+    error: normalizeNullableString(payload.error),
+  };
+}
+
+function parseCancelResult(value: unknown): Nh3dClientUpdateCancelResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      ok: false,
+      canceled: false,
+      error: "Client update host returned an invalid cancel response.",
+    };
+  }
+  const payload = value as Record<string, unknown>;
+  return {
+    ok: normalizeBoolean(payload.ok),
+    canceled: normalizeBoolean(payload.canceled),
     error: normalizeNullableString(payload.error),
   };
 }
@@ -138,6 +176,20 @@ export function supportsNh3dClientUpdates(): boolean {
   return Boolean(resolveElectronUpdaterBridge() || resolveAndroidBridge());
 }
 
+export function supportsNh3dClientUpdateCancellation(): boolean {
+  if (import.meta.env.DEV) {
+    return false;
+  }
+  const electronBridge = getUpdateWindow().nh3dElectron?.updater;
+  if (electronBridge && typeof electronBridge.cancelGameUpdate === "function") {
+    return true;
+  }
+  const androidBridge = getUpdateWindow().nh3dAndroid;
+  return Boolean(
+    androidBridge && typeof androidBridge.cancelGameUpdate === "function",
+  );
+}
+
 async function readActiveBuildInfoFromBridge(): Promise<Nh3dActiveBuildInfo> {
   const electronBridge = resolveElectronUpdaterBridge();
   if (
@@ -172,15 +224,32 @@ async function readActiveBuildInfoFromBridge(): Promise<Nh3dActiveBuildInfo> {
 }
 
 async function fetchManifestPayload(manifestUrl: string): Promise<unknown> {
-  const response = await fetch(manifestUrl, {
-    cache: "no-store",
-  });
-  if (!response.ok) {
-    throw new Error(
-      `Update manifest request failed (${response.status} ${response.statusText}).`,
-    );
+  const controller = new AbortController();
+  let timedOut = false;
+  const timeoutHandle = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, manifestFetchTimeoutMs);
+
+  try {
+    const response = await fetch(manifestUrl, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Update manifest request failed (${response.status} ${response.statusText}).`,
+      );
+    }
+    return response.json();
+  } catch (error) {
+    if (timedOut) {
+      throw new Error("Update manifest request timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutHandle);
   }
-  return response.json();
 }
 
 export async function checkForNh3dClientUpdates(
@@ -221,12 +290,23 @@ export async function checkForNh3dClientUpdates(
     const latestBuildId = manifest.latest.buildId;
     const latestCommitSha = manifest.latest.commitSha;
     const bundledBuildCommitSha = resolveBundledBuildCommitSha();
+    const bundledUpdateBuildId = resolveBundledUpdateBuildId();
+    const bundledUpdateCommitSha = resolveBundledUpdateCommitSha();
     const localBuildMatchesLatest =
       localBuildId !== null && localBuildId === latestBuildId;
     const localCommitMatchesLatest =
       localCommitSha !== null &&
       latestCommitSha !== null &&
       localCommitSha === latestCommitSha;
+    const bundledUpdateBuildMatchesLatest =
+      !localBuildId &&
+      bundledUpdateBuildId !== null &&
+      bundledUpdateBuildId === latestBuildId;
+    const bundledUpdateCommitMatchesLatest =
+      !localBuildId &&
+      bundledUpdateCommitSha !== null &&
+      latestCommitSha !== null &&
+      bundledUpdateCommitSha === latestCommitSha;
     const bundledCommitMatchesLatest =
       !localBuildId &&
       bundledBuildCommitSha !== null &&
@@ -235,6 +315,8 @@ export async function checkForNh3dClientUpdates(
     const hasUpdate = !(
       localBuildMatchesLatest ||
       localCommitMatchesLatest ||
+      bundledUpdateBuildMatchesLatest ||
+      bundledUpdateCommitMatchesLatest ||
       bundledCommitMatchesLatest
     );
     const pendingCommits = hasUpdate
@@ -297,6 +379,7 @@ export async function applyNh3dClientUpdate(
         ok: false,
         applied: false,
         alreadyInstalled: false,
+        canceled: false,
         buildId: null,
         reloadTriggered: false,
         clientUpdateRequired: false,
@@ -322,6 +405,7 @@ export async function applyNh3dClientUpdate(
         ok: false,
         applied: false,
         alreadyInstalled: false,
+        canceled: false,
         buildId: null,
         reloadTriggered: false,
         clientUpdateRequired: false,
@@ -337,10 +421,57 @@ export async function applyNh3dClientUpdate(
     ok: false,
     applied: false,
     alreadyInstalled: false,
+    canceled: false,
     buildId: null,
     reloadTriggered: false,
     clientUpdateRequired: false,
     error: "This platform does not support client updates.",
+  };
+}
+
+export async function cancelNh3dClientUpdate(): Promise<Nh3dClientUpdateCancelResult> {
+  const electronBridge = getUpdateWindow().nh3dElectron?.updater;
+  if (electronBridge && typeof electronBridge.cancelGameUpdate === "function") {
+    try {
+      const rawResult = await electronBridge.cancelGameUpdate();
+      return parseCancelResult(rawResult);
+    } catch (error) {
+      return {
+        ok: false,
+        canceled: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel game update download.",
+      };
+    }
+  }
+
+  const androidBridge = getUpdateWindow().nh3dAndroid;
+  if (androidBridge && typeof androidBridge.cancelGameUpdate === "function") {
+    try {
+      const rawResult = androidBridge.cancelGameUpdate();
+      const parsedResult =
+        typeof rawResult === "string" && rawResult.trim()
+          ? JSON.parse(rawResult)
+          : null;
+      return parseCancelResult(parsedResult);
+    } catch (error) {
+      return {
+        ok: false,
+        canceled: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to cancel game update download.",
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    canceled: false,
+    error: "This platform does not support canceling client updates.",
   };
 }
 

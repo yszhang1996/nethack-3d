@@ -57,8 +57,15 @@ export type Nh3dClientUpdateApplyResult = {
   ok: boolean;
   applied: boolean;
   alreadyInstalled: boolean;
+  canceled: boolean;
   buildId: string | null;
   reloadTriggered: boolean;
   clientUpdateRequired: boolean;
+  error: string | null;
+};
+
+export type Nh3dClientUpdateCancelResult = {
+  ok: boolean;
+  canceled: boolean;
   error: string | null;
 };

@@ -85,7 +85,9 @@ import {
 import {
   activateNh3dClientUpdateIfNeeded,
   applyNh3dClientUpdate,
+  cancelNh3dClientUpdate,
   checkForNh3dClientUpdates,
+  supportsNh3dClientUpdateCancellation,
 } from "../update/client-updater";
 import type { Nh3dClientUpdateCheckResult } from "../update/types";
 import { resetNh3dDefaultSoundPackVolumeLevelsToDefaults } from "../audio/sound-pack-storage";
@@ -4057,6 +4059,7 @@ type Nh3dElectronBridge = {
   updater?: {
     getActiveUpdateInfo?: () => Promise<unknown>;
     applyGameUpdate?: (manifestUrl: string) => Promise<unknown>;
+    cancelGameUpdate?: () => Promise<unknown>;
     activateInstalledUpdate?: () => Promise<unknown>;
   };
 };
@@ -4065,6 +4068,7 @@ type Nh3dAndroidBridge = {
   quitGame?: () => void;
   getActiveGameUpdateInfo?: () => string;
   applyGameUpdate?: (manifestUrl: string) => string;
+  cancelGameUpdate?: () => string;
 };
 
 type Nh3dWindowBridges = Window & {
@@ -4143,6 +4147,7 @@ export default function App(): JSX.Element {
   const [startupUpdateDetailsVisible, setStartupUpdateDetailsVisible] =
     useState(false);
   const [startupUpdateBusy, setStartupUpdateBusy] = useState(false);
+  const [startupUpdateCancelBusy, setStartupUpdateCancelBusy] = useState(false);
   const [startupUpdateError, setStartupUpdateError] = useState("");
   const startupCreateCharacterOptionSet = useMemo(
     () =>
@@ -6608,6 +6613,8 @@ export default function App(): JSX.Element {
     startupUpdateCheck?.clientUpdateRequired ?? false;
   const startupClientUpdateMessage =
     startupUpdateCheck?.clientUpdateMessage ?? "";
+  const startupCanCancelUpdateDownload =
+    supportsNh3dClientUpdateCancellation();
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -6661,24 +6668,50 @@ export default function App(): JSX.Element {
     startupUpdateCheckStartedRef.current = true;
     let canceled = false;
     (async () => {
-      const result = await checkForNh3dClientUpdates();
-      if (canceled) {
-        return;
-      }
-      if (!result.supported) {
+      try {
+        const result = await checkForNh3dClientUpdates();
+        if (canceled) {
+          return;
+        }
+        if (!result.supported) {
+          setStartupUpdateCheck(result);
+          return;
+        }
+        if (result.error) {
+          console.warn("Failed to check for client updates:", result.error);
+          setStartupUpdateCheck(result);
+          return;
+        }
         setStartupUpdateCheck(result);
-        return;
-      }
-      if (result.error) {
-        console.warn("Failed to check for client updates:", result.error);
-        setStartupUpdateCheck(result);
-        return;
-      }
-      setStartupUpdateCheck(result);
-      if (result.hasUpdate) {
-        setStartupUpdateError("");
-        setStartupUpdateDetailsVisible(false);
-        setIsStartupUpdateDialogVisible(true);
+        if (result.hasUpdate) {
+          setStartupUpdateError("");
+          setStartupUpdateDetailsVisible(false);
+          setIsStartupUpdateDialogVisible(true);
+        }
+      } catch (error) {
+        if (canceled) {
+          return;
+        }
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Unexpected update check failure.";
+        console.warn("Failed to check for client updates:", errorMessage);
+        setStartupUpdateCheck((previous) => ({
+          ...(previous ?? {
+            supported: false,
+            manifestUrl: null,
+            localBuildId: null,
+            latestBuildId: null,
+            hasUpdate: false,
+            pendingCount: 0,
+            pendingCommits: [],
+            clientUpdateRequired: false,
+            clientUpdateMessage: "",
+            error: null,
+          }),
+          error: errorMessage,
+        }));
       }
     })();
     return () => {
@@ -6696,11 +6729,39 @@ export default function App(): JSX.Element {
   }, [startupUpdateBusy]);
 
   const toggleStartupUpdateDetails = useCallback((): void => {
-    if (startupUpdateBusy || startupPendingUpdateCommits.length === 0) {
+    if (startupUpdateBusy) {
       return;
     }
     setStartupUpdateDetailsVisible((previous) => !previous);
-  }, [startupPendingUpdateCommits.length, startupUpdateBusy]);
+  }, [startupUpdateBusy]);
+
+  const cancelStartupUpdateDownload = useCallback(async (): Promise<void> => {
+    if (
+      !startupUpdateBusy ||
+      startupUpdateCancelBusy ||
+      !startupCanCancelUpdateDownload
+    ) {
+      return;
+    }
+
+    setStartupUpdateCancelBusy(true);
+    setStartupUpdateError("");
+    const cancelResult = await cancelNh3dClientUpdate();
+    if (!cancelResult.ok) {
+      if (cancelResult.error) {
+        setStartupUpdateError(cancelResult.error);
+      }
+      setStartupUpdateCancelBusy(false);
+      return;
+    }
+    if (!cancelResult.canceled) {
+      setStartupUpdateCancelBusy(false);
+    }
+  }, [
+    startupCanCancelUpdateDownload,
+    startupUpdateBusy,
+    startupUpdateCancelBusy,
+  ]);
 
   const downloadStartupUpdates = useCallback(async (): Promise<void> => {
     if (
@@ -6713,6 +6774,7 @@ export default function App(): JSX.Element {
     }
 
     setStartupUpdateBusy(true);
+    setStartupUpdateCancelBusy(false);
     setStartupUpdateError("");
 
     try {
@@ -6720,6 +6782,10 @@ export default function App(): JSX.Element {
         startupUpdateCheck.manifestUrl ?? undefined,
       );
       if (!applyResult.ok) {
+        if (applyResult.canceled) {
+          setStartupUpdateError("Update download was canceled.");
+          return;
+        }
         setStartupUpdateError(
           applyResult.error || "Unable to download and apply updates.",
         );
@@ -6738,7 +6804,14 @@ export default function App(): JSX.Element {
       setStartupUpdateError(
         "No updates were applied. Please try checking again.",
       );
+    } catch (error) {
+      setStartupUpdateError(
+        error instanceof Error
+          ? error.message
+          : "Unexpected update failure.",
+      );
     } finally {
+      setStartupUpdateCancelBusy(false);
       setStartupUpdateBusy(false);
     }
   }, [startupUpdateBusy, startupUpdateCheck]);
@@ -11019,7 +11092,9 @@ export default function App(): JSX.Element {
         ) : null}
         {startupUpdateBusy ? (
           <div className="nh3d-startup-update-progress">
-            Downloading update files and applying build...
+            {startupUpdateCancelBusy
+              ? "Canceling update download..."
+              : "Downloading update files and applying build..."}
           </div>
         ) : null}
         {startupUpdateDetailsVisible ? (
@@ -11067,11 +11142,24 @@ export default function App(): JSX.Element {
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
-            disabled={startupUpdateBusy}
-            onClick={closeStartupUpdateDialog}
+            disabled={
+              startupUpdateCancelBusy ||
+              (startupUpdateBusy && !startupCanCancelUpdateDownload)
+            }
+            onClick={() => {
+              if (startupUpdateBusy && startupCanCancelUpdateDownload) {
+                void cancelStartupUpdateDownload();
+                return;
+              }
+              closeStartupUpdateDialog();
+            }}
             type="button"
           >
-            Later
+            {startupUpdateBusy && startupCanCancelUpdateDownload
+              ? startupUpdateCancelBusy
+                ? "Canceling..."
+                : "Cancel Download"
+              : "Later"}
           </button>
         </div>
       </AnimatedDialog>

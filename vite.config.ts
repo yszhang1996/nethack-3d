@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { defineConfig, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { copyWasm } from "./scripts/wasm/copy-wasm.mjs";
@@ -71,12 +73,55 @@ const crossOriginIsolationHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
+const bundledClientUpdateState = (() => {
+  const manifestPath = path.join(
+    process.cwd(),
+    "build",
+    "client-updates",
+    "manifest.json",
+  );
+  try {
+    const payload = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const latest =
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as { latest?: unknown }).latest
+        : null;
+    if (!latest || typeof latest !== "object" || Array.isArray(latest)) {
+      return {
+        buildId: "",
+        commitSha: "",
+      };
+    }
+    const latestPayload = latest as Record<string, unknown>;
+    return {
+      buildId:
+        typeof latestPayload.buildId === "string"
+          ? latestPayload.buildId.trim()
+          : "",
+      commitSha:
+        typeof latestPayload.commitSha === "string"
+          ? latestPayload.commitSha.trim()
+          : "",
+    };
+  } catch {
+    return {
+      buildId: "",
+      commitSha: "",
+    };
+  }
+})();
 
 export default defineConfig({
   plugins: [copyWasmPlugin(), tilesetManifestPlugin(), react()],
   define: {
     "import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA": JSON.stringify(
       resolvedBuildCommitSha,
+    ),
+    "import.meta.env.VITE_NH3D_BUNDLED_UPDATE_BUILD_ID": JSON.stringify(
+      bundledClientUpdateState.buildId,
+    ),
+    "import.meta.env.VITE_NH3D_BUNDLED_UPDATE_COMMIT_SHA": JSON.stringify(
+      bundledClientUpdateState.commitSha,
     ),
   },
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",

@@ -14,12 +14,15 @@ const quitIpcChannel = "nh3d:quit-app";
 const appRenderedIpcChannel = "nh3d:app-rendered";
 const updaterGetActiveInfoIpcChannel = "nh3d:updater-get-active-info";
 const updaterApplyIpcChannel = "nh3d:updater-apply";
+const updaterCancelIpcChannel = "nh3d:updater-cancel";
 const updaterActivateIpcChannel = "nh3d:updater-activate";
 const mainWindowStateById = new Map();
+const activeUpdateJobBySenderId = new Map();
 
 const updateRootDirPath = path.join(app.getPath("userData"), "game-updates");
 const updateCurrentFilesDirPath = path.join(updateRootDirPath, "current");
 const updateStagingDirPath = path.join(updateRootDirPath, "staging");
+const updateFetchTimeoutMs = 30000;
 const activeUpdateMetadataPath = path.join(
   updateRootDirPath,
   "active-update.json",
@@ -193,16 +196,65 @@ function resolveManifestFileUrl(manifestUrl, latestManifestEntry, fileEntry) {
   return new URL(`${basePath}/${relativePath}`, manifestUrl).toString();
 }
 
-async function fetchJsonFromUrl(url) {
+function createUpdateAbortError() {
+  const error = new Error("Update download canceled.");
+  error.name = "AbortError";
+  return error;
+}
+
+function resolveUpdateFetchSignal(cancellationSignal) {
+  if (
+    typeof AbortSignal !== "function" ||
+    typeof AbortSignal.timeout !== "function"
+  ) {
+    return cancellationSignal ?? undefined;
+  }
+  const timeoutSignal = AbortSignal.timeout(updateFetchTimeoutMs);
+  if (cancellationSignal && typeof AbortSignal.any === "function") {
+    return AbortSignal.any([cancellationSignal, timeoutSignal]);
+  }
+  return cancellationSignal ?? timeoutSignal;
+}
+
+function resolveUpdateFailureMessage(error) {
+  if (error instanceof Error) {
+    if (error.name === "TimeoutError") {
+      return "Update download timed out. Check your connection and try again.";
+    }
+    const normalizedMessage = normalizeString(error.message);
+    if (normalizedMessage) {
+      return normalizedMessage;
+    }
+  }
+  return "Failed to apply update.";
+}
+
+function throwIfUpdateCanceled(cancellationSignal) {
+  if (!cancellationSignal?.aborted) {
+    return;
+  }
+  const cancellationReason = cancellationSignal.reason;
+  if (cancellationReason instanceof Error) {
+    throw cancellationReason;
+  }
+  throw createUpdateAbortError();
+}
+
+async function fetchJsonFromUrl(url, cancellationSignal = null) {
   if (typeof fetch !== "function") {
     throw new Error("Fetch API is not available in the Electron host.");
   }
-  const response = await fetch(url, { cache: "no-store" });
+  throwIfUpdateCanceled(cancellationSignal);
+  const response = await fetch(url, {
+    cache: "no-store",
+    signal: resolveUpdateFetchSignal(cancellationSignal),
+  });
   if (!response.ok) {
     throw new Error(
       `Failed to fetch update manifest (${response.status} ${response.statusText}).`,
     );
   }
+  throwIfUpdateCanceled(cancellationSignal);
   return response.json();
 }
 
@@ -211,11 +263,16 @@ async function downloadFileWithValidation(
   destinationPath,
   expectedSize,
   expectedSha256,
+  cancellationSignal = null,
 ) {
   if (typeof fetch !== "function") {
     throw new Error("Fetch API is not available in the Electron host.");
   }
-  const response = await fetch(fileUrl, { cache: "no-store" });
+  throwIfUpdateCanceled(cancellationSignal);
+  const response = await fetch(fileUrl, {
+    cache: "no-store",
+    signal: resolveUpdateFetchSignal(cancellationSignal),
+  });
   if (!response.ok) {
     throw new Error(
       `Failed to download ${fileUrl} (${response.status} ${response.statusText}).`,
@@ -223,6 +280,7 @@ async function downloadFileWithValidation(
   }
 
   const fileBytes = Buffer.from(await response.arrayBuffer());
+  throwIfUpdateCanceled(cancellationSignal);
   if (typeof expectedSize === "number" && fileBytes.length !== expectedSize) {
     throw new Error(
       `Downloaded file size mismatch for ${fileUrl}: expected ${expectedSize}, got ${fileBytes.length}.`,
@@ -244,12 +302,16 @@ async function downloadFileWithValidation(
   await fsp.writeFile(destinationPath, fileBytes);
 }
 
-async function applyGameUpdateFromManifestUrl(manifestUrl) {
+async function applyGameUpdateFromManifestUrl(
+  manifestUrl,
+  cancellationSignal = null,
+) {
   if (!app.isPackaged) {
     return {
       ok: false,
       applied: false,
       alreadyInstalled: false,
+      canceled: false,
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
@@ -263,6 +325,7 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
       ok: false,
       applied: false,
       alreadyInstalled: false,
+      canceled: false,
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
@@ -271,13 +334,14 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
   }
 
   const parsedManifest = parseUpdateManifest(
-    await fetchJsonFromUrl(normalizedManifestUrl),
+    await fetchJsonFromUrl(normalizedManifestUrl, cancellationSignal),
   );
   if (!parsedManifest?.latest) {
     return {
       ok: false,
       applied: false,
       alreadyInstalled: false,
+      canceled: false,
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
@@ -292,6 +356,7 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
       ok: true,
       applied: false,
       alreadyInstalled: true,
+      canceled: false,
       buildId: latest.buildId,
       reloadTriggered: false,
       clientUpdateRequired: latest.requiresClientUpgrade,
@@ -305,7 +370,9 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
   await fsp.mkdir(stagingBuildDirPath, { recursive: true });
 
   try {
+    throwIfUpdateCanceled(cancellationSignal);
     for (const fileEntry of latest.files) {
+      throwIfUpdateCanceled(cancellationSignal);
       const relativePath = normalizeRelativePath(fileEntry.path);
       if (!relativePath) {
         throw new Error(`Unsafe update file path: ${String(fileEntry.path)}`);
@@ -321,9 +388,11 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
         destinationPath,
         fileEntry.size,
         fileEntry.sha256,
+        cancellationSignal,
       );
     }
 
+    throwIfUpdateCanceled(cancellationSignal);
     const stagedIndexHtmlPath = path.join(stagingBuildDirPath, "index.html");
     if (!fs.existsSync(stagedIndexHtmlPath)) {
       throw new Error("Update package is missing index.html.");
@@ -348,6 +417,7 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
       ok: true,
       applied: true,
       alreadyInstalled: false,
+      canceled: false,
       buildId: latest.buildId,
       reloadTriggered: false,
       clientUpdateRequired: latest.requiresClientUpgrade,
@@ -355,14 +425,27 @@ async function applyGameUpdateFromManifestUrl(manifestUrl) {
     };
   } catch (error) {
     await removeDirectoryIfPresent(stagingBuildDirPath);
+    if (cancellationSignal?.aborted) {
+      return {
+        ok: false,
+        applied: false,
+        alreadyInstalled: false,
+        canceled: true,
+        buildId: null,
+        reloadTriggered: false,
+        clientUpdateRequired: false,
+        error: "Update download canceled.",
+      };
+    }
     return {
       ok: false,
       applied: false,
       alreadyInstalled: false,
+      canceled: false,
       buildId: null,
       reloadTriggered: false,
       clientUpdateRequired: false,
-      error: error instanceof Error ? error.message : "Failed to apply update.",
+      error: resolveUpdateFailureMessage(error),
     };
   }
 }
@@ -420,11 +503,61 @@ ipcMain.handle(updaterGetActiveInfoIpcChannel, () => {
   return toPublicActiveUpdateInfo(readActiveUpdateMetadataSync());
 });
 
-ipcMain.handle(updaterApplyIpcChannel, async (_event, payload) => {
+ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {
   const manifestUrl = isPlainObject(payload)
     ? normalizeNullableString(payload.manifestUrl)
     : null;
-  return applyGameUpdateFromManifestUrl(manifestUrl);
+  const senderId = event.sender.id;
+  if (activeUpdateJobBySenderId.has(senderId)) {
+    return {
+      ok: false,
+      applied: false,
+      alreadyInstalled: false,
+      canceled: false,
+      buildId: null,
+      reloadTriggered: false,
+      clientUpdateRequired: false,
+      error: "An update download is already in progress.",
+    };
+  }
+
+  const abortController = new AbortController();
+  const activeJob = { abortController };
+  activeUpdateJobBySenderId.set(senderId, activeJob);
+  const handleSenderDestroyed = () => {
+    abortController.abort(createUpdateAbortError());
+  };
+  event.sender.once("destroyed", handleSenderDestroyed);
+
+  try {
+    return await applyGameUpdateFromManifestUrl(
+      manifestUrl,
+      abortController.signal,
+    );
+  } finally {
+    event.sender.removeListener("destroyed", handleSenderDestroyed);
+    const existingJob = activeUpdateJobBySenderId.get(senderId);
+    if (existingJob === activeJob) {
+      activeUpdateJobBySenderId.delete(senderId);
+    }
+  }
+});
+
+ipcMain.handle(updaterCancelIpcChannel, (event) => {
+  const activeJob = activeUpdateJobBySenderId.get(event.sender.id);
+  if (!activeJob) {
+    return {
+      ok: true,
+      canceled: false,
+      error: null,
+    };
+  }
+  activeJob.abortController.abort(createUpdateAbortError());
+  return {
+    ok: true,
+    canceled: true,
+    error: null,
+  };
 });
 
 ipcMain.handle(updaterActivateIpcChannel, async (event) => {

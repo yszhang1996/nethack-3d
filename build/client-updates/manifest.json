@@ -1,15 +1,26 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T20:27:21.855Z",
+  "generatedAt": "2026-03-19T20:58:06.882Z",
   "latest": {
-    "buildId": "3dbc9dab3086b5719135",
-    "commitSha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
-    "createdAt": "2026-03-19T20:27:21.855Z",
+    "buildId": "c288c58113d6eee7653c",
+    "commitSha": "0568562f08d30d34b360091392ced0e674d96287",
+    "createdAt": "2026-03-19T20:58:06.882Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
-    "commits": [],
+    "commits": [
+      {
+        "sha": "0568562f08d30d34b360091392ced0e674d96287",
+        "authoredAt": "2026-03-19T16:27:56-04:00",
+        "message": "Updated build"
+      },
+      {
+        "sha": "ca861fdba2db38e812d4bac5df2c615d79209814",
+        "authoredAt": "2026-03-19T16:27:38-04:00",
+        "message": "Online update system fixes"
+      }
+    ],
     "filesBasePath": "latest",
     "files": [
       {
@@ -48,9 +59,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-BPNtS9uz.js",
-        "size": 2090288,
-        "sha256": "eb389242d5877beb636b45cba3dda70c5cf0adcd97f99b53ee37c9b6e2b01a17"
+        "path": "assets/index-CF3cYWMu.js",
+        "size": 2092676,
+        "sha256": "b787c13ce557135a9c26f7f7f99735c236de2a9610c0077c6b7c069105fcad48"
       },
       {
         "path": "assets/index-DyTXQdW9.css",
@@ -13080,7 +13091,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "b5677bc4f29822175de7f93438b300d4c1e8d8eaa273dff22115f4b5defabb86"
+        "sha256": "24de9b3264a3b2f1a4e1dcfdf0eabd39c6f6579c617ad02ab02b10f4f7c2c8b8"
       },
       {
         "path": "nethack-367.wasm",
@@ -13110,6 +13121,26 @@
     ]
   },
   "history": [
+    {
+      "buildId": "c288c58113d6eee7653c",
+      "commitSha": "0568562f08d30d34b360091392ced0e674d96287",
+      "createdAt": "2026-03-19T20:58:06.882Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "0568562f08d30d34b360091392ced0e674d96287",
+          "authoredAt": "2026-03-19T16:27:56-04:00",
+          "message": "Updated build"
+        },
+        {
+          "sha": "ca861fdba2db38e812d4bac5df2c615d79209814",
+          "authoredAt": "2026-03-19T16:27:38-04:00",
+          "message": "Online update system fixes"
+        }
+      ]
+    },
     {
       "buildId": "3dbc9dab3086b5719135",
       "commitSha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",

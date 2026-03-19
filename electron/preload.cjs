@@ -4,6 +4,7 @@ const quitIpcChannel = "nh3d:quit-app";
 const appRenderedIpcChannel = "nh3d:app-rendered";
 const updaterGetActiveInfoIpcChannel = "nh3d:updater-get-active-info";
 const updaterApplyIpcChannel = "nh3d:updater-apply";
+const updaterCancelIpcChannel = "nh3d:updater-cancel";
 const updaterActivateIpcChannel = "nh3d:updater-activate";
 
 contextBridge.exposeInMainWorld("nh3dElectron", {
@@ -14,6 +15,8 @@ contextBridge.exposeInMainWorld("nh3dElectron", {
       ipcRenderer.invoke(updaterGetActiveInfoIpcChannel),
     applyGameUpdate: (manifestUrl) =>
       ipcRenderer.invoke(updaterApplyIpcChannel, { manifestUrl }),
+    cancelGameUpdate: () =>
+      ipcRenderer.invoke(updaterCancelIpcChannel),
     activateInstalledUpdate: () =>
       ipcRenderer.invoke(updaterActivateIpcChannel),
   },
