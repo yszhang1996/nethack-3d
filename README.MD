@@ -13,6 +13,17 @@ Launch it from your Home Screen for a web app fullscreen experience.
 
 NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in your browser, phone or desktop PC.
 
+## Steam Deck (SteamOS) / Linux AppImage
+
+1. [Download the latest Linux release](https://github.com/JamesIV4/nethack-3d/releases/latest) from the Releases page.
+2. Copy `NetHack 3D <version>.AppImage` from `release/` to your Linux machine.
+3. Add the AppImage directly to Steam using "Add Non-Steam Game to My Library".
+4. Keep Steam compatibility/proton disabled for this native Linux launch path.
+5. Linux launch option notes:
+   - `--windowed`: launch in a normal framed window instead of fullscreen.
+   - `--borderless`: launch in a frameless non-fullscreen window that covers the display without using native fullscreen mode.
+6. Recommended Steam Input profile tweak: Set left trackpad to Left Joystick, and trackpad click to the A button. Movement and common actions are very simple this way!
+
 ## Gameplay video link:
 
 [![NetHack 3D](https://img.youtube.com/vi/LNk3G-lV77k/0.jpg)](https://www.youtube.com/watch?v=LNk3G-lV77k)
@@ -28,7 +39,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 ## Current Features
 
 - Play NetHack 3.6.7 in a 3D dungeon view while keeping core game rules and depth.
-- Two play styles: classic top-down and first-person (FPS) mode.
+- Mix and match gameplay modes: classic top-down or first-person (FPS) modes with ASCII, tiles, or Vulture graphics.
 - Combat feedback effects: Monsters dynamically shatter into bloody pieces, different every time.
 - Full sound support. Monsters die with a satisfying crunch.
 - Customize sound to your liking and create your own sound packs directly in-game.
@@ -37,11 +48,12 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Optional floating damage/heal numbers, status changes, XP, blood mist combat particles.
 - Camera panning and rotation.
 - Crisp ASCII monsters and items are supported in addition to tiles.
-- Built-in graphical tilesets: Absurdly Evil, DawnHack, NetHack Modern, Nevanda, RZTiles, and Vanilla NetHack Tiles.
+- Built-in graphical tilesets: Vulture tiles, Absurdly Evil, DawnHack, NetHack Modern, Nevanda, RZTiles, and Vanilla NetHack Tiles.
 - Upload and manage your own custom tilesets directly in-game.
 - Tileset background removal tools built-in.
 - Dynamic lighting around the player.
 - Full HUD with level, health, power, stats, armor, gold, hunger, experience, time, and dungeon branch and depth.
+- Vulture tiles mode simulates the isometric Vulture graphics style but in full 3D, including FPS support.
 - Live message log plus on-screen message popups.
 - Full mobile touch support (or even in desktop if you want).
 - Beautiful menus: item category headers, keyboard tips, multi-pickup selection, and menu paging.
@@ -76,17 +88,6 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - `npm run android:run` - Build web assets and run on a connected Android device/emulator.
 - `npm run glyphs:generate` - Regenerate glyph catalog from runtime artifacts.
 - `npm run glyphs:check` - Verify checked-in glyph catalog is up to date.
-
-## Steam Deck (SteamOS) / Linux AppImage
-
-1. [Download the latest Linux release](https://github.com/JamesIV4/nethack-3d/releases/latest) from the Releases page.
-2. Copy `NetHack 3D <version>.AppImage` from `release/` to your Linux machine.
-3. Add the AppImage directly to Steam using "Add Non-Steam Game to My Library".
-4. Keep Steam compatibility/proton disabled for this native Linux launch path.
-5. Linux launch option notes:
-   - `--windowed`: launch in a normal framed window instead of fullscreen.
-   - `--borderless`: launch in a frameless non-fullscreen window that covers the display without using native fullscreen mode.
-6. Recommended Steam Input profile tweak: Set left trackpad to Left Joystick, and trackpad click to the A button. Movement and common actions are very simple this way!
 
 ## Architecture
 
