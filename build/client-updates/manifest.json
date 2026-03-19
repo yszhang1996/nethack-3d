@@ -1,19 +1,29 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T18:30:32.347Z",
+  "generatedAt": "2026-03-19T18:44:34.581Z",
   "latest": {
     "buildId": "cc07426f9eb9ef3c9a29",
-    "commitSha": "077b76068a92758440e435149b14cbae396ec395",
-    "createdAt": "2026-03-19T18:30:32.347Z",
+    "commitSha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
+    "createdAt": "2026-03-19T18:44:34.581Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "077b76068a92758440e435149b14cbae396ec395",
-        "authoredAt": "2026-03-19T14:26:48-04:00",
-        "message": "Updates are rolling now instead of storing the whole game in every commit"
+        "sha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
+        "authoredAt": "2026-03-19T14:44:17-04:00",
+        "message": "Updates are manually made now, not per-commit"
+      },
+      {
+        "sha": "49044fa035beff15c991d1492f5e070334a54ba0",
+        "authoredAt": "2026-03-19T14:36:32-04:00",
+        "message": "Updated commit hooks to include current update message in the manifest, not the previous one"
+      },
+      {
+        "sha": "009eb7756c8d43518a266b6e03cd9f03cd7fc39f",
+        "authoredAt": "2026-03-19T14:30:20-04:00",
+        "message": "Moved setting within group"
       }
     ],
     "filesBasePath": "latest",
@@ -13123,16 +13133,26 @@
   "history": [
     {
       "buildId": "cc07426f9eb9ef3c9a29",
-      "commitSha": "077b76068a92758440e435149b14cbae396ec395",
-      "createdAt": "2026-03-19T18:30:32.347Z",
+      "commitSha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
+      "createdAt": "2026-03-19T18:44:34.581Z",
       "clientVersion": "0.9.8",
       "requiresClientUpgrade": false,
       "clientUpgradeMessage": "",
       "commits": [
         {
-          "sha": "077b76068a92758440e435149b14cbae396ec395",
-          "authoredAt": "2026-03-19T14:26:48-04:00",
-          "message": "Updates are rolling now instead of storing the whole game in every commit"
+          "sha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
+          "authoredAt": "2026-03-19T14:44:17-04:00",
+          "message": "Updates are manually made now, not per-commit"
+        },
+        {
+          "sha": "49044fa035beff15c991d1492f5e070334a54ba0",
+          "authoredAt": "2026-03-19T14:36:32-04:00",
+          "message": "Updated commit hooks to include current update message in the manifest, not the previous one"
+        },
+        {
+          "sha": "009eb7756c8d43518a266b6e03cd9f03cd7fc39f",
+          "authoredAt": "2026-03-19T14:30:20-04:00",
+          "message": "Moved setting within group"
         }
       ]
     },
