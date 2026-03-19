@@ -69,13 +69,24 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - `npm run electron:dev` - Run Electron against the Vite dev server.
 - `npm run electron:dist:win` - Build and package a Windows NSIS `.exe` installer (x64) to `release/`.
 - `npm run electron:dist:win:portable` - Build and package a portable Windows `.exe` (x64) to `release/`.
-- `npm run electron:dist:linux:appimage` - Build and package a Linux AppImage (x64) to `release/` (uses WSL automatically on Windows, stages Linux runtime deps, and includes Linux icon/splash assets).
+- `npm run electron:dist:linux:appimage` - Build and package a Linux AppImage (x64) to `release/` (uses WSL automatically on Windows, stages Linux runtime deps, and includes Linux icon assets).
 - `npm run android:add` - Create the native Android project with Capacitor (run once).
 - `npm run android:sync` - Build web assets and sync them into the Android project.
 - `npm run android:open` - Open the Android project in Android Studio.
 - `npm run android:run` - Build web assets and run on a connected Android device/emulator.
 - `npm run glyphs:generate` - Regenerate glyph catalog from runtime artifacts.
 - `npm run glyphs:check` - Verify checked-in glyph catalog is up to date.
+
+## Steam Deck (SteamOS) / Linux AppImage
+
+1. [Download the latest Linux release](https://github.com/JamesIV4/nethack-3d/releases/latest) from the Releases page.
+2. Copy `NetHack 3D <version>.AppImage` from `release/` to your Linux machine.
+3. Add the AppImage directly to Steam using "Add Non-Steam Game to My Library".
+4. Keep Steam compatibility/proton disabled for this native Linux launch path.
+5. Linux launch option notes:
+   - `--windowed`: launch in a normal framed window instead of fullscreen.
+   - `--borderless`: launch in a frameless non-fullscreen window that covers the display without using native fullscreen mode.
+6. Recommended Steam Input profile tweak: Set left trackpad to Left Joystick, and trackpad click to the A button. Movement and common actions are very simple this way!
 
 ## Architecture
 

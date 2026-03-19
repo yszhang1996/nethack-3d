@@ -43,12 +43,6 @@
     "directories": {
       "output": "release"
     },
-    "extraResources": [
-      {
-        "from": "build/NetHack3D-splash.bmp",
-        "to": "NetHack3D-splash.bmp"
-      }
-    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -109,7 +103,6 @@
     "portable": {
       "artifactName": "NetHack 3D ${version} Portable.${ext}",
       "useZip": true,
-      "splashImage": "build/NetHack3D-splash.bmp",
       "unpackDirName": false
     }
   },

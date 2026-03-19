@@ -1,7 +1,5 @@
 const { app, BrowserWindow, ipcMain, screen, shell } = require("electron");
-const fs = require("node:fs");
 const path = require("node:path");
-const { pathToFileURL } = require("node:url");
 
 app.setVersion("0.9.1");
 
@@ -9,91 +7,35 @@ const devServerUrl = process.env.VITE_DEV_SERVER_URL;
 const quitIpcChannel = "nh3d:quit-app";
 const appRenderedIpcChannel = "nh3d:app-rendered";
 const mainWindowStateById = new Map();
-const splashImageFileName = "NetHack3D-splash.bmp";
 
-function closeSplashWindow(splashWindow) {
-  if (!splashWindow || splashWindow.isDestroyed()) {
-    return;
-  }
-  splashWindow.destroy();
-}
-
-function getSplashImagePath() {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, splashImageFileName);
-  }
-  return path.join(__dirname, "..", "build", splashImageFileName);
-}
-
-function createSplashWindow(displayBounds) {
-  const splashWindow = new BrowserWindow({
-    width: Math.min(960, displayBounds.width),
-    height: Math.min(640, displayBounds.height),
-    frame: false,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    autoHideMenuBar: true,
-    skipTaskbar: true,
-    alwaysOnTop: true,
-    center: true,
-    show: false,
-    backgroundColor: "#000000",
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  const splashImagePath = getSplashImagePath();
-  const splashImageMarkup = fs.existsSync(splashImagePath)
-    ? `<img alt="NetHack 3D" src="${pathToFileURL(splashImagePath).toString()}"/>`
-    : `<div class="fallback">NetHack 3D</div>`;
-  const splashHtml = `<!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <style>
-      html, body {
-        margin: 0;
-        width: 100%;
-        height: 100%;
-        background: #000;
-        overflow: hidden;
-      }
-      body {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-      .fallback {
-        color: #fff;
-        font-family: "Courier New", monospace;
-        font-size: 32px;
-        letter-spacing: 0.08em;
-      }
-    </style>
-  </head>
-  <body>${splashImageMarkup}</body>
-</html>`;
-
-  splashWindow.once("ready-to-show", () => {
-    if (!splashWindow.isDestroyed()) {
-      splashWindow.show();
-    }
-  });
-  splashWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(splashHtml)}`,
+function hasLaunchArgument(...switchNames) {
+  return switchNames.some(
+    (switchName) =>
+      app.commandLine.hasSwitch(switchName) ||
+      process.argv.includes(`--${switchName}`),
   );
+}
 
-  return splashWindow;
+function resolveWindowMode() {
+  if (hasLaunchArgument("windowed", "window")) {
+    return "windowed";
+  }
+  if (
+    hasLaunchArgument(
+      "borderless",
+      "borderless-window",
+      "borderlesswindow",
+    )
+  ) {
+    return "borderless";
+  }
+  return process.platform === "win32" ? "borderless" : "fullscreen";
+}
+
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+  app.commandLine.appendSwitch("no-sandbox");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
 }
 
 function showMainWindowIfReady(mainWindow, state) {
@@ -104,8 +46,6 @@ function showMainWindowIfReady(mainWindow, state) {
     return;
   }
   state.shown = true;
-  closeSplashWindow(state.splashWindow);
-  state.splashWindow = null;
   mainWindow.show();
 }
 
@@ -133,16 +73,11 @@ ipcMain.on(appRenderedIpcChannel, (event) => {
 function createMainWindow() {
   const primaryDisplay = screen.getPrimaryDisplay();
   const primaryBounds = primaryDisplay.bounds;
-  const mainWindow = new BrowserWindow({
-    x: primaryBounds.x,
-    y: primaryBounds.y,
-    width: primaryBounds.width,
-    height: primaryBounds.height,
+  const workAreaBounds = primaryDisplay.workArea;
+  const windowMode = resolveWindowMode();
+  const baseWindowOptions = {
     minWidth: 1024,
     minHeight: 700,
-    frame: false,
-    fullscreen: true,
-    fullscreenable: true,
     autoHideMenuBar: true,
     show: false,
     backgroundColor: "#000000",
@@ -153,16 +88,47 @@ function createMainWindow() {
       sandbox: true,
       backgroundThrottling: false,
     },
-  });
-  const splashWindow =
-    process.platform === "linux" && app.isPackaged
-      ? createSplashWindow(primaryBounds)
-      : null;
+  };
+  let mainWindowOptions;
+  if (windowMode === "windowed") {
+    mainWindowOptions = {
+      ...baseWindowOptions,
+      width: Math.max(1024, Math.min(workAreaBounds.width, 1280)),
+      height: Math.max(700, Math.min(workAreaBounds.height, 800)),
+      center: true,
+      frame: true,
+      fullscreen: false,
+      fullscreenable: true,
+    };
+  } else if (windowMode === "borderless") {
+    mainWindowOptions = {
+      ...baseWindowOptions,
+      x: primaryBounds.x,
+      y: primaryBounds.y,
+      width: primaryBounds.width,
+      height: primaryBounds.height,
+      frame: false,
+      fullscreen: false,
+      fullscreenable: true,
+    };
+  } else {
+    mainWindowOptions = {
+      ...baseWindowOptions,
+      x: primaryBounds.x,
+      y: primaryBounds.y,
+      width: primaryBounds.width,
+      height: primaryBounds.height,
+      frame: false,
+      fullscreen: true,
+      fullscreenable: true,
+    };
+  }
+  const mainWindow = new BrowserWindow(mainWindowOptions);
+  mainWindow.webContents.setZoomFactor(1);
   const state = {
     readyToShow: false,
     appRendered: false,
     shown: false,
-    splashWindow,
   };
   mainWindowStateById.set(mainWindow.id, state);
 
@@ -173,15 +139,12 @@ function createMainWindow() {
 
   mainWindow.webContents.on("did-fail-load", () => {
     state.shown = true;
-    closeSplashWindow(state.splashWindow);
-    state.splashWindow = null;
     if (!mainWindow.isDestroyed()) {
       mainWindow.show();
     }
   });
 
   mainWindow.on("closed", () => {
-    closeSplashWindow(state.splashWindow);
     mainWindowStateById.delete(mainWindow.id);
   });
 
@@ -216,6 +179,21 @@ app.whenReady().then(() => {
       createMainWindow();
     }
   });
+});
+
+app.on("child-process-gone", (_event, details) => {
+  if (details.type !== "GPU") {
+    return;
+  }
+  console.error(
+    `Electron GPU process exited (reason=${details.reason}, exitCode=${details.exitCode ?? "n/a"})`,
+  );
+});
+
+app.on("render-process-gone", (_event, _webContents, details) => {
+  console.error(
+    `Electron renderer process exited (reason=${details.reason}, exitCode=${details.exitCode ?? "n/a"})`,
+  );
 });
 
 app.on("window-all-closed", () => {
