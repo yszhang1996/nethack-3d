@@ -5,7 +5,7 @@
   "scripts": {
     "build": "vite build",
     "build:capacitor": "cross-env VITE_DEPLOY_TARGET=capacitor vite build",
-    "build:electron": "cross-env BUILD_TARGET=electron VITE_DEPLOY_TARGET=electron vite build",
+    "build:electron": "node scripts/electron/ensure-rollup-native.mjs && cross-env BUILD_TARGET=electron VITE_DEPLOY_TARGET=electron vite build",
     "dev": "vite",
     "dev:isolated": "cross-env NH3D_ENABLE_CROSS_ORIGIN_ISOLATION=true vite",
     "android:add": "cap add android",
@@ -18,6 +18,7 @@
     "electron:pack:win": "npm run build:electron && electron-builder --win --x64 --dir",
     "electron:dist:win": "npm run build:electron && electron-builder --win nsis --x64",
     "electron:dist:win:portable": "npm run build:electron && electron-builder --win portable --x64",
+    "electron:dist:linux:appimage": "node scripts/electron/dist-linux-appimage.mjs",
     "glyphs:generate": "node scripts/glyphs/generate-glyph-catalog.mjs",
     "glyphs:check": "node scripts/glyphs/check-glyph-catalog.mjs",
     "check:tsc": "tsc --noEmit --pretty false",
@@ -42,6 +43,12 @@
     "directories": {
       "output": "release"
     },
+    "extraResources": [
+      {
+        "from": "build/NetHack3D-splash.bmp",
+        "to": "NetHack3D-splash.bmp"
+      }
+    ],
     "files": [
       "dist/**/*",
       "electron/**/*",
@@ -51,6 +58,36 @@
       "!node_modules/@capacitor/android",
       "!node_modules/@capacitor/android/**"
     ],
+    "linux": {
+      "category": "Game",
+      "icon": "build/icons",
+      "desktop": {
+        "entry": {
+          "Comment": "Play NetHack in a fully interactive 3D dungeon.",
+          "StartupWMClass": "nethack3d"
+        }
+      },
+      "extraFiles": [
+        {
+          "from": "build/linux-libs",
+          "to": ".",
+          "filter": [
+            "libcups.so.2"
+          ]
+        }
+      ],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "appImage": {
+      "artifactName": "NetHack 3D ${version}.${ext}"
+    },
     "win": {
       "icon": "public/NetHack3D.ico",
       "executableName": "NetHack 3D",

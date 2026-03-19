@@ -69,6 +69,7 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - `npm run electron:dev` - Run Electron against the Vite dev server.
 - `npm run electron:dist:win` - Build and package a Windows NSIS `.exe` installer (x64) to `release/`.
 - `npm run electron:dist:win:portable` - Build and package a portable Windows `.exe` (x64) to `release/`.
+- `npm run electron:dist:linux:appimage` - Build and package a Linux AppImage (x64) to `release/` (uses WSL automatically on Windows, stages Linux runtime deps, and includes Linux icon/splash assets).
 - `npm run android:add` - Create the native Android project with Capacitor (run once).
 - `npm run android:sync` - Build web assets and sync them into the Android project.
 - `npm run android:open` - Open the Android project in Android Studio.
