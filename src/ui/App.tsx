@@ -1701,6 +1701,7 @@ type ClientOptionToggleKey =
   | "monsterShatter"
   | "monsterShatterBloodBorders"
   | "liveMessageLog"
+  | "checkUpdatesOnLaunch"
   | "soundEnabled"
   | "blockAmbientOcclusion"
   | "darkCorridorWalls367"
@@ -6674,6 +6675,10 @@ export default function App(): JSX.Element {
     if (!startupUiVisible || startupUpdateCheckStartedRef.current) {
       return;
     }
+    if (!clientOptions.checkUpdatesOnLaunch) {
+      startupUpdateCheckStartedRef.current = true;
+      return;
+    }
     startupUpdateCheckStartedRef.current = true;
     let canceled = false;
     (async () => {
@@ -6726,7 +6731,7 @@ export default function App(): JSX.Element {
     return () => {
       canceled = true;
     };
-  }, [startupUiVisible]);
+  }, [clientOptions.checkUpdatesOnLaunch, startupUiVisible]);
 
   const closeStartupUpdateDialog = useCallback((): void => {
     if (startupUpdateBusy) {
@@ -11887,54 +11892,83 @@ export default function App(): JSX.Element {
               </div>
               <div className="nh3d-options-list">
                 {selectedClientOptionsTab.id === "updates" ? (
-                  <div className="nh3d-option-row nh3d-option-row-updates">
-                    <div className="nh3d-option-copy">
-                      <div className="nh3d-option-label">Game Updates</div>
-                      <div className="nh3d-option-description">
-                        Check the published online manifest and compare it to
-                        your installed build.
+                  <>
+                    <div className="nh3d-option-row nh3d-option-row-inline-toggle">
+                      <div className="nh3d-option-copy">
+                        <div className="nh3d-option-label">
+                          Check for updates on launch
+                        </div>
+                        <div className="nh3d-option-description">
+                          Automatically checks the online manifest when the game
+                          starts.
+                        </div>
                       </div>
-                      {optionsUpdateCheckStatus ? (
-                        <div className="nh3d-updates-status">
-                          {optionsUpdateCheckStatus}
-                        </div>
-                      ) : (
-                        <div className="nh3d-updates-status">
-                          Press Check for Updates to verify your current game
-                          files are up to date.
-                        </div>
-                      )}
-                      {optionsUpdateCheckResult &&
-                      optionsUpdateCheckResult.supported &&
-                      !optionsUpdateCheckResult.error &&
-                      optionsUpdateCheckResult.hasUpdate &&
-                      optionsUpdateCheckResult.pendingCommits.length > 0 ? (
-                        <ul className="nh3d-updates-pending-list">
-                          {optionsUpdateCheckResult.pendingCommits.map(
-                            (entry, index) => (
-                              <li key={`${entry.sha || "commit"}-${index}`}>
-                                {entry.message}
-                              </li>
-                            ),
-                          )}
-                        </ul>
-                      ) : null}
-                    </div>
-                    <div className="nh3d-option-select-controls">
                       <button
-                        className="nh3d-menu-action-button"
-                        disabled={optionsUpdateCheckBusy}
-                        onClick={() => {
-                          void checkForUpdatesFromOptions();
-                        }}
+                        aria-checked={clientOptionsDraft.checkUpdatesOnLaunch}
+                        className={`nh3d-option-switch nh3d-option-inline-switch${
+                          clientOptionsDraft.checkUpdatesOnLaunch ? " is-on" : ""
+                        }`}
+                        onClick={() =>
+                          updateClientOptionDraft(
+                            "checkUpdatesOnLaunch",
+                            !clientOptionsDraft.checkUpdatesOnLaunch,
+                          )
+                        }
+                        role="switch"
                         type="button"
                       >
-                        {optionsUpdateCheckBusy
-                          ? "Checking..."
-                          : "Check for Updates"}
+                        <span className="nh3d-option-switch-thumb" />
                       </button>
                     </div>
-                  </div>
+                    <div className="nh3d-option-row nh3d-option-row-updates">
+                      <div className="nh3d-option-copy">
+                        <div className="nh3d-option-label">Game Updates</div>
+                        <div className="nh3d-option-description">
+                          Check the published online manifest and compare it to
+                          your installed build.
+                        </div>
+                        {optionsUpdateCheckStatus ? (
+                          <div className="nh3d-updates-status">
+                            {optionsUpdateCheckStatus}
+                          </div>
+                        ) : (
+                          <div className="nh3d-updates-status">
+                            Press Check for Updates to verify your current game
+                            files are up to date.
+                          </div>
+                        )}
+                        {optionsUpdateCheckResult &&
+                        optionsUpdateCheckResult.supported &&
+                        !optionsUpdateCheckResult.error &&
+                        optionsUpdateCheckResult.hasUpdate &&
+                        optionsUpdateCheckResult.pendingCommits.length > 0 ? (
+                          <ul className="nh3d-updates-pending-list">
+                            {optionsUpdateCheckResult.pendingCommits.map(
+                              (entry, index) => (
+                                <li key={`${entry.sha || "commit"}-${index}`}>
+                                  {entry.message}
+                                </li>
+                              ),
+                            )}
+                          </ul>
+                        ) : null}
+                      </div>
+                      <div className="nh3d-option-select-controls">
+                        <button
+                          className="nh3d-menu-action-button"
+                          disabled={optionsUpdateCheckBusy}
+                          onClick={() => {
+                            void checkForUpdatesFromOptions();
+                          }}
+                          type="button"
+                        >
+                          {optionsUpdateCheckBusy
+                            ? "Checking..."
+                            : "Check for Updates"}
+                        </button>
+                      </div>
+                    </div>
+                  </>
                 ) : null}
                 {visibleClientOptions.map((option) => {
                   if (option.developerOnly && !showDeveloperClientSettings) {
