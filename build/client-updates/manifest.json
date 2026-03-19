@@ -1,24 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T20:58:06.882Z",
+  "generatedAt": "2026-03-19T21:02:32.242Z",
   "latest": {
-    "buildId": "c288c58113d6eee7653c",
-    "commitSha": "0568562f08d30d34b360091392ced0e674d96287",
-    "createdAt": "2026-03-19T20:58:06.882Z",
+    "buildId": "69df8bcecdbb91d5f7f6",
+    "commitSha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
+    "createdAt": "2026-03-19T21:02:32.242Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "0568562f08d30d34b360091392ced0e674d96287",
-        "authoredAt": "2026-03-19T16:27:56-04:00",
-        "message": "Updated build"
-      },
-      {
-        "sha": "ca861fdba2db38e812d4bac5df2c615d79209814",
-        "authoredAt": "2026-03-19T16:27:38-04:00",
-        "message": "Online update system fixes"
+        "sha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
+        "authoredAt": "2026-03-19T16:58:52-04:00",
+        "message": "Allow cancelling update downloads, and better detect when updates are available or not"
       }
     ],
     "filesBasePath": "latest",
@@ -59,9 +54,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-CF3cYWMu.js",
+        "path": "assets/index-CKx4IaDh.js",
         "size": 2092676,
-        "sha256": "b787c13ce557135a9c26f7f7f99735c236de2a9610c0077c6b7c069105fcad48"
+        "sha256": "778f1236e5a74b497a2b617613e5e8e7b09efeb214b34c1c0fb8f24aa6cf2fd6"
       },
       {
         "path": "assets/index-DyTXQdW9.css",
@@ -13091,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "24de9b3264a3b2f1a4e1dcfdf0eabd39c6f6579c617ad02ab02b10f4f7c2c8b8"
+        "sha256": "3bc679773204a78b98403678568eceb9a4868a303b4908145297653c5b153906"
       },
       {
         "path": "nethack-367.wasm",
@@ -13121,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "69df8bcecdbb91d5f7f6",
+      "commitSha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
+      "createdAt": "2026-03-19T21:02:32.242Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
+          "authoredAt": "2026-03-19T16:58:52-04:00",
+          "message": "Allow cancelling update downloads, and better detect when updates are available or not"
+        }
+      ]
+    },
     {
       "buildId": "c288c58113d6eee7653c",
       "commitSha": "0568562f08d30d34b360091392ced0e674d96287",

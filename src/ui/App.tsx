@@ -6605,16 +6605,13 @@ export default function App(): JSX.Element {
     startupMenuVisible && startupFlowStep === "random";
   const startupCreateDialogVisible =
     startupMenuVisible && startupFlowStep === "create";
-  const startupPendingUpdateCount =
-    startupUpdateCheck?.pendingCount ?? 0;
-  const startupPendingUpdateCommits =
-    startupUpdateCheck?.pendingCommits ?? [];
+  const startupPendingUpdateCount = startupUpdateCheck?.pendingCount ?? 0;
+  const startupPendingUpdateCommits = startupUpdateCheck?.pendingCommits ?? [];
   const startupClientUpdateRequired =
     startupUpdateCheck?.clientUpdateRequired ?? false;
   const startupClientUpdateMessage =
     startupUpdateCheck?.clientUpdateMessage ?? "";
-  const startupCanCancelUpdateDownload =
-    supportsNh3dClientUpdateCancellation();
+  const startupCanCancelUpdateDownload = supportsNh3dClientUpdateCancellation();
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -6806,9 +6803,7 @@ export default function App(): JSX.Element {
       );
     } catch (error) {
       setStartupUpdateError(
-        error instanceof Error
-          ? error.message
-          : "Unexpected update failure.",
+        error instanceof Error ? error.message : "Unexpected update failure.",
       );
     } finally {
       setStartupUpdateCancelBusy(false);
@@ -11232,7 +11227,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Quit Game
+              Exit Game
             </button>
           </div>
         </div>
