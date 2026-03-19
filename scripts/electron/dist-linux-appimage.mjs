@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import process from "node:process";
 
 const isDryRun = process.env.NH3D_APPIMAGE_DRY_RUN === "1";
+const shouldSkipElectronBuild = process.env.NH3D_SKIP_ELECTRON_BUILD === "1";
 const stageLinuxRuntimeDepsCommand = [
   "mkdir -p build/linux-libs",
   "if [ -f /lib/x86_64-linux-gnu/libcups.so.2 ]; then cp -f /lib/x86_64-linux-gnu/libcups.so.2 build/linux-libs/libcups.so.2; " +
@@ -57,7 +58,9 @@ function runNative() {
   if (process.platform === "linux") {
     runOrExit("bash", ["-lc", stageLinuxRuntimeDepsCommand]);
   }
-  runOrExit("npm", ["run", "build:electron"]);
+  if (!shouldSkipElectronBuild) {
+    runOrExit("npm", ["run", "build:electron"]);
+  }
   runOrExit("npx", ["electron-builder", "--linux", "AppImage", "--x64"]);
 }
 
@@ -96,8 +99,9 @@ function runViaWsl() {
     `cd ${bashQuote(wslCwd)} && ${stageLinuxRuntimeDepsCommand}`;
   const wslRollupOptionalDepCheckCommand =
     `cd ${bashQuote(wslCwd)} && [ -f node_modules/@rollup/rollup-linux-x64-gnu/package.json ]`;
-  const wslCommand =
-    `cd ${bashQuote(wslCwd)} && npm run build:electron && npx electron-builder --linux AppImage --x64`;
+  const wslCommand = shouldSkipElectronBuild
+    ? `cd ${bashQuote(wslCwd)} && npx electron-builder --linux AppImage --x64`
+    : `cd ${bashQuote(wslCwd)} && npm run build:electron && npx electron-builder --linux AppImage --x64`;
 
   if (!isDryRun) {
     const wslNodeCheck = spawnSync(
