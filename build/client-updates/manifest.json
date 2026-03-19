@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T21:46:34.467Z",
+  "generatedAt": "2026-03-19T21:49:25.040Z",
   "latest": {
-    "buildId": "483b0ecb1dcc601131c4",
-    "commitSha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
-    "createdAt": "2026-03-19T21:46:34.467Z",
+    "buildId": "7d8851d281465e31441a",
+    "commitSha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
+    "createdAt": "2026-03-19T21:49:25.040Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
-        "authoredAt": "2026-03-19T17:43:14-04:00",
-        "message": "Added logging to the update system"
+        "sha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
+        "authoredAt": "2026-03-19T17:46:45-04:00",
+        "message": "Testing updates"
       }
     ],
     "filesBasePath": "latest",
@@ -54,14 +54,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
+        "path": "assets/index-B6JaiGdf.js",
+        "size": 2095394,
+        "sha256": "8ec448b891cf6f4e8792e8c032f3039a592dbae3f8ae5624317f0bbe137796e3"
+      },
+      {
         "path": "assets/index-B7LVk5F6.css",
         "size": 140171,
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
-      },
-      {
-        "path": "assets/index-Bywd0Xxt.js",
-        "size": 2095390,
-        "sha256": "72ae41140e3cda3198f7745012d27868ff0fca763f568fef72a0a47f669d2015"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13086,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "16c78b573dea3e515f82fb2a17ac983ca4383753f7d076a73ec42465ed540e6f"
+        "sha256": "f76cebc6f6d47c185b88d3731f5cc8a374c383a8522145e5901dbc1aff035758"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "7d8851d281465e31441a",
+      "commitSha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
+      "createdAt": "2026-03-19T21:49:25.040Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
+          "authoredAt": "2026-03-19T17:46:45-04:00",
+          "message": "Testing updates"
+        }
+      ]
+    },
     {
       "buildId": "483b0ecb1dcc601131c4",
       "commitSha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
