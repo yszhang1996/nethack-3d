@@ -263,11 +263,22 @@ async function loadChannelConfig() {
 
 function resolveCommitRange(previousCommitSha, options = {}) {
   const fallbackToHead = options.fallbackToHead !== false;
+  const recentCommitFallback = () =>
+    runGitCommand(["log", "-n", "20", "--pretty=format:%H%x09%cI%x09%s"], "");
+  const hasCommit = (commitSha) =>
+    runGitCommand(["cat-file", "-e", `${commitSha}^{commit}`], "__missing__") !==
+    "__missing__";
+  const isAncestor = (ancestorSha) =>
+    runGitCommand(
+      ["merge-base", "--is-ancestor", ancestorSha, "HEAD"],
+      "__not_ancestor__",
+    ) !== "__not_ancestor__";
+
   if (!previousCommitSha) {
-    return runGitCommand(
-      ["log", "-n", "20", "--pretty=format:%H%x09%cI%x09%s"],
-      "",
-    );
+    return recentCommitFallback();
+  }
+  if (!hasCommit(previousCommitSha)) {
+    return recentCommitFallback();
   }
   const rangeOutput = runGitCommand(
     ["log", "--pretty=format:%H%x09%cI%x09%s", `${previousCommitSha}..HEAD`],
@@ -276,10 +287,13 @@ function resolveCommitRange(previousCommitSha, options = {}) {
   if (rangeOutput.trim().length > 0) {
     return rangeOutput;
   }
-  if (!fallbackToHead) {
+  if (isAncestor(previousCommitSha)) {
     return "";
   }
-  return runGitCommand(["log", "-1", "--pretty=format:%H%x09%cI%x09%s"], "");
+  if (!fallbackToHead) {
+    return recentCommitFallback();
+  }
+  return recentCommitFallback();
 }
 
 async function main() {

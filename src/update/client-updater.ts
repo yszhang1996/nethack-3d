@@ -217,18 +217,32 @@ export async function checkForNh3dClientUpdates(
     }
 
     const localBuildId = activeInfo.buildId;
+    const localCommitSha = activeInfo.commitSha;
     const latestBuildId = manifest.latest.buildId;
+    const latestCommitSha = manifest.latest.commitSha;
     const bundledBuildCommitSha = resolveBundledBuildCommitSha();
+    const localBuildMatchesLatest =
+      localBuildId !== null && localBuildId === latestBuildId;
+    const localCommitMatchesLatest =
+      localCommitSha !== null &&
+      latestCommitSha !== null &&
+      localCommitSha === latestCommitSha;
     const bundledCommitMatchesLatest =
       !localBuildId &&
       bundledBuildCommitSha !== null &&
-      manifest.latest.commitSha !== null &&
-      bundledBuildCommitSha === manifest.latest.commitSha;
-    const hasUpdate =
-      !bundledCommitMatchesLatest &&
-      (!localBuildId || localBuildId !== latestBuildId);
+      latestCommitSha !== null &&
+      bundledBuildCommitSha === latestCommitSha;
+    const hasUpdate = !(
+      localBuildMatchesLatest ||
+      localCommitMatchesLatest ||
+      bundledCommitMatchesLatest
+    );
     const pendingCommits = hasUpdate
-      ? resolveNh3dPendingUpdateCommits(manifest, localBuildId)
+      ? resolveNh3dPendingUpdateCommits(
+          manifest,
+          localBuildId,
+          localCommitSha,
+        )
       : [];
     const pendingCount = resolveNh3dPendingUpdateCount(
       hasUpdate,

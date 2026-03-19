@@ -1,19 +1,24 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T19:29:24.254Z",
+  "generatedAt": "2026-03-19T20:25:01.757Z",
   "latest": {
-    "buildId": "c30efa45a4ce97601356",
-    "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-    "createdAt": "2026-03-19T19:29:24.254Z",
+    "buildId": "052cd54b94d97986e5ff",
+    "commitSha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
+    "createdAt": "2026-03-19T20:25:01.757Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-        "authoredAt": "2026-03-19T14:44:51-04:00",
-        "message": "Update"
+        "sha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
+        "authoredAt": "2026-03-19T16:18:49-04:00",
+        "message": "Added parallel build creation for Windows and Linux"
+      },
+      {
+        "sha": "c15710f54e1b76e0730116006e02c227344468c8",
+        "authoredAt": "2026-03-19T15:30:38-04:00",
+        "message": "Fixed online update downloading, slightly reduced app size on Linux and Windows portable"
       }
     ],
     "filesBasePath": "latest",
@@ -54,14 +59,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
+        "path": "assets/index-CF5kF0Mb.js",
+        "size": 2090198,
+        "sha256": "90f8aa8dbc251bc4550c3331ef7e6dcabb2485da2fca2accc97dbd84f0452a35"
+      },
+      {
         "path": "assets/index-DyTXQdW9.css",
         "size": 139695,
         "sha256": "0831ac305233fe3a9ba45480051b923c8ac18819e6ee276e76b6acfc333df90c"
-      },
-      {
-        "path": "assets/index-N3rtM1sW.js",
-        "size": 2090153,
-        "sha256": "9862eab9f5243dffc9fb0167c0e6c6bc4f9500d28d06db8ece01c2fef6daf829"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13086,7 +13091,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "023b6549b1d1aae62302d0a844f4c568fc6c0523a2a8af489b9c46d588427314"
+        "sha256": "04029db2449da858ddf5c56c1396e7e270fafa0d4f682aa5beb66270d030afeb"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13121,26 @@
     ]
   },
   "history": [
+    {
+      "buildId": "052cd54b94d97986e5ff",
+      "commitSha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
+      "createdAt": "2026-03-19T20:25:01.757Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
+          "authoredAt": "2026-03-19T16:18:49-04:00",
+          "message": "Added parallel build creation for Windows and Linux"
+        },
+        {
+          "sha": "c15710f54e1b76e0730116006e02c227344468c8",
+          "authoredAt": "2026-03-19T15:30:38-04:00",
+          "message": "Fixed online update downloading, slightly reduced app size on Linux and Windows portable"
+        }
+      ]
+    },
     {
       "buildId": "c30efa45a4ce97601356",
       "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",

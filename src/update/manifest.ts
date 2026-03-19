@@ -165,6 +165,7 @@ export function parseNh3dUpdateManifest(payload: unknown): Nh3dUpdateManifest | 
 export function resolveNh3dPendingUpdateCommits(
   manifest: Nh3dUpdateManifest,
   localBuildId: string | null,
+  localCommitSha: string | null = null,
 ): Nh3dUpdateCommit[] {
   const latest = manifest.latest;
   if (!latest) {
@@ -177,10 +178,22 @@ export function resolveNh3dPendingUpdateCommits(
   if (localBuildId === latest.buildId) {
     return [];
   }
+  if (
+    localCommitSha &&
+    latest.commitSha &&
+    localCommitSha === latest.commitSha
+  ) {
+    return [];
+  }
 
-  const historyIndex = manifest.history.findIndex(
+  let historyIndex = manifest.history.findIndex(
     (entry) => entry.buildId === localBuildId,
   );
+  if (historyIndex < 0 && localCommitSha) {
+    historyIndex = manifest.history.findIndex(
+      (entry) => entry.commitSha === localCommitSha,
+    );
+  }
   if (historyIndex <= 0) {
     return latest.commits;
   }
