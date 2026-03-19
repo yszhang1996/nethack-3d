@@ -6890,17 +6890,13 @@ export default function App(): JSX.Element {
       const errorMessage =
         exportResult.error ?? "Failed to export updater debug logs.";
       setOptionsUpdateCheckStatus(`Updater log export failed: ${errorMessage}`);
-      useGameStore.getState().pushFloatingMessage(
-        "Updater log export failed.",
-      );
+      useGameStore.getState().pushFloatingMessage("Updater log export failed.");
       return;
     }
 
     const successMessage = `Updater debug log exported: ${exportResult.path}`;
     setOptionsUpdateCheckStatus(successMessage);
-    useGameStore.getState().pushFloatingMessage(
-      "Updater debug log exported.",
-    );
+    useGameStore.getState().pushFloatingMessage("Updater debug log exported.");
     console.info(successMessage);
   }, []);
 
@@ -11348,7 +11344,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Quit Game Now
+              Quit Game
             </button>
           </div>
         </div>
@@ -11981,23 +11977,23 @@ export default function App(): JSX.Element {
                           Check the published online manifest and compare it to
                           your installed build.
                         </div>
-                      {optionsUpdateCheckStatus ? (
-                        <div className="nh3d-updates-status">
-                          {optionsUpdateCheckStatus}
-                        </div>
-                      ) : (
+                        {optionsUpdateCheckStatus ? (
+                          <div className="nh3d-updates-status">
+                            {optionsUpdateCheckStatus}
+                          </div>
+                        ) : (
                           <div className="nh3d-updates-status">
                             Press Check for Updates to verify your current game
-                          files are up to date.
+                            files are up to date.
+                          </div>
+                        )}
+                        <div className="nh3d-option-description">
+                          Hotkey: Ctrl+Alt+Shift+U exports an updater debug
+                          snapshot at the current state.
                         </div>
-                      )}
-                      <div className="nh3d-option-description">
-                        Hotkey: Ctrl+Alt+Shift+U exports an updater debug
-                        snapshot at the current state.
-                      </div>
-                      {optionsUpdateCheckResult &&
-                      optionsUpdateCheckResult.supported &&
-                      !optionsUpdateCheckResult.error &&
+                        {optionsUpdateCheckResult &&
+                        optionsUpdateCheckResult.supported &&
+                        !optionsUpdateCheckResult.error &&
                         optionsUpdateCheckResult.hasUpdate &&
                         optionsUpdateCheckResult.pendingCommits.length > 0 ? (
                           <ul className="nh3d-updates-pending-list">
