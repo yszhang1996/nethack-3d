@@ -43,6 +43,14 @@ function resolveManifestUrlOverride(): string {
   return envValue;
 }
 
+function resolveBundledBuildCommitSha(): string | null {
+  const envValue =
+    typeof import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA === "string"
+      ? import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA.trim()
+      : "";
+  return envValue.length > 0 ? envValue : null;
+}
+
 function normalizeNullableString(value: unknown): string | null {
   if (typeof value !== "string") {
     return null;
@@ -210,11 +218,18 @@ export async function checkForNh3dClientUpdates(
 
     const localBuildId = activeInfo.buildId;
     const latestBuildId = manifest.latest.buildId;
-    const hasUpdate = !localBuildId || localBuildId !== latestBuildId;
-    const pendingCommits = resolveNh3dPendingUpdateCommits(
-      manifest,
-      localBuildId,
-    );
+    const bundledBuildCommitSha = resolveBundledBuildCommitSha();
+    const bundledCommitMatchesLatest =
+      !localBuildId &&
+      bundledBuildCommitSha !== null &&
+      manifest.latest.commitSha !== null &&
+      bundledBuildCommitSha === manifest.latest.commitSha;
+    const hasUpdate =
+      !bundledCommitMatchesLatest &&
+      (!localBuildId || localBuildId !== latestBuildId);
+    const pendingCommits = hasUpdate
+      ? resolveNh3dPendingUpdateCommits(manifest, localBuildId)
+      : [];
     const pendingCount = resolveNh3dPendingUpdateCount(
       hasUpdate,
       pendingCommits,

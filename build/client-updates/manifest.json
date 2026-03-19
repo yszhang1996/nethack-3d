@@ -1,38 +1,23 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T18:44:34.581Z",
+  "generatedAt": "2026-03-19T19:29:24.254Z",
   "latest": {
-    "buildId": "cc07426f9eb9ef3c9a29",
-    "commitSha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
-    "createdAt": "2026-03-19T18:44:34.581Z",
+    "buildId": "c30efa45a4ce97601356",
+    "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+    "createdAt": "2026-03-19T19:29:24.254Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",
-        "authoredAt": "2026-03-19T14:44:17-04:00",
-        "message": "Updates are manually made now, not per-commit"
-      },
-      {
-        "sha": "49044fa035beff15c991d1492f5e070334a54ba0",
-        "authoredAt": "2026-03-19T14:36:32-04:00",
-        "message": "Updated commit hooks to include current update message in the manifest, not the previous one"
-      },
-      {
-        "sha": "009eb7756c8d43518a266b6e03cd9f03cd7fc39f",
-        "authoredAt": "2026-03-19T14:30:20-04:00",
-        "message": "Moved setting within group"
+        "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+        "authoredAt": "2026-03-19T14:44:51-04:00",
+        "message": "Update"
       }
     ],
     "filesBasePath": "latest",
     "files": [
-      {
-        "path": ".nojekyll",
-        "size": 2,
-        "sha256": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
-      },
       {
         "path": "assets/3.6/Absurdly Evil.png",
         "size": 6331887,
@@ -69,14 +54,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-CuDrtd4s.js",
-        "size": 2089974,
-        "sha256": "f43cecec88d4c28138668d176e3ab64e5ff04f511e9c4ec114c879f87f538559"
-      },
-      {
         "path": "assets/index-DyTXQdW9.css",
         "size": 139695,
         "sha256": "0831ac305233fe3a9ba45480051b923c8ac18819e6ee276e76b6acfc333df90c"
+      },
+      {
+        "path": "assets/index-N3rtM1sW.js",
+        "size": 2090153,
+        "sha256": "9862eab9f5243dffc9fb0167c0e6c6bc4f9500d28d06db8ece01c2fef6daf829"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13101,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "bf05565f85f6588eb53d298c8736fd5cb31de824e986913319a8dd9d78fb7073"
+        "sha256": "023b6549b1d1aae62302d0a844f4c568fc6c0523a2a8af489b9c46d588427314"
       },
       {
         "path": "nethack-367.wasm",
@@ -13131,6 +13116,36 @@
     ]
   },
   "history": [
+    {
+      "buildId": "c30efa45a4ce97601356",
+      "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+      "createdAt": "2026-03-19T19:29:24.254Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+          "authoredAt": "2026-03-19T14:44:51-04:00",
+          "message": "Update"
+        }
+      ]
+    },
+    {
+      "buildId": "f3d8a82231d2fef52e1d",
+      "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+      "createdAt": "2026-03-19T19:27:23.775Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
+          "authoredAt": "2026-03-19T14:44:51-04:00",
+          "message": "Update"
+        }
+      ]
+    },
     {
       "buildId": "cc07426f9eb9ef3c9a29",
       "commitSha": "ffe528974c7dab32b7db05c411c4ca397dcc7ab4",

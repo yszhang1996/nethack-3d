@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { defineConfig, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
 import { copyWasm } from "./scripts/wasm/copy-wasm.mjs";
@@ -55,6 +56,17 @@ const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
 const isElectronBuild = process.env.BUILD_TARGET === "electron";
 const enableCrossOriginIsolation =
   process.env.NH3D_ENABLE_CROSS_ORIGIN_ISOLATION === "true";
+const resolvedBuildCommitSha = (() => {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    shell: false,
+  });
+  if (result.error || result.status !== 0) {
+    return "";
+  }
+  return result.stdout.trim();
+})();
 const crossOriginIsolationHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
@@ -62,6 +74,11 @@ const crossOriginIsolationHeaders = {
 
 export default defineConfig({
   plugins: [copyWasmPlugin(), tilesetManifestPlugin(), react()],
+  define: {
+    "import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA": JSON.stringify(
+      resolvedBuildCommitSha,
+    ),
+  },
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",
   server: {
     allowedHosts: true,

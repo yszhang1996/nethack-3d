@@ -14,6 +14,7 @@ const manifestPath = path.join(outputRootPath, "manifest.json");
 const channelConfigPath = path.join(scriptDir, "channel-config.json");
 const packageJsonPath = path.join(projectRoot, "package.json");
 const historyLimit = 20;
+const excludedManifestRelativePaths = new Set([".nojekyll"]);
 
 function parseCliArguments(argv) {
   const options = {
@@ -208,6 +209,9 @@ async function buildFileManifest(buildRootPath) {
   const relativeFilePaths = await collectRelativeFilePaths(buildRootPath);
   const files = [];
   for (const relativePath of relativeFilePaths) {
+    if (excludedManifestRelativePaths.has(relativePath)) {
+      continue;
+    }
     const absolutePath = path.join(buildRootPath, relativePath);
     const fileBytes = await fs.readFile(absolutePath);
     const digest = createHash("sha256").update(fileBytes).digest("hex");

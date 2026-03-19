@@ -109,30 +109,28 @@
       "unpackDirName": false
     }
   },
-  "dependencies": {
+  "devDependencies": {
     "@capacitor/android": "^8.1.0",
     "@capacitor/core": "^8.1.0",
+    "@capacitor/cli": "^8.1.0",
     "@neth4ck/wasm-367": "^2.1.1",
     "@neth4ck/wasm-37": "^2.1.1",
-    "@types/three": "^0.178.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "sass": "^1.94.0",
-    "three": "^0.178.0",
-    "zustand": "^5.0.8"
-  },
-  "devDependencies": {
-    "@capacitor/cli": "^8.1.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.178.1",
     "@vitejs/plugin-react": "^4.5.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",
     "pngjs": "^7.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "sass": "^1.94.0",
+    "three": "^0.178.0",
     "typescript": "^5.8.3",
     "vite": "^5.4.10",
-    "wait-on": "^9.0.4"
+    "wait-on": "^9.0.4",
+    "zustand": "^5.0.8"
   }
 }
