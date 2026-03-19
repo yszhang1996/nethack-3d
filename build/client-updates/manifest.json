@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T18:27:00.622Z",
+  "generatedAt": "2026-03-19T18:30:32.347Z",
   "latest": {
-    "buildId": "ae5a3d807cbea6ff1f03",
-    "commitSha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-    "createdAt": "2026-03-19T18:27:00.622Z",
+    "buildId": "cc07426f9eb9ef3c9a29",
+    "commitSha": "077b76068a92758440e435149b14cbae396ec395",
+    "createdAt": "2026-03-19T18:30:32.347Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",
-        "authoredAt": "2026-03-19T14:00:26-04:00",
-        "message": "Updated package-lock.json"
+        "sha": "077b76068a92758440e435149b14cbae396ec395",
+        "authoredAt": "2026-03-19T14:26:48-04:00",
+        "message": "Updates are rolling now instead of storing the whole game in every commit"
       }
     ],
     "filesBasePath": "latest",
@@ -59,9 +59,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-DWKyrcc5.js",
+        "path": "assets/index-CuDrtd4s.js",
         "size": 2089974,
-        "sha256": "d0e4ab46c4f28928ad8301b54f7b62d68a0d4210e366844dd85322adeb3d326f"
+        "sha256": "f43cecec88d4c28138668d176e3ab64e5ff04f511e9c4ec114c879f87f538559"
       },
       {
         "path": "assets/index-DyTXQdW9.css",
@@ -13091,7 +13091,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "5218416aa97fee965181972a5278b806551ab795373a9fc18358820c2f02b05e"
+        "sha256": "bf05565f85f6588eb53d298c8736fd5cb31de824e986913319a8dd9d78fb7073"
       },
       {
         "path": "nethack-367.wasm",
@@ -13121,6 +13121,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "cc07426f9eb9ef3c9a29",
+      "commitSha": "077b76068a92758440e435149b14cbae396ec395",
+      "createdAt": "2026-03-19T18:30:32.347Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "077b76068a92758440e435149b14cbae396ec395",
+          "authoredAt": "2026-03-19T14:26:48-04:00",
+          "message": "Updates are rolling now instead of storing the whole game in every commit"
+        }
+      ]
+    },
     {
       "buildId": "ae5a3d807cbea6ff1f03",
       "commitSha": "94ea7bbbbfeeb9331ce81858987ab3c0edd15aa3",

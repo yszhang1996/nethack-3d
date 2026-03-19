@@ -3087,12 +3087,6 @@ const clientOptionsConfig: ClientOption[] = [
     type: "section",
   },
   {
-    key: "liveMessageLog",
-    label: "Live message log",
-    description: "Display the scrolling in-game message log.",
-    type: "boolean",
-  },
-  {
     key: "desktopMessageLogWindowScale",
     label: "Desktop message log window scale",
     description:
@@ -3101,6 +3095,12 @@ const clientOptionsConfig: ClientOption[] = [
     min: 0.33,
     max: 1.5,
     step: 0.01,
+  },
+  {
+    key: "liveMessageLog",
+    label: "Live message log",
+    description: "Display the scrolling in-game message log.",
+    type: "boolean",
   },
   {
     key: "liveMessageDisplayTimeMs",
