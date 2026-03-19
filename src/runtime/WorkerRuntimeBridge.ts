@@ -14,6 +14,7 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
   private startPromise: Promise<void> | null = null;
   private startResolve: (() => void) | null = null;
   private startReject: ((reason?: unknown) => void) | null = null;
+  private disposed = false;
 
   constructor(
     onEvent: RuntimeEventHandler,
@@ -25,9 +26,15 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
       type: "module",
     });
     this.worker.onmessage = (message: MessageEvent<RuntimeWorkerEnvelope>) => {
+      if (this.disposed) {
+        return;
+      }
       this.handleWorkerMessage(message.data);
     };
     this.worker.onerror = (error) => {
+      if (this.disposed) {
+        return;
+      }
       const errorMessage = this.extractWorkerErrorMessage(error);
       const startupErrorMessage = errorMessage || "Runtime worker failed to load";
       if (this.startReject) {
@@ -51,6 +58,9 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
       });
     };
     this.worker.onmessageerror = (event) => {
+      if (this.disposed) {
+        return;
+      }
       const message = this.extractWorkerErrorMessage(event);
       if (this.startReject) {
         this.startReject(new Error(message || "Runtime worker message error"));
@@ -66,6 +76,9 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
   }
 
   start(): Promise<void> {
+    if (this.disposed) {
+      return Promise.reject(new Error("Runtime bridge already disposed"));
+    }
     if (this.startPromise) {
       return this.startPromise;
     }
@@ -128,7 +141,27 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
     this.postCommand({ type: "set_logging", enabled: Boolean(enabled) });
   }
 
+  dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+    if (this.startReject) {
+      this.startReject(new Error("Runtime bridge disposed"));
+    }
+    this.startResolve = null;
+    this.startReject = null;
+    this.startPromise = null;
+    this.worker.onmessage = null;
+    this.worker.onerror = null;
+    this.worker.onmessageerror = null;
+    this.worker.terminate();
+  }
+
   private postCommand(command: RuntimeCommand): void {
+    if (this.disposed) {
+      return;
+    }
     this.worker.postMessage(command);
   }
 
@@ -228,6 +261,9 @@ export default class WorkerRuntimeBridge implements RuntimeBridge {
   }
 
   private handleWorkerMessage(message: RuntimeWorkerEnvelope): void {
+    if (this.disposed) {
+      return;
+    }
     switch (message.type) {
       case "runtime_ready":
         if (this.startResolve) {

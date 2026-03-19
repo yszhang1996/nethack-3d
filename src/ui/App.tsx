@@ -1619,6 +1619,7 @@ type ClientOptionSlider = {
     | "minimapScale"
     | "uiFontScale"
     | "liveMessageLogFontScale"
+    | "desktopMessageLogWindowScale"
     | "controllerFpsMoveRepeatMs"
     | "fpsFov"
     | "fpsLookSensitivityX"
@@ -1641,8 +1642,16 @@ type ClientOptionGroupHeader = {
   developerOnly?: boolean;
 };
 
+type ClientOptionSectionHeader = {
+  key: string;
+  label: string;
+  type: "section";
+  developerOnly?: boolean;
+};
+
 type ClientOption =
   | ClientOptionGroupHeader
+  | ClientOptionSectionHeader
   | ClientOptionToggle
   | ClientOptionSelect
   | ClientOptionSlider;
@@ -2859,39 +2868,25 @@ const clientOptionsConfig: ClientOption[] = [
     type: "group",
   },
   {
+    key: "section-controls-controller",
+    label: "Controller",
+    type: "section",
+  },
+  {
     key: "controllerEnabled",
     label: "Enable controller support",
     description: "Enable gamepad input for gameplay and UI dialogs.",
     type: "boolean",
   },
   {
-    key: "controllerFpsMoveRepeatMs",
-    label: "FPS left-stick move repeat",
-    description:
-      "Movement repeat delay for left stick in FPS mode (lower is faster).",
-    type: "slider",
-    min: 80,
-    max: 900,
-    step: 10,
+    key: "section-controls-look",
+    label: "Look and camera",
+    type: "section",
   },
   {
     key: "invertLookYAxis",
     label: "Invert Y-axis look",
     description: "Invert vertical mouselook and touch-look direction.",
-    type: "boolean",
-  },
-  {
-    key: "cameraRelativeMovement",
-    label: "Camera-relative movement and swipes",
-    description:
-      "Rotate movement keys and swipe directions based on the camera Y-axis angle.",
-    type: "boolean",
-  },
-  {
-    key: "snapCameraYawToNearest45",
-    label: "Snap camera yaw to 45 degrees",
-    description:
-      "When camera rotation input is released, smoothly snap yaw to the nearest 45 degree angle.",
     type: "boolean",
   },
   {
@@ -2913,9 +2908,43 @@ const clientOptionsConfig: ClientOption[] = [
     step: 0.01,
   },
   {
+    key: "snapCameraYawToNearest45",
+    label: "Snap camera yaw to 45 degrees",
+    description:
+      "When camera rotation input is released, smoothly snap yaw to the nearest 45 degree angle.",
+    type: "boolean",
+  },
+  {
+    key: "section-controls-movement",
+    label: "Movement behavior",
+    type: "section",
+  },
+  {
+    key: "cameraRelativeMovement",
+    label: "Camera-relative movement and swipes",
+    description:
+      "Rotate movement keys and swipe directions based on the camera Y-axis angle.",
+    type: "boolean",
+  },
+  {
+    key: "controllerFpsMoveRepeatMs",
+    label: "FPS left-stick move repeat",
+    description:
+      "Movement repeat delay for left stick in FPS mode (lower is faster).",
+    type: "slider",
+    min: 80,
+    max: 900,
+    step: 10,
+  },
+  {
     key: "group-interface",
     label: "Interface",
     type: "group",
+  },
+  {
+    key: "section-display-camera",
+    label: "Camera and perspective",
+    type: "section",
   },
   {
     key: "fpsMode",
@@ -2933,13 +2962,9 @@ const clientOptionsConfig: ClientOption[] = [
     step: 1,
   },
   {
-    key: "uiFontScale",
-    label: "UI font scale",
-    description: "Scale all game UI font sizes from their defaults.",
-    type: "slider",
-    min: 0.7,
-    max: 1.8,
-    step: 0.01,
+    key: "section-display-graphics",
+    label: "Graphics and rendering",
+    type: "section",
   },
   {
     key: "tilesetMode",
@@ -2958,32 +2983,6 @@ const clientOptionsConfig: ClientOption[] = [
     type: "select",
     options: [],
     disabled: false,
-  },
-  {
-    key: "desktopTouchInterfaceMode",
-    label: "Desktop touch interface",
-    description:
-      "Show touch controls on desktop and choose portrait or landscape layout.",
-    type: "select",
-    options: [
-      { value: "off", label: "Off" },
-      { value: "portrait", label: "Use portrait touch UI" },
-      { value: "landscape", label: "Use landscape touch UI" },
-    ],
-  },
-  {
-    key: "disableAnimatedTransitions",
-    label: "Disable animated transitions",
-    description:
-      "Turn off interface fade, motion, and transition animations for snappier UI changes.",
-    type: "boolean",
-  },
-  {
-    key: "uiTileBackgroundRemoval",
-    label: "Remove tile backgrounds in UI",
-    description:
-      "Apply tile/chroma background removal to tile icons shown in UI panels.",
-    type: "boolean",
   },
   {
     key: "antialiasing",
@@ -3029,6 +3028,100 @@ const clientOptionsConfig: ClientOption[] = [
     step: 0.01,
   },
   {
+    key: "section-display-interface",
+    label: "Interface",
+    type: "section",
+  },
+  {
+    key: "uiFontScale",
+    label: "UI font scale",
+    description: "Scale all game UI font sizes from their defaults.",
+    type: "slider",
+    min: 0.7,
+    max: 1.8,
+    step: 0.01,
+  },
+  {
+    key: "disableAnimatedTransitions",
+    label: "Disable animated transitions",
+    description:
+      "Turn off interface fade, motion, and transition animations for snappier UI changes.",
+    type: "boolean",
+  },
+  {
+    key: "uiTileBackgroundRemoval",
+    label: "Remove tile backgrounds in UI",
+    description:
+      "Apply tile/chroma background removal to tile icons shown in UI panels.",
+    type: "boolean",
+  },
+  {
+    key: "desktopTouchInterfaceMode",
+    label: "Desktop touch interface",
+    description:
+      "Show touch controls on desktop and choose portrait or landscape layout.",
+    type: "select",
+    options: [
+      { value: "off", label: "Off" },
+      { value: "portrait", label: "Use portrait touch UI" },
+      { value: "landscape", label: "Use landscape touch UI" },
+    ],
+  },
+  {
+    key: "section-display-messages",
+    label: "Messages and log",
+    type: "section",
+  },
+  {
+    key: "liveMessageLog",
+    label: "Live message log",
+    description: "Display the scrolling in-game message log.",
+    type: "boolean",
+  },
+  {
+    key: "desktopMessageLogWindowScale",
+    label: "Desktop message log window scale",
+    description:
+      "Scale the boxed desktop message log window size without changing font size.",
+    type: "slider",
+    min: 0.33,
+    max: 1.5,
+    step: 0.01,
+  },
+  {
+    key: "liveMessageDisplayTimeMs",
+    label: "Live message display time",
+    description: "Time a floating message stays fully visible before fading.",
+    type: "slider",
+    min: 250,
+    max: 6000,
+    step: 50,
+  },
+  {
+    key: "liveMessageFadeOutTimeMs",
+    label: "Live message fade-out time",
+    description: "Duration of floating message fade-out animation.",
+    type: "slider",
+    min: 120,
+    max: 4000,
+    step: 20,
+  },
+  {
+    key: "liveMessageLogFontScale",
+    label: "Live message font scale",
+    description:
+      "Scale the fade-up floating action messages from their default size.",
+    type: "slider",
+    min: 0.7,
+    max: 2.2,
+    step: 0.01,
+  },
+  {
+    key: "section-display-minimap",
+    label: "Minimap",
+    type: "section",
+  },
+  {
     key: "minimap",
     label: "Minimap",
     description: "Show or hide the dungeon minimap.",
@@ -3042,6 +3135,11 @@ const clientOptionsConfig: ClientOption[] = [
     min: 0.6,
     max: 2.2,
     step: 0.01,
+  },
+  {
+    key: "section-display-inventory",
+    label: "Inventory presentation",
+    type: "section",
   },
   {
     key: "reduceInventoryMotion",
@@ -3069,40 +3167,6 @@ const clientOptionsConfig: ClientOption[] = [
       { value: "medium", label: "Medium" },
       { value: "large", label: "Large" },
     ],
-  },
-  {
-    key: "liveMessageLog",
-    label: "Live message log",
-    description: "Display the scrolling in-game message log.",
-    type: "boolean",
-  },
-  {
-    key: "liveMessageLogFontScale",
-    label: "Live message font scale",
-    description:
-      "Scale the fade-up floating action messages from their default size.",
-    type: "slider",
-    min: 0.7,
-    max: 2.2,
-    step: 0.01,
-  },
-  {
-    key: "liveMessageDisplayTimeMs",
-    label: "Live message display time",
-    description: "Time a floating message stays fully visible before fading.",
-    type: "slider",
-    min: 250,
-    max: 6000,
-    step: 50,
-  },
-  {
-    key: "liveMessageFadeOutTimeMs",
-    label: "Live message fade-out time",
-    description: "Duration of floating message fade-out animation.",
-    type: "slider",
-    min: 120,
-    max: 4000,
-    step: 20,
   },
   {
     key: "group-sound",
@@ -4414,17 +4478,23 @@ export default function App(): JSX.Element {
       String(clientOptions.liveMessageLogFontScale),
     );
     root.style.setProperty(
+      "--nh3d-desktop-log-window-scale",
+      String(clientOptions.desktopMessageLogWindowScale),
+    );
+    root.style.setProperty(
       "--nh3d-minimap-scale",
       String(clientOptions.minimapScale),
     );
     return () => {
       root.style.removeProperty("--nh3d-ui-font-scale");
       root.style.removeProperty("--nh3d-live-log-font-scale");
+      root.style.removeProperty("--nh3d-desktop-log-window-scale");
       root.style.removeProperty("--nh3d-minimap-scale");
     };
   }, [
     clientOptions.uiFontScale,
     clientOptions.liveMessageLogFontScale,
+    clientOptions.desktopMessageLogWindowScale,
     clientOptions.minimapScale,
   ]);
   useEffect(() => {
@@ -5767,6 +5837,7 @@ export default function App(): JSX.Element {
     setEngineController(engine);
     registerDebugHelpers(engine);
     return () => {
+      engine.dispose();
       setEngineController(null);
     };
   }, [adapter, characterCreationConfig, setEngineController]);
@@ -7433,10 +7504,24 @@ export default function App(): JSX.Element {
   };
 
   const startNewGameFromPrompt = (): void => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.location.reload();
+    setReopenNewGamePromptOnInteraction(false);
+    setDeferredNewGamePromptReason(null);
+    setNewGamePrompt({ visible: false, reason: null });
+    setPositionRequest(null);
+    setInventoryContextMenu(null);
+    setIsPauseMenuVisible(false);
+    setIsExitConfirmationVisible(false);
+    setIsClientOptionsVisible(false);
+    setIsControllerRemapVisible(false);
+    setControllerRemapListening(null);
+    setIsControllerActionWheelVisible(false);
+    setIsMobileActionSheetVisible(false);
+    setIsMobileLogVisible(false);
+    setIsWizardCommandsVisible(false);
+    setCharacterSheetInterceptionArmed(false);
+    characterSheetAwaitingInfoRef.current = false;
+    setCharacterCreationConfig(null);
+    setStartupFlowStep("choose");
   };
 
   const dismissNewGamePromptUntilInteraction = (): void => {
@@ -8821,6 +8906,8 @@ export default function App(): JSX.Element {
       clamped = Math.max(0.7, Math.min(1.8, rawValue));
     } else if (key === "liveMessageLogFontScale") {
       clamped = Math.max(0.7, Math.min(2.2, rawValue));
+    } else if (key === "desktopMessageLogWindowScale") {
+      clamped = Math.max(0.33, Math.min(1.5, rawValue));
     } else if (key === "controllerFpsMoveRepeatMs") {
       clamped = Math.max(80, Math.min(900, rawValue));
     } else {
@@ -11425,6 +11512,15 @@ export default function App(): JSX.Element {
                     if (option.developerOnly && !showDeveloperClientSettings) {
                       return null;
                     }
+                    if (option.type === "section") {
+                      return (
+                        <Fragment key={option.key}>
+                          <div className="nh3d-options-group-title">
+                            {option.label}
+                          </div>
+                        </Fragment>
+                      );
+                    }
                     if (option.type === "boolean") {
                       const isInventoryTileOnlyMotionOption =
                         option.key === "inventoryTileOnlyMotion";
@@ -11470,188 +11566,214 @@ export default function App(): JSX.Element {
                                 : "";
                       const darkWallSecondaryControlsDisabled =
                         !enabled || toggleDisabled;
+                      const shouldRenderControllerRemapRow =
+                        selectedClientOptionsTab.id === "controls" &&
+                        option.key === "controllerEnabled";
                       return (
-                        <div
-                          className={`nh3d-option-row nh3d-option-row-inline-toggle${
-                            isDarkWallOverrideOption
-                              ? " nh3d-option-row-has-secondary-controls"
-                              : ""
-                          }${
-                            toggleDisabled
-                              ? " nh3d-option-row-mode-inactive"
-                              : ""
-                          }${
-                            isDarkWallOverrideOption && !enabled
-                              ? " nh3d-option-row-mode-inactive"
-                              : ""
-                          }`}
-                          key={option.key}
-                        >
-                          <div className="nh3d-option-copy">
-                            <div className="nh3d-option-label">
-                              {option.label}
+                        <Fragment key={option.key}>
+                          <div
+                            className={`nh3d-option-row nh3d-option-row-inline-toggle${
+                              isDarkWallOverrideOption
+                                ? " nh3d-option-row-has-secondary-controls"
+                                : ""
+                            }${
+                              toggleDisabled
+                                ? " nh3d-option-row-mode-inactive"
+                                : ""
+                            }${
+                              isDarkWallOverrideOption && !enabled
+                                ? " nh3d-option-row-mode-inactive"
+                                : ""
+                            }`}
+                          >
+                            <div className="nh3d-option-copy">
+                              <div className="nh3d-option-label">
+                                {option.label}
+                              </div>
+                              <div className="nh3d-option-description">
+                                {option.description}
+                                {toggleDisabledHint}
+                              </div>
                             </div>
-                            <div className="nh3d-option-description">
-                              {option.description}
-                              {toggleDisabledHint}
-                            </div>
-                          </div>
-                          {isDarkWallTileOverrideOption ? (
-                            <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                              <button
-                                className={`nh3d-option-tile-picker-button${
-                                  darkWallSecondaryControlsDisabled
-                                    ? " is-disabled"
-                                    : ""
-                                }`}
-                                disabled={darkWallSecondaryControlsDisabled}
-                                onClick={() =>
-                                  setIsDarkWallTilePickerVisible(true)
-                                }
-                                type="button"
-                              >
-                                <span className="nh3d-option-tile-picker-preview">
-                                  {renderTilePreviewImageForOptions(
-                                    selectedDarkWallTileId,
-                                  )}
-                                </span>
-                                <span className="nh3d-option-tile-picker-copy">
-                                  <span className="nh3d-option-tile-picker-glyph">
-                                    {selectedDarkWallGlyphLabel}
+                            {isDarkWallTileOverrideOption ? (
+                              <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                                <button
+                                  className={`nh3d-option-tile-picker-button${
+                                    darkWallSecondaryControlsDisabled
+                                      ? " is-disabled"
+                                      : ""
+                                  }`}
+                                  disabled={darkWallSecondaryControlsDisabled}
+                                  onClick={() =>
+                                    setIsDarkWallTilePickerVisible(true)
+                                  }
+                                  type="button"
+                                >
+                                  <span className="nh3d-option-tile-picker-preview">
+                                    {renderTilePreviewImageForOptions(
+                                      selectedDarkWallTileId,
+                                    )}
                                   </span>
-                                  <span className="nh3d-option-tile-picker-id">
-                                    tile #{selectedDarkWallTileId}
+                                  <span className="nh3d-option-tile-picker-copy">
+                                    <span className="nh3d-option-tile-picker-glyph">
+                                      {selectedDarkWallGlyphLabel}
+                                    </span>
+                                    <span className="nh3d-option-tile-picker-id">
+                                      tile #{selectedDarkWallTileId}
+                                    </span>
                                   </span>
-                                </span>
-                              </button>
-                            </div>
-                          ) : isDarkWallSolidColorOverrideOption ? (
-                            <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
-                              <div className="nh3d-dark-wall-solid-color-controls">
-                                <div className="nh3d-dark-wall-solid-color-input-row">
-                                  <div className="nh3d-dark-wall-solid-color-input-group">
-                                    <label className="nh3d-dark-wall-mode-color">
-                                      <span>Normal</span>
-                                      <input
-                                        aria-label="Dark wall solid color (normal mode)"
-                                        className="nh3d-option-solid-color-native-picker"
-                                        disabled={
-                                          darkWallSecondaryControlsDisabled
-                                        }
-                                        onChange={(event) =>
-                                          updateDarkWallSolidColorHexDraft(
-                                            event.target.value,
-                                          )
-                                        }
-                                        type="color"
-                                        value={normalizeSolidChromaKeyHex(
-                                          selectedDarkWallSolidColorHex,
-                                        )}
-                                      />
-                                    </label>
-                                    <label className="nh3d-dark-wall-mode-color">
-                                      <span>FPS</span>
-                                      <input
-                                        aria-label="Dark wall solid color (FPS mode)"
-                                        className="nh3d-option-solid-color-native-picker"
-                                        disabled={
-                                          darkWallSecondaryControlsDisabled
-                                        }
-                                        onChange={(event) =>
-                                          updateDarkWallSolidColorHexFpsDraft(
-                                            event.target.value,
-                                          )
-                                        }
-                                        type="color"
-                                        value={normalizeSolidChromaKeyHex(
-                                          selectedDarkWallSolidColorHexFps,
-                                        )}
-                                      />
-                                    </label>
-                                  </div>
-                                  <div className="nh3d-dark-wall-solid-color-input-group">
-                                    <label className="nh3d-dark-wall-grid-toggle">
-                                      <input
-                                        checked={
-                                          selectedDarkWallSolidColorGridEnabled
-                                        }
-                                        disabled={
-                                          darkWallSecondaryControlsDisabled
-                                        }
-                                        onChange={(event) =>
-                                          updateDarkWallSolidColorGridEnabledDraft(
-                                            event.target.checked,
-                                          )
-                                        }
-                                        type="checkbox"
-                                      />
-                                      <span>Grid lines</span>
-                                    </label>
-                                    <label className="nh3d-dark-wall-grid-darkness">
-                                      <span>Intensity</span>
-                                      <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                                </button>
+                              </div>
+                            ) : isDarkWallSolidColorOverrideOption ? (
+                              <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
+                                <div className="nh3d-dark-wall-solid-color-controls">
+                                  <div className="nh3d-dark-wall-solid-color-input-row">
+                                    <div className="nh3d-dark-wall-solid-color-input-group">
+                                      <label className="nh3d-dark-wall-mode-color">
+                                        <span>Normal</span>
                                         <input
-                                          className="nh3d-dark-wall-grid-darkness-input"
+                                          aria-label="Dark wall solid color (normal mode)"
+                                          className="nh3d-option-solid-color-native-picker"
                                           disabled={
-                                            darkWallSecondaryControlsDisabled ||
-                                            !selectedDarkWallSolidColorGridEnabled
+                                            darkWallSecondaryControlsDisabled
                                           }
-                                          max={100}
-                                          min={0}
                                           onChange={(event) =>
-                                            updateDarkWallSolidColorGridDarknessPercentDraft(
-                                              Number(event.target.value),
+                                            updateDarkWallSolidColorHexDraft(
+                                              event.target.value,
                                             )
                                           }
-                                          step={1}
-                                          type="number"
-                                          value={
-                                            selectedDarkWallSolidColorGridDarknessPercent
-                                          }
+                                          type="color"
+                                          value={normalizeSolidChromaKeyHex(
+                                            selectedDarkWallSolidColorHex,
+                                          )}
                                         />
-                                        <span
-                                          aria-hidden="true"
-                                          className="nh3d-dark-wall-grid-darkness-suffix"
-                                        >
-                                          %
+                                      </label>
+                                      <label className="nh3d-dark-wall-mode-color">
+                                        <span>FPS</span>
+                                        <input
+                                          aria-label="Dark wall solid color (FPS mode)"
+                                          className="nh3d-option-solid-color-native-picker"
+                                          disabled={
+                                            darkWallSecondaryControlsDisabled
+                                          }
+                                          onChange={(event) =>
+                                            updateDarkWallSolidColorHexFpsDraft(
+                                              event.target.value,
+                                            )
+                                          }
+                                          type="color"
+                                          value={normalizeSolidChromaKeyHex(
+                                            selectedDarkWallSolidColorHexFps,
+                                          )}
+                                        />
+                                      </label>
+                                    </div>
+                                    <div className="nh3d-dark-wall-solid-color-input-group">
+                                      <label className="nh3d-dark-wall-grid-toggle">
+                                        <input
+                                          checked={
+                                            selectedDarkWallSolidColorGridEnabled
+                                          }
+                                          disabled={
+                                            darkWallSecondaryControlsDisabled
+                                          }
+                                          onChange={(event) =>
+                                            updateDarkWallSolidColorGridEnabledDraft(
+                                              event.target.checked,
+                                            )
+                                          }
+                                          type="checkbox"
+                                        />
+                                        <span>Grid lines</span>
+                                      </label>
+                                      <label className="nh3d-dark-wall-grid-darkness">
+                                        <span>Intensity</span>
+                                        <span className="nh3d-dark-wall-grid-darkness-input-wrap">
+                                          <input
+                                            className="nh3d-dark-wall-grid-darkness-input"
+                                            disabled={
+                                              darkWallSecondaryControlsDisabled ||
+                                              !selectedDarkWallSolidColorGridEnabled
+                                            }
+                                            max={100}
+                                            min={0}
+                                            onChange={(event) =>
+                                              updateDarkWallSolidColorGridDarknessPercentDraft(
+                                                Number(event.target.value),
+                                              )
+                                            }
+                                            step={1}
+                                            type="number"
+                                            value={
+                                              selectedDarkWallSolidColorGridDarknessPercent
+                                            }
+                                          />
+                                          <span
+                                            aria-hidden="true"
+                                            className="nh3d-dark-wall-grid-darkness-suffix"
+                                          >
+                                            %
+                                          </span>
                                         </span>
-                                      </span>
-                                    </label>
+                                      </label>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
+                            ) : null}
+                            <button
+                              aria-checked={enabled}
+                              className={`nh3d-option-switch nh3d-option-inline-switch${
+                                enabled ? " is-on" : ""
+                              }`}
+                              disabled={toggleDisabled}
+                              onClick={() => {
+                                if (toggleDisabled) {
+                                  return;
+                                }
+                                if (isDarkWallTileOverrideOption) {
+                                  updateDarkWallTileOverrideEnabledDraft(
+                                    !enabled,
+                                  );
+                                  return;
+                                }
+                                if (isDarkWallSolidColorOverrideOption) {
+                                  updateDarkWallSolidColorOverrideEnabledDraft(
+                                    !enabled,
+                                  );
+                                  return;
+                                }
+                                updateClientOptionDraft(option.key, !enabled);
+                              }}
+                              role="switch"
+                              type="button"
+                            >
+                              <span className="nh3d-option-switch-thumb" />
+                            </button>
+                          </div>
+                          {shouldRenderControllerRemapRow ? (
+                            <div className="nh3d-option-row nh3d-option-row-controller-remap">
+                              <div className="nh3d-option-copy">
+                                <div className="nh3d-option-label">
+                                  Controller remap
+                                </div>
+                                <div className="nh3d-option-description">
+                                  Set two bindings per action for gameplay and
+                                  dialog controls.
+                                </div>
+                              </div>
+                              <div className="nh3d-option-select-controls">
+                                <button
+                                  className="nh3d-menu-action-button"
+                                  onClick={openControllerRemapDialog}
+                                  type="button"
+                                >
+                                  Remap Controller
+                                </button>
+                              </div>
                             </div>
                           ) : null}
-                          <button
-                            aria-checked={enabled}
-                            className={`nh3d-option-switch nh3d-option-inline-switch${
-                              enabled ? " is-on" : ""
-                            }`}
-                            disabled={toggleDisabled}
-                            onClick={() => {
-                              if (toggleDisabled) {
-                                return;
-                              }
-                              if (isDarkWallTileOverrideOption) {
-                                updateDarkWallTileOverrideEnabledDraft(
-                                  !enabled,
-                                );
-                                return;
-                              }
-                              if (isDarkWallSolidColorOverrideOption) {
-                                updateDarkWallSolidColorOverrideEnabledDraft(
-                                  !enabled,
-                                );
-                                return;
-                              }
-                              updateClientOptionDraft(option.key, !enabled);
-                            }}
-                            role="switch"
-                            type="button"
-                          >
-                            <span className="nh3d-option-switch-thumb" />
-                          </button>
-                        </div>
+                        </Fragment>
                       );
                     }
                     if (option.type === "select") {
@@ -11785,7 +11907,9 @@ export default function App(): JSX.Element {
                                 option.key === "fpsLookSensitivityY"
                               ? `${sliderValue.toFixed(2)}x`
                               : option.key === "uiFontScale" ||
-                                  option.key === "liveMessageLogFontScale"
+                                  option.key === "liveMessageLogFontScale" ||
+                                  option.key ===
+                                    "desktopMessageLogWindowScale"
                                 ? `${Math.round(sliderValue * 100)}%`
                                 : option.key === "controllerFpsMoveRepeatMs" ||
                                     option.key === "liveMessageDisplayTimeMs" ||
@@ -11841,28 +11965,6 @@ export default function App(): JSX.Element {
                     }
                     return null;
                   })}
-                  {selectedClientOptionsTab.id === "controls" ? (
-                    <div className="nh3d-option-row nh3d-option-row-controller-remap">
-                      <div className="nh3d-option-copy">
-                        <div className="nh3d-option-label">
-                          Controller remap
-                        </div>
-                        <div className="nh3d-option-description">
-                          Set two bindings per action for gameplay and dialog
-                          controls.
-                        </div>
-                      </div>
-                      <div className="nh3d-option-select-controls">
-                        <button
-                          className="nh3d-menu-action-button"
-                          onClick={openControllerRemapDialog}
-                          type="button"
-                        >
-                          Remap Controller
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
                   <SoundPackSettings
                     onDialogActionsChange={(actions) => {
                       soundPackDialogActionsRef.current = actions;

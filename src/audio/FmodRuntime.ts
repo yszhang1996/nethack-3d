@@ -243,6 +243,29 @@ export class FmodRuntime {
     this.userGestureAudioResumed = false;
   }
 
+  public dispose(): void {
+    this.setEnabled(false);
+    this.stopResumeRecoveryLoop();
+    this.stopUpdateLoop();
+    this.unbindAudioRecoveryHooks();
+    this.userGestureAudioResumed = false;
+    this.updateErrorLogged = false;
+    this.module = null;
+    this.studioSystem = null;
+    this.coreSystem = null;
+    this.initializePromise = null;
+    this.threadingDiagnostics = {
+      backendMode: "unknown",
+      audioWorkletSupported: false,
+      crossOriginIsolated: false,
+      sharedArrayBufferAvailable: false,
+      updateIntervalMs: this.options.updateIntervalMs,
+      dspBufferLength: this.options.dspBufferLength,
+      dspBufferCount: this.options.dspBufferCount,
+      resumeRecoveryIntervalMs: this.options.resumeRecoveryIntervalMs,
+    };
+  }
+
   public isUsingThreadedAudioMixing(): boolean {
     return (
       this.threadingDiagnostics.backendMode === "audio-worklet-copy" ||

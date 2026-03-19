@@ -1406,6 +1406,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   };
   private readonly effectPulseColor = new THREE.Color(0xffffff);
   private readonly activeEffectTileKeys: Set<string> = new Set();
+  private disposed = false;
+  private animationFrameId: number | null = null;
+  private readonly domEventAbortController = new AbortController();
   private readonly animateFrameCallback = (timeMs: number): void => {
     this.animate(timeMs);
   };
@@ -1799,55 +1802,93 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.configureBaseLightingForPlayMode();
 
     // --- Event Listeners ---
-    window.addEventListener("resize", this.onWindowResize.bind(this), false);
-    window.addEventListener("keydown", this.handleKeyDown.bind(this), false);
-    window.addEventListener("keyup", this.handleKeyUp.bind(this), false);
-    window.addEventListener("blur", this.handleWindowBlur.bind(this), false);
+    const eventListenerSignal = { signal: this.domEventAbortController.signal };
+    window.addEventListener(
+      "resize",
+      this.onWindowResize.bind(this),
+      eventListenerSignal,
+    );
+    window.addEventListener(
+      "keydown",
+      this.handleKeyDown.bind(this),
+      eventListenerSignal,
+    );
+    window.addEventListener(
+      "keyup",
+      this.handleKeyUp.bind(this),
+      eventListenerSignal,
+    );
+    window.addEventListener(
+      "blur",
+      this.handleWindowBlur.bind(this),
+      eventListenerSignal,
+    );
     window.addEventListener(
       "beforeunload",
       this.handleBeforeUnload.bind(this),
-      false,
+      eventListenerSignal,
     );
     document.addEventListener(
       "pointerlockchange",
       this.handlePointerLockChange.bind(this),
-      false,
+      eventListenerSignal,
     );
 
     // Mouse controls for camera
-    window.addEventListener("wheel", this.handleMouseWheel.bind(this), false);
+    window.addEventListener(
+      "wheel",
+      this.handleMouseWheel.bind(this),
+      eventListenerSignal,
+    );
     window.addEventListener(
       "mousedown",
       this.handleMouseDown.bind(this),
-      false,
+      eventListenerSignal,
     );
     window.addEventListener(
       "mousemove",
       this.handleMouseMove.bind(this),
-      false,
+      eventListenerSignal,
     );
-    window.addEventListener("mouseup", this.handleMouseUp.bind(this), false);
+    window.addEventListener(
+      "mouseup",
+      this.handleMouseUp.bind(this),
+      eventListenerSignal,
+    );
     this.renderer.domElement.addEventListener(
       "touchstart",
       this.handleTouchStart.bind(this),
-      { passive: false },
+      {
+        passive: false,
+        signal: this.domEventAbortController.signal,
+      },
     );
     this.renderer.domElement.addEventListener(
       "touchmove",
       this.handleTouchMove.bind(this),
-      { passive: false },
+      {
+        passive: false,
+        signal: this.domEventAbortController.signal,
+      },
     );
     this.renderer.domElement.addEventListener(
       "touchend",
       this.handleTouchEnd.bind(this),
-      { passive: false },
+      {
+        passive: false,
+        signal: this.domEventAbortController.signal,
+      },
     );
     this.renderer.domElement.addEventListener(
       "touchcancel",
       this.handleTouchCancel.bind(this),
-      false,
+      eventListenerSignal,
     );
-    window.addEventListener("contextmenu", (e) => e.preventDefault(), false); // Prevent right-click menu
+    window.addEventListener(
+      "contextmenu",
+      (e) => e.preventDefault(),
+      eventListenerSignal,
+    );
 
     // Start render loop
     this.animate();
@@ -7071,6 +7112,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private async connectToRuntime(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
     console.log("Starting local NetHack runtime");
     this.resetLevelTerrainCacheTracking();
     this.runtimeTerminationPromptShown = false;
@@ -7089,8 +7133,11 @@ class Nethack3DEngine implements Nethack3DEngineController {
     await setActiveGlyphCatalog(
       this.characterCreationConfig.runtimeVersion ?? "3.6.7",
     );
+    if (this.disposed) {
+      return;
+    }
 
-    this.session = new WorkerRuntimeBridge(
+    const session = new WorkerRuntimeBridge(
       (payload: RuntimeEvent) => {
         this.handleRuntimeEvent(payload);
       },
@@ -7108,9 +7155,19 @@ class Nethack3DEngine implements Nethack3DEngineController {
         loggingEnabled: isLoggingEnabled(),
       },
     );
+    if (this.disposed) {
+      session.dispose();
+      return;
+    }
+    this.session = session;
 
     try {
       await this.session.start();
+      if (this.disposed) {
+        this.session?.dispose();
+        this.session = null;
+        return;
+      }
       this.session.setLoggingEnabled(isLoggingEnabled());
       this.session.requestRuntimeGlobalsSnapshot();
       this.updateConnectionStatus("Running", "running");
@@ -7123,6 +7180,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       }
       this.setLoadingVisible(false);
     } catch (error) {
+      if (this.disposed) {
+        return;
+      }
       console.error("Failed to start local NetHack runtime:", error);
       this.updateConnectionStatus("Error", "error");
       this.updateStatus("Failed to start local NetHack runtime");
@@ -7132,6 +7192,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private handleRuntimeEvent(event: RuntimeEvent): void {
+    if (this.disposed) {
+      return;
+    }
     const data = event as RuntimeEvent & Record<string, any>;
     switch (data.type) {
       case "map_glyph":
@@ -22403,6 +22466,118 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updatePickupFocusVisualState();
   }
 
+  public dispose(): void {
+    if (this.disposed) {
+      return;
+    }
+    this.disposed = true;
+
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    this.domEventAbortController.abort();
+    if (this.positionHideTimerId !== null) {
+      window.clearTimeout(this.positionHideTimerId);
+      this.positionHideTimerId = null;
+    }
+    if (this.fpsTouchRunButtonHoldTimerId !== null) {
+      window.clearTimeout(this.fpsTouchRunButtonHoldTimerId);
+      this.fpsTouchRunButtonHoldTimerId = null;
+    }
+    this.clearMapTouchContextHoldTimer();
+    this.stopMinimapDrag();
+    this.resetControllerVirtualCursor();
+    this.exitMetaCommandMode();
+    this.hideQuestion();
+    this.hideDirectionQuestion();
+    this.hideTextInputRequest();
+    this.hideInventoryDialog();
+    this.hideInfoMenuDialog();
+    this.closeAnyTileContextMenu(false);
+    this.uiAdapter.setPositionRequest(null);
+    this.uiAdapter.setRepeatActionVisible(false);
+    this.uiAdapter.setFpsCrosshairContext(null);
+    this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
+    this.uiAdapter.setGameOver({ active: false, deathMessage: null });
+    this.updateStatus("");
+    this.updateConnectionStatus("Disconnected", "disconnected");
+    this.setLoadingVisible(false);
+    this.clearScene();
+
+    this.session?.dispose();
+    this.session = null;
+    this.messageSoundHooks.dispose();
+    this.fmodRuntime.dispose();
+
+    this.directionPromptOverlay?.dispose();
+    this.directionPromptOverlay = null;
+
+    this.minimapContainer?.remove();
+    this.minimapContainer = null;
+    this.minimapCanvasContext = null;
+    this.minimapViewportContext = null;
+
+    this.metaCommandModal?.remove();
+    this.metaCommandModal = null;
+    this.metaCommandInputTextElement = null;
+    this.metaCommandInputGhostElement = null;
+    this.metaCommandInputGhostTypedElement = null;
+    this.metaCommandInputGhostSuffixElement = null;
+    this.metaCommandSuggestionsElement = null;
+
+    this.controllerVirtualCursorElement?.remove();
+    this.controllerVirtualCursorElement = null;
+    this.controllerVirtualCursorPulseElement?.remove();
+    this.controllerVirtualCursorPulseElement = null;
+
+    this.fpsTouchRunButton?.remove();
+    this.fpsTouchRunButton = null;
+    this.fpsTouchRunButtonTouchId = null;
+    this.fpsTouchRunButtonActive = false;
+
+    this.playerUiNumberOverlay?.remove();
+    this.playerUiNumberOverlay = null;
+    this.playerUiNumberParticles = [];
+    this.disposeVulturePrebakedProjectionManifest();
+    this.vultureWallProjectionDebugPanel?.remove();
+    this.vultureWallProjectionDebugPanel = null;
+    this.vultureWallProjectionDebugCanvasEW = null;
+    this.vultureWallProjectionDebugCanvasSN = null;
+    this.vultureWallProjectionDebugCanvasFloor = null;
+    this.vultureWallProjectionDebugCanvasDoorOpenEW = null;
+    this.vultureWallProjectionDebugCanvasDoorOpenSN = null;
+    this.vultureWallProjectionDebugCanvasDoorClosedEW = null;
+    this.vultureWallProjectionDebugCanvasDoorClosedSN = null;
+    this.vultureWallProjectionDebugSourceCanvasEW = null;
+    this.vultureWallProjectionDebugSourceCanvasSN = null;
+    this.vultureWallProjectionDebugSourceCanvasFloor = null;
+    this.vultureWallProjectionDebugSourceCanvasDoorOpenEW = null;
+    this.vultureWallProjectionDebugSourceCanvasDoorOpenSN = null;
+    this.vultureWallProjectionDebugSourceCanvasDoorClosedEW = null;
+    this.vultureWallProjectionDebugSourceCanvasDoorClosedSN = null;
+    this.vultureWallProjectionDebugFamilySelect = null;
+    this.vultureWallProjectionDebugFamilySections = {};
+    this.vultureWallProjectionDebugStatusLabel = null;
+    this.vultureBillboardScaleInput = null;
+    this.vultureFloorProjectionRotationButton = null;
+    this.vultureWallProjectionRotationButtons = {};
+    this.vultureDoorProjectionRotationButtons = {};
+    this.vultureWallProjectionDebugDrag = null;
+
+    this.disposeAntialiasingPipeline();
+    this.renderer.domElement.remove();
+    this.renderer.dispose();
+    this.floorGeometry.dispose();
+    this.wallGeometry.dispose();
+    this.vultureWallPlaneGeometry.dispose();
+    this.vultureDoorPlaneGeometry.dispose();
+    this.transparentWallGroundPlaneGeometry.dispose();
+    this.vultureInvisibleSurfaceMaterial.dispose();
+    this.fpsPitchLockedBillboardGeometry.dispose();
+    Object.values(this.materials).forEach((material) => material.dispose());
+  }
+
   public chooseDirection(directionKey: string): void {
     if (!this.isInDirectionQuestion || !directionKey) {
       return;
@@ -29052,6 +29227,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.controllerFpsLeftStickLastMoveInput = null;
         this.controllerFpsLeftStickNextMoveAtMs = 0;
       }
+      if (snapshot.pressed.search) {
+        this.sendInput("s");
+      }
       return;
     }
 
@@ -31087,7 +31265,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private animate(timeMs: number = performance.now()): void {
-    requestAnimationFrame(this.animateFrameCallback);
+    if (this.disposed) {
+      return;
+    }
+    this.animationFrameId = requestAnimationFrame(this.animateFrameCallback);
     const rawDeltaMs =
       this.lastFrameTimeMs === null ? 1000 / 60 : timeMs - this.lastFrameTimeMs;
     this.lastFrameTimeMs = timeMs;

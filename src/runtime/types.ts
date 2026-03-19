@@ -16,6 +16,7 @@ export interface RuntimeBridge {
   requestAreaUpdate(centerX: number, centerY: number, radius: number): void;
   requestRuntimeGlobalsSnapshot(): void;
   setLoggingEnabled(enabled: boolean): void;
+  dispose(): void;
 }
 
 export type RuntimeCharacterCreationConfig = {

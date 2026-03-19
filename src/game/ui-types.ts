@@ -187,6 +187,7 @@ export type Nh3dClientOptions = {
   liveMessageFadeOutTimeMs: number;
   uiFontScale: number;
   liveMessageLogFontScale: number;
+  desktopMessageLogWindowScale: number;
   soundEnabled: boolean;
   blockAmbientOcclusion: boolean;
   darkCorridorWalls367: boolean;
@@ -267,6 +268,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageFadeOutTimeMs: 520,
   uiFontScale: 1,
   liveMessageLogFontScale: 1,
+  desktopMessageLogWindowScale: 1,
   soundEnabled: true,
   blockAmbientOcclusion: true,
   darkCorridorWalls367: true,
@@ -619,6 +621,14 @@ export function normalizeNh3dClientOptions(
   const liveMessageLogFontScale = Number(
     Math.max(0.7, Math.min(2.2, rawLiveMessageLogFontScale)).toFixed(2),
   );
+  const rawDesktopMessageLogWindowScale =
+    typeof overrides?.desktopMessageLogWindowScale === "number" &&
+    Number.isFinite(overrides.desktopMessageLogWindowScale)
+      ? overrides.desktopMessageLogWindowScale
+      : defaultNh3dClientOptions.desktopMessageLogWindowScale;
+  const desktopMessageLogWindowScale = Number(
+    Math.max(0.33, Math.min(1.5, rawDesktopMessageLogWindowScale)).toFixed(2),
+  );
   const requestedTilesetPath =
     typeof overrides?.tilesetPath === "string"
       ? overrides.tilesetPath.trim()
@@ -865,6 +875,7 @@ export function normalizeNh3dClientOptions(
     liveMessageFadeOutTimeMs,
     uiFontScale,
     liveMessageLogFontScale,
+    desktopMessageLogWindowScale,
     soundEnabled:
       typeof overrides?.soundEnabled === "boolean"
         ? overrides.soundEnabled
@@ -940,6 +951,7 @@ export interface Nethack3DEngineUIAdapter {
 }
 
 export interface Nethack3DEngineController {
+  dispose(): void;
   sendInput(input: string): void;
   chooseDirection(directionKey: string): void;
   chooseQuestionChoice(choice: string): void;

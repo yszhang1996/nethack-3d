@@ -123,6 +123,7 @@
   --nh3d-overflow-glow-size: 20px;
   --nh3d-ui-font-scale: 1;
   --nh3d-live-log-font-scale: 1;
+  --nh3d-desktop-log-window-scale: 1;
   --nh3d-minimap-scale: 1;
 
   @supports (height: 100dvh) {
@@ -417,7 +418,10 @@ canvas {
   padding: 10px;
   border: 1px solid var(--nh3d-ui-border);
   border-radius: 5px;
-  max-width: 400px;
+  max-width: min(
+    calc(400px * var(--nh3d-desktop-log-window-scale, 1)),
+    calc(100vw - 24px)
+  );
   font-size: nh3d-scale-font(14px);
   pointer-events: auto;
   box-shadow: var(--nh3d-ui-shadow);
@@ -558,7 +562,14 @@ canvas {
 
 .top-left-ui #game-log {
   @extend %custom-scrollbar;
-  max-height: calc(250px * var(--nh3d-ui-font-scale, 1));
+  width: min(
+    calc(380px * var(--nh3d-desktop-log-window-scale, 1)),
+    calc(100vw - 44px)
+  );
+  max-height: calc(
+    250px * var(--nh3d-ui-font-scale, 1) *
+      var(--nh3d-desktop-log-window-scale, 1)
+  );
   overflow-y: auto;
   font-size: nh3d-scale-font(14px);
   line-height: 1.4;
