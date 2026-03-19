@@ -11297,7 +11297,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Quit Game
+              Quit Game Now
             </button>
           </div>
         </div>
