@@ -758,7 +758,7 @@ function showMainWindowIfReady(mainWindow, state) {
   if (state.shown || mainWindow.isDestroyed()) {
     return;
   }
-  if (!state.readyToShow || !state.appRendered) {
+  if (!state.readyToShow || (!state.appRendered && !state.didFinishLoad)) {
     return;
   }
   state.shown = true;
@@ -938,12 +938,18 @@ function createMainWindow() {
   const state = {
     readyToShow: false,
     appRendered: false,
+    didFinishLoad: false,
     shown: false,
   };
   mainWindowStateById.set(mainWindow.id, state);
 
   mainWindow.once("ready-to-show", () => {
     state.readyToShow = true;
+    showMainWindowIfReady(mainWindow, state);
+  });
+
+  mainWindow.webContents.on("did-finish-load", () => {
+    state.didFinishLoad = true;
     showMainWindowIfReady(mainWindow, state);
   });
 

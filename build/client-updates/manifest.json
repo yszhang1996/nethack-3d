@@ -1,34 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-19T22:16:48.034Z",
+  "generatedAt": "2026-03-19T22:31:45.030Z",
   "latest": {
-    "buildId": "db1eb4a9ef2bfac8b93f",
-    "commitSha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
-    "createdAt": "2026-03-19T22:16:48.034Z",
+    "buildId": "86abf474486ec0a49394",
+    "commitSha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
+    "createdAt": "2026-03-19T22:31:45.030Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
-        "authoredAt": "2026-03-19T18:15:24-04:00",
-        "message": "Testing game updates"
-      },
-      {
-        "sha": "f80f5dc77a19ad3611f18fa2d33d0caeadc96c2f",
-        "authoredAt": "2026-03-19T18:12:02-04:00",
-        "message": "Added log dump key combo"
-      },
-      {
-        "sha": "1b807ab3f0a4e66987aaaac4f0ee0e429a363bd5",
-        "authoredAt": "2026-03-19T17:49:29-04:00",
-        "message": "Another game update test"
-      },
-      {
-        "sha": "a16459d40de7b7a1a66da86121abe2593eed068c",
-        "authoredAt": "2026-03-19T17:48:10-04:00",
-        "message": "Testing updates"
+        "sha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
+        "authoredAt": "2026-03-19T18:17:16-04:00",
+        "message": "Publishing test game update"
       }
     ],
     "filesBasePath": "latest",
@@ -74,9 +59,9 @@
         "sha256": "8ce1f9eed1a7d56c9f89538b2df41e9976d5d0424689b40b1e7b89c48a0f4bbb"
       },
       {
-        "path": "assets/index-mV7_hTXw.js",
+        "path": "assets/index-D0q1J9ia.js",
         "size": 2097027,
-        "sha256": "cf96856c73dbe5c5597de50f8d8290caff9352355b76312c281c4db876fca987"
+        "sha256": "7e6e3331a94e2958c5f1dbee5a3d80d7296989d5b107208a636a5edfb9acc586"
       },
       {
         "path": "assets/index-tLCNBeHQ.js",
@@ -13101,7 +13086,7 @@
       {
         "path": "index.html",
         "size": 1193,
-        "sha256": "0286d92107b30e5002d8a2016467d026072ffda2a035d52b72ffb42813d64cc9"
+        "sha256": "2eca1efd5db3f0644241cd89ac0356475487c1c59b0478f0fc74c0b8aa4707f0"
       },
       {
         "path": "nethack-367.wasm",
@@ -13131,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "86abf474486ec0a49394",
+      "commitSha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
+      "createdAt": "2026-03-19T22:31:45.030Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "b786ed746b450d394fa38f345d6e0e2ac63aa571",
+          "authoredAt": "2026-03-19T18:17:16-04:00",
+          "message": "Publishing test game update"
+        }
+      ]
+    },
     {
       "buildId": "db1eb4a9ef2bfac8b93f",
       "commitSha": "e4c339ce3f06774b009cc77cc576f0a0b2f7adfd",
