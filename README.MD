@@ -100,7 +100,8 @@ NetHack 3D lets you play classic NetHack in a fully interactive 3D dungeon, in y
 - Update channel switches live in `scripts/updates/channel-config.json`:
   - Set `requireClientUpgrade` to `true` to force a full native client upgrade warning while still allowing web build download.
   - Use `clientUpgradeMessage` for custom upgrade guidance text shown in the startup update dialog.
-- A repo-local pre-commit hook (`.githooks/pre-commit`) runs `npm run build`, packages update payloads, and stages `build/client-updates/`.
+- A repo-local `pre-commit` hook builds web assets (`npm run build`), and a `commit-msg` hook packages update payloads + stages `build/client-updates/` using the in-flight commit message.
+- Exact SHA for the same in-flight commit cannot be embedded in `manifest.json` (self-referential hash). The manifest therefore includes the pending commit message immediately, while `commitSha` reflects the most recently finalized commit hash at hook time.
 
 ## Architecture
 

@@ -15,6 +15,26 @@ const channelConfigPath = path.join(scriptDir, "channel-config.json");
 const packageJsonPath = path.join(projectRoot, "package.json");
 const historyLimit = 20;
 
+function parseCliArguments(argv) {
+  const options = {
+    pendingMessageFilePath: null,
+  };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === "--pending-message-file") {
+      const candidate = argv[index + 1];
+      if (!candidate) {
+        throw new Error("--pending-message-file requires a path argument.");
+      }
+      options.pendingMessageFilePath = path.resolve(process.cwd(), candidate);
+      index += 1;
+      continue;
+    }
+    throw new Error(`Unknown argument: ${argument}`);
+  }
+  return options;
+}
+
 function runGitCommand(args, fallbackValue = "") {
   const result = spawnSync("git", args, {
     cwd: projectRoot,
@@ -48,6 +68,42 @@ function parseCommitLines(lines) {
       };
     })
     .filter((entry) => entry.message.length > 0);
+}
+
+function parseCommitSubjectFromMessageFile(rawMessage) {
+  const lines = rawMessage.split(/\r?\n/g);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const normalized = sanitizeCommitMessage(trimmed);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return null;
+}
+
+async function readPendingCommitFromMessageFile(filePath) {
+  if (!filePath) {
+    return null;
+  }
+  let raw = "";
+  try {
+    raw = await fs.readFile(filePath, "utf8");
+  } catch {
+    return null;
+  }
+  const message = parseCommitSubjectFromMessageFile(raw);
+  if (!message) {
+    return null;
+  }
+  return {
+    sha: "",
+    authoredAt: new Date().toISOString(),
+    message,
+  };
 }
 
 function normalizeHistoryEntry(value) {
@@ -201,7 +257,8 @@ async function loadChannelConfig() {
   };
 }
 
-function resolveCommitRange(previousCommitSha) {
+function resolveCommitRange(previousCommitSha, options = {}) {
+  const fallbackToHead = options.fallbackToHead !== false;
   if (!previousCommitSha) {
     return runGitCommand(
       ["log", "-n", "20", "--pretty=format:%H%x09%cI%x09%s"],
@@ -215,10 +272,14 @@ function resolveCommitRange(previousCommitSha) {
   if (rangeOutput.trim().length > 0) {
     return rangeOutput;
   }
+  if (!fallbackToHead) {
+    return "";
+  }
   return runGitCommand(["log", "-1", "--pretty=format:%H%x09%cI%x09%s"], "");
 }
 
 async function main() {
+  const cliOptions = parseCliArguments(process.argv.slice(2));
   const distStats = await fs.stat(distDirPath).catch(() => null);
   if (!distStats || !distStats.isDirectory()) {
     throw new Error(
@@ -249,8 +310,17 @@ async function main() {
       : null;
   const channelConfig = await loadChannelConfig();
   const fullCommitSha = runGitCommand(["rev-parse", "HEAD"], "") || null;
-  const commitLines = resolveCommitRange(previousCommitSha);
-  const commits = parseCommitLines(commitLines);
+  const pendingCommit = await readPendingCommitFromMessageFile(
+    cliOptions.pendingMessageFilePath,
+  );
+  const commitLines = resolveCommitRange(previousCommitSha, {
+    fallbackToHead: pendingCommit === null,
+  });
+  const commitsFromGit = parseCommitLines(commitLines);
+  const commits =
+    pendingCommit === null
+      ? commitsFromGit
+      : [pendingCommit, ...commitsFromGit];
 
   await fs.rm(outputLatestPath, { recursive: true, force: true });
   await ensureDirectoryExists(outputRootPath);

@@ -2,5 +2,3 @@
 set -eu
 
 npm run build
-node scripts/updates/prepare-client-update.mjs
-git add build/client-updates

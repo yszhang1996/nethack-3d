@@ -15,12 +15,19 @@ function runGit(args) {
 }
 
 function main() {
-  const preCommitHookPath = path.join(projectRoot, ".githooks", "pre-commit");
-  if (fs.existsSync(preCommitHookPath)) {
-    try {
-      fs.chmodSync(preCommitHookPath, 0o755);
-    } catch {
-      // Ignore chmod failures on filesystems that do not support POSIX mode bits.
+  const hooksDirPath = path.join(projectRoot, ".githooks");
+  if (fs.existsSync(hooksDirPath) && fs.statSync(hooksDirPath).isDirectory()) {
+    const hookEntries = fs.readdirSync(hooksDirPath, { withFileTypes: true });
+    for (const entry of hookEntries) {
+      if (!entry.isFile()) {
+        continue;
+      }
+      const hookPath = path.join(hooksDirPath, entry.name);
+      try {
+        fs.chmodSync(hookPath, 0o755);
+      } catch {
+        // Ignore chmod failures on filesystems that do not support POSIX mode bits.
+      }
     }
   }
 
