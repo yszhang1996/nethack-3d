@@ -48,6 +48,77 @@ function runGitCommand(args, fallbackValue = "") {
   return result.stdout.trim();
 }
 
+function parseGitBatchBlobOutput(rawOutput, expectedCount) {
+  if (!Buffer.isBuffer(rawOutput)) {
+    return null;
+  }
+  const fileBytes = [];
+  let offset = 0;
+  for (let index = 0; index < expectedCount; index += 1) {
+    const headerLineEnd = rawOutput.indexOf(0x0a, offset);
+    if (headerLineEnd < 0) {
+      return null;
+    }
+    const header = rawOutput.toString("utf8", offset, headerLineEnd).trim();
+    offset = headerLineEnd + 1;
+    const [sha = "", type = "", rawSize = ""] = header.split(" ");
+    if (!sha || type !== "blob" || !/^\d+$/.test(rawSize)) {
+      return null;
+    }
+    const size = Number.parseInt(rawSize, 10);
+    if (!Number.isFinite(size) || size < 0) {
+      return null;
+    }
+    if (offset + size > rawOutput.length) {
+      return null;
+    }
+    fileBytes.push(rawOutput.subarray(offset, offset + size));
+    offset += size;
+    if (offset >= rawOutput.length || rawOutput[offset] !== 0x0a) {
+      return null;
+    }
+    offset += 1;
+  }
+  return fileBytes;
+}
+
+function readGitCanonicalFileBytesBatch(repoRelativePaths) {
+  if (!Array.isArray(repoRelativePaths) || repoRelativePaths.length === 0) {
+    return [];
+  }
+  const hashInput = `${repoRelativePaths.join("\n")}\n`;
+  const hashResult = spawnSync("git", ["hash-object", "-w", "--stdin-paths"], {
+    cwd: projectRoot,
+    input: hashInput,
+    encoding: "utf8",
+    shell: false,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (hashResult.error || hashResult.status !== 0) {
+    return null;
+  }
+  const blobShas = String(hashResult.stdout || "")
+    .split(/\r?\n/g)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (blobShas.length !== repoRelativePaths.length) {
+    return null;
+  }
+
+  const batchInput = Buffer.from(`${blobShas.join("\n")}\n`, "utf8");
+  const blobResult = spawnSync("git", ["cat-file", "--batch"], {
+    cwd: projectRoot,
+    input: batchInput,
+    encoding: null,
+    shell: false,
+    maxBuffer: 1024 * 1024 * 1024,
+  });
+  if (blobResult.error || blobResult.status !== 0) {
+    return null;
+  }
+  return parseGitBatchBlobOutput(blobResult.stdout, blobShas.length);
+}
+
 function sanitizeCommitMessage(value) {
   if (typeof value !== "string") {
     return "";
@@ -238,13 +309,31 @@ async function collectRelativeFilePaths(rootPath, currentPath = rootPath) {
 
 async function buildFileManifest(buildRootPath) {
   const relativeFilePaths = await collectRelativeFilePaths(buildRootPath);
+  const manifestRelativeFilePaths = relativeFilePaths.filter(
+    (relativePath) => !excludedManifestRelativePaths.has(relativePath),
+  );
+  const manifestRepoRelativeFilePaths = manifestRelativeFilePaths.map(
+    (relativePath) =>
+      path
+        .relative(projectRoot, path.join(buildRootPath, relativePath))
+        .replace(/\\/g, "/"),
+  );
+  const canonicalFileBytes = readGitCanonicalFileBytesBatch(
+    manifestRepoRelativeFilePaths,
+  );
+  if (
+    !Array.isArray(canonicalFileBytes) ||
+    canonicalFileBytes.length !== manifestRelativeFilePaths.length
+  ) {
+    throw new Error(
+      "Unable to read canonical Git bytes for update files. Refusing to generate manifest with non-canonical hashes.",
+    );
+  }
+
   const files = [];
-  for (const relativePath of relativeFilePaths) {
-    if (excludedManifestRelativePaths.has(relativePath)) {
-      continue;
-    }
-    const absolutePath = path.join(buildRootPath, relativePath);
-    const fileBytes = await fs.readFile(absolutePath);
+  for (let index = 0; index < manifestRelativeFilePaths.length; index += 1) {
+    const relativePath = manifestRelativeFilePaths[index];
+    const fileBytes = canonicalFileBytes[index];
     const digest = createHash("sha256").update(fileBytes).digest("hex");
     files.push({
       path: relativePath,

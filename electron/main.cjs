@@ -532,6 +532,61 @@ function throwIfUpdateCanceled(cancellationSignal) {
   throw createUpdateAbortError();
 }
 
+async function computeFileSha256Hex(filePath) {
+  const fileBytes = await fsp.readFile(filePath);
+  return crypto.createHash("sha256").update(fileBytes).digest("hex");
+}
+
+async function tryReuseLocalFileWithMatchingHash(
+  sourcePath,
+  destinationPath,
+  expectedSha256,
+  cancellationSignal = null,
+) {
+  const normalizedExpectedSha256 = normalizeNullableString(expectedSha256);
+  if (!normalizedExpectedSha256) {
+    return {
+      reused: false,
+      bytes: null,
+    };
+  }
+  let sourceStats = null;
+  try {
+    sourceStats = await fsp.stat(sourcePath);
+  } catch {
+    return {
+      reused: false,
+      bytes: null,
+    };
+  }
+  if (!sourceStats.isFile()) {
+    return {
+      reused: false,
+      bytes: null,
+    };
+  }
+  throwIfUpdateCanceled(cancellationSignal);
+  const actualSha256 = await computeFileSha256Hex(sourcePath);
+  if (actualSha256.toLowerCase() !== normalizedExpectedSha256.toLowerCase()) {
+    return {
+      reused: false,
+      bytes:
+        typeof sourceStats.size === "number" && Number.isFinite(sourceStats.size)
+          ? Math.max(0, Math.trunc(sourceStats.size))
+          : null,
+    };
+  }
+  await fsp.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fsp.copyFile(sourcePath, destinationPath);
+  return {
+    reused: true,
+    bytes:
+      typeof sourceStats.size === "number" && Number.isFinite(sourceStats.size)
+        ? Math.max(0, Math.trunc(sourceStats.size))
+        : null,
+  };
+}
+
 async function fetchJsonFromUrl(
   url,
   cancellationSignal = null,
@@ -764,6 +819,11 @@ async function applyGameUpdateFromManifestUrl(
       fileCount: latest.files.length,
     });
     const activeMetadata = readActiveUpdateMetadataSync();
+    const localReuseBuildRootPath =
+      activeMetadata?.buildRootPath ?? path.join(__dirname, "..", "dist");
+    const localReuseSourceLabel = activeMetadata?.buildId
+      ? `active build ${activeMetadata.buildId}`
+      : "bundled dist";
     if (activeMetadata?.buildId === latest.buildId) {
       appendUpdateTraceEvent(updateTrace, "already-installed", {
         buildId: latest.buildId,
@@ -802,12 +862,14 @@ async function applyGameUpdateFromManifestUrl(
       phase: "staging",
       status: "success",
       message: "Staging folder is ready.",
-      detail: `Expecting ${latest.files.length} files.`,
+      detail: `Expecting ${latest.files.length} files; reusing unchanged files from ${localReuseSourceLabel} when possible.`,
       progressPercent: 12,
       fileCount: latest.files.length,
     });
 
     throwIfUpdateCanceled(cancellationSignal);
+    let reusedFileCount = 0;
+    let downloadedFileCount = 0;
     for (let fileIndex = 0; fileIndex < latest.files.length; fileIndex += 1) {
       const fileEntry = latest.files[fileIndex];
       throwIfUpdateCanceled(cancellationSignal);
@@ -820,19 +882,47 @@ async function applyGameUpdateFromManifestUrl(
       emitUpdateProgress(progressReporter, {
         phase: "download",
         status: "info",
-        message: `Downloading file ${oneBasedFileIndex}/${totalFiles}.`,
+        message: `Processing file ${oneBasedFileIndex}/${totalFiles}.`,
         detail: relativePath,
         filePath: relativePath,
         fileIndex: oneBasedFileIndex,
         fileCount: totalFiles,
         progressPercent: resolveUpdateDownloadProgressPercent(fileIndex, totalFiles),
       });
+      const destinationPath = path.join(stagingBuildDirPath, relativePath);
+      const reusableSourcePath = path.join(localReuseBuildRootPath, relativePath);
+      const reuseResult = await tryReuseLocalFileWithMatchingHash(
+        reusableSourcePath,
+        destinationPath,
+        fileEntry.sha256,
+        cancellationSignal,
+      );
+      if (reuseResult.reused) {
+        reusedFileCount += 1;
+        emitUpdateProgress(progressReporter, {
+          phase: "download",
+          status: "success",
+          message: `Reused unchanged file ${oneBasedFileIndex}/${totalFiles}.`,
+          detail:
+            typeof reuseResult.bytes === "number"
+              ? `${relativePath} (${reuseResult.bytes} bytes, local cache hit)`
+              : `${relativePath} (local cache hit)`,
+          filePath: relativePath,
+          fileIndex: oneBasedFileIndex,
+          fileCount: totalFiles,
+          progressPercent: resolveUpdateDownloadProgressPercent(
+            oneBasedFileIndex,
+            totalFiles,
+          ),
+        });
+        continue;
+      }
+
       const sourceUrl = resolveManifestFileUrl(
         normalizedManifestUrl,
         latest,
         fileEntry,
       );
-      const destinationPath = path.join(stagingBuildDirPath, relativePath);
       const downloadResult = await downloadFileWithValidation(
         sourceUrl,
         destinationPath,
@@ -842,12 +932,13 @@ async function applyGameUpdateFromManifestUrl(
         relativePath,
         updateTrace,
       );
+      downloadedFileCount += 1;
       const expectedSizeDetail =
         typeof fileEntry.size === "number" ? `expected ${fileEntry.size} bytes` : "expected size unknown";
       emitUpdateProgress(progressReporter, {
         phase: "download",
         status: "success",
-        message: `Validated file ${oneBasedFileIndex}/${totalFiles}.`,
+        message: `Downloaded and validated file ${oneBasedFileIndex}/${totalFiles}.`,
         detail: `${relativePath} (${downloadResult.bytesReceived} bytes, ${expectedSizeDetail}, HTTP ${downloadResult.httpStatus} ${downloadResult.httpStatusText ?? ""})`.trim(),
         filePath: relativePath,
         fileIndex: oneBasedFileIndex,
@@ -898,11 +989,16 @@ async function applyGameUpdateFromManifestUrl(
       buildId: latest.buildId,
       updatedAt,
     });
+    appendUpdateTraceEvent(updateTrace, "download-summary", {
+      downloadedFiles: downloadedFileCount,
+      reusedFiles: reusedFileCount,
+      totalFiles: latest.files.length,
+    });
     emitUpdateProgress(progressReporter, {
       phase: "complete",
       status: "success",
       message: "Game update applied successfully.",
-      detail: `Build ${latest.buildId} is ready.`,
+      detail: `Build ${latest.buildId} is ready (downloaded ${downloadedFileCount}, reused ${reusedFileCount}).`,
       progressPercent: 100,
       fileCount: latest.files.length,
     });
