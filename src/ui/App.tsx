@@ -87,6 +87,7 @@ import {
   applyNh3dClientUpdate,
   cancelNh3dClientUpdate,
   checkForNh3dClientUpdates,
+  readNh3dClientUpdateHostWarningMessage,
   subscribeNh3dClientUpdateProgress,
   supportsNh3dClientUpdateCancellation,
 } from "../update/client-updater";
@@ -6716,6 +6717,8 @@ export default function App(): JSX.Element {
     startupUpdateCheck?.clientUpdateRequired ?? false;
   const startupClientUpdateMessage =
     startupUpdateCheck?.clientUpdateMessage ?? "";
+  const startupHostWarningMessage =
+    startupUpdateCheck?.hostWarningMessage ?? "";
   const startupCanCancelUpdateDownload = supportsNh3dClientUpdateCancellation();
   const startupLatestUpdateProgressEntry =
     startupUpdateProgressEntries.length > 0
@@ -6789,13 +6792,35 @@ export default function App(): JSX.Element {
     if (!startupUiVisible || startupUpdateCheckStartedRef.current) {
       return;
     }
-    if (!clientOptions.checkUpdatesOnLaunch) {
-      startupUpdateCheckStartedRef.current = true;
-      return;
-    }
     startupUpdateCheckStartedRef.current = true;
     let canceled = false;
     (async () => {
+      if (!clientOptions.checkUpdatesOnLaunch) {
+        const hostWarningMessage = await readNh3dClientUpdateHostWarningMessage();
+        if (canceled || !hostWarningMessage) {
+          return;
+        }
+        setStartupUpdateCheck((previous) => ({
+          ...(previous ?? {
+            supported: false,
+            manifestUrl: null,
+            localBuildId: null,
+            latestBuildId: null,
+            hasUpdate: false,
+            pendingCount: 0,
+            pendingCommits: [],
+            clientUpdateRequired: false,
+            clientUpdateMessage: "",
+            hostWarningMessage: null,
+            error: null,
+          }),
+          hostWarningMessage,
+        }));
+        setStartupUpdateError(hostWarningMessage);
+        setStartupUpdateDetailsVisible(false);
+        setIsStartupUpdateDialogVisible(true);
+        return;
+      }
       try {
         const result = await checkForNh3dClientUpdates();
         if (canceled) {
@@ -6808,11 +6833,23 @@ export default function App(): JSX.Element {
         if (result.error) {
           console.warn("Failed to check for client updates:", result.error);
           setStartupUpdateCheck(result);
+          if (result.hostWarningMessage) {
+            setStartupUpdateError(result.hostWarningMessage);
+            setStartupUpdateDetailsVisible(false);
+            setIsStartupUpdateDialogVisible(true);
+          }
           return;
         }
         setStartupUpdateCheck(result);
+        if (result.hostWarningMessage) {
+          setStartupUpdateError(result.hostWarningMessage);
+          setStartupUpdateDetailsVisible(false);
+          setIsStartupUpdateDialogVisible(true);
+        }
         if (result.hasUpdate) {
-          setStartupUpdateError("");
+          if (!result.hostWarningMessage) {
+            setStartupUpdateError("");
+          }
           setStartupUpdateDetailsVisible(false);
           setIsStartupUpdateDialogVisible(true);
         }
@@ -6836,6 +6873,7 @@ export default function App(): JSX.Element {
             pendingCommits: [],
             clientUpdateRequired: false,
             clientUpdateMessage: "",
+            hostWarningMessage: null,
             error: null,
           }),
           error: errorMessage,
@@ -7037,17 +7075,41 @@ export default function App(): JSX.Element {
         return;
       }
       if (result.error) {
+        if (result.hostWarningMessage) {
+          setOptionsUpdateCheckStatus(
+            `Update check failed: ${result.error} ${result.hostWarningMessage}`,
+          );
+          if (startupMenuVisible) {
+            setStartupUpdateError(result.hostWarningMessage);
+            setStartupUpdateDetailsVisible(false);
+            setIsStartupUpdateDialogVisible(true);
+          }
+          return;
+        }
         setOptionsUpdateCheckStatus(`Update check failed: ${result.error}`);
         return;
       }
 
       setStartupUpdateCheck(result);
+      if (result.hostWarningMessage) {
+        setStartupUpdateError(result.hostWarningMessage);
+        setStartupUpdateDetailsVisible(false);
+        if (startupMenuVisible) {
+          setIsStartupUpdateDialogVisible(true);
+        }
+      }
       if (!result.hasUpdate) {
-        setOptionsUpdateCheckStatus("You already have the latest game update.");
+        setOptionsUpdateCheckStatus(
+          result.hostWarningMessage
+            ? `You already have the latest game update. ${result.hostWarningMessage}`
+            : "You already have the latest game update.",
+        );
         if (startupMenuVisible) {
           setStartupUpdateDetailsVisible(false);
-          setStartupUpdateError("");
-          setIsStartupUpdateDialogVisible(false);
+          if (!result.hostWarningMessage) {
+            setStartupUpdateError("");
+            setIsStartupUpdateDialogVisible(false);
+          }
         }
         return;
       }
@@ -7058,7 +7120,9 @@ export default function App(): JSX.Element {
           : `${result.pendingCount} game updates are available.`,
       );
       if (startupMenuVisible) {
-        setStartupUpdateError("");
+        if (!result.hostWarningMessage) {
+          setStartupUpdateError("");
+        }
         setStartupUpdateDetailsVisible(false);
         setIsStartupUpdateDialogVisible(true);
       }
@@ -11330,12 +11394,17 @@ export default function App(): JSX.Element {
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
         <div className="nh3d-question-text">
-          {startupPendingUpdateCount === 1
-            ? "1 game update is available."
-            : `${startupPendingUpdateCount} game updates are available.`}
+          {startupPendingUpdateCount <= 0
+            ? "Game update maintenance notice."
+            : startupPendingUpdateCount === 1
+              ? "1 game update is available."
+              : `${startupPendingUpdateCount} game updates are available.`}
         </div>
         <div className="nh3d-startup-update-summary">
-          Download the latest build files now and refresh into the updated game.
+          {startupPendingUpdateCount > 0
+            ? "Download the latest build files now and refresh into the updated game."
+            : startupHostWarningMessage ||
+              "No downloadable game update is currently pending."}
         </div>
         {startupClientUpdateRequired ? (
           <div className="nh3d-startup-update-client-warning">

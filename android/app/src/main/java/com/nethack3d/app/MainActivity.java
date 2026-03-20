@@ -35,11 +35,15 @@ public class MainActivity extends BridgeActivity {
     private static final String UPDATE_CURRENT_DIR_NAME = "current";
     private static final String UPDATE_STAGING_DIR_NAME = "staging";
     private static final String ACTIVE_UPDATE_FILE_NAME = "active-update.json";
+    private static final String UPDATE_FALLBACK_NOTICE_FILE_NAME = "fallback-notice.json";
+    private static final String UPDATE_FALLBACK_USER_MESSAGE =
+        "Game update data was corrupted and had to be cleared out. If this keeps happening, download the latest proper client update and try again.";
     private static final int NETWORK_CONNECT_TIMEOUT_MS = 30000;
     private static final int NETWORK_READ_TIMEOUT_MS = 30000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        sanitizeActiveUpdateStateOnStartup();
         super.onCreate(savedInstanceState);
 
         if (getBridge() != null && getBridge().getWebView() != null) {
@@ -61,6 +65,10 @@ public class MainActivity extends BridgeActivity {
 
     private File getActiveUpdateMetadataFile() {
         return new File(getUpdateRootDir(), ACTIVE_UPDATE_FILE_NAME);
+    }
+
+    private File getUpdateFallbackNoticeFile() {
+        return new File(getUpdateRootDir(), UPDATE_FALLBACK_NOTICE_FILE_NAME);
     }
 
     private static String normalizeNullableString(String value) {
@@ -111,6 +119,21 @@ public class MainActivity extends BridgeActivity {
             builder.append(Integer.toHexString(value));
         }
         return builder.toString();
+    }
+
+    private static String computeFileSha256Hex(File file)
+        throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (
+            InputStream input = new BufferedInputStream(new FileInputStream(file));
+            DigestInputStream digestInput = new DigestInputStream(input, digest)
+        ) {
+            byte[] buffer = new byte[8192];
+            while (digestInput.read(buffer) >= 0) {
+                // Reading through DigestInputStream updates the digest.
+            }
+        }
+        return sha256ToHex(digest.digest());
     }
 
     private static byte[] readAllBytes(InputStream inputStream) throws IOException {
@@ -268,6 +291,26 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    private static boolean tryReuseLocalFileWithMatchingHash(
+        File source,
+        File destination,
+        String expectedSha256
+    ) throws IOException, NoSuchAlgorithmException {
+        String normalizedExpectedSha = normalizeNullableString(expectedSha256);
+        if (normalizedExpectedSha == null) {
+            return false;
+        }
+        if (source == null || !source.exists() || !source.isFile()) {
+            return false;
+        }
+        String actualSha = computeFileSha256Hex(source);
+        if (!actualSha.equalsIgnoreCase(normalizedExpectedSha)) {
+            return false;
+        }
+        copyRecursively(source, destination);
+        return true;
+    }
+
     private JSONObject readActiveUpdateInfo() {
         File metadataFile = getActiveUpdateMetadataFile();
         if (!metadataFile.exists()) {
@@ -278,10 +321,14 @@ public class MainActivity extends BridgeActivity {
             String buildId = normalizeNullableString(raw.optString("buildId", null));
             String buildRootPath = normalizeNullableString(raw.optString("buildRootPath", null));
             if (buildId == null || buildRootPath == null) {
+                clearCorruptUpdateDataForFallback("Active update metadata is invalid.");
                 return null;
             }
             File indexFile = new File(buildRootPath, "index.html");
             if (!indexFile.exists()) {
+                clearCorruptUpdateDataForFallback(
+                    "Active update index.html is missing from the update bundle."
+                );
                 return null;
             }
             JSONObject normalized = new JSONObject();
@@ -292,7 +339,13 @@ public class MainActivity extends BridgeActivity {
             normalized.put("manifestUrl", normalizeNullableString(raw.optString("manifestUrl", null)));
             normalized.put("clientVersion", normalizeNullableString(raw.optString("clientVersion", null)));
             return normalized;
-        } catch (Exception ignored) {
+        } catch (Exception exception) {
+            String message = exception.getMessage();
+            clearCorruptUpdateDataForFallback(
+                message != null && !message.trim().isEmpty()
+                    ? "Unable to read active update metadata: " + message
+                    : "Unable to read active update metadata."
+            );
             return null;
         }
     }
@@ -306,12 +359,95 @@ public class MainActivity extends BridgeActivity {
             .apply();
     }
 
+    private void clearPersistedServerBasePath() {
+        SharedPreferences preferences =
+            getSharedPreferences(WebView.WEBVIEW_PREFS_NAME, Context.MODE_PRIVATE);
+        preferences
+            .edit()
+            .remove(WebView.CAP_SERVER_PATH)
+            .apply();
+    }
+
     private void applyServerBasePath(String serverBasePath) {
         runOnUiThread(() -> {
             if (getBridge() != null) {
                 getBridge().setServerBasePath(serverBasePath);
             }
         });
+    }
+
+    private void persistUpdateFallbackNotice(String reason) {
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("at", getCurrentTimestampIsoUtc());
+            payload.put("message", UPDATE_FALLBACK_USER_MESSAGE);
+            payload.put("reason", normalizeNullableString(reason));
+            writeTextFile(getUpdateFallbackNoticeFile(), payload.toString(2));
+        } catch (Exception ignored) {
+            // Ignore fallback notice persistence failures.
+        }
+    }
+
+    private String readAndClearUpdateFallbackNotice() {
+        File noticeFile = getUpdateFallbackNoticeFile();
+        if (!noticeFile.exists()) {
+            return null;
+        }
+        String message = null;
+        try {
+            JSONObject payload = new JSONObject(readTextFile(noticeFile));
+            message = normalizeNullableString(payload.optString("message", null));
+        } catch (Exception ignored) {
+            message = null;
+        }
+        if (message == null) {
+            message = UPDATE_FALLBACK_USER_MESSAGE;
+        }
+        //noinspection ResultOfMethodCallIgnored
+        noticeFile.delete();
+        return message;
+    }
+
+    private void clearCorruptUpdateDataForFallback(String reason) {
+        String normalizedReason = normalizeNullableString(reason);
+        if (normalizedReason == null) {
+            normalizedReason = "Corrupt active update metadata.";
+        }
+        //noinspection ResultOfMethodCallIgnored
+        deleteRecursively(getUpdateCurrentDir());
+        //noinspection ResultOfMethodCallIgnored
+        deleteRecursively(getUpdateStagingDir());
+        //noinspection ResultOfMethodCallIgnored
+        getActiveUpdateMetadataFile().delete();
+        clearPersistedServerBasePath();
+        persistUpdateFallbackNotice(normalizedReason);
+    }
+
+    private void sanitizeActiveUpdateStateOnStartup() {
+        // Triggers corruption cleanup + notice for invalid metadata/index states.
+        readActiveUpdateInfo();
+
+        SharedPreferences preferences =
+            getSharedPreferences(WebView.WEBVIEW_PREFS_NAME, Context.MODE_PRIVATE);
+        String persistedServerPath = normalizeNullableString(
+            preferences.getString(WebView.CAP_SERVER_PATH, null)
+        );
+        if (persistedServerPath == null) {
+            return;
+        }
+
+        File updateRoot = getUpdateRootDir();
+        String updateRootPath = normalizeNullableString(updateRoot.getAbsolutePath());
+        if (updateRootPath == null || !persistedServerPath.startsWith(updateRootPath)) {
+            return;
+        }
+
+        File persistedIndex = new File(persistedServerPath, "index.html");
+        if (!persistedIndex.exists()) {
+            clearCorruptUpdateDataForFallback(
+                "Persisted update launch path is invalid."
+            );
+        }
     }
 
     private static JSONObject createApplyResult(
@@ -415,6 +551,18 @@ public class MainActivity extends BridgeActivity {
                 );
             }
 
+            String localReuseRootPath = null;
+            if (activeUpdate != null) {
+                localReuseRootPath =
+                    normalizeNullableString(activeUpdate.optString("buildRootPath", null));
+            }
+            if (localReuseRootPath == null) {
+                File currentBuildDir = getUpdateCurrentDir();
+                if (currentBuildDir.exists() && currentBuildDir.isDirectory()) {
+                    localReuseRootPath = currentBuildDir.getAbsolutePath();
+                }
+            }
+
             stagingBuildDir = new File(getUpdateStagingDir(), UPDATE_CURRENT_DIR_NAME);
             deleteRecursively(stagingBuildDir);
             if (!stagingBuildDir.mkdirs() && !stagingBuildDir.exists()) {
@@ -447,8 +595,22 @@ public class MainActivity extends BridgeActivity {
                     explicitUrl
                 );
                 File destinationFile = new File(stagingBuildDir, relativePath.replace("/", File.separator));
+                boolean reusedLocally = false;
+                if (localReuseRootPath != null && expectedSha != null) {
+                    File localSourceFile = new File(
+                        localReuseRootPath,
+                        relativePath.replace("/", File.separator)
+                    );
+                    reusedLocally = tryReuseLocalFileWithMatchingHash(
+                        localSourceFile,
+                        destinationFile,
+                        expectedSha
+                    );
+                }
 
-                downloadFileWithValidation(sourceUrl, destinationFile, expectedSize, expectedSha);
+                if (!reusedLocally) {
+                    downloadFileWithValidation(sourceUrl, destinationFile, expectedSize, expectedSha);
+                }
             }
 
             File indexFile = new File(stagingBuildDir, "index.html");
@@ -520,7 +682,28 @@ public class MainActivity extends BridgeActivity {
         @JavascriptInterface
         public String getActiveGameUpdateInfo() {
             JSONObject activeUpdateInfo = readActiveUpdateInfo();
-            return activeUpdateInfo != null ? activeUpdateInfo.toString() : "null";
+            String fallbackNotice = readAndClearUpdateFallbackNotice();
+            if (activeUpdateInfo == null && fallbackNotice == null) {
+                return "null";
+            }
+            try {
+                JSONObject response = activeUpdateInfo != null ? activeUpdateInfo : new JSONObject();
+                if (fallbackNotice != null) {
+                    response.put("hostWarningMessage", fallbackNotice);
+                }
+                return response.toString();
+            } catch (JSONException ignored) {
+                if (fallbackNotice != null) {
+                    JSONObject fallbackOnly = new JSONObject();
+                    try {
+                        fallbackOnly.put("hostWarningMessage", fallbackNotice);
+                    } catch (JSONException nestedIgnored) {
+                        // Ignore serialization failures and fall back to null.
+                    }
+                    return fallbackOnly.toString();
+                }
+                return "null";
+            }
         }
 
         @JavascriptInterface

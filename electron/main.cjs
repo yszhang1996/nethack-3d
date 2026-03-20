@@ -35,6 +35,12 @@ const activeUpdateMetadataPath = path.join(
   updateRootDirPath,
   "active-update.json",
 );
+const updateFallbackNoticePath = path.join(
+  updateRootDirPath,
+  "fallback-notice.json",
+);
+const updateFallbackUserMessage =
+  "Game update data was corrupted and had to be cleared out. If this keeps happening, download the latest proper client update and try again.";
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -246,44 +252,100 @@ function parseActiveUpdateMetadata(value) {
   };
 }
 
+function persistUpdateFallbackNoticeSync(reason) {
+  const payload = {
+    at: new Date().toISOString(),
+    message: updateFallbackUserMessage,
+    reason: normalizeNullableString(reason),
+  };
+  try {
+    fs.mkdirSync(updateRootDirPath, { recursive: true });
+    fs.writeFileSync(
+      updateFallbackNoticePath,
+      `${JSON.stringify(payload, null, 2)}\n`,
+      "utf8",
+    );
+  } catch (error) {
+    console.warn("Failed to persist update fallback notice:", error);
+  }
+}
+
+function clearCorruptUpdateDataSync(reason) {
+  const normalizedReason =
+    normalizeNullableString(reason) ?? "Corrupt active update metadata.";
+  console.warn(
+    `Falling back to bundled build after invalid game update data: ${normalizedReason}`,
+  );
+  try {
+    fs.rmSync(updateCurrentFilesDirPath, { recursive: true, force: true });
+    fs.rmSync(updateStagingDirPath, { recursive: true, force: true });
+    fs.rmSync(activeUpdateMetadataPath, { force: true });
+  } catch (error) {
+    console.warn("Failed to clear corrupt update data:", error);
+  }
+  persistUpdateFallbackNoticeSync(normalizedReason);
+}
+
+function readAndClearUpdateFallbackNoticeSync() {
+  const payload = readJsonFileSync(updateFallbackNoticePath);
+  if (!payload || !isPlainObject(payload)) {
+    return null;
+  }
+  const message =
+    normalizeNullableString(payload.message) ?? updateFallbackUserMessage;
+  try {
+    fs.rmSync(updateFallbackNoticePath, { force: true });
+  } catch {
+    // Ignore fallback-notice cleanup failures.
+  }
+  return message;
+}
+
 function readActiveUpdateMetadataSync() {
+  const metadataExists = fs.existsSync(activeUpdateMetadataPath);
   const parsed = parseActiveUpdateMetadata(readJsonFileSync(activeUpdateMetadataPath));
   if (!parsed) {
+    if (metadataExists) {
+      clearCorruptUpdateDataSync("Active update metadata is invalid.");
+    }
     return null;
   }
   const indexHtmlPath = path.join(parsed.buildRootPath, "index.html");
   if (!fs.existsSync(indexHtmlPath)) {
+    clearCorruptUpdateDataSync(
+      "Active update index.html is missing from the update bundle.",
+    );
     return null;
   }
   try {
     const indexHtml = fs.readFileSync(indexHtmlPath, "utf8");
     if (hasRootRelativeUrlReferences(indexHtml)) {
-      console.warn(
-        "Ignoring active game update because index.html contains root-relative URLs that are incompatible with file:// launches.",
+      clearCorruptUpdateDataSync(
+        "Active update index.html contains root-relative URLs incompatible with file:// launches.",
       );
-      try {
-        fs.rmSync(activeUpdateMetadataPath, { force: true });
-      } catch {
-        // Ignore cleanup errors and continue launching the bundled build.
-      }
       return null;
     }
-  } catch {
+  } catch (error) {
+    clearCorruptUpdateDataSync(
+      `Active update index.html could not be read: ${normalizeNullableString(error?.message) ?? "unknown read error"}.`,
+    );
     return null;
   }
   return parsed;
 }
 
-function toPublicActiveUpdateInfo(metadata) {
-  if (!metadata) {
+function toPublicActiveUpdateInfo(metadata, hostWarningMessage = null) {
+  const normalizedHostWarning = normalizeNullableString(hostWarningMessage);
+  if (!metadata && !normalizedHostWarning) {
     return null;
   }
   return {
-    buildId: metadata.buildId,
-    commitSha: metadata.commitSha,
-    updatedAt: metadata.updatedAt,
-    clientVersion: metadata.clientVersion,
-    manifestUrl: metadata.manifestUrl,
+    buildId: metadata?.buildId ?? null,
+    commitSha: metadata?.commitSha ?? null,
+    updatedAt: metadata?.updatedAt ?? null,
+    clientVersion: metadata?.clientVersion ?? null,
+    manifestUrl: metadata?.manifestUrl ?? null,
+    hostWarningMessage: normalizedHostWarning,
   };
 }
 
@@ -1115,7 +1177,9 @@ ipcMain.handle(quitIpcChannel, () => {
 });
 
 ipcMain.handle(updaterGetActiveInfoIpcChannel, () => {
-  return toPublicActiveUpdateInfo(readActiveUpdateMetadataSync());
+  const activeMetadata = readActiveUpdateMetadataSync();
+  const fallbackNotice = readAndClearUpdateFallbackNoticeSync();
+  return toPublicActiveUpdateInfo(activeMetadata, fallbackNotice);
 });
 
 ipcMain.handle(updaterApplyIpcChannel, async (event, payload) => {

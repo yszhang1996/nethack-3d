@@ -159,6 +159,7 @@ function parseActiveBuildInfo(value: unknown): Nh3dActiveBuildInfo {
       buildId: null,
       commitSha: null,
       updatedAt: null,
+      hostWarningMessage: null,
     };
   }
   const payload = value as Record<string, unknown>;
@@ -168,6 +169,9 @@ function parseActiveBuildInfo(value: unknown): Nh3dActiveBuildInfo {
     updatedAt:
       normalizeNullableString(payload.updatedAt) ??
       normalizeNullableString(payload.appliedAt),
+    hostWarningMessage:
+      normalizeNullableString(payload.hostWarningMessage) ??
+      normalizeNullableString(payload.hostWarning),
   };
 }
 
@@ -260,6 +264,18 @@ export function supportsNh3dClientUpdateCancellation(): boolean {
   );
 }
 
+export async function readNh3dClientUpdateHostWarningMessage(): Promise<string | null> {
+  if (import.meta.env.DEV) {
+    return null;
+  }
+  try {
+    const activeInfo = await readActiveBuildInfoFromBridge();
+    return activeInfo.hostWarningMessage;
+  } catch {
+    return null;
+  }
+}
+
 async function readActiveBuildInfoFromBridge(): Promise<Nh3dActiveBuildInfo> {
   const electronBridge = resolveElectronUpdaterBridge();
   if (
@@ -341,15 +357,20 @@ export async function checkForNh3dClientUpdates(
       pendingCommits: [],
       clientUpdateRequired: false,
       clientUpdateMessage: "",
+      hostWarningMessage: null,
       error: null,
     };
   }
 
+  let activeInfo: Nh3dActiveBuildInfo = parseActiveBuildInfo(null);
   try {
-    const [activeInfo, rawManifest] = await Promise.all([
-      readActiveBuildInfoFromBridge(),
-      fetchManifestPayload(manifestUrl),
-    ]);
+    activeInfo = await readActiveBuildInfoFromBridge();
+  } catch {
+    activeInfo = parseActiveBuildInfo(null);
+  }
+
+  try {
+    const rawManifest = await fetchManifestPayload(manifestUrl);
     const manifest = parseNh3dUpdateManifest(rawManifest);
     if (!manifest || !manifest.latest) {
       throw new Error("Update manifest payload is invalid.");
@@ -416,6 +437,7 @@ export async function checkForNh3dClientUpdates(
       clientUpdateMessage: hasUpdate
         ? manifest.latest.clientUpgradeMessage
         : "",
+      hostWarningMessage: activeInfo.hostWarningMessage,
       error: null,
     };
   } catch (error) {
@@ -429,6 +451,7 @@ export async function checkForNh3dClientUpdates(
       pendingCommits: [],
       clientUpdateRequired: false,
       clientUpdateMessage: "",
+      hostWarningMessage: activeInfo.hostWarningMessage,
       error:
         error instanceof Error ? error.message : "Failed to check for updates.",
     };

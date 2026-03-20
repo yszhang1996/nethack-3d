@@ -38,6 +38,7 @@ export type Nh3dActiveBuildInfo = {
   buildId: string | null;
   commitSha: string | null;
   updatedAt: string | null;
+  hostWarningMessage: string | null;
 };
 
 export type Nh3dClientUpdateCheckResult = {
@@ -50,6 +51,7 @@ export type Nh3dClientUpdateCheckResult = {
   pendingCommits: Nh3dUpdateCommit[];
   clientUpdateRequired: boolean;
   clientUpdateMessage: string;
+  hostWarningMessage: string | null;
   error: string | null;
 };
 
