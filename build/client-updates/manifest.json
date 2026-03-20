@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T00:16:12.980Z",
+  "generatedAt": "2026-03-20T00:17:52.268Z",
   "latest": {
-    "buildId": "1953fd0f978a0bb478fe",
-    "commitSha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
-    "createdAt": "2026-03-20T00:16:12.980Z",
+    "buildId": "2733b36dc0f1ee98bf9d",
+    "commitSha": "dd71302d40dd970e487594c6b9a1f3b448a73b86",
+    "createdAt": "2026-03-20T00:17:52.268Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
-        "authoredAt": "2026-03-19T20:13:51-04:00",
-        "message": "Fixed game updates taking forever, remove file length check, only use SHA now"
+        "sha": "dd71302d40dd970e487594c6b9a1f3b448a73b86",
+        "authoredAt": "2026-03-19T20:16:55-04:00",
+        "message": "Testing updates again"
       }
     ],
     "filesBasePath": "latest",
@@ -59,14 +59,14 @@
         "sha256": "6f96f3d04a9a3907b18e85a4e86bcef5fc639cad55f4915d0bf22c8241f47e03"
       },
       {
-        "path": "assets/index-C1uJyVDw.js",
-        "size": null,
-        "sha256": "c718fd0bbe98769f8ead0f02888cc890541093e531c05307a0e5657c93141137"
-      },
-      {
         "path": "assets/index-CdHFIQ6x.css",
         "size": null,
         "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
+      },
+      {
+        "path": "assets/index-CeyZ0_-E.js",
+        "size": null,
+        "sha256": "fb1223f2ef2c9660e2bef9f8e6e7c0cebdac1d70272cb82552fd7cb7c986d8d1"
       },
       {
         "path": "assets/index-Du_r9Vxv.js",
@@ -13086,7 +13086,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "42939bb4706a3e91786e3cc24c1ce9d83a30082209a443bb016e313e641402db"
+        "sha256": "4468c390d7dd464b14e7981cd549999ccd248853d76ada36c41f0dbeed595c59"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "2733b36dc0f1ee98bf9d",
+      "commitSha": "dd71302d40dd970e487594c6b9a1f3b448a73b86",
+      "createdAt": "2026-03-20T00:17:52.268Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "dd71302d40dd970e487594c6b9a1f3b448a73b86",
+          "authoredAt": "2026-03-19T20:16:55-04:00",
+          "message": "Testing updates again"
+        }
+      ]
+    },
     {
       "buildId": "1953fd0f978a0bb478fe",
       "commitSha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
@@ -13410,21 +13425,6 @@
           "sha": "c15710f54e1b76e0730116006e02c227344468c8",
           "authoredAt": "2026-03-19T15:30:38-04:00",
           "message": "Fixed online update downloading, slightly reduced app size on Linux and Windows portable"
-        }
-      ]
-    },
-    {
-      "buildId": "c30efa45a4ce97601356",
-      "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-      "createdAt": "2026-03-19T19:29:24.254Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-          "authoredAt": "2026-03-19T14:44:51-04:00",
-          "message": "Update"
         }
       ]
     }
