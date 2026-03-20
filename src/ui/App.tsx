@@ -12215,8 +12215,8 @@ export default function App(): JSX.Element {
                           </div>
                         ) : (
                           <div className="nh3d-updates-status">
-                            Press Check for Updates to verify your current game
-                            files are up to date.
+                            Press Check for Updates to verify game files are up
+                            to date.
                           </div>
                         )}
                         {optionsUpdateCheckResult &&
