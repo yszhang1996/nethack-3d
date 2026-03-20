@@ -3,6 +3,7 @@ package com.nethack3d.app;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.util.Log;
 import android.webkit.JavascriptInterface;
 
 import com.getcapacitor.BridgeActivity;
@@ -17,6 +18,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,6 +33,8 @@ import java.util.TimeZone;
 
 public class MainActivity extends BridgeActivity {
 
+    private static final String TAG = "Nh3dUpdater";
+    private static final String BUNDLED_ASSETS_ROOT_PATH = "public";
     private static final String UPDATE_ROOT_DIR_NAME = "nh3d-game-updates";
     private static final String UPDATE_CURRENT_DIR_NAME = "current";
     private static final String UPDATE_STAGING_DIR_NAME = "staging";
@@ -311,6 +315,68 @@ public class MainActivity extends BridgeActivity {
         return true;
     }
 
+    private boolean tryReuseBundledAssetWithMatchingHash(
+        String relativePath,
+        File destination,
+        String expectedSha256
+    ) throws IOException, NoSuchAlgorithmException {
+        String normalizedExpectedSha = normalizeNullableString(expectedSha256);
+        if (normalizedExpectedSha == null) {
+            return false;
+        }
+        String normalizedRelativePath = normalizeSafeRelativePath(relativePath);
+        if (normalizedRelativePath == null) {
+            return false;
+        }
+
+        String bundledAssetPath = BUNDLED_ASSETS_ROOT_PATH + "/" + normalizedRelativePath;
+        try {
+            return tryReuseBundledAssetFileWithMatchingHash(
+                bundledAssetPath,
+                destination,
+                normalizedExpectedSha
+            );
+        } catch (FileNotFoundException ignored) {
+            return false;
+        }
+    }
+
+    private boolean tryReuseBundledAssetFileWithMatchingHash(
+        String bundledAssetPath,
+        File destination,
+        String expectedSha256
+    ) throws IOException, NoSuchAlgorithmException {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        File parent = destination.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) {
+            throw new IOException("Unable to create directory: " + parent.getAbsolutePath());
+        }
+
+        try (
+            InputStream input = new BufferedInputStream(getAssets().open(bundledAssetPath));
+            DigestInputStream digestInput = new DigestInputStream(input, digest);
+            OutputStream output = new BufferedOutputStream(new FileOutputStream(destination))
+        ) {
+            byte[] buffer = new byte[8192];
+            int readCount;
+            while ((readCount = digestInput.read(buffer)) >= 0) {
+                output.write(buffer, 0, readCount);
+            }
+        } catch (IOException exception) {
+            //noinspection ResultOfMethodCallIgnored
+            destination.delete();
+            throw exception;
+        }
+
+        String actualSha = sha256ToHex(digest.digest());
+        if (!actualSha.equalsIgnoreCase(expectedSha256)) {
+            //noinspection ResultOfMethodCallIgnored
+            destination.delete();
+            return false;
+        }
+        return true;
+    }
+
     private JSONObject readActiveUpdateInfo() {
         File metadataFile = getActiveUpdateMetadataFile();
         if (!metadataFile.exists()) {
@@ -507,6 +573,7 @@ public class MainActivity extends BridgeActivity {
             );
         }
 
+        Log.i(TAG, "Starting Android game update download. manifestUrl=" + manifestUrl);
         File stagingBuildDir = null;
         try {
             JSONObject manifest = fetchJsonFromUrl(manifestUrl);
@@ -537,9 +604,17 @@ public class MainActivity extends BridgeActivity {
                     "Update manifest latest build payload is incomplete."
                 );
             }
+            Log.i(
+                TAG,
+                "Loaded update manifest latest build. buildId=" +
+                buildId +
+                ", fileCount=" +
+                files.length()
+            );
 
             JSONObject activeUpdate = readActiveUpdateInfo();
             if (activeUpdate != null && buildId.equals(activeUpdate.optString("buildId", ""))) {
+                Log.i(TAG, "Latest Android update already installed. buildId=" + buildId);
                 return createApplyResult(
                     true,
                     false,
@@ -571,6 +646,9 @@ public class MainActivity extends BridgeActivity {
                 );
             }
 
+            int downloadedFileCount = 0;
+            int reusedLocalFileCount = 0;
+            int reusedBundledFileCount = 0;
             for (int index = 0; index < files.length(); index += 1) {
                 JSONObject fileEntry = files.optJSONObject(index);
                 if (fileEntry == null) {
@@ -588,12 +666,6 @@ public class MainActivity extends BridgeActivity {
                 String expectedSha = normalizeNullableString(fileEntry.optString("sha256", null));
                 String explicitUrl = normalizeNullableString(fileEntry.optString("url", null));
 
-                String sourceUrl = resolveManifestFileUrl(
-                    manifestUrl,
-                    filesBasePath,
-                    relativePath,
-                    explicitUrl
-                );
                 File destinationFile = new File(stagingBuildDir, relativePath.replace("/", File.separator));
                 boolean reusedLocally = false;
                 if (localReuseRootPath != null && expectedSha != null) {
@@ -607,9 +679,44 @@ public class MainActivity extends BridgeActivity {
                         expectedSha
                     );
                 }
+                if (reusedLocally) {
+                    reusedLocalFileCount += 1;
+                }
 
-                if (!reusedLocally) {
+                boolean reusedBundledAsset = false;
+                if (!reusedLocally && expectedSha != null) {
+                    reusedBundledAsset = tryReuseBundledAssetWithMatchingHash(
+                        relativePath,
+                        destinationFile,
+                        expectedSha
+                    );
+                }
+                if (reusedBundledAsset) {
+                    reusedBundledFileCount += 1;
+                }
+
+                if ((index + 1) % 250 == 0 || index == 0 || index + 1 == files.length()) {
+                    Log.i(
+                        TAG,
+                        "Update file progress " +
+                        (index + 1) +
+                        "/" +
+                        files.length() +
+                        " (" +
+                        relativePath +
+                        ")"
+                    );
+                }
+
+                if (!reusedLocally && !reusedBundledAsset) {
+                    String sourceUrl = resolveManifestFileUrl(
+                        manifestUrl,
+                        filesBasePath,
+                        relativePath,
+                        explicitUrl
+                    );
                     downloadFileWithValidation(sourceUrl, destinationFile, expectedSize, expectedSha);
+                    downloadedFileCount += 1;
                 }
             }
 
@@ -641,6 +748,19 @@ public class MainActivity extends BridgeActivity {
             writeTextFile(getActiveUpdateMetadataFile(), nextActiveUpdate.toString(2));
             persistServerBasePath(targetBuildDir.getAbsolutePath());
             applyServerBasePath(targetBuildDir.getAbsolutePath());
+            Log.i(
+                TAG,
+                "Android game update applied. buildId=" +
+                buildId +
+                ", downloaded=" +
+                downloadedFileCount +
+                ", reusedLocal=" +
+                reusedLocalFileCount +
+                ", reusedBundled=" +
+                reusedBundledFileCount +
+                ", total=" +
+                files.length()
+            );
 
             return createApplyResult(
                 true,
@@ -655,6 +775,7 @@ public class MainActivity extends BridgeActivity {
             if (stagingBuildDir != null) {
                 deleteRecursively(stagingBuildDir);
             }
+            Log.e(TAG, "Failed to apply Android game update.", exception);
             return createApplyResult(
                 false,
                 false,
