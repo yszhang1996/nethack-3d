@@ -11662,7 +11662,7 @@ export default function App(): JSX.Element {
               <button
                 className="nh3d-menu-action-button"
                 onClick={() => {
-                  window.location.reload();
+                  startNewGameFromPrompt();
                 }}
                 type="button"
               >
