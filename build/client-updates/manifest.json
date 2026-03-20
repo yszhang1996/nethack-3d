@@ -1,24 +1,64 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T02:42:38.951Z",
+  "generatedAt": "2026-03-20T18:39:29.472Z",
   "latest": {
-    "buildId": "c3fb441ad383e50be707",
-    "commitSha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
-    "createdAt": "2026-03-20T02:42:38.951Z",
+    "buildId": "9c729137b5e65367dd11",
+    "commitSha": "762cf34ec2c64c27f7691d61948da87e511e7f0c",
+    "createdAt": "2026-03-20T18:39:29.472Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
-        "authoredAt": "2026-03-19T22:40:42-04:00",
-        "message": "Fixes for contextual popup 'autodescribe is off' issues and arrows not showing on iOS"
+        "sha": "762cf34ec2c64c27f7691d61948da87e511e7f0c",
+        "authoredAt": "2026-03-20T14:39:02-04:00",
+        "message": "Fix for \"call this...\" prompts not grabbing all the information messages before the prompt"
       },
       {
-        "sha": "0c4655ceabe3374cb9ebd8ba7c1d303d2c091150",
-        "authoredAt": "2026-03-19T20:43:24-04:00",
-        "message": "Online game update release"
+        "sha": "5a51a36d57d05a9d1c7fe308bd62263556d4c51e",
+        "authoredAt": "2026-03-20T14:10:39-04:00",
+        "message": "Quaff sound triggers more reliably"
+      },
+      {
+        "sha": "b6ca66d44d4104315c03f83122b6339d122c0994",
+        "authoredAt": "2026-03-20T12:29:10-04:00",
+        "message": "Append the last message when the game asks the user to name something, so they can clearly see the game's feedback about the item."
+      },
+      {
+        "sha": "d89e03c7283befd6be00d3bd244c271e2db67386",
+        "authoredAt": "2026-03-20T12:01:51-04:00",
+        "message": "Fixed return to main menu button for game in progress to work the same as the one after game over"
+      },
+      {
+        "sha": "281f957a85598832860b525288af15755279fb5e",
+        "authoredAt": "2026-03-20T11:57:42-04:00",
+        "message": "Cleanup"
+      },
+      {
+        "sha": "ddd146e3ba592d43f67e68c9e85d8fbf27f53036",
+        "authoredAt": "2026-03-20T11:55:44-04:00",
+        "message": "Fixed menu startup animation regression"
+      },
+      {
+        "sha": "edb6894d805a7d1c2af1d968e44e0721db27b333",
+        "authoredAt": "2026-03-20T11:44:04-04:00",
+        "message": "Added Drop Amount and Drop Type contextual buttons."
+      },
+      {
+        "sha": "a80dd086a7fc48ebb74cdd7511808d9feda33456",
+        "authoredAt": "2026-03-20T10:47:57-04:00",
+        "message": "FIxed gold sound playing when it shouldn't"
+      },
+      {
+        "sha": "725309eb5d6ad45667e3ed322e479f3938c3ab0f",
+        "authoredAt": "2026-03-20T10:36:35-04:00",
+        "message": "Fixed glance bug causing broken game state when using contextual menus"
+      },
+      {
+        "sha": "b48d581a580048c7dee20fc6efa393261b91224c",
+        "authoredAt": "2026-03-19T22:43:02-04:00",
+        "message": "Online game update"
       }
     ],
     "filesBasePath": "latest",
@@ -59,24 +99,24 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-B4qItPp_.js",
+        "path": "assets/index-ChmyOH2f.css",
         "size": null,
-        "sha256": "bfadd60bc9337fec139aa64090a9a2a3e1faff80e4b8e189944dd5b3e5669950"
+        "sha256": "b03b4d2e085a5ff7da578d957e4acd361ab65917f25989e19161769fa9dcce48"
       },
       {
-        "path": "assets/index-CdHFIQ6x.css",
+        "path": "assets/index-CiRF_vKY.js",
         "size": null,
-        "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
+        "sha256": "4e90e73934602f0f368d95d3d2518b276b14fee92a389d52a51d40b353bb64ad"
       },
       {
-        "path": "assets/index-DfvVOviL.js",
+        "path": "assets/index-CR-DPCKC.js",
         "size": null,
-        "sha256": "cef73327423ed8dbbc51ab3bc4d087b3110f99304c9581d10c0d3b54d22be925"
+        "sha256": "10def691fd10c9cf953ebad79ebbadae64e60ccdcb2ee8937b360303ee3e4a0f"
       },
       {
-        "path": "assets/index-EIt9hbyK.js",
+        "path": "assets/index-dvm-_ctL.js",
         "size": null,
-        "sha256": "41f32b7019aa102dc9bbbb29b90605bb40d19825e7627d1caf2da7857bb3423d"
+        "sha256": "9c065c5c75ae6127bc2ddb0da47240400b499eb4cb3104cd692a9a59f88ee75c"
       },
       {
         "path": "assets/nethack-COBuHcyY.wasm",
@@ -89,9 +129,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-DP7ShzHx.js",
+        "path": "assets/runtime-worker-BahUyRPD.js",
         "size": null,
-        "sha256": "33e57f1ca76d1e7707d0ec893c62c49d0c56e1c71e3d467f9dc6e7266c3de642"
+        "sha256": "a1cd0d9adc386bb69a7121c7808e6a20ac69ec1592db8c79afbc53e7d95ad3c0"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13091,7 +13131,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "5c8901b45659b5b700ef98e77af3c5b1981b776c8535d6e3c920fc7b49bf1c0a"
+        "sha256": "bed42eec3fc4d87370fda26033611529ceff33ed51fc480ced2682b734872569"
       },
       {
         "path": "nethack-367.wasm",
@@ -13121,6 +13161,66 @@
     ]
   },
   "history": [
+    {
+      "buildId": "9c729137b5e65367dd11",
+      "commitSha": "762cf34ec2c64c27f7691d61948da87e511e7f0c",
+      "createdAt": "2026-03-20T18:39:29.472Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "762cf34ec2c64c27f7691d61948da87e511e7f0c",
+          "authoredAt": "2026-03-20T14:39:02-04:00",
+          "message": "Fix for \"call this...\" prompts not grabbing all the information messages before the prompt"
+        },
+        {
+          "sha": "5a51a36d57d05a9d1c7fe308bd62263556d4c51e",
+          "authoredAt": "2026-03-20T14:10:39-04:00",
+          "message": "Quaff sound triggers more reliably"
+        },
+        {
+          "sha": "b6ca66d44d4104315c03f83122b6339d122c0994",
+          "authoredAt": "2026-03-20T12:29:10-04:00",
+          "message": "Append the last message when the game asks the user to name something, so they can clearly see the game's feedback about the item."
+        },
+        {
+          "sha": "d89e03c7283befd6be00d3bd244c271e2db67386",
+          "authoredAt": "2026-03-20T12:01:51-04:00",
+          "message": "Fixed return to main menu button for game in progress to work the same as the one after game over"
+        },
+        {
+          "sha": "281f957a85598832860b525288af15755279fb5e",
+          "authoredAt": "2026-03-20T11:57:42-04:00",
+          "message": "Cleanup"
+        },
+        {
+          "sha": "ddd146e3ba592d43f67e68c9e85d8fbf27f53036",
+          "authoredAt": "2026-03-20T11:55:44-04:00",
+          "message": "Fixed menu startup animation regression"
+        },
+        {
+          "sha": "edb6894d805a7d1c2af1d968e44e0721db27b333",
+          "authoredAt": "2026-03-20T11:44:04-04:00",
+          "message": "Added Drop Amount and Drop Type contextual buttons."
+        },
+        {
+          "sha": "a80dd086a7fc48ebb74cdd7511808d9feda33456",
+          "authoredAt": "2026-03-20T10:47:57-04:00",
+          "message": "FIxed gold sound playing when it shouldn't"
+        },
+        {
+          "sha": "725309eb5d6ad45667e3ed322e479f3938c3ab0f",
+          "authoredAt": "2026-03-20T10:36:35-04:00",
+          "message": "Fixed glance bug causing broken game state when using contextual menus"
+        },
+        {
+          "sha": "b48d581a580048c7dee20fc6efa393261b91224c",
+          "authoredAt": "2026-03-19T22:43:02-04:00",
+          "message": "Online game update"
+        }
+      ]
+    },
     {
       "buildId": "c3fb441ad383e50be707",
       "commitSha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
@@ -13431,21 +13531,6 @@
           "sha": "10bf13d28cf698edea6c14b26447f5ad1d0a7d57",
           "authoredAt": "2026-03-19T17:02:37-04:00",
           "message": "Testing game updates"
-        }
-      ]
-    },
-    {
-      "buildId": "69df8bcecdbb91d5f7f6",
-      "commitSha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
-      "createdAt": "2026-03-19T21:02:32.242Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
-          "authoredAt": "2026-03-19T16:58:52-04:00",
-          "message": "Allow cancelling update downloads, and better detect when updates are available or not"
         }
       ]
     }
