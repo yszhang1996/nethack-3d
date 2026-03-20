@@ -366,7 +366,7 @@ const startupInitOptionDefinitionByKey = new Map<
   ]),
 );
 
-const requiredStartupInitOptionTokens: ReadonlyArray<string> = [];
+const requiredStartupInitOptionTokens: ReadonlyArray<string> = ["checkpoint"];
 
 const supportedPassthroughStartupInitOptionValuesByKey = new Map<
   string,

@@ -3983,10 +3983,36 @@ async function normalizeUserTilesetTileSizes(
 type SaveGameRecord = {
   key: string;
   name: string;
+  displayName: string;
   filename: string;
+  category: "manual" | "autosave";
   timestamp: Date;
   dateFormatted: string;
 };
+
+function resolveSaveCategory(filename: string): "manual" | "autosave" {
+  const normalizedFilename = filename.toLowerCase();
+  if (/(?:\.e|-e)(?:\.[a-z0-9]+)?$/.test(normalizedFilename)) {
+    return "autosave";
+  }
+  // NetHack checkpoint files are level snapshots like "<uid><name>.<level>".
+  if (/\.\d+$/.test(normalizedFilename)) {
+    return "autosave";
+  }
+  return "manual";
+}
+
+function resolveSaveDisplayName(
+  name: string,
+  category: "manual" | "autosave",
+): string {
+  if (category === "autosave") {
+    return name
+      .replace(/(?:\.e|-e)(?:\.[a-z0-9]+)?$/i, "")
+      .replace(/\.\d+$/i, "");
+  }
+  return name;
+}
 
 async function fetchSavedGames(): Promise<SaveGameRecord[]> {
   const saves: SaveGameRecord[] = [];
@@ -4042,6 +4068,7 @@ async function fetchSavedGames(): Promise<SaveGameRecord[]> {
 
         const filename = key.split("/").pop();
         if (!filename) continue;
+        const normalizedFilename = filename.toLowerCase();
 
         // Ignore structural/metadata files used by NetHack
         const knownNonSaves = [
@@ -4052,16 +4079,24 @@ async function fetchSavedGames(): Promise<SaveGameRecord[]> {
           "timestamp",
           ".keep",
         ];
-        if (knownNonSaves.includes(filename)) continue;
-        if (filename.includes("level") || filename.includes("lock")) continue;
+        if (knownNonSaves.includes(normalizedFilename)) continue;
+        if (
+          normalizedFilename.includes("level") ||
+          normalizedFilename.includes("lock")
+        ) {
+          continue;
+        }
 
         // NetHack prepends a user ID (usually 0) to save files, e.g. "0Web_user". Strip it.
         const name = filename.replace(/^\d+/, "");
+        const category = resolveSaveCategory(filename);
         if (name && value && value.timestamp) {
           saves.push({
             key,
             name,
+            displayName: resolveSaveDisplayName(name, category),
             filename,
+            category,
             timestamp: new Date(value.timestamp),
             dateFormatted: new Date(value.timestamp).toLocaleString(),
           });
@@ -4221,6 +4256,22 @@ export default function App(): JSX.Element {
   const [hasHydratedStartupInitOptions, setHasHydratedStartupInitOptions] =
     useState(false);
   const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
+  const savedGameSections = useMemo(
+    () =>
+      [
+        {
+          key: "manual" as const,
+          label: "Manual Saves",
+          saves: savedGames.filter((save) => save.category === "manual"),
+        },
+        {
+          key: "autosave" as const,
+          label: "Autosaves",
+          saves: savedGames.filter((save) => save.category === "autosave"),
+        },
+      ].filter((section) => section.saves.length > 0),
+    [savedGames],
+  );
   const [isLoadingSaves, setIsLoadingSaves] = useState(false);
   const startupUpdateCheckStartedRef = useRef(false);
   const [startupUpdateCheck, setStartupUpdateCheck] =
@@ -4335,7 +4386,7 @@ export default function App(): JSX.Element {
     e.stopPropagation();
     const confirmed = await requestConfirmation({
       title: "Delete Saved Game?",
-      message: `Are you sure you want to delete ${save.name}?`,
+      message: `Are you sure you want to delete ${save.displayName}?`,
       confirmLabel: "Delete",
       cancelLabel: "Cancel",
       confirmClassName: "nh3d-menu-action-cancel",
@@ -4344,7 +4395,7 @@ export default function App(): JSX.Element {
       return;
     }
     await deleteSavedGame(save.filename);
-    setSavedGames((prev) => prev.filter((s) => s.filename !== save.filename));
+    setSavedGames((prev) => prev.filter((s) => s.key !== save.key));
   };
 
   const handleResumeClick = async () => {
@@ -12091,7 +12142,7 @@ export default function App(): JSX.Element {
         <div className="nh3d-question-text">Select a saved game:</div>
         <div className="nh3d-overflow-glow-frame">
           <div
-            className="nh3d-choice-list"
+            className="nh3d-choice-list nh3d-choice-list-startup-resume"
             data-nh3d-overflow-glow
             data-nh3d-overflow-glow-host="parent"
             style={{ width: "100%" }}
@@ -12106,63 +12157,94 @@ export default function App(): JSX.Element {
                 Loading saves...
               </div>
             ) : savedGames.length > 0 ? (
-              savedGames.map((save) => (
-                <button
-                  key={save.name}
-                  className="nh3d-choice-button nh3d-character-setup-choice-button"
-                  style={{
-                    flexDirection: "column",
-                    alignItems: "flex-start",
-                    padding: "12px",
-                    width: "100%",
-                  }}
-                  onClick={() => {
-                    setCharacterCreationConfig({
-                      mode: "resume" as any,
-                      playMode: clientOptions.fpsMode ? "fps" : "normal",
-                      runtimeVersion,
-                      name: save.name,
-                    });
-                  }}
-                  type="button"
-                >
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "14px",
+                }}
+              >
+                {savedGameSections.map((section) => (
                   <div
+                    key={section.key}
                     style={{
                       display: "flex",
-                      justifyContent: "space-between",
-                      width: "100%",
-                      alignItems: "center",
+                      flexDirection: "column",
+                      gap: "8px",
                     }}
                   >
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          fontWeight: "bold",
-                          fontSize: "calc(16px * var(--nh3d-ui-font-scale, 1))",
-                        }}
-                      >
-                        {save.name}
-                      </div>
-                      <div
-                        style={{
-                          fontSize: "calc(12px * var(--nh3d-ui-font-scale, 1))",
-                          color: "var(--nh3d-ui-text-muted)",
-                          marginTop: "4px",
-                          fontWeight: "normal",
-                        }}
-                      >
-                        Saved: {save.dateFormatted}
-                      </div>
-                    </div>
-                    <button
-                      className="delete-button"
-                      onClick={(e) => handleDeleteSave(e, save)}
+                    <div
+                      style={{
+                        color: "var(--nh3d-ui-text-muted)",
+                        fontWeight: "bold",
+                        fontSize: "calc(12px * var(--nh3d-ui-font-scale, 1))",
+                        paddingLeft: "2px",
+                      }}
                     >
-                      X
-                    </button>
+                      {section.label}
+                    </div>
+                    {section.saves.map((save) => (
+                      <button
+                        key={save.key}
+                        className="nh3d-choice-button nh3d-character-setup-choice-button"
+                        style={{
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          padding: "12px",
+                          width: "100%",
+                        }}
+                        onClick={() => {
+                          setCharacterCreationConfig({
+                            mode: "resume" as any,
+                            playMode: clientOptions.fpsMode ? "fps" : "normal",
+                            runtimeVersion,
+                            name: save.name,
+                          });
+                        }}
+                        type="button"
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            width: "100%",
+                            alignItems: "center",
+                          }}
+                        >
+                          <div style={{ flex: 1 }}>
+                            <div
+                              style={{
+                                fontWeight: "bold",
+                                fontSize:
+                                  "calc(16px * var(--nh3d-ui-font-scale, 1))",
+                              }}
+                            >
+                              {save.displayName}
+                            </div>
+                            <div
+                              style={{
+                                fontSize:
+                                  "calc(12px * var(--nh3d-ui-font-scale, 1))",
+                                color: "var(--nh3d-ui-text-muted)",
+                                marginTop: "4px",
+                                fontWeight: "normal",
+                              }}
+                            >
+                              Saved: {save.dateFormatted}
+                            </div>
+                          </div>
+                          <button
+                            className="delete-button"
+                            onClick={(e) => handleDeleteSave(e, save)}
+                          >
+                            X
+                          </button>
+                        </div>
+                      </button>
+                    ))}
                   </div>
-                </button>
-              ))
+                ))}
+              </div>
             ) : (
               <div
                 style={{

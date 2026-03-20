@@ -4126,6 +4126,12 @@ canvas {
   padding-bottom: 25px;
 }
 
+.nh3d-character-setup-dialog .nh3d-choice-list-startup-resume {
+  max-height: none;
+  overflow-y: visible;
+  padding-bottom: calc(var(--nh3d-startup-fixed-actions-reserve) + 8px);
+}
+
 .nh3d-startup-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));

@@ -2,7 +2,10 @@
 import RuntimeInputBroker from "./input/RuntimeInputBroker";
 import { getBundledDisplayFile } from "./displayFileCatalog";
 import type { NethackRuntimeVersion } from "./types";
-import { sanitizeStartupInitOptionTokens } from "./startup-init-options";
+import {
+  appendRequiredStartupInitOptionTokens,
+  sanitizeStartupInitOptionTokens,
+} from "./startup-init-options";
 import { STATUS_FIELD_MAP_367, STATUS_FIELD_MAP_37 } from "./status-map";
 
 const process =
@@ -297,7 +300,7 @@ class LocalNetHackRuntime {
   }
 
   buildStartupInitRuntimeOptions() {
-    return sanitizeStartupInitOptionTokens(this.startupOptions?.initOptions);
+    return appendRequiredStartupInitOptionTokens(this.startupOptions?.initOptions);
   }
 
   resolveStartupExtmenuEnabled(rawTokens) {
@@ -3892,6 +3895,9 @@ class LocalNetHackRuntime {
       if (startupInitRuntimeOptions.length > 0) {
         runtimeOptions.push(...startupInitRuntimeOptions);
       }
+      if (runtimeOptions.includes("checkpoint")) {
+        console.log("Checkpoint startup option is enabled.");
+      }
 
       const createModule = await this.loadRuntimeFactory(runtimeVersion);
 
@@ -3980,6 +3986,9 @@ class LocalNetHackRuntime {
               // Dynamically locate the CWD so we mount IDBFS exactly where NetHack writes
               const cwd = mod.FS.cwd();
               const saveDir = cwd === "/" ? "/save" : `${cwd}/save`;
+              const checkpointLevelFilePattern = /^[^/\\]+\.\d+$/;
+              const normalizedCwd = cwd.replace(/\/+$/, "") || "/";
+              const normalizedSaveDir = saveDir.replace(/\/+$/, "") || "/save";
 
               if (!mod.FS.analyzePath(saveDir).exists) {
                 try {
@@ -3987,6 +3996,116 @@ class LocalNetHackRuntime {
                 } catch (e) {
                   console.warn(`Failed to create ${saveDir}`, e);
                 }
+              }
+
+              // NetHack checkpointing writes level snapshots as "<lockname>.<level>"
+              // in the current working directory. Redirect those files into IDBFS.
+              const remapCheckpointLevelPath = (rawPath) => {
+                if (typeof rawPath !== "string" || !rawPath) {
+                  return rawPath;
+                }
+
+                const slashNormalized = rawPath.replace(/\\/g, "/").trim();
+                if (!slashNormalized) {
+                  return rawPath;
+                }
+                const withoutDotPrefix = slashNormalized.startsWith("./")
+                  ? slashNormalized.slice(2)
+                  : slashNormalized;
+
+                const lastSlashIndex = withoutDotPrefix.lastIndexOf("/");
+                const baseName =
+                  lastSlashIndex >= 0
+                    ? withoutDotPrefix.slice(lastSlashIndex + 1)
+                    : withoutDotPrefix;
+                if (!checkpointLevelFilePattern.test(baseName)) {
+                  return rawPath;
+                }
+
+                if (withoutDotPrefix.startsWith(`${normalizedSaveDir}/`)) {
+                  return rawPath;
+                }
+
+                let shouldRemap = false;
+                if (lastSlashIndex < 0) {
+                  shouldRemap = true;
+                } else {
+                  const parentPath =
+                    withoutDotPrefix.slice(0, lastSlashIndex) || "/";
+                  if (
+                    parentPath === "/" ||
+                    parentPath === normalizedCwd ||
+                    parentPath === "."
+                  ) {
+                    shouldRemap = true;
+                  }
+                }
+
+                if (!shouldRemap) {
+                  return rawPath;
+                }
+
+                const remappedPath = `${normalizedSaveDir}/${baseName}`;
+                if (remappedPath !== rawPath) {
+                  console.log(
+                    `Remapping checkpoint level file path: ${rawPath} -> ${remappedPath}`,
+                  );
+                }
+                return remappedPath;
+              };
+
+              const wrapFsPathMethod = (methodName) => {
+                const originalMethod = mod.FS[methodName];
+                if (typeof originalMethod !== "function") {
+                  return;
+                }
+                mod.FS[methodName] = function (path, ...args) {
+                  return originalMethod.call(
+                    this,
+                    remapCheckpointLevelPath(path),
+                    ...args,
+                  );
+                };
+              };
+              wrapFsPathMethod("open");
+              wrapFsPathMethod("unlink");
+
+              let checkpointSyncInFlight = false;
+              let checkpointSyncQueued = false;
+              const flushCheckpointSync = () => {
+                if (checkpointSyncInFlight) {
+                  checkpointSyncQueued = true;
+                  return;
+                }
+                checkpointSyncInFlight = true;
+                mod.FS.syncfs(false, (err) => {
+                  if (err) {
+                    console.warn("IDBFS checkpoint sync error:", err);
+                  }
+                  checkpointSyncInFlight = false;
+                  if (checkpointSyncQueued) {
+                    checkpointSyncQueued = false;
+                    flushCheckpointSync();
+                  }
+                });
+              };
+
+              const originalClose = mod.FS.close;
+              if (typeof originalClose === "function") {
+                mod.FS.close = function (stream, ...args) {
+                  const streamPath =
+                    stream && typeof stream.path === "string"
+                      ? stream.path
+                      : "";
+                  const shouldSyncCheckpoint =
+                    streamPath.startsWith(`${normalizedSaveDir}/`) &&
+                    /\/[^/]+\.\d+$/.test(streamPath);
+                  const result = originalClose.call(this, stream, ...args);
+                  if (shouldSyncCheckpoint) {
+                    flushCheckpointSync();
+                  }
+                  return result;
+                };
               }
 
               try {
