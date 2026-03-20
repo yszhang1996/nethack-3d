@@ -48,6 +48,7 @@ import { createEngineUiAdapter } from "../state/engineUiAdapter";
 import { defaultPlayerStats, useGameStore } from "../state/gameStore";
 import type { NethackRuntimeVersion } from "../runtime/types";
 import {
+  appendRequiredStartupInitOptionTokens,
   createDefaultStartupInitOptionValues,
   sanitizeStartupInitOptionTokens,
   serializeStartupInitOptionTokens,
@@ -4319,7 +4320,10 @@ export default function App(): JSX.Element {
         console.warn("Failed to check for existing saves:", e);
       }
     }
-    setCharacterCreationConfig(config);
+    setCharacterCreationConfig({
+      ...config,
+      initOptions: appendRequiredStartupInitOptionTokens(config.initOptions),
+    });
   };
 
   const updateStartupInitOptionValue = useCallback(

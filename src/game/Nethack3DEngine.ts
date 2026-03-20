@@ -22131,6 +22131,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private showDirectionQuestion(question: string): void {
     this.isInDirectionQuestion = true;
+    this.cancelMapTouchContextHoldState();
+    if (!this.isFpsMode()) {
+      this.recenterCameraOnPlayerIfNeeded();
+    }
     this.clearControllerDirectionPromptPreview();
     this.clearDirectionPromptOverlayInteraction();
     this.syncDirectionPromptOverlayVisibility();

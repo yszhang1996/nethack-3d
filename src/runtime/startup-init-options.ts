@@ -366,6 +366,15 @@ const startupInitOptionDefinitionByKey = new Map<
   ]),
 );
 
+const requiredStartupInitOptionTokens: ReadonlyArray<string> = [
+  "getpos.autodescribe:nothing",
+];
+
+const supportedPassthroughStartupInitOptionValuesByKey = new Map<
+  string,
+  string
+>([["getpos.autodescribe", "nothing"]]);
+
 function clampNumber(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -450,6 +459,24 @@ function extractOptionKey(token: string): string {
   return withoutNegation.slice(0, separatorIndex).toLowerCase();
 }
 
+function sanitizePassthroughStartupInitOptionToken(
+  optionKey: string,
+  rawValue: string,
+): string | null {
+  const requiredValue =
+    supportedPassthroughStartupInitOptionValuesByKey.get(optionKey);
+  if (!requiredValue) {
+    return null;
+  }
+  const normalizedValue = String(rawValue || "")
+    .trim()
+    .toLowerCase();
+  if (normalizedValue !== requiredValue) {
+    return null;
+  }
+  return `${optionKey}:${requiredValue}`;
+}
+
 export function createDefaultStartupInitOptionValues(): StartupInitOptionValues {
   const values: StartupInitOptionValues = {};
   for (const definition of startupInitOptionDefinitions) {
@@ -528,7 +555,11 @@ export function sanitizeStartupInitOptionToken(
     .toLowerCase();
   const definition = startupInitOptionDefinitionByKey.get(optionKey);
   if (!definition) {
-    return null;
+    if (negated || separatorIndex < 0) {
+      return null;
+    }
+    const rawValue = withoutNegation.slice(separatorIndex + 1);
+    return sanitizePassthroughStartupInitOptionToken(optionKey, rawValue);
   }
   if (definition.control === "boolean") {
     if (separatorIndex >= 0) {
@@ -559,6 +590,19 @@ export function sanitizeStartupInitOptionTokens(rawTokens: unknown): string[] {
       continue;
     }
     tokenByKey.set(extractOptionKey(sanitizedToken), sanitizedToken);
+  }
+  return Array.from(tokenByKey.values());
+}
+
+export function appendRequiredStartupInitOptionTokens(
+  rawTokens: unknown,
+): string[] {
+  const tokenByKey = new Map<string, string>();
+  for (const token of sanitizeStartupInitOptionTokens(rawTokens)) {
+    tokenByKey.set(extractOptionKey(token), token);
+  }
+  for (const requiredToken of requiredStartupInitOptionTokens) {
+    tokenByKey.set(extractOptionKey(requiredToken), requiredToken);
   }
   return Array.from(tokenByKey.values());
 }

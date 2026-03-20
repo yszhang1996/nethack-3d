@@ -244,6 +244,68 @@ function loadSvgImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+function normalizeBaseUrl(baseUrl: string): string {
+  const trimmed = String(baseUrl || "").trim();
+  if (!trimmed) {
+    return "/";
+  }
+  return trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+}
+
+function buildDirectionPromptAssetUrlCandidates(assetFileName: string): string[] {
+  const candidates: string[] = [];
+  const seen = new Set<string>();
+  const addCandidate = (url: string): void => {
+    const normalized = String(url || "").trim();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    candidates.push(normalized);
+  };
+
+  const baseUrl = normalizeBaseUrl(
+    typeof import.meta.env.BASE_URL === "string"
+      ? import.meta.env.BASE_URL
+      : "/",
+  );
+
+  const maybeAddResolvedCandidate = (path: string): void => {
+    try {
+      addCandidate(new URL(path, window.location.href).href);
+    } catch {
+      // Skip malformed candidate URLs.
+    }
+  };
+
+  maybeAddResolvedCandidate(`${baseUrl}assets/ui/${assetFileName}`);
+  maybeAddResolvedCandidate(`./assets/ui/${assetFileName}`);
+  maybeAddResolvedCandidate(`/assets/ui/${assetFileName}`);
+  return candidates;
+}
+
+async function loadSvgImageFromCandidates(
+  urlCandidates: readonly string[],
+): Promise<HTMLImageElement> {
+  if (!Array.isArray(urlCandidates) || urlCandidates.length < 1) {
+    throw new Error("No direction prompt overlay asset URL candidates provided");
+  }
+  const errors: string[] = [];
+  for (const url of urlCandidates) {
+    try {
+      return await loadSvgImage(url);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  const attempted = urlCandidates.join(", ");
+  const failureSummary = errors.join(" | ");
+  throw new Error(
+    `Failed to load direction prompt overlay asset after trying: ${attempted}. Errors: ${failureSummary}`,
+  );
+}
+
 export class DirectionPromptOverlay {
   private readonly scene: THREE.Scene;
   private readonly root = new THREE.Group();
@@ -257,6 +319,9 @@ export class DirectionPromptOverlay {
   private readonly cameraRightScratch = new THREE.Vector3();
   private textures: DirectionPromptOverlayTextures | null = null;
   private textureLoadPromise: Promise<void> | null = null;
+  private textureLoadFailureCount = 0;
+  private textureReloadRetryTimerId: number | null = null;
+  private readonly textureLoadMaxRetries = 6;
   private visible = false;
   private hoveredButtonId: DirectionPromptOverlayButtonId | null = null;
   private pressedButtonId: DirectionPromptOverlayButtonId | null = null;
@@ -274,6 +339,9 @@ export class DirectionPromptOverlay {
 
   public setVisible(visible: boolean): void {
     this.visible = visible;
+    if (visible && this.textures === null) {
+      void this.ensureTexturesLoaded();
+    }
     this.root.visible = visible && this.textures !== null;
     if (!visible) {
       this.hoveredButtonId = null;
@@ -295,6 +363,9 @@ export class DirectionPromptOverlay {
   }
 
   public update(camera: THREE.Camera, playerX: number, playerY: number): void {
+    if (this.visible && this.textures === null && this.textureLoadPromise === null) {
+      void this.ensureTexturesLoaded();
+    }
     if (!this.visible || this.textures === null) {
       this.root.visible = false;
       return;
@@ -374,6 +445,7 @@ export class DirectionPromptOverlay {
   }
 
   public dispose(): void {
+    this.clearTextureReloadRetry();
     this.root.removeFromParent();
     for (const button of this.buttons.values()) {
       button.mesh.geometry.dispose();
@@ -394,13 +466,15 @@ export class DirectionPromptOverlay {
       return this.textureLoadPromise ?? Promise.resolve();
     }
 
-    const arrowUrl = new URL("/assets/ui/arrow.svg", window.location.href).href;
-    const circleUrl = new URL("/assets/ui/circle.svg", window.location.href).href;
+    const arrowUrls = buildDirectionPromptAssetUrlCandidates("arrow.svg");
+    const circleUrls = buildDirectionPromptAssetUrlCandidates("circle.svg");
     this.textureLoadPromise = Promise.all([
-      loadSvgImage(arrowUrl),
-      loadSvgImage(circleUrl),
+      loadSvgImageFromCandidates(arrowUrls),
+      loadSvgImageFromCandidates(circleUrls),
     ])
       .then(([arrowImage, circleImage]) => {
+        this.textureLoadFailureCount = 0;
+        this.clearTextureReloadRetry();
         this.textures = {
           arrow: {
             normal: buildTintedSvgTexture(arrowImage, {
@@ -464,13 +538,46 @@ export class DirectionPromptOverlay {
         this.root.visible = this.visible;
       })
       .catch((error) => {
+        this.textureLoadFailureCount += 1;
         console.warn(error);
       })
       .finally(() => {
         this.textureLoadPromise = null;
+        if (
+          this.visible &&
+          this.textures === null &&
+          this.textureLoadFailureCount < this.textureLoadMaxRetries
+        ) {
+          this.scheduleTextureReloadRetry();
+        }
       });
 
     return this.textureLoadPromise;
+  }
+
+  private clearTextureReloadRetry(): void {
+    if (
+      this.textureReloadRetryTimerId !== null &&
+      typeof window !== "undefined"
+    ) {
+      window.clearTimeout(this.textureReloadRetryTimerId);
+    }
+    this.textureReloadRetryTimerId = null;
+  }
+
+  private scheduleTextureReloadRetry(): void {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (this.textureReloadRetryTimerId !== null || this.textures !== null) {
+      return;
+    }
+    const attempt = Math.max(1, this.textureLoadFailureCount);
+    const delayMs = Math.min(2000, 220 * 2 ** (attempt - 1));
+    this.textureReloadRetryTimerId = window.setTimeout(() => {
+      this.textureReloadRetryTimerId = null;
+      void this.ensureTexturesLoaded();
+    }, delayMs);
   }
 
   private ensureButtons(): void {
