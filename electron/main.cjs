@@ -973,7 +973,10 @@ function hasLaunchArgument(...switchNames) {
 
 function resolveWindowMode() {
   if (process.platform === "win32") {
-    return "borderless";
+    if (hasLaunchArgument("windowed", "window")) {
+      return "windowed";
+    }
+    return "fullscreen";
   }
   if (hasLaunchArgument("windowed", "window")) {
     return "windowed";
