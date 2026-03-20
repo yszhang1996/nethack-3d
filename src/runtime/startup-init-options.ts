@@ -366,9 +366,7 @@ const startupInitOptionDefinitionByKey = new Map<
   ]),
 );
 
-const requiredStartupInitOptionTokens: ReadonlyArray<string> = [
-  "getpos.autodescribe:nothing",
-];
+const requiredStartupInitOptionTokens: ReadonlyArray<string> = [];
 
 const supportedPassthroughStartupInitOptionValuesByKey = new Map<
   string,
