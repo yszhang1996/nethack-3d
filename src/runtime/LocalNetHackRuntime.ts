@@ -60,6 +60,10 @@ class LocalNetHackRuntime {
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.textInputPrefix = "__TEXT_INPUT__:";
     this.inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+    this.contextualGlanceProbePrefix = "__CTX_GLANCE_PROBE__";
+    this.contextualGlanceProbeMouseDeadlineMs = 0;
+    this.contextualGlanceAutoCancelPositionUntilMs = 0;
+    this.contextualGlanceAutoCancelPositionWindowMs = 450;
     this.pendingInventoryContextSelection = null;
     this.pendingTextRequest = null;
     this.textInputMaxLength = 256;
@@ -523,6 +527,11 @@ class LocalNetHackRuntime {
     if (typeof input !== "string" || input.length === 0) {
       return;
     }
+    if (input === this.contextualGlanceProbePrefix) {
+      this.contextualGlanceProbeMouseDeadlineMs = Date.now() + 1200;
+      this.contextualGlanceAutoCancelPositionUntilMs = 0;
+      return;
+    }
 
     console.log("Received client input:", input, {
       source,
@@ -536,6 +545,16 @@ class LocalNetHackRuntime {
       isInMultiPickup: this.isInMultiPickup,
       hasPendingTextRequest: Boolean(this.pendingTextRequest),
     });
+
+    if (
+      this.activeInputRequest?.kind === "position" &&
+      !this.isPositionRequestContinuationInput(input)
+    ) {
+      console.log(
+        `Cancelling active position request before command input "${input}"`,
+      );
+      this.enqueueInputKeys(["Escape"], "system", ["position"]);
+    }
 
     if (
       source === "user" &&
@@ -1481,6 +1500,14 @@ class LocalNetHackRuntime {
       requestKind === "position" &&
       this.applyMouseTokenToPoskeyRequest(token, requestContext)
     ) {
+      if (this.contextualGlanceProbeMouseDeadlineMs > 0) {
+        const nowMs = Date.now();
+        if (nowMs <= this.contextualGlanceProbeMouseDeadlineMs) {
+          this.contextualGlanceAutoCancelPositionUntilMs =
+            nowMs + this.contextualGlanceAutoCancelPositionWindowMs;
+        }
+        this.contextualGlanceProbeMouseDeadlineMs = 0;
+      }
       // "/" -> "/" look mode can stay active after a click while NetHack asks
       // for additional description details. Keep UI position mode aligned.
       if (this.farLookMode === "active" && this.farLookOrigin !== "look_menu") {
@@ -1839,6 +1866,24 @@ class LocalNetHackRuntime {
       input === "Enter" ||
       input === "\r" ||
       input === "\n"
+    );
+  }
+
+  isPositionRequestContinuationInput(input) {
+    const normalized = this.normalizeInputKey(input);
+    if (typeof normalized !== "string" || normalized.length === 0) {
+      return false;
+    }
+    if (this.isDirectionalMovementInput(normalized)) {
+      return true;
+    }
+    if (this.isFarLookExitInput(normalized)) {
+      return true;
+    }
+    return (
+      normalized === "." ||
+      normalized === "5" ||
+      normalized === "Numpad5"
     );
   }
 
@@ -3857,6 +3902,18 @@ class LocalNetHackRuntime {
   handleShimNhPoskey(args) {
     const [xPtr, yPtr, modPtr] = args;
     console.log("NetHack requesting position key");
+    if (this.contextualGlanceAutoCancelPositionUntilMs > 0) {
+      const nowMs = Date.now();
+      if (nowMs <= this.contextualGlanceAutoCancelPositionUntilMs) {
+        console.log(
+          "Auto-canceling contextual glance follow-up position request",
+        );
+        this.contextualGlanceAutoCancelPositionUntilMs = 0;
+        this.setPositionInputActive(false);
+        return this.processKey("Escape");
+      }
+      this.contextualGlanceAutoCancelPositionUntilMs = 0;
+    }
 
     if (this.farLookMode === "armed") {
       this.farLookMode = "active";

@@ -732,6 +732,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
   private readonly inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+  private readonly contextualGlanceProbePrefix = "__CTX_GLANCE_PROBE__";
   private repeatableAction: RepeatableActionSpec | null = null;
   private repeatActionVisible: boolean = false;
   private repeatAutoDirectionPending: boolean = false;
@@ -9326,6 +9327,86 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.fpsCrosshairGlancePending = null;
   }
 
+  private resolvePreferredKeyboardInputForExtendedCommand(
+    normalizedCommandText: string,
+  ):
+    | { kind: "input"; input: string }
+    | { kind: "sequence"; inputs: string[] }
+    | null {
+    switch (normalizedCommandText) {
+      case "apply":
+        return { kind: "input", input: "a" };
+      case "call":
+        return { kind: "input", input: "C" };
+      case "cast":
+        return { kind: "input", input: "Z" };
+      case "close":
+        return { kind: "input", input: "c" };
+      case "dip":
+        return { kind: "input", input: `${this.metaInputPrefix}d` };
+      case "drop":
+        return { kind: "input", input: "d" };
+      case "eat":
+        return { kind: "input", input: "e" };
+      case "engrave":
+        return { kind: "input", input: "E" };
+      case "fire":
+        return { kind: "input", input: "f" };
+      case "force":
+        return { kind: "input", input: `${this.metaInputPrefix}f` };
+      case "glance":
+        return { kind: "input", input: ";" };
+      case "invoke":
+        return { kind: "input", input: `${this.metaInputPrefix}i` };
+      case "kick":
+        return { kind: "input", input: `${this.ctrlInputPrefix}d` };
+      case "loot":
+        return this.numberPadModeEnabled
+          ? { kind: "input", input: "l" }
+          : { kind: "input", input: `${this.metaInputPrefix}l` };
+      case "name":
+        return this.numberPadModeEnabled
+          ? { kind: "input", input: "N" }
+          : { kind: "input", input: `${this.metaInputPrefix}n` };
+      case "offer":
+        return { kind: "input", input: `${this.metaInputPrefix}o` };
+      case "open":
+        return { kind: "input", input: "o" };
+      case "pickup":
+        return { kind: "input", input: "," };
+      case "puton":
+        return { kind: "input", input: "P" };
+      case "quaff":
+        return { kind: "input", input: "q" };
+      case "quiver":
+        return { kind: "input", input: "Q" };
+      case "read":
+        return { kind: "input", input: "r" };
+      case "remove":
+        return { kind: "input", input: "R" };
+      case "rub":
+        return { kind: "input", input: `${this.metaInputPrefix}r` };
+      case "search":
+        return { kind: "input", input: "s" };
+      case "takeoff":
+        return { kind: "input", input: "T" };
+      case "throw":
+        return { kind: "input", input: "t" };
+      case "untrap":
+        return this.numberPadModeEnabled
+          ? { kind: "input", input: "u" }
+          : { kind: "input", input: `${this.metaInputPrefix}u` };
+      case "wear":
+        return { kind: "input", input: "W" };
+      case "wield":
+        return { kind: "input", input: "w" };
+      case "zap":
+        return { kind: "input", input: "z" };
+      default:
+        return null;
+    }
+  }
+
   private executeQuickAction(
     normalizedActionId: string,
     shouldArmRepeat: boolean,
@@ -9383,10 +9464,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
         if (this.isAutomaticHashCommandBlockedByLookMode()) {
           return false;
         }
-        this.sendInputSequence(
-          ["#", "l", "o", "o", "t", "Enter"],
-          submitOptions,
-        );
+        {
+          const preferredLootInput =
+            this.resolvePreferredKeyboardInputForExtendedCommand("loot");
+          if (preferredLootInput?.kind === "input") {
+            this.sendInput(preferredLootInput.input, submitOptions);
+          } else if (preferredLootInput?.kind === "sequence") {
+            this.sendInputSequence(preferredLootInput.inputs, submitOptions);
+          } else {
+            this.sendInputSequence(
+              ["#", "l", "o", "o", "t", "Enter"],
+              submitOptions,
+            );
+          }
+        }
         if (shouldAutoSelfDirectionForLoot) {
           this.armContextAutoDirection("s");
         }
@@ -9473,8 +9564,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (normalizedCommandText === "kick") {
       this.armFpsFireSuppression();
     }
-    const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
-    this.sendInputSequence(sequence, { delayMs: submitDelayMs });
+    const preferredInput =
+      this.resolvePreferredKeyboardInputForExtendedCommand(
+        normalizedCommandText,
+      );
+    if (preferredInput?.kind === "input") {
+      this.sendInput(preferredInput.input, { delayMs: submitDelayMs });
+    } else if (preferredInput?.kind === "sequence") {
+      this.sendInputSequence(preferredInput.inputs, { delayMs: submitDelayMs });
+    } else {
+      const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
+      this.sendInputSequence(sequence, { delayMs: submitDelayMs });
+    }
     if (shouldArmRepeat) {
       this.queueRepeatDirectionCandidate({
         kind: "extended",
@@ -26673,6 +26774,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     // Suppress NetHack's transient clicklook prompt ("Pick an object.")
     // generated by the synthetic glance flow.
     this.skipNextMobileFpsClickLookPromptMessage = true;
+    this.sendInput(this.contextualGlanceProbePrefix, {
+      keepContextMenuOpen: true,
+    });
     this.sendInputSequence(["#", "g", "l", "a", "n", "c", "e", "Enter"], {
       keepContextMenuOpen: true,
     });
