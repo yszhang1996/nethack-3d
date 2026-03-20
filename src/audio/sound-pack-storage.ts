@@ -104,7 +104,7 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "pickup-gold",
     label: "Pick up gold",
-    messageLogKeywords: ["gold pieces", " - a gold piece"],
+    messageLogKeywords: ["$ - "],
   },
   {
     key: "pickup-item",
@@ -2262,7 +2262,9 @@ function parseImportManifest(rawManifest: unknown): {
     }
     const rawKey = String(rawEntry.key || "");
     const key = rawKey as Nh3dSoundEffectKey;
-    if (!nh3dSoundEffectDefinitions.some((definition) => definition.key === key)) {
+    if (
+      !nh3dSoundEffectDefinitions.some((definition) => definition.key === key)
+    ) {
       continue;
     }
     const source: Nh3dSoundEntrySource =
