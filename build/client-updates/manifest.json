@@ -1,28 +1,23 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T00:30:46.514Z",
+  "generatedAt": "2026-03-20T00:43:16.423Z",
   "latest": {
-    "buildId": "fc51da79b06438e89456",
-    "commitSha": "3f7816b093ab187be2972e1b7e7ada5036dae78b",
-    "createdAt": "2026-03-20T00:30:46.514Z",
+    "buildId": "991d0ca26ff0af752144",
+    "commitSha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
+    "createdAt": "2026-03-20T00:43:16.423Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "3f7816b093ab187be2972e1b7e7ada5036dae78b",
-        "authoredAt": "2026-03-19T20:30:26-04:00",
-        "message": "Testing game updates"
+        "sha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
+        "authoredAt": "2026-03-19T20:42:47-04:00",
+        "message": "Added warning when game updates are corrupted, automatically clear corrupt game updates and advise a full client update"
       },
       {
-        "sha": "63fb0529c83d0f2d68c6c74f3f66f528774bd3cd",
-        "authoredAt": "2026-03-19T20:27:04-04:00",
-        "message": "Fixed update system (for real this time)"
-      },
-      {
-        "sha": "15b1d4852f36ff7b6069810223df6947f5b9b69e",
-        "authoredAt": "2026-03-19T20:17:59-04:00",
+        "sha": "a1a3c1099152ad34a3650c00ff4a2df43190be81",
+        "authoredAt": "2026-03-19T20:30:57-04:00",
         "message": "Update"
       }
     ],
@@ -64,9 +59,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-BmyQdUyL.js",
+        "path": "assets/index-7enRMhZr.js",
         "size": null,
-        "sha256": "253a5581968820b73fc2994ab7199cb51097ddbbdc06e997a38079b7a6f996a6"
+        "sha256": "61b2c69f306040632317a1c5ebc79a76eda14303de22562f329b04ee4db982c5"
       },
       {
         "path": "assets/index-BxsyR-HD.js",
@@ -13096,7 +13091,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "2165680fdd982ab5520b7487e424c5c353eb8ffca6c406d6f17f09dd4f926a98"
+        "sha256": "e40517d31cf41d6263680bef6d4585fe00a73364284904961c8c451de5d8d54d"
       },
       {
         "path": "nethack-367.wasm",
@@ -13126,6 +13121,26 @@
     ]
   },
   "history": [
+    {
+      "buildId": "991d0ca26ff0af752144",
+      "commitSha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
+      "createdAt": "2026-03-20T00:43:16.423Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
+          "authoredAt": "2026-03-19T20:42:47-04:00",
+          "message": "Added warning when game updates are corrupted, automatically clear corrupt game updates and advise a full client update"
+        },
+        {
+          "sha": "a1a3c1099152ad34a3650c00ff4a2df43190be81",
+          "authoredAt": "2026-03-19T20:30:57-04:00",
+          "message": "Update"
+        }
+      ]
+    },
     {
       "buildId": "fc51da79b06438e89456",
       "commitSha": "3f7816b093ab187be2972e1b7e7ada5036dae78b",
@@ -13433,15 +13448,6 @@
           "message": "Online update system fixes"
         }
       ]
-    },
-    {
-      "buildId": "3dbc9dab3086b5719135",
-      "commitSha": "c7ecc7ebe07fe71cb0a6b70e58387da652ea92c4",
-      "createdAt": "2026-03-19T20:27:21.855Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": []
     }
   ]
 }
