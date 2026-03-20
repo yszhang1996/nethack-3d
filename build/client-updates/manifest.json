@@ -1,19 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T00:13:26.919Z",
+  "generatedAt": "2026-03-20T00:16:12.980Z",
   "latest": {
-    "buildId": "3b27a7f794bad5e47dd3",
-    "commitSha": "8b08fc92a4fdbe14b30b1b0d698b0a3ca0ad07fe",
-    "createdAt": "2026-03-20T00:13:26.919Z",
+    "buildId": "1953fd0f978a0bb478fe",
+    "commitSha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
+    "createdAt": "2026-03-20T00:16:12.980Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "8b08fc92a4fdbe14b30b1b0d698b0a3ca0ad07fe",
-        "authoredAt": "2026-03-19T19:58:50-04:00",
-        "message": "Testing updates"
+        "sha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
+        "authoredAt": "2026-03-19T20:13:51-04:00",
+        "message": "Fixed game updates taking forever, remove file length check, only use SHA now"
       }
     ],
     "filesBasePath": "latest",
@@ -54,14 +54,14 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-B9_vJkMB.js",
-        "size": null,
-        "sha256": "ecbe811ab9d3f55eb4dc3a8ef02f31c5d90a14162b6f58c7c2ad49c05112a9ca"
-      },
-      {
         "path": "assets/index-BxsyR-HD.js",
         "size": null,
         "sha256": "6f96f3d04a9a3907b18e85a4e86bcef5fc639cad55f4915d0bf22c8241f47e03"
+      },
+      {
+        "path": "assets/index-C1uJyVDw.js",
+        "size": null,
+        "sha256": "c718fd0bbe98769f8ead0f02888cc890541093e531c05307a0e5657c93141137"
       },
       {
         "path": "assets/index-CdHFIQ6x.css",
@@ -13086,7 +13086,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "cb4bc89995bac91ab0d1d1574ab3b9259a8377019de0746f64988feb3bc0fda9"
+        "sha256": "42939bb4706a3e91786e3cc24c1ce9d83a30082209a443bb016e313e641402db"
       },
       {
         "path": "nethack-367.wasm",
@@ -13116,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "1953fd0f978a0bb478fe",
+      "commitSha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
+      "createdAt": "2026-03-20T00:16:12.980Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "0e1af24c99c771e1f0fc6fa24ba4f47c8090ebf1",
+          "authoredAt": "2026-03-19T20:13:51-04:00",
+          "message": "Fixed game updates taking forever, remove file length check, only use SHA now"
+        }
+      ]
+    },
     {
       "buildId": "3b27a7f794bad5e47dd3",
       "commitSha": "8b08fc92a4fdbe14b30b1b0d698b0a3ca0ad07fe",
@@ -13402,21 +13417,6 @@
       "buildId": "c30efa45a4ce97601356",
       "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
       "createdAt": "2026-03-19T19:29:24.254Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-          "authoredAt": "2026-03-19T14:44:51-04:00",
-          "message": "Update"
-        }
-      ]
-    },
-    {
-      "buildId": "f3d8a82231d2fef52e1d",
-      "commitSha": "3ec214b7d689b02b87f7da6bf1fe241f9177cf7b",
-      "createdAt": "2026-03-19T19:27:23.775Z",
       "clientVersion": "0.9.8",
       "requiresClientUpgrade": false,
       "clientUpgradeMessage": "",
