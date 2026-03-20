@@ -21535,7 +21535,67 @@ class Nethack3DEngine implements Nethack3DEngineController {
     return normalized.includes("drink from the fountain");
   }
 
-  private maybePlayFountainDrinkSoundForQuestionAnswer(input: string): void {
+  private isInventoryDrinkQuestion(questionText: string): boolean {
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    return normalized.includes("what do you want to drink");
+  }
+
+  private findMenuCategoryLabelForItem(
+    menuItems: any[],
+    targetItem: any,
+  ): string | null {
+    if (!Array.isArray(menuItems) || !targetItem) {
+      return null;
+    }
+
+    const targetIndex = menuItems.findIndex((item) => item === targetItem);
+    if (targetIndex < 0) {
+      return null;
+    }
+
+    let currentCategory: string | null = null;
+    for (let index = 0; index <= targetIndex; index += 1) {
+      const menuItem = menuItems[index];
+      if (
+        menuItem &&
+        menuItem.isCategory &&
+        typeof menuItem.text === "string" &&
+        menuItem.text.trim()
+      ) {
+        currentCategory = menuItem.text.trim();
+      }
+    }
+
+    return currentCategory;
+  }
+
+  private isSpecialInventoryCategoryLabel(categoryLabel: string | null): boolean {
+    return String(categoryLabel || "")
+      .trim()
+      .toLowerCase() === "special";
+  }
+
+  private shouldPlayDrinkSoundForInventorySelection(
+    questionText: string,
+    menuItems: any[],
+    selectedItem: any,
+  ): boolean {
+    if (!this.isInventoryDrinkQuestion(questionText) || !selectedItem) {
+      return false;
+    }
+    const categoryLabel = this.findMenuCategoryLabelForItem(
+      menuItems,
+      selectedItem,
+    );
+    return !this.isSpecialInventoryCategoryLabel(categoryLabel);
+  }
+
+  private maybePlayDrinkSoundForQuestionAnswer(input: string): void {
     if (!this.isInQuestion || this.activeQuestionMenuItems.length > 0) {
       return;
     }
@@ -21546,6 +21606,43 @@ class Nethack3DEngine implements Nethack3DEngineController {
       .trim()
       .toLowerCase();
     if (normalizedChoice === "y") {
+      this.messageSoundHooks.playDrinkSound();
+    }
+  }
+
+  private maybePlayDrinkSoundForQuestionMenuSelection(selectedItem: any): void {
+    if (
+      this.shouldPlayDrinkSoundForInventorySelection(
+        this.activeQuestionText,
+        this.activeQuestionMenuItems,
+        selectedItem,
+      )
+    ) {
+      this.messageSoundHooks.playDrinkSound();
+    }
+  }
+
+  private maybePlayDrinkSoundForInventoryItemAction(
+    actionId: string,
+    itemAccelerator: string,
+  ): void {
+    if (actionId !== "quaff") {
+      return;
+    }
+    const selectedItem = this.currentInventory.find(
+      (item) =>
+        item &&
+        !item.isCategory &&
+        typeof item.accelerator === "string" &&
+        item.accelerator === itemAccelerator,
+    );
+    if (
+      this.shouldPlayDrinkSoundForInventorySelection(
+        "What do you want to drink?",
+        this.currentInventory,
+        selectedItem,
+      )
+    ) {
       this.messageSoundHooks.playDrinkSound();
     }
   }
@@ -21981,6 +22078,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    this.maybePlayDrinkSoundForQuestionMenuSelection(selectedItem);
     this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
     this.hideQuestion();
   }
@@ -22741,6 +22839,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (selectedItem) {
       const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
       this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
+      this.maybePlayDrinkSoundForQuestionMenuSelection(selectedItem);
       this.sendInput(selectionInput);
       this.hideQuestion();
       return;
@@ -22750,7 +22849,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    this.maybePlayFountainDrinkSoundForQuestionAnswer(resolvedChoice);
+    this.maybePlayDrinkSoundForQuestionAnswer(resolvedChoice);
     this.sendInput(resolvedChoice);
     this.hideQuestion();
   }
@@ -22844,6 +22943,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.clearRepeatableAction();
     this.clearRepeatDirectionCandidate();
     this.hideInventoryDialog();
+    this.maybePlayDrinkSoundForInventoryItemAction(
+      normalizedActionId,
+      accelerator,
+    );
 
     const commandMap: Record<string, string> = {
       apply: "a",
@@ -25454,7 +25557,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           return;
         }
         this.updateNumberPadModeFromChoice(event.key);
-        this.maybePlayFountainDrinkSoundForQuestionAnswer(event.key);
+        this.maybePlayDrinkSoundForQuestionAnswer(event.key);
         this.sendInput(event.key);
         this.hideQuestion();
         return;
@@ -25685,11 +25788,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
           const selectionInput =
             this.getQuestionMenuSelectionInput(selectedItem);
           this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
+          this.maybePlayDrinkSoundForQuestionMenuSelection(selectedItem);
           this.sendInput(selectionInput);
           this.hideQuestion();
         } else if (!isMenuQuestion) {
           this.updateNumberPadModeFromChoice(event.key);
-          this.maybePlayFountainDrinkSoundForQuestionAnswer(event.key);
+          this.maybePlayDrinkSoundForQuestionAnswer(event.key);
           this.sendInput(event.key);
           this.hideQuestion();
         } else {

@@ -99,7 +99,6 @@ export const nh3dSoundEffectDefinitions = [
   {
     key: "quaff-potion",
     label: "Quaff a potion",
-    messageLogKeywords: ["you quaff"],
   },
   {
     key: "pickup-gold",

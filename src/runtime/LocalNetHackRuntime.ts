@@ -24,6 +24,7 @@ class LocalNetHackRuntime {
     this.playerPosition = { x: 0, y: 0 };
     this.gameMessages = [];
     this.lastPromptContextMessage = "";
+    this.recentUICallbackHistory = [];
     this.latestInventoryItems = [];
     this.latestStatusUpdates = new Map();
     this.currentMenuItems = [];
@@ -2013,6 +2014,64 @@ class LocalNetHackRuntime {
     this.lastPromptContextMessage = normalized;
   }
 
+  isRawPrintCallbackName(name) {
+    return name === "shim_raw_print" || name === "shim_raw_print_bold";
+  }
+
+  recordRecentUICallback(name, args) {
+    const entry = {
+      name: typeof name === "string" ? name : String(name ?? ""),
+      text: "",
+    };
+    if (this.isRawPrintCallbackName(entry.name) && Array.isArray(args)) {
+      entry.text = this.normalizePromptContextMessage(args[0]);
+    }
+    this.recentUICallbackHistory.push(entry);
+    if (this.recentUICallbackHistory.length > 80) {
+      this.recentUICallbackHistory.shift();
+    }
+  }
+
+  getRecentRawPrintContextMessage() {
+    if (!Array.isArray(this.recentUICallbackHistory)) {
+      return "";
+    }
+
+    let latestRawPrintIndex = -1;
+    for (
+      let index = this.recentUICallbackHistory.length - 1;
+      index >= 0;
+      index -= 1
+    ) {
+      const entry = this.recentUICallbackHistory[index];
+      if (!entry || entry.name === "shim_getlin") {
+        continue;
+      }
+      if (this.isRawPrintCallbackName(entry.name) && entry.text) {
+        latestRawPrintIndex = index;
+        break;
+      }
+      break;
+    }
+
+    if (latestRawPrintIndex < 0) {
+      return "";
+    }
+
+    const collectedLines = [];
+    for (let index = latestRawPrintIndex; index >= 0; index -= 1) {
+      const entry = this.recentUICallbackHistory[index];
+      if (!entry || !this.isRawPrintCallbackName(entry.name)) {
+        break;
+      }
+      if (entry.text) {
+        collectedLines.unshift(entry.text);
+      }
+    }
+
+    return collectedLines.join("\n");
+  }
+
   getMostRecentToplineMessage() {
     const latestRemembered = this.normalizePromptContextMessage(
       this.lastPromptContextMessage,
@@ -2044,7 +2103,8 @@ class LocalNetHackRuntime {
       return "";
     }
 
-    const context = this.getMostRecentToplineMessage();
+    const context =
+      this.getRecentRawPrintContextMessage() || this.getMostRecentToplineMessage();
     if (!context) {
       return "";
     }
@@ -4136,6 +4196,7 @@ class LocalNetHackRuntime {
       return 0;
     }
     console.log(`🎮 UI Callback: ${name}`, args);
+    this.recordRecentUICallback(name, args);
 
     const inputCallbackHandlers = {
       shim_get_nh_event: () => this.handleShimGetNhEvent(),

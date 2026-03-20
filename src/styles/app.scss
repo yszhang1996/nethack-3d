@@ -4049,8 +4049,8 @@ canvas {
   color: rgba(255, 245, 222, 0.92);
   font-style: italic;
   letter-spacing: 0.01em;
-  position: relative;
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+  white-space: pre-line;
 
   &::before {
     content: '"';
