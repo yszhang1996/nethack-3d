@@ -1,24 +1,24 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T00:43:16.423Z",
+  "generatedAt": "2026-03-20T02:42:38.951Z",
   "latest": {
-    "buildId": "991d0ca26ff0af752144",
-    "commitSha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
-    "createdAt": "2026-03-20T00:43:16.423Z",
+    "buildId": "c3fb441ad383e50be707",
+    "commitSha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
+    "createdAt": "2026-03-20T02:42:38.951Z",
     "clientVersion": "0.9.8",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
-        "authoredAt": "2026-03-19T20:42:47-04:00",
-        "message": "Added warning when game updates are corrupted, automatically clear corrupt game updates and advise a full client update"
+        "sha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
+        "authoredAt": "2026-03-19T22:40:42-04:00",
+        "message": "Fixes for contextual popup 'autodescribe is off' issues and arrows not showing on iOS"
       },
       {
-        "sha": "a1a3c1099152ad34a3650c00ff4a2df43190be81",
-        "authoredAt": "2026-03-19T20:30:57-04:00",
-        "message": "Update"
+        "sha": "0c4655ceabe3374cb9ebd8ba7c1d303d2c091150",
+        "authoredAt": "2026-03-19T20:43:24-04:00",
+        "message": "Online game update release"
       }
     ],
     "filesBasePath": "latest",
@@ -59,14 +59,9 @@
         "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
       },
       {
-        "path": "assets/index-7enRMhZr.js",
+        "path": "assets/index-B4qItPp_.js",
         "size": null,
-        "sha256": "61b2c69f306040632317a1c5ebc79a76eda14303de22562f329b04ee4db982c5"
-      },
-      {
-        "path": "assets/index-BxsyR-HD.js",
-        "size": null,
-        "sha256": "6f96f3d04a9a3907b18e85a4e86bcef5fc639cad55f4915d0bf22c8241f47e03"
+        "sha256": "bfadd60bc9337fec139aa64090a9a2a3e1faff80e4b8e189944dd5b3e5669950"
       },
       {
         "path": "assets/index-CdHFIQ6x.css",
@@ -74,9 +69,14 @@
         "sha256": "59769946ae9548ee2731f8378819f6f436e5a7bcea98ee38cc59c3403c97b504"
       },
       {
-        "path": "assets/index-Du_r9Vxv.js",
+        "path": "assets/index-DfvVOviL.js",
         "size": null,
-        "sha256": "dbcb1639d3d34900933ca29aa63dd738f8675adc15bf75f54efb73428aca451b"
+        "sha256": "cef73327423ed8dbbc51ab3bc4d087b3110f99304c9581d10c0d3b54d22be925"
+      },
+      {
+        "path": "assets/index-EIt9hbyK.js",
+        "size": null,
+        "sha256": "41f32b7019aa102dc9bbbb29b90605bb40d19825e7627d1caf2da7857bb3423d"
       },
       {
         "path": "assets/nethack-COBuHcyY.wasm",
@@ -89,19 +89,19 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-B4wZUJvH.js",
+        "path": "assets/runtime-worker-DP7ShzHx.js",
         "size": null,
-        "sha256": "a2f5604f14727a5bc16a5633c87b28d8ffb3fbb2221c680a9f05761e16b89c24"
+        "sha256": "33e57f1ca76d1e7707d0ec893c62c49d0c56e1c71e3d467f9dc6e7266c3de642"
       },
       {
         "path": "assets/ui/arrow.svg",
         "size": null,
-        "sha256": "aa18e9b25e59d81b5d4ce018b3f9600bca6997fb4f027a1f1b2b4a907bfc2bfe"
+        "sha256": "03967a2e496fb78a49d47088f265c55c07f5fcf83f72d7c14691811a5433c3d5"
       },
       {
         "path": "assets/ui/circle.svg",
         "size": null,
-        "sha256": "a0d7f0d72c84c83a18d892a2d04e659898b67a8dd877bda1bd190498705040fd"
+        "sha256": "f6dc92e99328bf74ea3ffada6023f813ac982634a6c1098e1b808b94789c2964"
       },
       {
         "path": "assets/vulture/win/vulture/gamedata/config/vulture_tiles.conf",
@@ -13091,7 +13091,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "e40517d31cf41d6263680bef6d4585fe00a73364284904961c8c451de5d8d54d"
+        "sha256": "5c8901b45659b5b700ef98e77af3c5b1981b776c8535d6e3c920fc7b49bf1c0a"
       },
       {
         "path": "nethack-367.wasm",
@@ -13121,6 +13121,26 @@
     ]
   },
   "history": [
+    {
+      "buildId": "c3fb441ad383e50be707",
+      "commitSha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
+      "createdAt": "2026-03-20T02:42:38.951Z",
+      "clientVersion": "0.9.8",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "7da1b18d4e91c7952da1e2f328a72114c1a40ad1",
+          "authoredAt": "2026-03-19T22:40:42-04:00",
+          "message": "Fixes for contextual popup 'autodescribe is off' issues and arrows not showing on iOS"
+        },
+        {
+          "sha": "0c4655ceabe3374cb9ebd8ba7c1d303d2c091150",
+          "authoredAt": "2026-03-19T20:43:24-04:00",
+          "message": "Online game update release"
+        }
+      ]
+    },
     {
       "buildId": "991d0ca26ff0af752144",
       "commitSha": "e8ac9e48903d5cfdea3afec755f40e30c482e3a8",
@@ -13426,26 +13446,6 @@
           "sha": "26bac4fcd8e973fcf42eabb0df3f7d50172f45d6",
           "authoredAt": "2026-03-19T16:58:52-04:00",
           "message": "Allow cancelling update downloads, and better detect when updates are available or not"
-        }
-      ]
-    },
-    {
-      "buildId": "c288c58113d6eee7653c",
-      "commitSha": "0568562f08d30d34b360091392ced0e674d96287",
-      "createdAt": "2026-03-19T20:58:06.882Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "0568562f08d30d34b360091392ced0e674d96287",
-          "authoredAt": "2026-03-19T16:27:56-04:00",
-          "message": "Updated build"
-        },
-        {
-          "sha": "ca861fdba2db38e812d4bac5df2c615d79209814",
-          "authoredAt": "2026-03-19T16:27:38-04:00",
-          "message": "Online update system fixes"
         }
       ]
     }
