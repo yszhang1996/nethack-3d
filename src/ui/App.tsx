@@ -4180,6 +4180,7 @@ export default function App(): JSX.Element {
     () => createDefaultStartupCharacterPreferences(),
     [],
   );
+  const [hasShownStartupMenu, setHasShownStartupMenu] = useState(false);
   const canvasRootRef = useRef<HTMLDivElement | null>(null);
   const textInputRef = useRef<HTMLInputElement | null>(null);
   const startupRenderSignalSentRef = useRef(false);
@@ -6795,8 +6796,12 @@ export default function App(): JSX.Element {
     : tilesetLoadingVisible
       ? "Loading tileset..."
       : "Starting local runtime...";
+  const startupInitialLoadingVisible = !hasShownStartupMenu && loadingOverlayVisible;
+  const startupLogoVisible = startupUiVisible && !startupInitialLoadingVisible;
   const startupMenuVisible =
-    startupUiVisible && characterCreationConfig === null;
+    startupUiVisible &&
+    characterCreationConfig === null &&
+    !startupInitialLoadingVisible;
   const startupUpdateDialogOpen =
     startupMenuVisible && isStartupUpdateDialogVisible;
   const startupChooseDialogVisible =
@@ -6840,6 +6845,12 @@ export default function App(): JSX.Element {
     typeof startupUpdateProgressFileCount === "number"
       ? `File ${startupUpdateProgressFileIndex} of ${startupUpdateProgressFileCount}`
       : null;
+
+  useEffect(() => {
+    if (!hasShownStartupMenu && startupMenuVisible) {
+      setHasShownStartupMenu(true);
+    }
+  }, [hasShownStartupMenu, startupMenuVisible]);
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -7257,7 +7268,7 @@ export default function App(): JSX.Element {
       return;
     }
     const root = document.documentElement;
-    if (!startupUiVisible) {
+    if (!startupLogoVisible) {
       root.style.removeProperty("--nh3d-startup-logo-bottom");
       return;
     }
@@ -7307,7 +7318,7 @@ export default function App(): JSX.Element {
       }
       root.style.removeProperty("--nh3d-startup-logo-bottom");
     };
-  }, [startupUiVisible]);
+  }, [startupLogoVisible]);
 
   const hasGameplayOverlayOpen =
     Boolean(question) ||
@@ -11727,7 +11738,7 @@ export default function App(): JSX.Element {
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
       {renderPauseMenu()}
-      {startupUiVisible && (
+      {startupLogoVisible && (
         <div className="logo-container">
           <pre className="nethack-ascii-logo">
             {`                
@@ -11800,6 +11811,7 @@ export default function App(): JSX.Element {
 
       <AnimatedDialog
         className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog nh3d-startup-update-dialog"
+        disableAnimations={startupInitialLoadingVisible}
         open={startupUpdateDialogOpen}
         id="nh3d-startup-update-dialog"
         onBlurCapture={handleStartupMainMenuBlurCapture}
@@ -11993,6 +12005,7 @@ export default function App(): JSX.Element {
 
       <AnimatedDialog
         className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
+        disableAnimations={startupInitialLoadingVisible}
         open={startupChooseDialogVisible}
         id="character-setup-dialog-choose"
         onBlurCapture={handleStartupMainMenuBlurCapture}
@@ -12067,6 +12080,7 @@ export default function App(): JSX.Element {
 
       <AnimatedDialog
         className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
+        disableAnimations={startupInitialLoadingVisible}
         open={startupResumeDialogVisible}
         id="character-setup-dialog-resume"
         onBlurCapture={handleStartupMainMenuBlurCapture}
@@ -12176,6 +12190,7 @@ export default function App(): JSX.Element {
         className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog${
           startupInitOptionsExpanded ? " nh3d-startup-init-expanded" : ""
         }`}
+        disableAnimations={startupInitialLoadingVisible}
         open={startupRandomDialogVisible}
         id="character-setup-dialog-random"
         onBlurCapture={handleStartupMainMenuBlurCapture}
@@ -12247,6 +12262,7 @@ export default function App(): JSX.Element {
         className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog${
           startupInitOptionsExpanded ? " nh3d-startup-init-expanded" : ""
         }`}
+        disableAnimations={startupInitialLoadingVisible}
         open={startupCreateDialogVisible}
         id="character-setup-dialog-create"
         onBlurCapture={handleStartupMainMenuBlurCapture}
