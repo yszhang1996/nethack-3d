@@ -9,6 +9,23 @@ import {
   generateTilesetManifest,
 } from "./scripts/tilesets/generate-tileset-manifest.mjs";
 
+function resolveInstalledPackageVersion(packageName: string): string {
+  try {
+    const packageJsonPath = path.join(
+      process.cwd(),
+      "node_modules",
+      packageName,
+      "package.json",
+    );
+    const payload = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+    return typeof payload.version === "string" && payload.version.trim()
+      ? payload.version.trim()
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 function copyWasmPlugin() {
   return {
     name: "copy-nethack-wasm",
@@ -58,6 +75,8 @@ const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
 const isElectronBuild = process.env.BUILD_TARGET === "electron";
 const enableCrossOriginIsolation =
   process.env.NH3D_ENABLE_CROSS_ORIGIN_ISOLATION === "true";
+const wasm367CompatTag = `wasm-367-${resolveInstalledPackageVersion("@neth4ck/wasm-367")}`;
+const wasm37CompatTag = `wasm-37-${resolveInstalledPackageVersion("@neth4ck/wasm-37")}`;
 const resolvedBuildCommitSha = (() => {
   const result = spawnSync("git", ["rev-parse", "HEAD"], {
     cwd: process.cwd(),
@@ -122,6 +141,12 @@ export default defineConfig({
     ),
     "import.meta.env.VITE_NH3D_BUNDLED_UPDATE_COMMIT_SHA": JSON.stringify(
       bundledClientUpdateState.commitSha,
+    ),
+    "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG": JSON.stringify(
+      wasm367CompatTag,
+    ),
+    "import.meta.env.VITE_NH3D_WASM_37_COMPAT_TAG": JSON.stringify(
+      wasm37CompatTag,
     ),
   },
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",

@@ -55,6 +55,7 @@ import {
   type StartupInitOptionValue,
   type StartupInitOptionValues,
 } from "../runtime/startup-init-options";
+import { getRuntimeSaveDbNames } from "../runtime/save-storage";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 import {
   findNh3dTilesetByPath,
@@ -4014,9 +4015,11 @@ function resolveSaveDisplayName(
   return name;
 }
 
-async function fetchSavedGames(): Promise<SaveGameRecord[]> {
+async function fetchSavedGames(
+  runtimeVersion: NethackRuntimeVersion,
+): Promise<SaveGameRecord[]> {
   const saves: SaveGameRecord[] = [];
-  const dbNames = ["/save", "/nethack/save"];
+  const dbNames = getRuntimeSaveDbNames(runtimeVersion);
 
   for (const dbName of dbNames) {
     try {
@@ -4123,8 +4126,11 @@ async function fetchSavedGames(): Promise<SaveGameRecord[]> {
   );
 }
 
-async function deleteSavedGame(filename: string): Promise<void> {
-  const dbNames = ["/save", "/nethack/save"];
+async function deleteSavedGame(
+  filename: string,
+  runtimeVersion: NethackRuntimeVersion,
+): Promise<void> {
+  const dbNames = getRuntimeSaveDbNames(runtimeVersion);
 
   for (const dbName of dbNames) {
     try {
@@ -4394,7 +4400,7 @@ export default function App(): JSX.Element {
     if (!confirmed) {
       return;
     }
-    await deleteSavedGame(save.filename);
+    await deleteSavedGame(save.filename, runtimeVersion);
     setSavedGames((prev) => prev.filter((s) => s.key !== save.key));
   };
 
@@ -4402,7 +4408,7 @@ export default function App(): JSX.Element {
     setStartupFlowStep("resume");
     setIsLoadingSaves(true);
     try {
-      const saves = await fetchSavedGames();
+      const saves = await fetchSavedGames(runtimeVersion);
       setSavedGames(saves);
     } catch (e) {
       console.error("Error loading saves", e);
@@ -4414,7 +4420,7 @@ export default function App(): JSX.Element {
   const handleStartNewGame = async (config: CharacterCreationConfig) => {
     if (config.mode === "random" || config.mode === "create") {
       try {
-        const saves = await fetchSavedGames();
+        const saves = await fetchSavedGames(runtimeVersion);
         const configName = config.name || "Web_user";
         const existingSave = saves.find((s) => s.name === configName);
         if (existingSave) {
@@ -4428,7 +4434,7 @@ export default function App(): JSX.Element {
           if (!confirmed) {
             return;
           }
-          await deleteSavedGame(existingSave.filename);
+          await deleteSavedGame(existingSave.filename, runtimeVersion);
         }
       } catch (e) {
         console.warn("Failed to check for existing saves:", e);

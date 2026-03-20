@@ -6,6 +6,7 @@ import {
   appendRequiredStartupInitOptionTokens,
   sanitizeStartupInitOptionTokens,
 } from "./startup-init-options";
+import { getRuntimeSaveDbName, getRuntimeSaveMountDir } from "./save-storage";
 import { STATUS_FIELD_MAP_367, STATUS_FIELD_MAP_37 } from "./status-map";
 
 const process =
@@ -3985,10 +3986,36 @@ class LocalNetHackRuntime {
             if (mod.FS && IDBFS) {
               // Dynamically locate the CWD so we mount IDBFS exactly where NetHack writes
               const cwd = mod.FS.cwd();
-              const saveDir = cwd === "/" ? "/save" : `${cwd}/save`;
+              const saveDir = getRuntimeSaveMountDir(runtimeVersion, cwd);
+              const saveDbName = getRuntimeSaveDbName(runtimeVersion, cwd);
               const checkpointLevelFilePattern = /^[^/\\]+\.\d+$/;
               const normalizedCwd = cwd.replace(/\/+$/, "") || "/";
-              const normalizedSaveDir = saveDir.replace(/\/+$/, "") || "/save";
+              const normalizedSaveDir =
+                saveDir.replace(/\/+$/, "") ||
+                getRuntimeSaveMountDir(runtimeVersion);
+
+              const patchIdbfsDbNameResolution = () => {
+                if (!IDBFS || typeof IDBFS.getDB !== "function") {
+                  return;
+                }
+                if (!(IDBFS.__nh3dDbNameByMountPoint instanceof Map)) {
+                  IDBFS.__nh3dDbNameByMountPoint = new Map();
+                }
+                IDBFS.__nh3dDbNameByMountPoint.set(saveDir, saveDbName);
+                if (IDBFS.__nh3dGetDbPatched) {
+                  return;
+                }
+                const originalGetDb = IDBFS.getDB.bind(IDBFS);
+                IDBFS.getDB = function (name, callback) {
+                  const mappedName =
+                    this.__nh3dDbNameByMountPoint instanceof Map
+                      ? this.__nh3dDbNameByMountPoint.get(name) || name
+                      : name;
+                  return originalGetDb(mappedName, callback);
+                };
+                IDBFS.__nh3dGetDbPatched = true;
+              };
+              patchIdbfsDbNameResolution();
 
               if (!mod.FS.analyzePath(saveDir).exists) {
                 try {
@@ -4109,7 +4136,7 @@ class LocalNetHackRuntime {
               }
 
               try {
-                mod.FS.mount(IDBFS, {}, saveDir);
+                mod.FS.mount(IDBFS, { dbName: saveDbName }, saveDir);
                 mod.addRunDependency("idbfs_sync");
                 mod.FS.syncfs(true, (err) => {
                   if (err) console.warn("IDBFS load syncfs error:", err);
