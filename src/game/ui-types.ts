@@ -978,6 +978,7 @@ export interface Nethack3DEngineController {
   toggleInventoryDialog(): void;
   openCharacterSheet(): void;
   runInventoryItemAction(actionId: string, itemAccelerator: string): void;
+  runInventoryItemDropCount(itemAccelerator: string, count: number): void;
   dismissFpsCrosshairContextMenu(): void;
   runQuickAction(
     actionId: string,

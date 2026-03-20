@@ -1587,6 +1587,11 @@ type InventoryContextMenuState = {
   anchorBottomY?: number;
   anchorRightX?: number;
 };
+type InventoryDropCountDialogState = {
+  accelerator: string;
+  itemText: string;
+  maxCount: number;
+};
 type InventoryRowPressCandidate = {
   source: "pointer" | "touch";
   pointerId: number;
@@ -2120,6 +2125,22 @@ function inventoryItemSupportsCall(
     categoryId === "armor" ||
     categoryId === "tools"
   );
+}
+
+function parseInventoryStackCount(itemText: string): number | null {
+  const normalized = String(itemText || "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const match = normalized.match(/^(\d+)\b/);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseInt(match[1], 10);
+  if (!Number.isFinite(parsed) || parsed <= 1) {
+    return null;
+  }
+  return parsed;
 }
 
 function inventoryItemSupportsContextAction(
@@ -3361,14 +3382,34 @@ const clampInventoryContextMenuPosition = (
   width: number,
   height: number,
 ): { x: number; y: number } => {
-  const padding = 8;
+  const rootStyle = getComputedStyle(document.documentElement);
+  const safeLeft =
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-left-inset"),
+      8,
+    ) + 4;
+  const safeRight =
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-right-inset"),
+      8,
+    ) + 4;
+  const safeTop =
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-top-inset"),
+      8,
+    ) + 4;
+  const safeBottom =
+    parseCssPixelValue(
+      rootStyle.getPropertyValue("--nh3d-modal-safe-bottom-inset"),
+      8,
+    ) + 4;
   const safeWidth = Number.isFinite(width) && width > 0 ? width : 220;
   const safeHeight = Number.isFinite(height) && height > 0 ? height : 260;
-  const maxX = Math.max(padding, window.innerWidth - safeWidth - padding);
-  const maxY = Math.max(padding, window.innerHeight - safeHeight - padding);
+  const maxX = Math.max(safeLeft, window.innerWidth - safeRight - safeWidth);
+  const maxY = Math.max(safeTop, window.innerHeight - safeBottom - safeHeight);
   return {
-    x: Math.min(Math.max(x, padding), maxX),
-    y: Math.min(Math.max(y, padding), maxY),
+    x: Math.min(Math.max(x, safeLeft), maxX),
+    y: Math.min(Math.max(y, safeTop), maxY),
   };
 };
 
@@ -3376,6 +3417,10 @@ const inventoryContextMenuAnchorGapPx = 8;
 const inventoryContextMenuAnchorBottomGapPx = 6;
 const inventoryContextMenuScrollRegionPaddingPx = 4;
 const inventoryRowPressPreferInitialMs = 200;
+const inventoryDropTypeMenuAnchorGapPx = 6;
+const inventoryDropTypeMenuEstimatedWidthPx = 220;
+const inventoryDropTypeMenuEstimatedHeightPx = 300;
+const inventoryDropTypeHoldThresholdMs = 260;
 
 const resolveInventoryContextMenuPosition = (
   state: InventoryContextMenuState,
@@ -3435,6 +3480,23 @@ const resolveInventoryContextMenuPosition = (
       ? Math.min(Math.max(clampedToViewport.y, minY), maxY)
       : clampedToViewport.y,
   };
+};
+
+const resolveInventoryDropTypeMenuPosition = (
+  anchorRect: DOMRect,
+  width: number,
+  height: number,
+): { x: number; y: number } => {
+  const safeWidth = Number.isFinite(width) && width > 0 ? width : 220;
+  const safeHeight = Number.isFinite(height) && height > 0 ? height : 300;
+  const preferredX = anchorRect.left + anchorRect.width * 0.5 - safeWidth * 0.5;
+  const preferredY = anchorRect.top - inventoryDropTypeMenuAnchorGapPx - safeHeight;
+  return clampInventoryContextMenuPosition(
+    preferredX,
+    preferredY,
+    safeWidth,
+    safeHeight,
+  );
 };
 
 const parseCssPixelValue = (value: string, fallback = 0): number => {
@@ -4843,6 +4905,8 @@ export default function App(): JSX.Element {
   } | null>(null);
   const inventoryItemActions = inventoryContextActions;
   const inventoryContextMenuRef = useRef<HTMLDivElement | null>(null);
+  const inventoryDropTypeMenuRef = useRef<HTMLDivElement | null>(null);
+  const inventoryDropActionButtonRef = useRef<HTMLButtonElement | null>(null);
   const inventoryItemsContainerRef = useRef<HTMLDivElement | null>(null);
   const inventoryRowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const inventoryContextMenuStateRef = useRef<InventoryContextMenuState | null>(
@@ -4860,6 +4924,13 @@ export default function App(): JSX.Element {
   const inventoryTouchFallbackClearTimerRef = useRef<number | null>(null);
   const inventoryRowPressCandidateRef =
     useRef<InventoryRowPressCandidate | null>(null);
+  const inventoryDropTypeHoldStateRef = useRef<{
+    pointerId: number;
+    startedAtMs: number;
+    triggered: boolean;
+  } | null>(null);
+  const inventoryDropTypeHoldAnimationFrameRef = useRef<number | null>(null);
+  const inventorySuppressDropActionClickRef = useRef(false);
   const tilesUiEnabled = clientOptions.tilesetMode === "tiles";
   const inventoryAsciiModeEnabled = !tilesUiEnabled;
   const inventoryReducedMotionEnabled =
@@ -4878,6 +4949,12 @@ export default function App(): JSX.Element {
         : 35;
   const [inventoryContextMenu, setInventoryContextMenu] =
     useState<InventoryContextMenuState | null>(null);
+  const [inventoryDropTypeMenuPosition, setInventoryDropTypeMenuPosition] =
+    useState<{ x: number; y: number } | null>(null);
+  const [inventoryDropCountDialog, setInventoryDropCountDialog] =
+    useState<InventoryDropCountDialogState | null>(null);
+  const [inventoryDropCountValue, setInventoryDropCountValue] = useState(1);
+  const inventoryDropCountSliderRef = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
     if (fpsCrosshairContext) {
       fpsCrosshairContextLastVisibleRef.current = fpsCrosshairContext;
@@ -4945,6 +5022,23 @@ export default function App(): JSX.Element {
     () => classifyInventoryCategory(inventoryContextCategory),
     [inventoryContextCategory],
   );
+  const inventoryContextStackCount = useMemo(
+    () => parseInventoryStackCount(String(inventoryContextMenu?.itemText || "")),
+    [inventoryContextMenu?.itemText],
+  );
+  const inventoryContextSupportsDropAmount =
+    typeof inventoryContextStackCount === "number" &&
+    Number.isFinite(inventoryContextStackCount) &&
+    inventoryContextStackCount > 1;
+  const inventoryDropCountMaxValue = useMemo(() => {
+    if (
+      !inventoryDropCountDialog ||
+      !Number.isFinite(inventoryDropCountDialog.maxCount)
+    ) {
+      return 1;
+    }
+    return Math.max(1, Math.trunc(inventoryDropCountDialog.maxCount));
+  }, [inventoryDropCountDialog]);
   const inventoryContextMenuActions = useMemo(() => {
     const blocked = getBlockedInventoryActionIdsForCategory(
       inventoryContextCategory,
@@ -7223,6 +7317,7 @@ export default function App(): JSX.Element {
     Boolean(textInputRequest) ||
     Boolean(positionRequest) ||
     Boolean(inventoryContextMenu) ||
+    Boolean(inventoryDropCountDialog) ||
     Boolean(fpsCrosshairContext) ||
     isWizardCommandsVisible ||
     isControllerActionWheelVisible ||
@@ -9904,12 +9999,192 @@ export default function App(): JSX.Element {
       const shouldRestoreItemFocus = options?.restoreItemFocus === true;
       const activeContextMenu = inventoryContextMenuStateRef.current;
       setInventoryContextMenu(null);
+      setInventoryDropTypeMenuPosition(null);
       if (shouldRestoreItemFocus && activeContextMenu?.accelerator) {
         focusInventoryItemByAccelerator(activeContextMenu.accelerator);
       }
     },
     [focusInventoryItemByAccelerator],
   );
+
+  const closeInventoryDropTypeMenu = useCallback((): void => {
+    setInventoryDropTypeMenuPosition(null);
+  }, []);
+
+  const openInventoryDropTypeMenu = useCallback((): void => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const anchorElement = inventoryDropActionButtonRef.current;
+    if (!anchorElement) {
+      return;
+    }
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const nextPosition = resolveInventoryDropTypeMenuPosition(
+      anchorRect,
+      inventoryDropTypeMenuEstimatedWidthPx,
+      inventoryDropTypeMenuEstimatedHeightPx,
+    );
+    setInventoryDropTypeMenuPosition((previous) => {
+      if (
+        previous &&
+        Math.abs(previous.x - nextPosition.x) < 0.02 &&
+        Math.abs(previous.y - nextPosition.y) < 0.02
+      ) {
+        return previous;
+      }
+      return nextPosition;
+    });
+  }, []);
+
+  const cancelInventoryDropTypeHold = useCallback((): void => {
+    if (typeof window === "undefined") {
+      inventoryDropTypeHoldStateRef.current = null;
+      inventoryDropTypeHoldAnimationFrameRef.current = null;
+      return;
+    }
+    const activeFrame = inventoryDropTypeHoldAnimationFrameRef.current;
+    if (activeFrame !== null) {
+      window.cancelAnimationFrame(activeFrame);
+      inventoryDropTypeHoldAnimationFrameRef.current = null;
+    }
+    inventoryDropTypeHoldStateRef.current = null;
+  }, []);
+
+  const beginInventoryDropTypeHold = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>): void => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      if (event.pointerType === "mouse" && event.button !== 0) {
+        return;
+      }
+      inventorySuppressDropActionClickRef.current = false;
+      cancelInventoryDropTypeHold();
+      const holdState = {
+        pointerId: event.pointerId,
+        startedAtMs: performance.now(),
+        triggered: false,
+      };
+      inventoryDropTypeHoldStateRef.current = holdState;
+      const tick = (): void => {
+        const activeState = inventoryDropTypeHoldStateRef.current;
+        if (!activeState || activeState.pointerId !== holdState.pointerId) {
+          inventoryDropTypeHoldAnimationFrameRef.current = null;
+          return;
+        }
+        if (
+          performance.now() - activeState.startedAtMs >=
+          inventoryDropTypeHoldThresholdMs
+        ) {
+          activeState.triggered = true;
+          inventorySuppressDropActionClickRef.current = true;
+          inventoryDropTypeHoldAnimationFrameRef.current = null;
+          openInventoryDropTypeMenu();
+          return;
+        }
+        inventoryDropTypeHoldAnimationFrameRef.current =
+          window.requestAnimationFrame(tick);
+      };
+      inventoryDropTypeHoldAnimationFrameRef.current =
+        window.requestAnimationFrame(tick);
+    },
+    [cancelInventoryDropTypeHold, openInventoryDropTypeMenu],
+  );
+
+  const completeInventoryDropTypeHold = useCallback(
+    (pointerId: number): void => {
+      const holdState = inventoryDropTypeHoldStateRef.current;
+      if (!holdState || holdState.pointerId !== pointerId) {
+        return;
+      }
+      if (holdState.triggered) {
+        inventorySuppressDropActionClickRef.current = true;
+      }
+      cancelInventoryDropTypeHold();
+    },
+    [cancelInventoryDropTypeHold],
+  );
+
+  const consumeInventoryDropActionClickSuppression = useCallback((): boolean => {
+    if (!inventorySuppressDropActionClickRef.current) {
+      return false;
+    }
+    inventorySuppressDropActionClickRef.current = false;
+    return true;
+  }, []);
+
+  const runInventoryDropTypeCommand = useCallback((): void => {
+    closeInventoryDropTypeMenu();
+    setInventoryContextMenu(null);
+    controller?.runExtendedCommand("droptype");
+  }, [closeInventoryDropTypeMenu, controller]);
+
+  const closeInventoryDropCountModal = useCallback((): void => {
+    setInventoryDropCountDialog(null);
+  }, []);
+
+  const openInventoryDropCountModal = useCallback(
+    (accelerator: string, itemText: string): void => {
+      const stackCount = parseInventoryStackCount(itemText);
+      if (!stackCount) {
+        return;
+      }
+      closeInventoryDropTypeMenu();
+      setInventoryContextMenu(null);
+      setInventoryDropCountDialog({
+        accelerator,
+        itemText,
+        maxCount: stackCount,
+      });
+      setInventoryDropCountValue(1);
+    },
+    [closeInventoryDropTypeMenu],
+  );
+
+  const clampInventoryDropCountValue = useCallback(
+    (nextValue: number): number => {
+      const normalized = Number.isFinite(nextValue)
+        ? Math.trunc(nextValue)
+        : 1;
+      return Math.max(1, Math.min(inventoryDropCountMaxValue, normalized));
+    },
+    [inventoryDropCountMaxValue],
+  );
+
+  const stepInventoryDropCountValue = useCallback(
+    (delta: number): void => {
+      if (!Number.isFinite(delta) || delta === 0) {
+        return;
+      }
+      setInventoryDropCountValue((previous) =>
+        clampInventoryDropCountValue(previous + Math.trunc(delta)),
+      );
+    },
+    [clampInventoryDropCountValue],
+  );
+
+  const submitInventoryDropCount = useCallback((): void => {
+    if (!inventoryDropCountDialog) {
+      return;
+    }
+    const amount = clampInventoryDropCountValue(inventoryDropCountValue);
+    if (!controller) {
+      closeInventoryDropCountModal();
+      return;
+    }
+    controller.runInventoryItemDropCount(
+      inventoryDropCountDialog.accelerator,
+      amount,
+    );
+    closeInventoryDropCountModal();
+  }, [
+    clampInventoryDropCountValue,
+    closeInventoryDropCountModal,
+    controller,
+    inventoryDropCountDialog,
+    inventoryDropCountValue,
+  ]);
 
   const resolveInventoryContextNavigationDirection = useCallback(
     (key: string, code?: string): "up" | "down" | "left" | "right" | null => {
@@ -10137,6 +10412,7 @@ export default function App(): JSX.Element {
     clientY: number,
     anchorRect?: DOMRect | null,
   ): void => {
+    setInventoryDropTypeMenuPosition(null);
     if (!inventoryContextActionsEnabled) {
       return;
     }
@@ -10237,8 +10513,21 @@ export default function App(): JSX.Element {
   useEffect(() => {
     if (!inventory.visible) {
       setInventoryContextMenu(null);
+      setInventoryDropTypeMenuPosition(null);
+      setInventoryDropCountDialog(null);
+      cancelInventoryDropTypeHold();
+      inventorySuppressDropActionClickRef.current = false;
     }
-  }, [inventory.visible]);
+  }, [cancelInventoryDropTypeHold, inventory.visible]);
+
+  useEffect(() => {
+    if (inventoryContextMenu) {
+      return;
+    }
+    setInventoryDropTypeMenuPosition(null);
+    cancelInventoryDropTypeHold();
+    inventorySuppressDropActionClickRef.current = false;
+  }, [cancelInventoryDropTypeHold, inventoryContextMenu]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -10330,12 +10619,65 @@ export default function App(): JSX.Element {
     [clearInventoryTouchFallbackClearTimer],
   );
 
+  useEffect(
+    () => () => {
+      cancelInventoryDropTypeHold();
+      inventorySuppressDropActionClickRef.current = false;
+    },
+    [cancelInventoryDropTypeHold],
+  );
+
   useEffect(() => {
     if (inventoryContextActionsEnabled) {
       return;
     }
     setInventoryContextMenu(null);
-  }, [inventoryContextActionsEnabled]);
+    setInventoryDropTypeMenuPosition(null);
+    setInventoryDropCountDialog(null);
+    cancelInventoryDropTypeHold();
+    inventorySuppressDropActionClickRef.current = false;
+  }, [
+    cancelInventoryDropTypeHold,
+    inventoryContextActionsEnabled,
+    setInventoryDropTypeMenuPosition,
+  ]);
+
+  useEffect(() => {
+    if (!inventoryDropTypeMenuPosition) {
+      return;
+    }
+    const hasDropAction = inventoryContextMenuActions.some(
+      (action) => action.id === "drop",
+    );
+    if (!hasDropAction) {
+      setInventoryDropTypeMenuPosition(null);
+    }
+  }, [inventoryContextMenuActions, inventoryDropTypeMenuPosition]);
+
+  useEffect(() => {
+    if (!inventoryDropTypeMenuPosition || typeof window === "undefined") {
+      return;
+    }
+    const handleViewportResize = (): void => {
+      openInventoryDropTypeMenu();
+    };
+    window.addEventListener("resize", handleViewportResize);
+    return () => {
+      window.removeEventListener("resize", handleViewportResize);
+    };
+  }, [inventoryDropTypeMenuPosition, openInventoryDropTypeMenu]);
+
+  useEffect(() => {
+    if (!inventoryDropCountDialog || typeof window === "undefined") {
+      return;
+    }
+    const frameId = window.requestAnimationFrame(() => {
+      inventoryDropCountSliderRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [inventoryDropCountDialog]);
 
   useEffect(() => {
     if (
@@ -10442,14 +10784,38 @@ export default function App(): JSX.Element {
 
     const handlePointerDown = (event: MouseEvent): void => {
       const target = event.target as Node | null;
-      if (target && inventoryContextMenuRef.current?.contains(target)) {
+      const insideContextMenu = Boolean(
+        target && inventoryContextMenuRef.current?.contains(target),
+      );
+      const insideDropTypeMenu = Boolean(
+        target && inventoryDropTypeMenuRef.current?.contains(target),
+      );
+      if (inventoryDropTypeMenuPosition && !insideDropTypeMenu) {
+        closeInventoryDropTypeMenu();
+        inventorySuppressDropActionClickRef.current = false;
+        cancelInventoryDropTypeHold();
+        if (insideContextMenu) {
+          return;
+        }
+      }
+      if (insideContextMenu || insideDropTypeMenu) {
         return;
       }
+      setInventoryDropTypeMenuPosition(null);
       setInventoryContextMenu(null);
     };
 
     const handleKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
+        if (inventoryDropTypeMenuPosition) {
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+          closeInventoryDropTypeMenu();
+          inventorySuppressDropActionClickRef.current = false;
+          cancelInventoryDropTypeHold();
+          return;
+        }
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation();
@@ -10493,7 +10859,14 @@ export default function App(): JSX.Element {
       window.removeEventListener("keydown", handleKeyDown, true);
       window.removeEventListener("resize", handleViewportResize);
     };
-  }, [closeInventoryContextMenu, inventoryContextMenu, loadingOverlayVisible]);
+  }, [
+    cancelInventoryDropTypeHold,
+    closeInventoryContextMenu,
+    closeInventoryDropTypeMenu,
+    inventoryContextMenu,
+    inventoryDropTypeMenuPosition,
+    loadingOverlayVisible,
+  ]);
 
   useLayoutEffect(() => {
     if (!inventoryContextMenu) {
@@ -10532,6 +10905,35 @@ export default function App(): JSX.Element {
       };
     });
   }, [inventoryContextMenu]);
+
+  useLayoutEffect(() => {
+    if (!inventoryDropTypeMenuPosition) {
+      return;
+    }
+    const menuElement = inventoryDropTypeMenuRef.current;
+    const anchorElement = inventoryDropActionButtonRef.current;
+    if (!menuElement || !anchorElement) {
+      return;
+    }
+    const menuRect = menuElement.getBoundingClientRect();
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const clamped = resolveInventoryDropTypeMenuPosition(
+      anchorRect,
+      menuRect.width,
+      menuRect.height,
+    );
+    if (
+      Math.abs(clamped.x - inventoryDropTypeMenuPosition.x) < 0.02 &&
+      Math.abs(clamped.y - inventoryDropTypeMenuPosition.y) < 0.02
+    ) {
+      return;
+    }
+    setInventoryDropTypeMenuPosition(clamped);
+  }, [
+    inventoryContextMenu?.x,
+    inventoryContextMenu?.y,
+    inventoryDropTypeMenuPosition,
+  ]);
 
   useLayoutEffect(() => {
     if (!fpsCrosshairContext) {
@@ -10649,6 +11051,12 @@ export default function App(): JSX.Element {
       ) {
         return;
       }
+      if (inventoryDropCountDialog) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeInventoryDropCountModal();
+        return;
+      }
       if (isControllerSupportPromptVisible) {
         event.preventDefault();
         event.stopPropagation();
@@ -10717,11 +11125,13 @@ export default function App(): JSX.Element {
     clientOptions,
     clearControllerBindingCapture,
     closeControllerRemapDialog,
+    closeInventoryDropCountModal,
     confirmControllerSupportPromptChoice,
     controller,
     controllerRemapListening,
     hasGameplayOverlayOpen,
     isClientOptionsVisible,
+    inventoryDropCountDialog,
     isControllerSupportPromptVisible,
     isControllerRemapVisible,
     isDarkWallTilePickerVisible,
@@ -14787,6 +15197,12 @@ export default function App(): JSX.Element {
           if (event.key === "Escape") {
             event.preventDefault();
             event.stopPropagation();
+            if (inventoryDropTypeMenuPosition) {
+              closeInventoryDropTypeMenu();
+              inventorySuppressDropActionClickRef.current = false;
+              cancelInventoryDropTypeHold();
+              return;
+            }
             closeInventoryContextMenu({ restoreItemFocus: true });
           }
         }}
@@ -14825,35 +15241,289 @@ export default function App(): JSX.Element {
               )}
             </div>
             <div className="nh3d-context-menu-actions nh3d-context-menu-actions-inventory">
-              {inventoryContextMenuActions.map((action) => (
-                <button
-                  className="nh3d-context-menu-button"
-                  key={`inventory-${inventoryContextMenuRenderState.accelerator}-${action.id}`}
-                  onClick={() => {
-                    if (action.kind === "extended" && action.value) {
-                      if (action.armInventorySelection !== false) {
-                        // Use the special prefix to ensure the runtime intercepts it and reliably
-                        // applies it to the next inventory prompt menu without race conditions.
-                        controller?.sendInput(
-                          `__INVCTX_SELECT__:${inventoryContextMenuRenderState.accelerator}`,
+              {inventoryContextMenuActions.map((action) => {
+                const isDropAction = action.id === "drop";
+                return (
+                  <button
+                    aria-haspopup={isDropAction ? "menu" : undefined}
+                    className={`nh3d-context-menu-button${
+                      isDropAction && inventoryDropTypeMenuPosition
+                        ? " is-drop-type-open"
+                        : ""
+                    }`}
+                    key={`inventory-${inventoryContextMenuRenderState.accelerator}-${action.id}`}
+                    onClick={() => {
+                      if (
+                        isDropAction &&
+                        consumeInventoryDropActionClickSuppression()
+                      ) {
+                        return;
+                      }
+                      closeInventoryDropTypeMenu();
+                      if (action.kind === "extended" && action.value) {
+                        if (action.armInventorySelection !== false) {
+                          // Use the special prefix to ensure the runtime intercepts it and reliably
+                          // applies it to the next inventory prompt menu without race conditions.
+                          controller?.sendInput(
+                            `__INVCTX_SELECT__:${inventoryContextMenuRenderState.accelerator}`,
+                          );
+                        }
+                        controller?.runExtendedCommand(action.value);
+                      } else {
+                        controller?.runInventoryItemAction(
+                          action.id,
+                          inventoryContextMenuRenderState.accelerator,
                         );
                       }
-                      controller?.runExtendedCommand(action.value);
-                    } else {
-                      controller?.runInventoryItemAction(
-                        action.id,
-                        inventoryContextMenuRenderState.accelerator,
-                      );
+                      setInventoryContextMenu(null);
+                    }}
+                    onMouseEnter={
+                      isDropAction
+                        ? () => openInventoryDropTypeMenu()
+                        : undefined
                     }
-                    setInventoryContextMenu(null);
+                    onPointerCancel={
+                      isDropAction
+                        ? (event) => {
+                            completeInventoryDropTypeHold(event.pointerId);
+                          }
+                        : undefined
+                    }
+                    onPointerDown={
+                      isDropAction
+                        ? (event) => {
+                            beginInventoryDropTypeHold(event);
+                          }
+                        : undefined
+                    }
+                    onPointerLeave={
+                      isDropAction
+                        ? (event) => {
+                            const holdState =
+                              inventoryDropTypeHoldStateRef.current;
+                            if (
+                              holdState &&
+                              holdState.pointerId === event.pointerId
+                            ) {
+                              cancelInventoryDropTypeHold();
+                            }
+                          }
+                        : undefined
+                    }
+                    onPointerUp={
+                      isDropAction
+                        ? (event) => {
+                            completeInventoryDropTypeHold(event.pointerId);
+                          }
+                        : undefined
+                    }
+                    ref={
+                      isDropAction
+                        ? (element) => {
+                            inventoryDropActionButtonRef.current = element;
+                          }
+                        : undefined
+                    }
+                    type="button"
+                  >
+                    {action.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </AnimatedDialog>
+
+      {inventoryContextMenuOpen &&
+      inventoryDropTypeMenuPosition &&
+      typeof document !== "undefined"
+        ? createPortal(
+            <div
+              className="nh3d-context-menu nh3d-inventory-drop-type-menu"
+              onContextMenu={(event) => event.preventDefault()}
+              ref={inventoryDropTypeMenuRef}
+              style={{
+                left: `${inventoryDropTypeMenuPosition.x}px`,
+                top: `${inventoryDropTypeMenuPosition.y}px`,
+              }}
+            >
+              <div className="nh3d-context-menu-title">Drop</div>
+              <div className="nh3d-context-menu-actions">
+                <button
+                  className="nh3d-context-menu-button"
+                  onClick={() => runInventoryDropTypeCommand()}
+                  type="button"
+                >
+                  Drop Type
+                </button>
+                <button
+                  className="nh3d-context-menu-button"
+                  disabled={
+                    !inventoryContextSupportsDropAmount ||
+                    !inventoryContextMenuRenderState
+                  }
+                  onClick={() => {
+                    if (!inventoryContextMenuRenderState) {
+                      return;
+                    }
+                    openInventoryDropCountModal(
+                      inventoryContextMenuRenderState.accelerator,
+                      inventoryContextMenuRenderState.itemText,
+                    );
+                  }}
+                  title={
+                    inventoryContextSupportsDropAmount
+                      ? "Drop a specific amount"
+                      : "Only available for stacked items"
+                  }
+                  type="button"
+                >
+                  Drop Amount
+                </button>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions"
+        id="nh3d-inventory-drop-count-dialog"
+        open={Boolean(inventoryDropCountDialog)}
+        onContextMenu={(event) => event.preventDefault()}
+        onMouseDown={(event) => {
+          event.stopPropagation();
+        }}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+        }}
+        onKeyDown={(event) => {
+          event.stopPropagation();
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closeInventoryDropCountModal();
+            return;
+          }
+          if (event.key !== "Enter" && event.key !== "NumpadEnter") {
+            return;
+          }
+          const target = event.target as HTMLElement | null;
+          if (target?.tagName === "BUTTON") {
+            return;
+          }
+          event.preventDefault();
+          submitInventoryDropCount();
+        }}
+        onKeyUp={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        {inventoryDropCountDialog ? (
+          <>
+            <div className="nh3d-question-text">
+              Drop how many from this stack?
+            </div>
+            <div className="nh3d-inventory-drop-count-description">
+              {inventoryDropCountDialog.itemText}
+            </div>
+            <div className="nh3d-inventory-drop-count-hint">
+              Choose an amount from 1 to {inventoryDropCountMaxValue}.
+            </div>
+            <div className="nh3d-inventory-drop-count-controls">
+              <div className="nh3d-option-slider-control nh3d-inventory-drop-count-slider-control">
+                <input
+                  aria-label="Drop amount"
+                  className="nh3d-option-slider"
+                  max={inventoryDropCountMaxValue}
+                  min={1}
+                  onInput={(event: ChangeEvent<HTMLInputElement>) => {
+                    setInventoryDropCountValue(
+                      clampInventoryDropCountValue(
+                        Number(event.currentTarget.value),
+                      ),
+                    );
+                  }}
+                  onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                    setInventoryDropCountValue(
+                      clampInventoryDropCountValue(
+                        Number(event.currentTarget.value),
+                      ),
+                    );
+                  }}
+                  ref={inventoryDropCountSliderRef}
+                  step={1}
+                  type="range"
+                  value={inventoryDropCountValue}
+                />
+                <div className="nh3d-option-slider-value">
+                  {inventoryDropCountValue} / {inventoryDropCountMaxValue}
+                </div>
+              </div>
+              <div className="nh3d-inventory-drop-count-step-actions">
+                <button
+                  aria-label="Set drop amount to minimum"
+                  className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
+                  disabled={inventoryDropCountValue <= 1}
+                  onClick={() => {
+                    setInventoryDropCountValue(1);
                   }}
                   type="button"
                 >
-                  {action.label}
+                  {"<<"}
                 </button>
-              ))}
+                <button
+                  aria-label="Decrease drop amount by one"
+                  className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
+                  disabled={inventoryDropCountValue <= 1}
+                  onClick={() => {
+                    stepInventoryDropCountValue(-1);
+                  }}
+                  type="button"
+                >
+                  {"<"}
+                </button>
+                <button
+                  aria-label="Increase drop amount by one"
+                  className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
+                  disabled={inventoryDropCountValue >= inventoryDropCountMaxValue}
+                  onClick={() => {
+                    stepInventoryDropCountValue(1);
+                  }}
+                  type="button"
+                >
+                  {">"}
+                </button>
+                <button
+                  aria-label="Set drop amount to maximum"
+                  className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
+                  disabled={inventoryDropCountValue >= inventoryDropCountMaxValue}
+                  onClick={() => {
+                    setInventoryDropCountValue(inventoryDropCountMaxValue);
+                  }}
+                  type="button"
+                >
+                  {">>"}
+                </button>
+              </div>
             </div>
-          </div>
+            <div className="nh3d-menu-actions">
+              <button
+                className="nh3d-menu-action-button nh3d-menu-action-confirm"
+                onClick={submitInventoryDropCount}
+                type="button"
+              >
+                Drop
+              </button>
+              <button
+                className="nh3d-menu-action-button nh3d-menu-action-cancel"
+                onClick={closeInventoryDropCountModal}
+                type="button"
+              >
+                Cancel
+              </button>
+            </div>
+          </>
         ) : null}
       </AnimatedDialog>
 

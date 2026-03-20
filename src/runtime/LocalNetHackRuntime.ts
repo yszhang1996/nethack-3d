@@ -60,6 +60,7 @@ class LocalNetHackRuntime {
     this.menuSelectionInputPrefix = "__MENU_SELECT__:";
     this.textInputPrefix = "__TEXT_INPUT__:";
     this.inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+    this.inventoryContextSelectionCountPrefix = "__INVCTX_SELECT_COUNT__:";
     this.contextualGlanceProbePrefix = "__CTX_GLANCE_PROBE__";
     this.contextualGlanceProbeMouseDeadlineMs = 0;
     this.contextualGlanceAutoCancelPositionUntilMs = 0;
@@ -559,7 +560,7 @@ class LocalNetHackRuntime {
     if (
       source === "user" &&
       this.hasPendingInventoryContextSelection() &&
-      !this.isInventoryContextSelectionInput(input)
+      !this.isAnyInventoryContextSelectionInput(input)
     ) {
       this.clearPendingInventoryContextSelection("new user input");
     }
@@ -1316,25 +1317,67 @@ class LocalNetHackRuntime {
     );
   }
 
-  armInventoryContextSelectionFromInput(input) {
-    if (!this.isInventoryContextSelectionInput(input)) {
-      return false;
-    }
-
-    const accelerator = input
-      .slice(this.inventoryContextSelectionPrefix.length)
-      .trim();
-    if (accelerator.length !== 1) {
-      return false;
-    }
-
-    this.pendingInventoryContextSelection = {
-      accelerator,
-    };
-    console.log(
-      `Armed inventory context selection accelerator: "${accelerator}"`,
+  isInventoryContextSelectionWithCountInput(input) {
+    return (
+      typeof input === "string" &&
+      input.startsWith(this.inventoryContextSelectionCountPrefix) &&
+      input.length > this.inventoryContextSelectionCountPrefix.length
     );
-    return true;
+  }
+
+  isAnyInventoryContextSelectionInput(input) {
+    return (
+      this.isInventoryContextSelectionInput(input) ||
+      this.isInventoryContextSelectionWithCountInput(input)
+    );
+  }
+
+  armInventoryContextSelectionFromInput(input) {
+    if (this.isInventoryContextSelectionWithCountInput(input)) {
+      const raw = input
+        .slice(this.inventoryContextSelectionCountPrefix.length)
+        .trim();
+      const separatorIndex = raw.indexOf(":");
+      if (separatorIndex <= 0) {
+        return false;
+      }
+      const accelerator = raw.slice(0, separatorIndex).trim();
+      const countRaw = raw.slice(separatorIndex + 1).trim();
+      if (accelerator.length !== 1 || !/^\d+$/.test(countRaw)) {
+        return false;
+      }
+      const count = Number.parseInt(countRaw, 10);
+      if (!Number.isFinite(count) || count < 1) {
+        return false;
+      }
+      this.pendingInventoryContextSelection = {
+        accelerator,
+        count,
+      };
+      console.log(
+        `Armed inventory context selection accelerator with count: "${accelerator}" x${count}`,
+      );
+      return true;
+    }
+
+    if (this.isInventoryContextSelectionInput(input)) {
+      const accelerator = input
+        .slice(this.inventoryContextSelectionPrefix.length)
+        .trim();
+      if (accelerator.length !== 1) {
+        return false;
+      }
+
+      this.pendingInventoryContextSelection = {
+        accelerator,
+      };
+      console.log(
+        `Armed inventory context selection accelerator: "${accelerator}"`,
+      );
+      return true;
+    }
+
+    return false;
   }
 
   hasPendingInventoryContextSelection() {
@@ -1365,6 +1408,10 @@ class LocalNetHackRuntime {
     }
 
     const accelerator = String(pending.accelerator || "");
+    const pendingCount =
+      Number.isFinite(pending.count) && Number(pending.count) > 0
+        ? Math.trunc(Number(pending.count))
+        : 0;
     if (accelerator.length !== 1) {
       if (clearOnMiss) {
         this.clearPendingInventoryContextSelection("invalid accelerator");
@@ -1381,7 +1428,10 @@ class LocalNetHackRuntime {
     );
     if (exact) {
       this.clearPendingInventoryContextSelection("consumed exact match");
-      return exact;
+      return {
+        menuItem: exact,
+        selectionCount: pendingCount > 0 ? pendingCount : undefined,
+      };
     }
 
     const caseInsensitive = menuItems.find(
@@ -1395,7 +1445,10 @@ class LocalNetHackRuntime {
       this.clearPendingInventoryContextSelection(
         "consumed case-insensitive match",
       );
-      return caseInsensitive;
+      return {
+        menuItem: caseInsensitive,
+        selectionCount: pendingCount > 0 ? pendingCount : undefined,
+      };
     }
     if (clearOnMiss) {
       this.clearPendingInventoryContextSelection("no matching menu item");
@@ -2364,11 +2417,22 @@ class LocalNetHackRuntime {
       return false;
     }
 
-    return this.tryAutoSelectMenuItem(directInventorySelection, reason);
+    return this.tryAutoSelectMenuItem(
+      directInventorySelection.menuItem,
+      reason,
+      directInventorySelection.selectionCount,
+    );
   }
 
-  tryAutoSelectMenuItem(menuItem, reason = "context action") {
-    const selectionEntry = this.createSelectionEntryFromMenuItem(menuItem);
+  tryAutoSelectMenuItem(
+    menuItem,
+    reason = "context action",
+    selectionCount,
+  ) {
+    const selectionEntry = this.createSelectionEntryFromMenuItem(
+      menuItem,
+      selectionCount,
+    );
     if (!selectionEntry) {
       return false;
     }
@@ -2434,16 +2498,21 @@ class LocalNetHackRuntime {
     return `menu-index:${menuIndex}`;
   }
 
-  createSelectionEntryFromMenuItem(menuItem) {
+  createSelectionEntryFromMenuItem(menuItem, selectionCount) {
     if (!menuItem) {
       return null;
     }
+    const normalizedSelectionCount =
+      Number.isFinite(selectionCount) && Number(selectionCount) > 0
+        ? Math.trunc(Number(selectionCount))
+        : undefined;
     return {
       menuChar: menuItem.accelerator,
       originalAccelerator: menuItem.originalAccelerator,
       identifier: menuItem.identifier,
       menuIndex: menuItem.menuIndex,
       text: menuItem.text,
+      count: normalizedSelectionCount,
     };
   }
 
@@ -3474,7 +3543,12 @@ class LocalNetHackRuntime {
         const useAllCount =
           countMode === "all" ||
           (countMode === "auto" && this.shouldUseAllCountForMenuItem(item));
-        const countValue = useAllCount ? -1 : 1;
+        const explicitCount =
+          Number.isFinite(item?.count) && Number(item.count) > 0
+            ? Math.trunc(Number(item.count))
+            : null;
+        const countValue =
+          explicitCount !== null ? explicitCount : useAllCount ? -1 : 1;
 
         // Write count in both likely offsets for compatibility across layouts.
         if (canWriteCountAt(countOffsetPrimary)) {
@@ -4954,8 +5028,9 @@ class LocalNetHackRuntime {
           if (directInventorySelection) {
             if (
               this.tryAutoSelectMenuItem(
-                directInventorySelection,
+                directInventorySelection.menuItem,
                 "context action (questionless PICK_ONE)",
+                directInventorySelection.selectionCount,
               )
             ) {
               const selectedItems = Array.from(this.menuSelections.values());

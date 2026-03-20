@@ -732,6 +732,8 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private readonly menuSelectionInputPrefix = "__MENU_SELECT__:";
   private readonly textInputPrefix = "__TEXT_INPUT__:";
   private readonly inventoryContextSelectionPrefix = "__INVCTX_SELECT__:";
+  private readonly inventoryContextSelectionCountPrefix =
+    "__INVCTX_SELECT_COUNT__:";
   private readonly contextualGlanceProbePrefix = "__CTX_GLANCE_PROBE__";
   private repeatableAction: RepeatableActionSpec | null = null;
   private repeatActionVisible: boolean = false;
@@ -22882,6 +22884,31 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.queueRepeatDirectionCandidate({
       kind: "inventory_command",
       value: commandKey,
+    });
+  }
+
+  public runInventoryItemDropCount(
+    itemAccelerator: string,
+    count: number,
+  ): void {
+    const accelerator = String(itemAccelerator || "").trim();
+    const normalizedCount = Number.isFinite(count) ? Math.trunc(count) : 0;
+    if (!this.session || accelerator.length !== 1 || normalizedCount < 1) {
+      return;
+    }
+
+    this.hideInfoMenuDialog();
+    this.clearRepeatableAction();
+    this.clearRepeatDirectionCandidate();
+    this.hideInventoryDialog();
+
+    this.sendInputSequence([
+      `${this.inventoryContextSelectionCountPrefix}${accelerator}:${String(normalizedCount)}`,
+      "d",
+    ]);
+    this.queueRepeatDirectionCandidate({
+      kind: "inventory_command",
+      value: "d",
     });
   }
 
