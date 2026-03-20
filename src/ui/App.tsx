@@ -13860,6 +13860,13 @@ export default function App(): JSX.Element {
               () => submitTextInput(""),
               "Cancel text input",
             )}
+            {textInputRequest.contextMessage ? (
+              <div className="nh3d-text-input-context" role="note">
+                <div className="nh3d-text-input-context-value">
+                  {textInputRequest.contextMessage}
+                </div>
+              </div>
+            ) : null}
             <div className="nh3d-question-text">{textInputRequest.text}</div>
             <input
               className="nh3d-text-input"

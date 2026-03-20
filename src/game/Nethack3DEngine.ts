@@ -7453,6 +7453,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.showTextInputRequest(
           String(data.text || ""),
           typeof data.maxLength === "number" ? data.maxLength : 256,
+          typeof data.contextMessage === "string" ? data.contextMessage : "",
         );
         break;
 
@@ -22447,12 +22448,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }, 3000);
   }
 
-  private showTextInputRequest(text: string, maxLength = 256): void {
+  private showTextInputRequest(
+    text: string,
+    maxLength = 256,
+    contextMessage = "",
+  ): void {
     this.isInQuestion = true;
     this.isTextInputActive = true;
     this.syncFpsPointerLockForUiState(false);
+    const normalizedContextMessage = String(contextMessage || "").trim();
     this.uiAdapter.setTextInput({
       text: String(text || ""),
+      contextMessage: normalizedContextMessage || undefined,
       maxLength,
       placeholder: "Enter text",
     });

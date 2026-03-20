@@ -94,6 +94,7 @@ export type GameOverState = {
 
 export type TextInputRequestState = {
   text: string;
+  contextMessage?: string;
   maxLength?: number;
   placeholder?: string;
 };

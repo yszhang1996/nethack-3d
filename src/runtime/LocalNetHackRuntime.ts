@@ -23,6 +23,7 @@ class LocalNetHackRuntime {
     this.gameMap = new Map();
     this.playerPosition = { x: 0, y: 0 };
     this.gameMessages = [];
+    this.lastPromptContextMessage = "";
     this.latestInventoryItems = [];
     this.latestStatusUpdates = new Map();
     this.currentMenuItems = [];
@@ -1997,6 +1998,70 @@ class LocalNetHackRuntime {
     return winId === 4 || winId === 5 || winId === 6;
   }
 
+  normalizePromptContextMessage(text) {
+    if (typeof text !== "string") {
+      return "";
+    }
+    return text.replace(/\u0000/g, "").trim();
+  }
+
+  rememberPromptContextMessage(text) {
+    const normalized = this.normalizePromptContextMessage(text);
+    if (!normalized) {
+      return;
+    }
+    this.lastPromptContextMessage = normalized;
+  }
+
+  getMostRecentToplineMessage() {
+    const latestRemembered = this.normalizePromptContextMessage(
+      this.lastPromptContextMessage,
+    );
+    if (latestRemembered) {
+      return latestRemembered;
+    }
+
+    for (let index = this.gameMessages.length - 1; index >= 0; index -= 1) {
+      const entry = this.gameMessages[index];
+      if (!entry || Number(entry.window) !== 1) {
+        continue;
+      }
+      const text = this.normalizePromptContextMessage(entry.text);
+      if (text) {
+        return text;
+      }
+    }
+
+    return "";
+  }
+
+  shouldAppendPreviousMessageToGetlinPrompt(question) {
+    return /^call\b/i.test(String(question || "").trim());
+  }
+
+  getGetlinPromptContextMessage(question) {
+    if (!this.shouldAppendPreviousMessageToGetlinPrompt(question)) {
+      return "";
+    }
+
+    const context = this.getMostRecentToplineMessage();
+    if (!context) {
+      return "";
+    }
+
+    const normalizedQuestion = this.normalizePromptContextMessage(
+      String(question || ""),
+    );
+    if (
+      normalizedQuestion &&
+      context.toLowerCase() === normalizedQuestion.toLowerCase()
+    ) {
+      return "";
+    }
+
+    return context;
+  }
+
   handleShimDisplayFile(args) {
     const [rawName, complain] = Array.isArray(args) ? args : [];
     const fileName =
@@ -2071,6 +2136,9 @@ class LocalNetHackRuntime {
       const text = String(rawLine || "").replace(/\u0000/g, "");
       if (!text.trim()) {
         continue;
+      }
+      if (Number(winId) === 1) {
+        this.rememberPromptContextMessage(text);
       }
       this.gameMessages.push({
         text: text,
@@ -4011,7 +4079,16 @@ class LocalNetHackRuntime {
 
   handleShimGetlin(args) {
     const [question, bufferPtr] = args;
-    console.log(`Text input requested: "${question}"`);
+    const normalizedQuestion =
+      typeof question === "string" ? question : String(question ?? "");
+    const promptContextMessage =
+      this.getGetlinPromptContextMessage(normalizedQuestion);
+    console.log(`Text input requested: "${normalizedQuestion}"`);
+    if (promptContextMessage) {
+      console.log(
+        `Text input context for Call prompt: "${promptContextMessage}"`,
+      );
+    }
     const resolvedBufferPtr = this.resolveTextInputBufferPointer(bufferPtr);
     if (!resolvedBufferPtr) {
       console.log(
@@ -4041,7 +4118,8 @@ class LocalNetHackRuntime {
 
     this.emit({
       type: "text_request",
-      text: question,
+      text: normalizedQuestion,
+      contextMessage: promptContextMessage || undefined,
       maxLength: this.textInputMaxLength,
     });
 
@@ -4684,6 +4762,9 @@ class LocalNetHackRuntime {
         const [win, textAttr, textStr] = args;
         console.log(`💬 TEXT [Win ${win}]: "${textStr}"`);
         this.appendWindowTextBuffer(win, textStr);
+        if (Number(win) === 1) {
+          this.rememberPromptContextMessage(textStr);
+        }
 
         if (!this.shouldCaptureWindowTextForDialog(win)) {
           this.gameMessages.push({
@@ -4855,22 +4936,31 @@ class LocalNetHackRuntime {
       case "shim_raw_print":
         const [rawText] = args;
         console.log(`📢 RAW PRINT: "${rawText}"`);
+        const normalizedRawText = this.normalizePromptContextMessage(rawText);
+        if (normalizedRawText) {
+          this.rememberPromptContextMessage(normalizedRawText);
+        }
 
         // Send raw print messages to the UI log
-        if (this.eventHandler && rawText && rawText.trim()) {
+        if (this.eventHandler && normalizedRawText) {
           this.emit({
             type: "raw_print",
-            text: rawText.trim(),
+            text: normalizedRawText,
           });
         }
         return 0;
       case "shim_raw_print_bold":
         const [rawBoldText] = args;
         console.log(`RAW PRINT BOLD: "${rawBoldText}"`);
-        if (this.eventHandler && rawBoldText && rawBoldText.trim()) {
+        const normalizedRawBoldText =
+          this.normalizePromptContextMessage(rawBoldText);
+        if (normalizedRawBoldText) {
+          this.rememberPromptContextMessage(normalizedRawBoldText);
+        }
+        if (this.eventHandler && normalizedRawBoldText) {
           this.emit({
             type: "raw_print",
-            text: rawBoldText.trim(),
+            text: normalizedRawBoldText,
             bold: true,
           });
         }
@@ -4881,6 +4971,7 @@ class LocalNetHackRuntime {
           `NetHack message_menu: let=${menuLet}, how=${menuHow}, message="${menuMessage}"`,
         );
         if (this.eventHandler && menuMessage && String(menuMessage).trim()) {
+          this.rememberPromptContextMessage(String(menuMessage));
           this.emit({
             type: "text",
             text: String(menuMessage),
@@ -5294,6 +5385,7 @@ class LocalNetHackRuntime {
         if (typeof msg === "string" && msg.trim()) {
           const text = msg.replace(/\u0000/g, "").trim();
           if (text) {
+            this.rememberPromptContextMessage(text);
             this.gameMessages.push({
               text,
               window: 1,
