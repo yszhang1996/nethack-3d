@@ -2018,14 +2018,23 @@ class LocalNetHackRuntime {
     return name === "shim_raw_print" || name === "shim_raw_print_bold";
   }
 
+  isPlayerMovementCallbackName(name) {
+    if (name !== "shim_cliparound") {
+      return false;
+    }
+    return !this.positionInputActive && !this.isFarLookPositionRequest();
+  }
+
   recordRecentUICallback(name, args) {
     const entry = {
       name: typeof name === "string" ? name : String(name ?? ""),
       text: "",
+      isPlayerMovement: false,
     };
     if (this.isRawPrintCallbackName(entry.name) && Array.isArray(args)) {
       entry.text = this.normalizePromptContextMessage(args[0]);
     }
+    entry.isPlayerMovement = this.isPlayerMovementCallbackName(entry.name);
     this.recentUICallbackHistory.push(entry);
     if (this.recentUICallbackHistory.length > 80) {
       this.recentUICallbackHistory.shift();
@@ -2047,11 +2056,13 @@ class LocalNetHackRuntime {
       if (!entry || entry.name === "shim_getlin") {
         continue;
       }
+      if (entry.isPlayerMovement) {
+        break;
+      }
       if (this.isRawPrintCallbackName(entry.name) && entry.text) {
         latestRawPrintIndex = index;
         break;
       }
-      break;
     }
 
     if (latestRawPrintIndex < 0) {
@@ -2061,7 +2072,10 @@ class LocalNetHackRuntime {
     const collectedLines = [];
     for (let index = latestRawPrintIndex; index >= 0; index -= 1) {
       const entry = this.recentUICallbackHistory[index];
-      if (!entry || !this.isRawPrintCallbackName(entry.name)) {
+      if (!entry || entry.isPlayerMovement) {
+        break;
+      }
+      if (!this.isRawPrintCallbackName(entry.name)) {
         break;
       }
       if (entry.text) {
