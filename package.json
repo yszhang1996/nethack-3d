@@ -31,6 +31,7 @@
     "check:tsc": "tsc --noEmit --pretty false",
     "vulture:prebake": "node scripts/vulture/prebake-vulture-projections.mjs",
     "copy-wasm": "node scripts/wasm/copy-wasm.mjs",
+    "copy-wasm:forced": "cross-env NH3D_WASM_367_OVERRIDE_BUILD_DIR= node scripts/wasm/copy-wasm.mjs --public-runtime-override=wasm-367 --public-runtime-override=wasm-37",
     "copy-wasm:forked-367": "cross-env NH3D_WASM_367_OVERRIDE_BUILD_DIR=\\\\wsl.localhost\\Ubuntu\\home\\james\\Repos\\forked\\neth4ck-monorepo\\packages\\wasm-367\\build node scripts/wasm/copy-wasm.mjs",
     "copy-wasm:public-367": "node scripts/wasm/copy-wasm.mjs --public-runtime-override=wasm-367",
     "copy-wasm:public-forked-367": "cross-env NH3D_WASM_367_OVERRIDE_BUILD_DIR=\\\\wsl.localhost\\Ubuntu\\home\\james\\Repos\\forked\\neth4ck-monorepo\\packages\\wasm-367\\build node scripts/wasm/copy-wasm.mjs --public-runtime-override=wasm-367",
