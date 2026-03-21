@@ -270,7 +270,7 @@ export const defaultNh3dClientOptions: Nh3dClientOptions = {
   liveMessageLog: true,
   liveMessageDisplayTimeMs: 3000,
   liveMessageFadeOutTimeMs: 520,
-  checkUpdatesOnLaunch: true,
+  checkUpdatesOnLaunch: false,
   uiFontScale: 1,
   liveMessageLogFontScale: 1,
   desktopMessageLogWindowScale: 1,
@@ -883,9 +883,7 @@ export function normalizeNh3dClientOptions(
     liveMessageDisplayTimeMs,
     liveMessageFadeOutTimeMs,
     checkUpdatesOnLaunch:
-      typeof overrides?.checkUpdatesOnLaunch === "boolean"
-        ? overrides.checkUpdatesOnLaunch
-        : defaultNh3dClientOptions.checkUpdatesOnLaunch,
+      typeof overrides?.checkUpdatesOnLaunch === "boolean" ? false : false,
     uiFontScale,
     liveMessageLogFontScale,
     desktopMessageLogWindowScale,
