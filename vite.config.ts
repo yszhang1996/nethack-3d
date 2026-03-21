@@ -26,6 +26,24 @@ function resolveInstalledPackageVersion(packageName: string): string {
   }
 }
 
+function installedPackageBuildContains(
+  packageName: string,
+  relativeBuildPath: string,
+  snippet: string,
+): boolean {
+  try {
+    const buildPath = path.join(
+      process.cwd(),
+      "node_modules",
+      packageName,
+      relativeBuildPath,
+    );
+    return readFileSync(buildPath, "utf8").includes(snippet);
+  } catch {
+    return false;
+  }
+}
+
 function copyWasmPlugin() {
   return {
     name: "copy-nethack-wasm",
@@ -77,6 +95,19 @@ const enableCrossOriginIsolation =
   process.env.NH3D_ENABLE_CROSS_ORIGIN_ISOLATION === "true";
 const wasm367CompatTag = `wasm-367-${resolveInstalledPackageVersion("@neth4ck/wasm-367")}`;
 const wasm37CompatTag = `wasm-37-${resolveInstalledPackageVersion("@neth4ck/wasm-37")}`;
+const wasm367HasRecoverSavefile = installedPackageBuildContains(
+  "@neth4ck/wasm-367",
+  path.join("build", "nethack.js"),
+  'Module["_recover_savefile"]',
+);
+// The low-level recover_savefile() export alone is not sufficient for the web
+// client. A usable browser-side autosave resume path also needs a dedicated
+// bridge that can prepare lock state before libnhmain reaches unixunix.c/getlock().
+const wasm367HasCheckpointResumeBridge = installedPackageBuildContains(
+  "@neth4ck/wasm-367",
+  path.join("build", "nethack.js"),
+  'Module["_resume_checkpoint_save"]',
+);
 const resolvedBuildCommitSha = (() => {
   const result = spawnSync("git", ["rev-parse", "HEAD"], {
     cwd: process.cwd(),
@@ -132,6 +163,12 @@ const bundledClientUpdateState = (() => {
 
 export default defineConfig({
   plugins: [copyWasmPlugin(), tilesetManifestPlugin(), react()],
+  optimizeDeps: {
+    // These wasm packages are intentionally replaceable with in-progress local
+    // fork builds. Avoid Vite's prebundle cache so dev always loads the current
+    // package JS instead of a stale optimized snapshot.
+    exclude: ["@neth4ck/wasm-367", "@neth4ck/wasm-37"],
+  },
   define: {
     "import.meta.env.VITE_NH3D_BUILD_COMMIT_SHA": JSON.stringify(
       resolvedBuildCommitSha,
@@ -145,6 +182,11 @@ export default defineConfig({
     "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG": JSON.stringify(
       wasm367CompatTag,
     ),
+    "import.meta.env.VITE_NH3D_WASM_367_HAS_RECOVER_SAVEFILE": JSON.stringify(
+      wasm367HasRecoverSavefile,
+    ),
+    "import.meta.env.VITE_NH3D_WASM_367_HAS_CHECKPOINT_RESUME_BRIDGE":
+      JSON.stringify(wasm367HasCheckpointResumeBridge),
     "import.meta.env.VITE_NH3D_WASM_37_COMPAT_TAG": JSON.stringify(
       wasm37CompatTag,
     ),

@@ -20,12 +20,13 @@ export interface RuntimeBridge {
 }
 
 export type RuntimeCharacterCreationConfig = {
-  mode: "random" | "create";
+  mode: "random" | "create" | "resume";
   name?: string;
   role?: string;
   race?: string;
   gender?: string;
   align?: string;
+  resumeCategory?: "manual" | "autosave";
 };
 
 export type RuntimeStartupOptions = {

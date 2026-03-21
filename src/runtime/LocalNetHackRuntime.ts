@@ -6,6 +6,10 @@ import {
   appendRequiredStartupInitOptionTokens,
   sanitizeStartupInitOptionTokens,
 } from "./startup-init-options";
+import {
+  hasRuntimeCheckpointRecoveryPrimitiveExport,
+  supportsRuntimeCheckpointRecovery,
+} from "./runtime-capabilities";
 import { getRuntimeSaveDbName, getRuntimeSaveMountDir } from "./save-storage";
 import { STATUS_FIELD_MAP_367, STATUS_FIELD_MAP_37 } from "./status-map";
 
@@ -91,6 +95,8 @@ class LocalNetHackRuntime {
     this.travelClickMoveBlockExtraMs = 5;
     this.clickMoveBlockedUntilMs = 0;
     this.didLogMissingLevelIdentityGlobals = false;
+    this.checkpointRecoverySupported = false;
+    this.resumeCheckpointSave = null;
 
     this.ready = this.initializeNetHack();
   }
@@ -204,6 +210,82 @@ class LocalNetHackRuntime {
       return "";
     }
     return normalized.slice(0, 30);
+  }
+
+  buildCheckpointLockBaseName(name) {
+    const normalized = this.normalizeCharacterNameValue(name);
+    if (!normalized) {
+      return "";
+    }
+    return `0${normalized.replace(/[./ ]/g, "_")}`;
+  }
+
+  shouldCleanupCheckpointShardsBeforeStartup() {
+    if (this.startupOptions?.characterCreation?.mode === "resume") {
+      return false;
+    }
+    if (!this.buildStartupInitRuntimeOptions().includes("checkpoint")) {
+      return false;
+    }
+    return Boolean(
+      this.buildCheckpointLockBaseName(this.startupOptions?.characterCreation?.name),
+    );
+  }
+
+  cleanupStaleCheckpointShardsBeforeStartup(mod, saveDir) {
+    if (!mod?.FS || !this.shouldCleanupCheckpointShardsBeforeStartup()) {
+      return 0;
+    }
+
+    const lockBaseName = this.buildCheckpointLockBaseName(
+      this.startupOptions?.characterCreation?.name,
+    );
+    if (!lockBaseName) {
+      return 0;
+    }
+
+    const escapedLockBaseName = lockBaseName.replace(
+      /[.*+?^${}()|[\]\\]/g,
+      "\\$&",
+    );
+    const checkpointShardPattern = new RegExp(
+      `^${escapedLockBaseName}\\.\\d+$`,
+    );
+
+    let entries = [];
+    try {
+      entries = mod.FS.readdir(saveDir);
+    } catch (error) {
+      console.warn(`Failed to enumerate ${saveDir} for stale checkpoints:`, error);
+      return 0;
+    }
+
+    const staleShardPaths = entries
+      .filter((entry) => checkpointShardPattern.test(String(entry)))
+      .map((entry) => `${saveDir}/${entry}`);
+
+    if (staleShardPaths.length === 0) {
+      return 0;
+    }
+
+    console.log(
+      `Removing ${staleShardPaths.length} stale checkpoint shard(s) for "${lockBaseName}" before startup`,
+    );
+
+    let removedCount = 0;
+    for (const staleShardPath of staleShardPaths) {
+      try {
+        mod.FS.unlink(staleShardPath);
+        removedCount += 1;
+      } catch (error) {
+        console.warn(
+          `Failed to remove stale checkpoint shard ${staleShardPath}:`,
+          error,
+        );
+      }
+    }
+
+    return removedCount;
   }
 
   setRuntimePlayerName(name) {
@@ -2408,6 +2490,170 @@ class LocalNetHackRuntime {
     return this.isDestroyOldGameQuestion(question);
   }
 
+  isRecoverInterruptedGameQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    if (!normalized) {
+      return false;
+    }
+    return (
+      (normalized.includes(
+        "there is already a game in progress under your name",
+      ) ||
+        normalized.includes(
+          "there are files from a game in progress under your name",
+        )) &&
+      normalized.includes("recover")
+    );
+  }
+
+  shouldAutoRecoverCheckpointResume(question) {
+    if (!this.checkpointRecoverySupported) {
+      return false;
+    }
+    const characterCreation = this.startupOptions?.characterCreation;
+    if (
+      !characterCreation ||
+      characterCreation.mode !== "resume" ||
+      characterCreation.resumeCategory !== "autosave"
+    ) {
+      return false;
+    }
+    return this.isRecoverInterruptedGameQuestion(question);
+  }
+
+  isAutosaveResumeRequested() {
+    const characterCreation = this.startupOptions?.characterCreation;
+    return (
+      characterCreation?.mode === "resume" &&
+      characterCreation?.resumeCategory === "autosave"
+    );
+  }
+
+  buildCheckpointAutosaveResumeUnsupportedReason(runtimeVersion = this.runtimeVersion) {
+    if (hasRuntimeCheckpointRecoveryPrimitiveExport(runtimeVersion)) {
+      return "Checkpoint autosave resume is disabled for this wasm build. It exports recover_savefile(), but it does not expose a working browser-side resume_checkpoint_save bridge needed before unixunix.c/getlock().";
+    }
+    return "Checkpoint autosave resume is unavailable for this wasm build.";
+  }
+
+  updateCheckpointRecoverySupport() {
+    this.checkpointRecoverySupported = false;
+    this.resumeCheckpointSave = null;
+
+    if (this.runtimeVersion !== "3.6.7") {
+      return;
+    }
+    if (
+      !this.nethackInstance ||
+      typeof this.nethackInstance.cwrap !== "function"
+    ) {
+      return;
+    }
+
+    try {
+      const directResumeCheckpointSave =
+        typeof this.nethackInstance._resume_checkpoint_save === "function"
+          ? this.nethackInstance._resume_checkpoint_save
+          : null;
+      const malloc =
+        typeof this.nethackInstance._malloc === "function"
+          ? this.nethackInstance._malloc
+          : null;
+      const free =
+        typeof this.nethackInstance._free === "function"
+          ? this.nethackInstance._free
+          : null;
+      const stringToUtf8 =
+        typeof this.nethackInstance.stringToUTF8 === "function"
+          ? this.nethackInstance.stringToUTF8
+          : null;
+
+      if (
+        directResumeCheckpointSave &&
+        malloc &&
+        free &&
+        stringToUtf8
+      ) {
+        this.resumeCheckpointSave = (playerName) => {
+          const normalizedName = this.normalizeCharacterNameValue(playerName);
+          if (!normalizedName) {
+            return 0;
+          }
+          const bufferSize = normalizedName.length * 4 + 1;
+          const playerNamePtr = malloc(bufferSize);
+          try {
+            stringToUtf8(normalizedName, playerNamePtr, bufferSize);
+            return Number(directResumeCheckpointSave(playerNamePtr));
+          } finally {
+            free(playerNamePtr);
+          }
+        };
+      }
+
+      this.checkpointRecoverySupported =
+        typeof this.resumeCheckpointSave === "function";
+      const buildHintSupportsBridge = supportsRuntimeCheckpointRecovery(
+        this.runtimeVersion,
+      );
+      console.log(
+        `Checkpoint recovery support ${
+          this.checkpointRecoverySupported ? "enabled" : "unavailable"
+        } for runtime ${this.runtimeVersion}`,
+      );
+      if (!this.checkpointRecoverySupported) {
+        if (buildHintSupportsBridge) {
+          console.warn(
+            `Checkpoint recovery build hint was enabled for runtime ${this.runtimeVersion}, but the instantiated module could not bind resume_checkpoint_save. Treating recovery as unavailable.`,
+          );
+        } else if (
+          hasRuntimeCheckpointRecoveryPrimitiveExport(this.runtimeVersion)
+        ) {
+          console.log(
+            `Checkpoint recovery primitive detected for runtime ${this.runtimeVersion}, but the instantiated module still lacks a working browser-side resume bridge.`,
+          );
+        }
+      }
+    } catch (error) {
+      console.warn(
+        "Failed to bind direct resume_checkpoint_save bridge from NetHack runtime:",
+        error,
+      );
+    }
+  }
+
+  queueCheckpointAutosaveResumeBeforeStartup() {
+    if (!this.isAutosaveResumeRequested()) {
+      return;
+    }
+
+    if (
+      !this.checkpointRecoverySupported ||
+      typeof this.resumeCheckpointSave !== "function"
+    ) {
+      throw new Error(this.buildCheckpointAutosaveResumeUnsupportedReason());
+    }
+
+    const playerName = this.normalizeCharacterNameValue(
+      this.startupOptions?.characterCreation?.name,
+    );
+    if (!playerName) {
+      throw new Error(
+        "Checkpoint autosave resume requires a character name to identify the save.",
+      );
+    }
+
+    const didRecover = Number(this.resumeCheckpointSave(playerName));
+    if (didRecover !== 1) {
+      throw new Error(
+        `Failed to queue checkpoint autosave resume for "${playerName}" before startup.`,
+      );
+    }
+
+    console.log(
+      `Queued checkpoint autosave resume for "${playerName}" before NetHack startup`,
+    );
+  }
+
   updateNumberPadModeFromInput(input) {
     if (!this.isNumberPadModeQuestion(this.lastQuestionText)) {
       return;
@@ -4165,8 +4411,28 @@ class LocalNetHackRuntime {
                 mod.FS.mount(IDBFS, { dbName: saveDbName }, saveDir);
                 mod.addRunDependency("idbfs_sync");
                 mod.FS.syncfs(true, (err) => {
-                  if (err) console.warn("IDBFS load syncfs error:", err);
-                  else console.log(`IDBFS mounted and synced at ${saveDir}`);
+                  if (err) {
+                    console.warn("IDBFS load syncfs error:", err);
+                    mod.removeRunDependency("idbfs_sync");
+                    return;
+                  }
+
+                  console.log(`IDBFS mounted and synced at ${saveDir}`);
+                  const removedCheckpointShardCount =
+                    this.cleanupStaleCheckpointShardsBeforeStartup(mod, saveDir);
+                  if (removedCheckpointShardCount > 0) {
+                    mod.FS.syncfs(false, (syncErr) => {
+                      if (syncErr) {
+                        console.warn(
+                          "IDBFS stale checkpoint cleanup sync error:",
+                          syncErr,
+                        );
+                      }
+                      mod.removeRunDependency("idbfs_sync");
+                    });
+                    return;
+                  }
+
                   mod.removeRunDependency("idbfs_sync");
                 });
               } catch (e) {
@@ -4178,6 +4444,7 @@ class LocalNetHackRuntime {
       });
 
       this.nethackModule = this.nethackInstance;
+      this.updateCheckpointRecoverySupport();
 
       // Register the UI callback and start the game loop
       const setCallback = this.nethackInstance.cwrap(
@@ -4193,6 +4460,7 @@ class LocalNetHackRuntime {
       this.installHelperCompatibilityShims();
 
       // Start the game — ASYNCIFY pauses/resumes at each async callback boundary
+      this.queueCheckpointAutosaveResumeBeforeStartup();
       this.nethackInstance._main(0, 0);
     } catch (error) {
       console.error("Error initializing local NetHack:", error);
@@ -4257,12 +4525,22 @@ class LocalNetHackRuntime {
     this.pendingGameOverPossessionsInventoryFlow =
       this.isGameOverPossessionsIdentifyQuestion(question);
 
+    if (this.shouldAutoRecoverCheckpointResume(question)) {
+      // Autosave rows in the load-game UI represent explicit recovery of
+      // checkpoint-only runs. Once the wasm package exposes a full browser-side
+      // checkpoint resume bridge, accept NetHack's follow-up recover prompt
+      // automatically so resume goes straight into the recovered save without
+      // asking the player twice.
+      console.log(
+        'Auto-confirming checkpoint recovery with "y" during autosave resume',
+      );
+      return this.processKey("y");
+    }
+
     if (this.shouldAutoConfirmCheckpointCleanup(question)) {
-      // Checkpoint shards are intentionally hidden from the load-game UI because
-      // this WASM build cannot recover them into a resumable save. Surfacing
-      // NetHack's stale "destroy old game" prompt for fresh-game startup only
-      // blocks launch on checkpoint debris we already treat as non-loadable, so
-      // auto-confirm the cleanup here instead of showing the warning.
+      // Unsupported wasm builds cannot recover checkpoint shards into a proper
+      // save file. For those builds, auto-confirm stale cleanup during
+      // fresh-game startup instead of surfacing an unusable prompt.
       console.log(
         'Auto-confirming stale checkpoint cleanup with "y" during fresh-game startup',
       );

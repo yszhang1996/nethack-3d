@@ -931,7 +931,7 @@ export function normalizeNh3dClientOptions(
 }
 
 export type CharacterCreationConfig = {
-  mode: "random" | "create";
+  mode: "random" | "create" | "resume";
   playMode?: PlayMode;
   runtimeVersion?: NethackRuntimeVersion;
   name?: string;
@@ -940,6 +940,7 @@ export type CharacterCreationConfig = {
   gender?: string;
   align?: string;
   initOptions?: string[];
+  resumeCategory?: "manual" | "autosave";
 };
 
 export interface Nethack3DEngineUIAdapter {

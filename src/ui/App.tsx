@@ -55,6 +55,7 @@ import {
   type StartupInitOptionValue,
   type StartupInitOptionValues,
 } from "../runtime/startup-init-options";
+import { supportsRuntimeCheckpointRecovery } from "../runtime/runtime-capabilities";
 import { getRuntimeSaveDbNames } from "../runtime/save-storage";
 import { GLYPH_CATALOG as GLYPH_CATALOG_367 } from "../game/glyphs/glyph-catalog.367.generated";
 import {
@@ -4043,6 +4044,8 @@ async function fetchSavedGames(
 ): Promise<SaveGameRecord[]> {
   const saves = new Map<string, SaveGameRecord>();
   const dbNames = getRuntimeSaveDbNames(runtimeVersion);
+  const checkpointRecoverySupported =
+    supportsRuntimeCheckpointRecovery(runtimeVersion);
 
   for (const dbName of dbNames) {
     try {
@@ -4128,7 +4131,7 @@ async function fetchSavedGames(
               filename,
               timestamp,
             });
-            if (!isCheckpointShard) {
+            if (!isCheckpointShard || checkpointRecoverySupported) {
               existing.isResumable = true;
             }
             if (existing.timestamp < timestamp) {
@@ -4143,7 +4146,7 @@ async function fetchSavedGames(
             name,
             displayName: resolveSaveDisplayName(name, category),
             category,
-            isResumable: !isCheckpointShard,
+            isResumable: !isCheckpointShard || checkpointRecoverySupported,
             timestamp,
             dateFormatted: timestamp.toLocaleString(),
             files: [
@@ -4332,10 +4335,10 @@ export default function App(): JSX.Element {
     () => savedGames.filter((save) => save.isResumable),
     [savedGames],
   );
-  // Keep checkpoint shard files out of the load-game UI entirely. The current
-  // WASM build cannot recover them into a loadable save, and showing the old
-  // explanatory placeholder only burned modal space without giving the player
-  // an actionable path.
+  // Checkpoint-only autosaves become actionable only when the current wasm-367
+  // build exposes a full browser-side checkpoint resume bridge. The low-level
+  // recover_savefile() export alone is not enough because libnhmain still
+  // reaches unixunix.c/getlock() first in current builds.
   const savedGameSections = useMemo(
     () =>
       [
@@ -4500,8 +4503,8 @@ export default function App(): JSX.Element {
       try {
         const saves = await fetchSavedGames(runtimeVersion);
         const configName = config.name || "Web_user";
-        const existingSave = saves.find((s) => s.name === configName);
-        if (existingSave) {
+        const matchingSaves = saves.filter((s) => s.name === configName);
+        if (matchingSaves.length > 0) {
           const confirmed = await requestConfirmation({
             title: "Overwrite Saved Game?",
             message: `A saved game named "${configName}" already exists. Do you want to overwrite it with a new character?`,
@@ -4512,7 +4515,7 @@ export default function App(): JSX.Element {
           if (!confirmed) {
             return;
           }
-          await deleteSavedGame(existingSave);
+          await Promise.all(matchingSaves.map((save) => deleteSavedGame(save)));
         }
       } catch (e) {
         console.warn("Failed to check for existing saves:", e);
@@ -12289,10 +12292,11 @@ export default function App(): JSX.Element {
                           }}
                           onClick={() => {
                             setCharacterCreationConfig({
-                              mode: "resume" as any,
+                              mode: "resume",
                               playMode: clientOptions.fpsMode ? "fps" : "normal",
                               runtimeVersion,
                               name: save.name,
+                              resumeCategory: save.category,
                             });
                           }}
                           type="button"

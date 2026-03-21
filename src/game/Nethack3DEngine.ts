@@ -7162,6 +7162,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
           race: this.characterCreationConfig.race,
           gender: this.characterCreationConfig.gender,
           align: this.characterCreationConfig.align,
+          resumeCategory: this.characterCreationConfig.resumeCategory,
         },
         initOptions: this.characterCreationConfig.initOptions,
         loggingEnabled: isLoggingEnabled(),
