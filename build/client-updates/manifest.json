@@ -1,29 +1,29 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-21T14:59:18.822Z",
+  "generatedAt": "2026-03-21T16:22:42.115Z",
   "latest": {
-    "buildId": "b70bdede6f330bf8b75b",
-    "commitSha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
-    "createdAt": "2026-03-21T14:59:18.822Z",
+    "buildId": "399319d60c8b92d4b90f",
+    "commitSha": "e4b7e23a5053988e91f0c68b8da1fbfd95394ad9",
+    "createdAt": "2026-03-21T16:22:42.115Z",
     "clientVersion": "0.9.10",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
-        "authoredAt": "2026-03-21T10:58:33-04:00",
-        "message": "Better error handling when online updates break the game launch"
+        "sha": "e4b7e23a5053988e91f0c68b8da1fbfd95394ad9",
+        "authoredAt": "2026-03-21T12:21:46-04:00",
+        "message": "Reverted the forked WASM version for now"
       },
       {
-        "sha": "c845c00eb2ad2ce1c64b1aef80bbf7f15592d8ab",
-        "authoredAt": "2026-03-21T10:54:35-04:00",
-        "message": "Incremented game version"
+        "sha": "a533f7e215210c471d433736a712945d446ff61d",
+        "authoredAt": "2026-03-21T11:00:27-04:00",
+        "message": "Remove android run command"
       },
       {
-        "sha": "e1d1780cf8d9670dcbc3a26ed090f405ba52c88b",
-        "authoredAt": "2026-03-21T10:41:08-04:00",
-        "message": "Publishing online update with forked NetHack WASM fixing autosave support"
+        "sha": "6fa383a5ddc67e2c88c5989f73e8745eb184fc1e",
+        "authoredAt": "2026-03-21T10:59:26-04:00",
+        "message": "Online update"
       }
     ],
     "filesBasePath": "latest",
@@ -69,24 +69,24 @@
         "sha256": "8aca1b1ea61e1b35c0d7ab2d1b21dadc72234118ba2c925e7c79ce2dfd3c3dcb"
       },
       {
-        "path": "assets/index-Cc3eycm0.js",
+        "path": "assets/index-DiO9_QWA.js",
         "size": null,
-        "sha256": "4c3ac990ea54c2b4096313a99999e3f7e2d35cf56e1a4e814a2c11cf5ce20584"
+        "sha256": "f90d1a8b129a82ba35052c4268ee8bbc25a1fde43ee5618792ee05e19d75dae6"
       },
       {
-        "path": "assets/index-CclRIO4n.js",
+        "path": "assets/index-DRxE9gaM.js",
         "size": null,
-        "sha256": "4fa4579983fda2c6104f5794e79ac5c58524d675bd4455b6d5cdc5b546bd1c7e"
+        "sha256": "f4fcd4ee7200e5be7d437dbadddde38baa9038eb0072c2ca9048764846f8d025"
       },
       {
-        "path": "assets/index-DGDqG8KY.js",
+        "path": "assets/index-mqUEQa2G.js",
         "size": null,
-        "sha256": "954313186a4146d21b921fe2bd950b70b5f639ee8cb4950331e839022ac22e01"
+        "sha256": "94ecc01ee66a189506dd0fd8475d36217782f5bb4ada20c47714777be2e33d75"
       },
       {
-        "path": "assets/nethack-DhAJn0fK.wasm",
+        "path": "assets/nethack-D0OsBI3W.wasm",
         "size": null,
-        "sha256": "a730be718e0d679a22ec9f52ec997943fe7ac15179c92fa4f715012f3a2a4b29"
+        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
       },
       {
         "path": "assets/nethack-RClcUfPq.wasm",
@@ -94,9 +94,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-CFxEQM93.js",
+        "path": "assets/runtime-worker-CSyBzAtn.js",
         "size": null,
-        "sha256": "1f36610f250c6cdb9a1463f8713f39ccf66f1e9230374fc50db4e4e1b00de250"
+        "sha256": "c6c0091279d9192e6ca096fe84165ef1b98b7c5953cf34730fc850cb0d211eb7"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13096,17 +13096,22 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "070a55f1a9d0405d7807c7243ca0319380e99a8133672c3dc8d9f4fe75aa98d1"
+        "sha256": "cc61c32a211fc015571843c3136763db930c25a4cf22bc8b756ded1bd99f3262"
       },
       {
         "path": "nethack-367.js",
         "size": null,
-        "sha256": "e836abacbc011f0feb939ac0680c18213156afa91dd3631f249909c19de0ad0a"
+        "sha256": "8e0eea094f286e67fb43e713087cc224f14d84dfe0cc8b2b9190868b27fe6954"
       },
       {
         "path": "nethack-367.wasm",
         "size": null,
-        "sha256": "a730be718e0d679a22ec9f52ec997943fe7ac15179c92fa4f715012f3a2a4b29"
+        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
+      },
+      {
+        "path": "nethack-37.js",
+        "size": null,
+        "sha256": "3308532bf5dcf79fa0da26dc6b41a0c93ce959d07d162003c77b35b2cec79467"
       },
       {
         "path": "nethack-37.wasm",
@@ -13131,6 +13136,31 @@
     ]
   },
   "history": [
+    {
+      "buildId": "399319d60c8b92d4b90f",
+      "commitSha": "e4b7e23a5053988e91f0c68b8da1fbfd95394ad9",
+      "createdAt": "2026-03-21T16:22:42.115Z",
+      "clientVersion": "0.9.10",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "e4b7e23a5053988e91f0c68b8da1fbfd95394ad9",
+          "authoredAt": "2026-03-21T12:21:46-04:00",
+          "message": "Reverted the forked WASM version for now"
+        },
+        {
+          "sha": "a533f7e215210c471d433736a712945d446ff61d",
+          "authoredAt": "2026-03-21T11:00:27-04:00",
+          "message": "Remove android run command"
+        },
+        {
+          "sha": "6fa383a5ddc67e2c88c5989f73e8745eb184fc1e",
+          "authoredAt": "2026-03-21T10:59:26-04:00",
+          "message": "Online update"
+        }
+      ]
+    },
     {
       "buildId": "b70bdede6f330bf8b75b",
       "commitSha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
@@ -13537,21 +13567,6 @@
           "sha": "737e88d7fd59e89be5d18bec42743af772ea8e17",
           "authoredAt": "2026-03-19T17:46:45-04:00",
           "message": "Testing updates"
-        }
-      ]
-    },
-    {
-      "buildId": "483b0ecb1dcc601131c4",
-      "commitSha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
-      "createdAt": "2026-03-19T21:46:34.467Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
-          "authoredAt": "2026-03-19T17:43:14-04:00",
-          "message": "Added logging to the update system"
         }
       ]
     }
