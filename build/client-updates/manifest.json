@@ -1,29 +1,19 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-21T00:28:34.666Z",
+  "generatedAt": "2026-03-21T01:19:07.014Z",
   "latest": {
-    "buildId": "fec1fa76196796f29924",
-    "commitSha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
-    "createdAt": "2026-03-21T00:28:34.666Z",
+    "buildId": "be3576e1dced53677201",
+    "commitSha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
+    "createdAt": "2026-03-21T01:19:07.014Z",
     "clientVersion": "0.9.9",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
-        "authoredAt": "2026-03-20T19:49:35-04:00",
-        "message": "Wizard mode working! FIxes for incompatible save handling after WASM update"
-      },
-      {
-        "sha": "7286062046a1cceb0d6cfcb956e62552d2f92bb8",
-        "authoredAt": "2026-03-20T19:02:42-04:00",
-        "message": "Package-lock updates"
-      },
-      {
-        "sha": "562876d9f3e342947e828fc38618534449b946d5",
-        "authoredAt": "2026-03-20T18:45:02-04:00",
-        "message": "Online update"
+        "sha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
+        "authoredAt": "2026-03-20T21:18:44-04:00",
+        "message": "Removed autosave support, as a WASM update is needed to support it correctly"
       }
     ],
     "filesBasePath": "latest",
@@ -64,24 +54,24 @@
         "sha256": "08c52a537146c28fb51d1b338d1a0ae611c397f4cf5568aaef046b863dbfcb7c"
       },
       {
-        "path": "assets/index-BrcL7nNG.js",
+        "path": "assets/index-BSXNO_Dj.js",
         "size": null,
-        "sha256": "e355c5adf278948978d799c7adcf81398b06f65cda5cee05601ef9b960749702"
+        "sha256": "bb71730302e3f77c7438a1fe47beae20fdfe207312d80c15284141798a55e6e7"
       },
       {
-        "path": "assets/index-C4vh4YMY.js",
+        "path": "assets/index-Byrh7p8l.js",
         "size": null,
-        "sha256": "50c7274dc29aa2539a0a5127a02ba0612135d34d659dc3676ca831c9a7fa1746"
+        "sha256": "0d437eb79b0426831c5b43929f47a8e9180e51eaeabb8ff12cfad78a7e230a2e"
       },
       {
-        "path": "assets/index-CiUOYjwd.css",
+        "path": "assets/index-D4yH2xuR.css",
         "size": null,
-        "sha256": "917ba4a1c274cab476482f1b4ec5789e33313758eaf24d349a3d19ef13d0eac6"
+        "sha256": "5bbfba0b81b08c0543200e47f00f0ad59df6b4d18440e2753d63ffbf11a68b9a"
       },
       {
-        "path": "assets/index-DpGg-Y0y.js",
+        "path": "assets/index-WLQwt4fS.js",
         "size": null,
-        "sha256": "54cb5cc949ac3d85a436ab4b209e754494e2c80301d5cb573a19ed569d3c6610"
+        "sha256": "7adf565f01d56e6f1350821528d98eb1cf844a4860aea791a84c64b5509504b2"
       },
       {
         "path": "assets/nethack-D0OsBI3W.wasm",
@@ -94,9 +84,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-Cge1C4m9.js",
+        "path": "assets/runtime-worker-CRFnAB78.js",
         "size": null,
-        "sha256": "3a45670ede43d90ad7f9af90a95943f07553b311a201cb63bd7bd787cb948aa5"
+        "sha256": "93bdc18f79c6bf40d277c9b60f0e21f4bb0a2a77309103fe270f426ed60a5545"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13096,7 +13086,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "7a80b6b0b6d3a5eb0bd4c9bab86d343e11a49715e9971364775f1774248b05d7"
+        "sha256": "fdd802943919558e714676e56bbca6deaaffeb72b9bb29dbab62328fc45b7661"
       },
       {
         "path": "nethack-367.wasm",
@@ -13126,6 +13116,21 @@
     ]
   },
   "history": [
+    {
+      "buildId": "be3576e1dced53677201",
+      "commitSha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
+      "createdAt": "2026-03-21T01:19:07.014Z",
+      "clientVersion": "0.9.9",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
+          "authoredAt": "2026-03-20T21:18:44-04:00",
+          "message": "Removed autosave support, as a WASM update is needed to support it correctly"
+        }
+      ]
+    },
     {
       "buildId": "fec1fa76196796f29924",
       "commitSha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
@@ -13509,15 +13514,6 @@
           "message": "Fixes to update system"
         }
       ]
-    },
-    {
-      "buildId": "1a2df5bf55eaf3e6d502",
-      "commitSha": "633503a6792779a779b5105057722103a6b08c66",
-      "createdAt": "2026-03-19T21:23:47.249Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": []
     }
   ]
 }
