@@ -30,6 +30,8 @@
     "vulture:prebake": "node scripts/vulture/prebake-vulture-projections.mjs",
     "copy-wasm": "node scripts/wasm/copy-wasm.mjs",
     "copy-wasm:forked-367": "cross-env NH3D_WASM_367_OVERRIDE_BUILD_DIR=\\\\wsl.localhost\\Ubuntu\\home\\james\\Repos\\forked\\neth4ck-monorepo\\packages\\wasm-367\\build node scripts/wasm/copy-wasm.mjs",
+    "copy-wasm:public-367": "node scripts/wasm/copy-wasm.mjs --public-runtime-override=wasm-367",
+    "copy-wasm:public-forked-367": "cross-env NH3D_WASM_367_OVERRIDE_BUILD_DIR=\\\\wsl.localhost\\Ubuntu\\home\\james\\Repos\\forked\\neth4ck-monorepo\\packages\\wasm-367\\build node scripts/wasm/copy-wasm.mjs --public-runtime-override=wasm-367",
     "dev:forked-wasm-367": "npm run copy-wasm:forked-367 && npm run dev",
     "build:forked-wasm-367": "npm run copy-wasm:forked-367 && npm run build",
     "glyphs:generate:forked-wasm-367": "npm run copy-wasm:forked-367 && npm run glyphs:generate",

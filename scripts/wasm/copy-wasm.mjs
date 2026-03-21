@@ -23,6 +23,7 @@ const targets = [
       PROJECT_ROOT,
       "node_modules/@neth4ck/wasm-367/build/nethack.wasm",
     ),
+    publicJsDest: resolve(PROJECT_ROOT, "public/nethack-367.js"),
     publicWasmDest: resolve(PROJECT_ROOT, "public/nethack-367.wasm"),
     overrideBuildDirEnvVar: "NH3D_WASM_367_OVERRIDE_BUILD_DIR",
   },
@@ -37,6 +38,7 @@ const targets = [
       PROJECT_ROOT,
       "node_modules/@neth4ck/wasm-37/build/nethack.wasm",
     ),
+    publicJsDest: resolve(PROJECT_ROOT, "public/nethack-37.js"),
     publicWasmDest: resolve(PROJECT_ROOT, "public/nethack-37.wasm"),
     overrideBuildDirEnvVar: null,
   },
@@ -58,6 +60,14 @@ function ensureFileExists(filePath, message) {
   if (!existsSync(filePath)) {
     throw new Error(message);
   }
+}
+
+function hasCheckedInPublicRuntimeOverride(target) {
+  return Boolean(
+    target.publicJsDest &&
+      existsSync(target.publicJsDest) &&
+      existsSync(target.publicWasmDest),
+  );
 }
 
 function getViteOptimizedDepBaseName(packageName) {
@@ -89,10 +99,34 @@ function purgeViteOptimizedDepCache(target) {
   }
 }
 
+function copyTargetToPublicRuntimeOverride(target) {
+  const overrideBuildDir = getOptionalOverrideBuildDir(target);
+  const sourceJsPath = overrideBuildDir
+    ? resolve(overrideBuildDir, "nethack.js")
+    : target.packageJsDest;
+  const sourceWasmPath = overrideBuildDir
+    ? resolve(overrideBuildDir, "nethack.wasm")
+    : target.packageWasmDest;
+
+  ensureFileExists(
+    sourceJsPath,
+    `${target.packageName} JS build not found at ${sourceJsPath}`,
+  );
+  ensureFileExists(
+    sourceWasmPath,
+    `${target.packageName} wasm build not found at ${sourceWasmPath}`,
+  );
+
+  copyFileSync(sourceJsPath, target.publicJsDest);
+  copyFileSync(sourceWasmPath, target.publicWasmDest);
+}
+
 export function copyWasm() {
   mkdirSync(resolve(PROJECT_ROOT, "public"), { recursive: true });
   for (const target of targets) {
     const overrideBuildDir = getOptionalOverrideBuildDir(target);
+    const useCheckedInPublicRuntimeOverride =
+      hasCheckedInPublicRuntimeOverride(target);
     const sourceJsPath = overrideBuildDir
       ? resolve(overrideBuildDir, "nethack.js")
       : target.packageJsDest;
@@ -125,10 +159,48 @@ export function copyWasm() {
       purgeViteOptimizedDepCache(target);
     }
 
+    if (useCheckedInPublicRuntimeOverride) {
+      // A checked-in public runtime pair is the deployable source of truth while
+      // we temporarily carry a forked wasm package build. Leave it untouched so
+      // CI/builds do not silently revert to the published package artifacts.
+      continue;
+    }
+
     copyFileSync(target.packageWasmDest, target.publicWasmDest);
   }
 }
 
+export function copyPublicRuntimeOverrides(targetIds = []) {
+  mkdirSync(resolve(PROJECT_ROOT, "public"), { recursive: true });
+  const requestedIds =
+    targetIds.length > 0 ? new Set(targetIds) : new Set(targets.map((t) => t.id));
+  for (const target of targets) {
+    if (!requestedIds.has(target.id)) {
+      continue;
+    }
+    copyTargetToPublicRuntimeOverride(target);
+  }
+}
+
+function getRequestedPublicRuntimeOverrideTargetIds(argv) {
+  const ids = [];
+  for (const arg of argv) {
+    const prefix = "--public-runtime-override=";
+    if (arg.startsWith(prefix)) {
+      const targetId = arg.slice(prefix.length).trim();
+      if (targetId) {
+        ids.push(targetId);
+      }
+    }
+  }
+  return ids;
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  copyWasm();
+  const targetIds = getRequestedPublicRuntimeOverrideTargetIds(process.argv.slice(2));
+  if (targetIds.length > 0) {
+    copyPublicRuntimeOverrides(targetIds);
+  } else {
+    copyWasm();
+  }
 }

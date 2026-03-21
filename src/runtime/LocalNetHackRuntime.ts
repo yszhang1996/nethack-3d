@@ -182,8 +182,52 @@ class LocalNetHackRuntime {
   }
 
   async loadRuntimeFactory(version) {
+    const usePublicRuntimeOverride = (value) => {
+      if (typeof value === "boolean") {
+        return value;
+      }
+      if (typeof value === "string") {
+        return value.trim().toLowerCase() === "true";
+      }
+      return false;
+    };
+    const resolvePublicRuntimeModuleUrl = (assetPath) => {
+      const normalizedAssetPath = String(assetPath || "").replace(/^\/+/, "");
+      const baseUrl =
+        typeof import.meta.env.BASE_URL === "string" &&
+        import.meta.env.BASE_URL.trim()
+          ? import.meta.env.BASE_URL.trim()
+          : "/";
+      const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+      const referenceUrl =
+        typeof globalThis.location?.href === "string" &&
+        globalThis.location.href
+          ? globalThis.location.href
+          : import.meta.url;
+      return new URL(`${normalizedBaseUrl}${normalizedAssetPath}`, referenceUrl)
+        .href;
+    };
+
     if (version === "3.7") {
+      if (
+        usePublicRuntimeOverride(
+          import.meta.env.VITE_NH3D_WASM_37_USE_PUBLIC_RUNTIME_OVERRIDE,
+        )
+      ) {
+        const moduleUrl = resolvePublicRuntimeModuleUrl("nethack-37.js");
+        const { default: factory } = await import(/* @vite-ignore */ moduleUrl);
+        return factory;
+      }
       const { default: factory } = await import("@neth4ck/wasm-37");
+      return factory;
+    }
+    if (
+      usePublicRuntimeOverride(
+        import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE,
+      )
+    ) {
+      const moduleUrl = resolvePublicRuntimeModuleUrl("nethack-367.js");
+      const { default: factory } = await import(/* @vite-ignore */ moduleUrl);
       return factory;
     }
     const { default: factory } = await import("@neth4ck/wasm-367");

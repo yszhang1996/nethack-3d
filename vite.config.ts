@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { defineConfig, type ViteDevServer } from "vite";
 import react from "@vitejs/plugin-react";
@@ -26,19 +26,30 @@ function resolveInstalledPackageVersion(packageName: string): string {
   }
 }
 
-function installedPackageBuildContains(
+function resolveRuntimeBuildJsPath(
   packageName: string,
   relativeBuildPath: string,
-  snippet: string,
-): boolean {
+  publicOverrideFilename: string,
+): string {
+  const publicOverridePath = path.join(
+    process.cwd(),
+    "public",
+    publicOverrideFilename,
+  );
+  if (existsSync(publicOverridePath)) {
+    return publicOverridePath;
+  }
+  return path.join(
+    process.cwd(),
+    "node_modules",
+    packageName,
+    relativeBuildPath,
+  );
+}
+
+function buildFileContains(filePath: string, snippet: string): boolean {
   try {
-    const buildPath = path.join(
-      process.cwd(),
-      "node_modules",
-      packageName,
-      relativeBuildPath,
-    );
-    return readFileSync(buildPath, "utf8").includes(snippet);
+    return readFileSync(filePath, "utf8").includes(snippet);
   } catch {
     return false;
   }
@@ -93,19 +104,33 @@ const isGitHubActions = process.env.GITHUB_ACTIONS === "true";
 const isElectronBuild = process.env.BUILD_TARGET === "electron";
 const enableCrossOriginIsolation =
   process.env.NH3D_ENABLE_CROSS_ORIGIN_ISOLATION === "true";
-const wasm367CompatTag = `wasm-367-${resolveInstalledPackageVersion("@neth4ck/wasm-367")}`;
-const wasm37CompatTag = `wasm-37-${resolveInstalledPackageVersion("@neth4ck/wasm-37")}`;
-const wasm367HasRecoverSavefile = installedPackageBuildContains(
+const wasm367RuntimeBuildJsPath = resolveRuntimeBuildJsPath(
   "@neth4ck/wasm-367",
   path.join("build", "nethack.js"),
+  "nethack-367.js",
+);
+const wasm37RuntimeBuildJsPath = resolveRuntimeBuildJsPath(
+  "@neth4ck/wasm-37",
+  path.join("build", "nethack.js"),
+  "nethack-37.js",
+);
+const wasm367UsesPublicRuntimeOverride = wasm367RuntimeBuildJsPath.endsWith(
+  `${path.sep}public${path.sep}nethack-367.js`,
+);
+const wasm37UsesPublicRuntimeOverride = wasm37RuntimeBuildJsPath.endsWith(
+  `${path.sep}public${path.sep}nethack-37.js`,
+);
+const wasm367CompatTag = `wasm-367-${resolveInstalledPackageVersion("@neth4ck/wasm-367")}`;
+const wasm37CompatTag = `wasm-37-${resolveInstalledPackageVersion("@neth4ck/wasm-37")}`;
+const wasm367HasRecoverSavefile = buildFileContains(
+  wasm367RuntimeBuildJsPath,
   'Module["_recover_savefile"]',
 );
 // The low-level recover_savefile() export alone is not sufficient for the web
 // client. A usable browser-side autosave resume path also needs a dedicated
 // bridge that can prepare lock state before libnhmain reaches unixunix.c/getlock().
-const wasm367HasCheckpointResumeBridge = installedPackageBuildContains(
-  "@neth4ck/wasm-367",
-  path.join("build", "nethack.js"),
+const wasm367HasCheckpointResumeBridge = buildFileContains(
+  wasm367RuntimeBuildJsPath,
   'Module["_resume_checkpoint_save"]',
 );
 const resolvedBuildCommitSha = (() => {
@@ -182,6 +207,8 @@ export default defineConfig({
     "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG": JSON.stringify(
       wasm367CompatTag,
     ),
+    "import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE":
+      JSON.stringify(wasm367UsesPublicRuntimeOverride),
     "import.meta.env.VITE_NH3D_WASM_367_HAS_RECOVER_SAVEFILE": JSON.stringify(
       wasm367HasRecoverSavefile,
     ),
@@ -190,6 +217,8 @@ export default defineConfig({
     "import.meta.env.VITE_NH3D_WASM_37_COMPAT_TAG": JSON.stringify(
       wasm37CompatTag,
     ),
+    "import.meta.env.VITE_NH3D_WASM_37_USE_PUBLIC_RUNTIME_OVERRIDE":
+      JSON.stringify(wasm37UsesPublicRuntimeOverride),
   },
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",
   server: {
