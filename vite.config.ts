@@ -206,8 +206,8 @@ export default defineConfig({
     ),
     "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG":
       JSON.stringify(wasm367CompatTag),
-    // "import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE":
-    //   JSON.stringify(wasm367UsesPublicRuntimeOverride),
+    "import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE":
+      JSON.stringify(wasm367UsesPublicRuntimeOverride),
     "import.meta.env.VITE_NH3D_WASM_367_HAS_RECOVER_SAVEFILE": JSON.stringify(
       wasm367HasRecoverSavefile,
     ),
