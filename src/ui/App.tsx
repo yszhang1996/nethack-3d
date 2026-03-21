@@ -3492,7 +3492,8 @@ const resolveInventoryDropTypeMenuPosition = (
   const safeWidth = Number.isFinite(width) && width > 0 ? width : 220;
   const safeHeight = Number.isFinite(height) && height > 0 ? height : 300;
   const preferredX = anchorRect.left + anchorRect.width * 0.5 - safeWidth * 0.5;
-  const preferredY = anchorRect.top - inventoryDropTypeMenuAnchorGapPx - safeHeight;
+  const preferredY =
+    anchorRect.top - inventoryDropTypeMenuAnchorGapPx - safeHeight;
   return clampInventoryContextMenuPosition(
     preferredX,
     preferredY,
@@ -4172,9 +4173,7 @@ async function fetchSavedGames(
   );
 }
 
-async function deleteSavedGame(
-  save: SaveGameRecord,
-): Promise<void> {
+async function deleteSavedGame(save: SaveGameRecord): Promise<void> {
   const fileGroups = new Map<
     string,
     Array<{ key: string; filename: string; timestamp: Date }>
@@ -5162,7 +5161,8 @@ export default function App(): JSX.Element {
     [inventoryContextCategory],
   );
   const inventoryContextStackCount = useMemo(
-    () => parseInventoryStackCount(String(inventoryContextMenu?.itemText || "")),
+    () =>
+      parseInventoryStackCount(String(inventoryContextMenu?.itemText || "")),
     [inventoryContextMenu?.itemText],
   );
   const inventoryContextSupportsDropAmount =
@@ -6934,7 +6934,8 @@ export default function App(): JSX.Element {
     : tilesetLoadingVisible
       ? "Loading tileset..."
       : "Starting local runtime...";
-  const startupInitialLoadingVisible = !hasShownStartupMenu && loadingOverlayVisible;
+  const startupInitialLoadingVisible =
+    !hasShownStartupMenu && loadingOverlayVisible;
   const startupLogoVisible = startupUiVisible && !startupInitialLoadingVisible;
   const startupMenuVisible =
     startupUiVisible &&
@@ -7055,7 +7056,8 @@ export default function App(): JSX.Element {
     let canceled = false;
     (async () => {
       if (!clientOptions.checkUpdatesOnLaunch) {
-        const hostWarningMessage = await readNh3dClientUpdateHostWarningMessage();
+        const hostWarningMessage =
+          await readNh3dClientUpdateHostWarningMessage();
         if (canceled || !hostWarningMessage) {
           return;
         }
@@ -10267,13 +10269,14 @@ export default function App(): JSX.Element {
     [cancelInventoryDropTypeHold],
   );
 
-  const consumeInventoryDropActionClickSuppression = useCallback((): boolean => {
-    if (!inventorySuppressDropActionClickRef.current) {
-      return false;
-    }
-    inventorySuppressDropActionClickRef.current = false;
-    return true;
-  }, []);
+  const consumeInventoryDropActionClickSuppression =
+    useCallback((): boolean => {
+      if (!inventorySuppressDropActionClickRef.current) {
+        return false;
+      }
+      inventorySuppressDropActionClickRef.current = false;
+      return true;
+    }, []);
 
   const runInventoryDropTypeCommand = useCallback((): void => {
     closeInventoryDropTypeMenu();
@@ -10305,9 +10308,7 @@ export default function App(): JSX.Element {
 
   const clampInventoryDropCountValue = useCallback(
     (nextValue: number): number => {
-      const normalized = Number.isFinite(nextValue)
-        ? Math.trunc(nextValue)
-        : 1;
+      const normalized = Number.isFinite(nextValue) ? Math.trunc(nextValue) : 1;
       return Math.max(1, Math.min(inventoryDropCountMaxValue, normalized));
     },
     [inventoryDropCountMaxValue],
@@ -12305,7 +12306,9 @@ export default function App(): JSX.Element {
                           onClick={() => {
                             setCharacterCreationConfig({
                               mode: "resume",
-                              playMode: clientOptions.fpsMode ? "fps" : "normal",
+                              playMode: clientOptions.fpsMode
+                                ? "fps"
+                                : "normal",
                               runtimeVersion,
                               name: save.name,
                               resumeCategory: save.category,
@@ -12923,7 +12926,8 @@ export default function App(): JSX.Element {
                       <div className="nh3d-option-select-controls">
                         <button
                           className="nh3d-menu-action-button"
-                          disabled={optionsUpdateCheckBusy}
+                          // disabled={optionsUpdateCheckBusy}
+                          disabled={true}
                           onClick={() => {
                             void checkForUpdatesFromOptions();
                           }}
@@ -14649,7 +14653,10 @@ export default function App(): JSX.Element {
       <AnimatedDialog
         className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-runtime-start-error"
         open={
-          runtimeInitializationErrorVisible && !newGamePrompt.visible && !infoMenu && !question
+          runtimeInitializationErrorVisible &&
+          !newGamePrompt.visible &&
+          !infoMenu &&
+          !question
         }
         id="runtime-start-error-dialog"
       >
@@ -15724,7 +15731,9 @@ export default function App(): JSX.Element {
                 <button
                   aria-label="Increase drop amount by one"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
-                  disabled={inventoryDropCountValue >= inventoryDropCountMaxValue}
+                  disabled={
+                    inventoryDropCountValue >= inventoryDropCountMaxValue
+                  }
                   onClick={() => {
                     stepInventoryDropCountValue(1);
                   }}
@@ -15735,7 +15744,9 @@ export default function App(): JSX.Element {
                 <button
                   aria-label="Set drop amount to maximum"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
-                  disabled={inventoryDropCountValue >= inventoryDropCountMaxValue}
+                  disabled={
+                    inventoryDropCountValue >= inventoryDropCountMaxValue
+                  }
                   onClick={() => {
                     setInventoryDropCountValue(inventoryDropCountMaxValue);
                   }}
