@@ -1,19 +1,39 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-21T01:19:07.014Z",
+  "generatedAt": "2026-03-21T14:40:42.270Z",
   "latest": {
-    "buildId": "be3576e1dced53677201",
-    "commitSha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
-    "createdAt": "2026-03-21T01:19:07.014Z",
+    "buildId": "b22d8d5efe2039796a12",
+    "commitSha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
+    "createdAt": "2026-03-21T14:40:42.270Z",
     "clientVersion": "0.9.9",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
-        "authoredAt": "2026-03-20T21:18:44-04:00",
-        "message": "Removed autosave support, as a WASM update is needed to support it correctly"
+        "sha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
+        "authoredAt": "2026-03-21T10:39:39-04:00",
+        "message": "Allow online updates to serve forked NetHack WASM files"
+      },
+      {
+        "sha": "e0f848862fedf4a42ef421a82672dde676602efb",
+        "authoredAt": "2026-03-21T10:29:25-04:00",
+        "message": "Allow forked version of NetHack WASM to override packaged version while waiting for PRs to be merged"
+      },
+      {
+        "sha": "2fc07afa6d140d333c50a59d1c620b03a37cf9ab",
+        "authoredAt": "2026-03-21T10:09:49-04:00",
+        "message": "Removed unneeded dependency"
+      },
+      {
+        "sha": "d856f66f3385d7770c22081ceafb98a545c82975",
+        "authoredAt": "2026-03-21T10:08:02-04:00",
+        "message": "Fixed autosave system"
+      },
+      {
+        "sha": "c0482c4f4c812aafb1706c83819666b869cf064a",
+        "authoredAt": "2026-03-20T21:19:25-04:00",
+        "message": "Online game update"
       }
     ],
     "filesBasePath": "latest",
@@ -54,14 +74,19 @@
         "sha256": "08c52a537146c28fb51d1b338d1a0ae611c397f4cf5568aaef046b863dbfcb7c"
       },
       {
-        "path": "assets/index-BSXNO_Dj.js",
+        "path": "assets/index-Cc3eycm0.js",
         "size": null,
-        "sha256": "bb71730302e3f77c7438a1fe47beae20fdfe207312d80c15284141798a55e6e7"
+        "sha256": "4c3ac990ea54c2b4096313a99999e3f7e2d35cf56e1a4e814a2c11cf5ce20584"
       },
       {
-        "path": "assets/index-Byrh7p8l.js",
+        "path": "assets/index-CclRIO4n.js",
         "size": null,
-        "sha256": "0d437eb79b0426831c5b43929f47a8e9180e51eaeabb8ff12cfad78a7e230a2e"
+        "sha256": "4fa4579983fda2c6104f5794e79ac5c58524d675bd4455b6d5cdc5b546bd1c7e"
+      },
+      {
+        "path": "assets/index-CCTI9Bk9.js",
+        "size": null,
+        "sha256": "13780afd471dfe1bccbd20e9d97ff703ed14b020c62867875e94b58d80ffe2ca"
       },
       {
         "path": "assets/index-D4yH2xuR.css",
@@ -69,14 +94,9 @@
         "sha256": "5bbfba0b81b08c0543200e47f00f0ad59df6b4d18440e2753d63ffbf11a68b9a"
       },
       {
-        "path": "assets/index-WLQwt4fS.js",
+        "path": "assets/nethack-DhAJn0fK.wasm",
         "size": null,
-        "sha256": "7adf565f01d56e6f1350821528d98eb1cf844a4860aea791a84c64b5509504b2"
-      },
-      {
-        "path": "assets/nethack-D0OsBI3W.wasm",
-        "size": null,
-        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
+        "sha256": "a730be718e0d679a22ec9f52ec997943fe7ac15179c92fa4f715012f3a2a4b29"
       },
       {
         "path": "assets/nethack-RClcUfPq.wasm",
@@ -84,9 +104,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-CRFnAB78.js",
+        "path": "assets/runtime-worker-CFxEQM93.js",
         "size": null,
-        "sha256": "93bdc18f79c6bf40d277c9b60f0e21f4bb0a2a77309103fe270f426ed60a5545"
+        "sha256": "1f36610f250c6cdb9a1463f8713f39ccf66f1e9230374fc50db4e4e1b00de250"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13086,12 +13106,17 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "fdd802943919558e714676e56bbca6deaaffeb72b9bb29dbab62328fc45b7661"
+        "sha256": "e9bbe7e40ea4e472a24d894f4674428cf2935667001defd3c277f266f0805064"
+      },
+      {
+        "path": "nethack-367.js",
+        "size": null,
+        "sha256": "e836abacbc011f0feb939ac0680c18213156afa91dd3631f249909c19de0ad0a"
       },
       {
         "path": "nethack-367.wasm",
         "size": null,
-        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
+        "sha256": "a730be718e0d679a22ec9f52ec997943fe7ac15179c92fa4f715012f3a2a4b29"
       },
       {
         "path": "nethack-37.wasm",
@@ -13116,6 +13141,41 @@
     ]
   },
   "history": [
+    {
+      "buildId": "b22d8d5efe2039796a12",
+      "commitSha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
+      "createdAt": "2026-03-21T14:40:42.270Z",
+      "clientVersion": "0.9.9",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
+          "authoredAt": "2026-03-21T10:39:39-04:00",
+          "message": "Allow online updates to serve forked NetHack WASM files"
+        },
+        {
+          "sha": "e0f848862fedf4a42ef421a82672dde676602efb",
+          "authoredAt": "2026-03-21T10:29:25-04:00",
+          "message": "Allow forked version of NetHack WASM to override packaged version while waiting for PRs to be merged"
+        },
+        {
+          "sha": "2fc07afa6d140d333c50a59d1c620b03a37cf9ab",
+          "authoredAt": "2026-03-21T10:09:49-04:00",
+          "message": "Removed unneeded dependency"
+        },
+        {
+          "sha": "d856f66f3385d7770c22081ceafb98a545c82975",
+          "authoredAt": "2026-03-21T10:08:02-04:00",
+          "message": "Fixed autosave system"
+        },
+        {
+          "sha": "c0482c4f4c812aafb1706c83819666b869cf064a",
+          "authoredAt": "2026-03-20T21:19:25-04:00",
+          "message": "Online game update"
+        }
+      ]
+    },
     {
       "buildId": "be3576e1dced53677201",
       "commitSha": "f15780029a63b4fd9a5a92f60a5b77cc92a6b84e",
@@ -13492,26 +13552,6 @@
           "sha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",
           "authoredAt": "2026-03-19T17:30:37-04:00",
           "message": "Game update"
-        }
-      ]
-    },
-    {
-      "buildId": "9f09218ddb4e3c0ec295",
-      "commitSha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
-      "createdAt": "2026-03-19T21:30:21.945Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "e9147ea1c6d50b0afa4bcb7ae07702bbcf102c2e",
-          "authoredAt": "2026-03-19T17:28:51-04:00",
-          "message": "Added option to disable update checking on launch"
-        },
-        {
-          "sha": "d38f43d7147bbc40318bda02013234e2c28a94f0",
-          "authoredAt": "2026-03-19T17:24:46-04:00",
-          "message": "Fixes to update system"
         }
       ]
     }
