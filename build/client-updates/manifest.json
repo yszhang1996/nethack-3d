@@ -1,39 +1,29 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-21T14:40:42.270Z",
+  "generatedAt": "2026-03-21T14:59:18.822Z",
   "latest": {
-    "buildId": "b22d8d5efe2039796a12",
-    "commitSha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
-    "createdAt": "2026-03-21T14:40:42.270Z",
-    "clientVersion": "0.9.9",
+    "buildId": "b70bdede6f330bf8b75b",
+    "commitSha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
+    "createdAt": "2026-03-21T14:59:18.822Z",
+    "clientVersion": "0.9.10",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
-        "authoredAt": "2026-03-21T10:39:39-04:00",
-        "message": "Allow online updates to serve forked NetHack WASM files"
+        "sha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
+        "authoredAt": "2026-03-21T10:58:33-04:00",
+        "message": "Better error handling when online updates break the game launch"
       },
       {
-        "sha": "e0f848862fedf4a42ef421a82672dde676602efb",
-        "authoredAt": "2026-03-21T10:29:25-04:00",
-        "message": "Allow forked version of NetHack WASM to override packaged version while waiting for PRs to be merged"
+        "sha": "c845c00eb2ad2ce1c64b1aef80bbf7f15592d8ab",
+        "authoredAt": "2026-03-21T10:54:35-04:00",
+        "message": "Incremented game version"
       },
       {
-        "sha": "2fc07afa6d140d333c50a59d1c620b03a37cf9ab",
-        "authoredAt": "2026-03-21T10:09:49-04:00",
-        "message": "Removed unneeded dependency"
-      },
-      {
-        "sha": "d856f66f3385d7770c22081ceafb98a545c82975",
-        "authoredAt": "2026-03-21T10:08:02-04:00",
-        "message": "Fixed autosave system"
-      },
-      {
-        "sha": "c0482c4f4c812aafb1706c83819666b869cf064a",
-        "authoredAt": "2026-03-20T21:19:25-04:00",
-        "message": "Online game update"
+        "sha": "e1d1780cf8d9670dcbc3a26ed090f405ba52c88b",
+        "authoredAt": "2026-03-21T10:41:08-04:00",
+        "message": "Publishing online update with forked NetHack WASM fixing autosave support"
       }
     ],
     "filesBasePath": "latest",
@@ -74,6 +64,11 @@
         "sha256": "08c52a537146c28fb51d1b338d1a0ae611c397f4cf5568aaef046b863dbfcb7c"
       },
       {
+        "path": "assets/index-BOexn2Hf.css",
+        "size": null,
+        "sha256": "8aca1b1ea61e1b35c0d7ab2d1b21dadc72234118ba2c925e7c79ce2dfd3c3dcb"
+      },
+      {
         "path": "assets/index-Cc3eycm0.js",
         "size": null,
         "sha256": "4c3ac990ea54c2b4096313a99999e3f7e2d35cf56e1a4e814a2c11cf5ce20584"
@@ -84,14 +79,9 @@
         "sha256": "4fa4579983fda2c6104f5794e79ac5c58524d675bd4455b6d5cdc5b546bd1c7e"
       },
       {
-        "path": "assets/index-CCTI9Bk9.js",
+        "path": "assets/index-DGDqG8KY.js",
         "size": null,
-        "sha256": "13780afd471dfe1bccbd20e9d97ff703ed14b020c62867875e94b58d80ffe2ca"
-      },
-      {
-        "path": "assets/index-D4yH2xuR.css",
-        "size": null,
-        "sha256": "5bbfba0b81b08c0543200e47f00f0ad59df6b4d18440e2753d63ffbf11a68b9a"
+        "sha256": "954313186a4146d21b921fe2bd950b70b5f639ee8cb4950331e839022ac22e01"
       },
       {
         "path": "assets/nethack-DhAJn0fK.wasm",
@@ -13106,7 +13096,7 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "e9bbe7e40ea4e472a24d894f4674428cf2935667001defd3c277f266f0805064"
+        "sha256": "070a55f1a9d0405d7807c7243ca0319380e99a8133672c3dc8d9f4fe75aa98d1"
       },
       {
         "path": "nethack-367.js",
@@ -13141,6 +13131,31 @@
     ]
   },
   "history": [
+    {
+      "buildId": "b70bdede6f330bf8b75b",
+      "commitSha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
+      "createdAt": "2026-03-21T14:59:18.822Z",
+      "clientVersion": "0.9.10",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "1d449c10c3c1716a6f3e1be17d832cc323420064",
+          "authoredAt": "2026-03-21T10:58:33-04:00",
+          "message": "Better error handling when online updates break the game launch"
+        },
+        {
+          "sha": "c845c00eb2ad2ce1c64b1aef80bbf7f15592d8ab",
+          "authoredAt": "2026-03-21T10:54:35-04:00",
+          "message": "Incremented game version"
+        },
+        {
+          "sha": "e1d1780cf8d9670dcbc3a26ed090f405ba52c88b",
+          "authoredAt": "2026-03-21T10:41:08-04:00",
+          "message": "Publishing online update with forked NetHack WASM fixing autosave support"
+        }
+      ]
+    },
     {
       "buildId": "b22d8d5efe2039796a12",
       "commitSha": "872f3dd70a86be9991dac4598e91bfea0ad4ecc1",
@@ -13537,21 +13552,6 @@
           "sha": "3620d786ba0202562f2064b1ac3a7344a20177b3",
           "authoredAt": "2026-03-19T17:43:14-04:00",
           "message": "Added logging to the update system"
-        }
-      ]
-    },
-    {
-      "buildId": "c09a3d6fcb2e4188945f",
-      "commitSha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",
-      "createdAt": "2026-03-19T21:41:17.703Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "ed6d7e0aa5ccc2d52d57d4779ca4b556cc9f4f04",
-          "authoredAt": "2026-03-19T17:30:37-04:00",
-          "message": "Game update"
         }
       ]
     }
