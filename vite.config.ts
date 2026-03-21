@@ -204,21 +204,19 @@ export default defineConfig({
     "import.meta.env.VITE_NH3D_BUNDLED_UPDATE_COMMIT_SHA": JSON.stringify(
       bundledClientUpdateState.commitSha,
     ),
-    "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG": JSON.stringify(
-      wasm367CompatTag,
-    ),
-    "import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE":
-      JSON.stringify(wasm367UsesPublicRuntimeOverride),
+    "import.meta.env.VITE_NH3D_WASM_367_COMPAT_TAG":
+      JSON.stringify(wasm367CompatTag),
+    // "import.meta.env.VITE_NH3D_WASM_367_USE_PUBLIC_RUNTIME_OVERRIDE":
+    //   JSON.stringify(wasm367UsesPublicRuntimeOverride),
     "import.meta.env.VITE_NH3D_WASM_367_HAS_RECOVER_SAVEFILE": JSON.stringify(
       wasm367HasRecoverSavefile,
     ),
     "import.meta.env.VITE_NH3D_WASM_367_HAS_CHECKPOINT_RESUME_BRIDGE":
       JSON.stringify(wasm367HasCheckpointResumeBridge),
-    "import.meta.env.VITE_NH3D_WASM_37_COMPAT_TAG": JSON.stringify(
-      wasm37CompatTag,
-    ),
-    "import.meta.env.VITE_NH3D_WASM_37_USE_PUBLIC_RUNTIME_OVERRIDE":
-      JSON.stringify(wasm37UsesPublicRuntimeOverride),
+    "import.meta.env.VITE_NH3D_WASM_37_COMPAT_TAG":
+      JSON.stringify(wasm37CompatTag),
+    // "import.meta.env.VITE_NH3D_WASM_37_USE_PUBLIC_RUNTIME_OVERRIDE":
+    //   JSON.stringify(wasm37UsesPublicRuntimeOverride),
   },
   base: isGitHubActions ? "/nethack-3d/" : isElectronBuild ? "./" : "/",
   server: {
