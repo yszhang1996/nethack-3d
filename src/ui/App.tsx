@@ -6940,6 +6940,18 @@ export default function App(): JSX.Element {
     startupUiVisible &&
     characterCreationConfig === null &&
     !startupInitialLoadingVisible;
+  const latestGameMessage =
+    gameMessages.length > 0 ? String(gameMessages[0] || "").trim() : "";
+  const runtimeInitializationErrorVisible =
+    startup &&
+    characterCreationConfig !== null &&
+    connectionState === "error" &&
+    !loadingOverlayVisible;
+  const runtimeInitializationErrorMessage = runtimeInitializationErrorVisible
+    ? latestGameMessage ||
+      statusText.trim() ||
+      "The local NetHack runtime stopped before startup finished."
+    : "";
   const startupUpdateDialogOpen =
     startupMenuVisible && isStartupUpdateDialogVisible;
   const startupChooseDialogVisible =
@@ -14629,6 +14641,35 @@ export default function App(): JSX.Element {
             </div>
           </>
         ) : null}
+      </AnimatedDialog>
+
+      {/* Keep startup failures pinned in a real dialog so update/runtime
+          initialization errors remain readable even after the loading overlay
+          is dismissed. */}
+      <AnimatedDialog
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-runtime-start-error"
+        open={
+          runtimeInitializationErrorVisible && !newGamePrompt.visible && !infoMenu && !question
+        }
+        id="runtime-start-error-dialog"
+      >
+        {renderMobileDialogCloseButton(
+          startNewGameFromPrompt,
+          "Return to main menu",
+        )}
+        <div className="nh3d-question-text">NetHack failed to initialize.</div>
+        <div className="nh3d-runtime-start-error-copy">
+          {runtimeInitializationErrorMessage}
+        </div>
+        <div className="nh3d-menu-actions">
+          <button
+            className="nh3d-menu-action-button nh3d-menu-action-confirm"
+            onClick={startNewGameFromPrompt}
+            type="button"
+          >
+            Return to main menu
+          </button>
+        </div>
       </AnimatedDialog>
 
       <AnimatedDialog

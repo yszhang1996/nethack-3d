@@ -7196,11 +7196,18 @@ class Nethack3DEngine implements Nethack3DEngineController {
       if (this.disposed) {
         return;
       }
+      const startupErrorMessage =
+        error instanceof Error ? error.message : String(error ?? "");
+      const startupFailureMessage = startupErrorMessage.trim()
+        ? `Failed to start local NetHack runtime: ${startupErrorMessage.trim()}`
+        : "Failed to start local NetHack runtime";
       console.error("Failed to start local NetHack runtime:", error);
       this.updateConnectionStatus("Error", "error");
       this.updateStatus("Failed to start local NetHack runtime");
-      this.addGameMessage("Failed to start local NetHack runtime");
-      this.setLoadingVisible(true);
+      this.addGameMessage(startupFailureMessage);
+      // Drop the startup overlay on failure so the underlying error UI stays
+      // readable instead of leaving the app blurred behind the loading state.
+      this.setLoadingVisible(false);
     }
   }
 

@@ -1717,6 +1717,34 @@ canvas {
   }
 }
 
+.nh3d-dialog-runtime-start-error {
+  width: min(92vw, 760px);
+  max-width: calc(
+    100vw - var(--nh3d-modal-safe-left-inset) - var(
+        --nh3d-modal-safe-right-inset
+      )
+  );
+}
+
+.nh3d-runtime-start-error-copy {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(181, 201, 226, 0.24);
+  border-radius: 10px;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.045) 0%,
+      rgba(255, 255, 255, 0.018) 100%
+    ),
+    rgba(7, 17, 31, 0.74);
+  color: var(--nh3d-ui-text);
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+
 .nh3d-dialog-text {
   border: 2px solid var(--nh3d-ui-border-strong);
   text-align: center;
