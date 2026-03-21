@@ -3985,10 +3985,16 @@ type SaveGameRecord = {
   key: string;
   name: string;
   displayName: string;
-  filename: string;
   category: "manual" | "autosave";
+  isResumable: boolean;
   timestamp: Date;
   dateFormatted: string;
+  files: Array<{
+    dbName: string;
+    key: string;
+    filename: string;
+    timestamp: Date;
+  }>;
 };
 
 function resolveSaveCategory(filename: string): "manual" | "autosave" {
@@ -4003,6 +4009,10 @@ function resolveSaveCategory(filename: string): "manual" | "autosave" {
   return "manual";
 }
 
+function isCheckpointShardFilename(filename: string): boolean {
+  return /\.\d+$/i.test(String(filename || "").toLowerCase());
+}
+
 function resolveSaveDisplayName(
   name: string,
   category: "manual" | "autosave",
@@ -4015,10 +4025,23 @@ function resolveSaveDisplayName(
   return name;
 }
 
+function resolveSaveLogicalName(
+  filename: string,
+  category: "manual" | "autosave",
+): string {
+  const strippedName = filename.replace(/^\d+/, "");
+  if (category === "autosave") {
+    return strippedName
+      .replace(/(?:\.e|-e)(?:\.[a-z0-9]+)?$/i, "")
+      .replace(/\.\d+$/i, "");
+  }
+  return strippedName;
+}
+
 async function fetchSavedGames(
   runtimeVersion: NethackRuntimeVersion,
 ): Promise<SaveGameRecord[]> {
-  const saves: SaveGameRecord[] = [];
+  const saves = new Map<string, SaveGameRecord>();
   const dbNames = getRuntimeSaveDbNames(runtimeVersion);
 
   for (const dbName of dbNames) {
@@ -4090,18 +4113,47 @@ async function fetchSavedGames(
           continue;
         }
 
-        // NetHack prepends a user ID (usually 0) to save files, e.g. "0Web_user". Strip it.
-        const name = filename.replace(/^\d+/, "");
+        // NetHack prepends a user ID (usually 0) to save files, e.g. "0Web_user".
         const category = resolveSaveCategory(filename);
+        const name = resolveSaveLogicalName(filename, category);
         if (name && value && value.timestamp) {
-          saves.push({
-            key,
+          const timestamp = new Date(value.timestamp);
+          const logicalKey = `${category}:${name}`;
+          const isCheckpointShard = isCheckpointShardFilename(filename);
+          const existing = saves.get(logicalKey);
+          if (existing) {
+            existing.files.push({
+              dbName,
+              key,
+              filename,
+              timestamp,
+            });
+            if (!isCheckpointShard) {
+              existing.isResumable = true;
+            }
+            if (existing.timestamp < timestamp) {
+              existing.timestamp = timestamp;
+              existing.dateFormatted = timestamp.toLocaleString();
+            }
+            continue;
+          }
+
+          saves.set(logicalKey, {
+            key: logicalKey,
             name,
             displayName: resolveSaveDisplayName(name, category),
-            filename,
             category,
-            timestamp: new Date(value.timestamp),
-            dateFormatted: new Date(value.timestamp).toLocaleString(),
+            isResumable: !isCheckpointShard,
+            timestamp,
+            dateFormatted: timestamp.toLocaleString(),
+            files: [
+              {
+                dbName,
+                key,
+                filename,
+                timestamp,
+              },
+            ],
           });
         }
       }
@@ -4112,27 +4164,29 @@ async function fetchSavedGames(
     }
   }
 
-  // Deduplicate by name and sort by newest first
-  const uniqueSaves = new Map<string, SaveGameRecord>();
-  for (const save of saves) {
-    const existing = uniqueSaves.get(save.name);
-    if (!existing || existing.timestamp < save.timestamp) {
-      uniqueSaves.set(save.name, save);
-    }
-  }
-
-  return Array.from(uniqueSaves.values()).sort(
+  return Array.from(saves.values()).sort(
     (a, b) => b.timestamp.getTime() - a.timestamp.getTime(),
   );
 }
 
 async function deleteSavedGame(
-  filename: string,
-  runtimeVersion: NethackRuntimeVersion,
+  save: SaveGameRecord,
 ): Promise<void> {
-  const dbNames = getRuntimeSaveDbNames(runtimeVersion);
+  const fileGroups = new Map<
+    string,
+    Array<{ key: string; filename: string; timestamp: Date }>
+  >();
 
-  for (const dbName of dbNames) {
+  for (const file of save.files) {
+    const existing = fileGroups.get(file.dbName);
+    if (existing) {
+      existing.push(file);
+      continue;
+    }
+    fileGroups.set(file.dbName, [file]);
+  }
+
+  for (const [dbName, files] of fileGroups.entries()) {
     try {
       const db = await new Promise<IDBDatabase | null>((resolve, reject) => {
         const request = indexedDB.open(dbName);
@@ -4155,12 +4209,24 @@ async function deleteSavedGame(
         const transaction = db.transaction(["FILE_DATA"], "readwrite");
         const store = transaction.objectStore("FILE_DATA");
 
-        // Emscripten IDBFS uses the absolute path as the object store key
-        const fullKey = `${dbName}/${filename}`;
+        let remaining = files.length;
+        if (remaining <= 0) {
+          resolve();
+          return;
+        }
 
-        const request = store.delete(fullKey);
-        request.onsuccess = () => resolve();
-        request.onerror = () => reject(request.error);
+        const completeDelete = () => {
+          remaining -= 1;
+          if (remaining <= 0) {
+            resolve();
+          }
+        };
+
+        for (const file of files) {
+          const request = store.delete(file.key);
+          request.onsuccess = () => completeDelete();
+          request.onerror = () => reject(request.error);
+        }
       });
 
       db.close();
@@ -4262,21 +4328,33 @@ export default function App(): JSX.Element {
   const [hasHydratedStartupInitOptions, setHasHydratedStartupInitOptions] =
     useState(false);
   const [savedGames, setSavedGames] = useState<SaveGameRecord[]>([]);
+  const resumableSavedGames = useMemo(
+    () => savedGames.filter((save) => save.isResumable),
+    [savedGames],
+  );
+  // Keep checkpoint shard files out of the load-game UI entirely. The current
+  // WASM build cannot recover them into a loadable save, and showing the old
+  // explanatory placeholder only burned modal space without giving the player
+  // an actionable path.
   const savedGameSections = useMemo(
     () =>
       [
         {
           key: "manual" as const,
           label: "Manual Saves",
-          saves: savedGames.filter((save) => save.category === "manual"),
+          saves: resumableSavedGames.filter(
+            (save) => save.category === "manual",
+          ),
         },
         {
           key: "autosave" as const,
           label: "Autosaves",
-          saves: savedGames.filter((save) => save.category === "autosave"),
+          saves: resumableSavedGames.filter(
+            (save) => save.category === "autosave",
+          ),
         },
       ].filter((section) => section.saves.length > 0),
-    [savedGames],
+    [resumableSavedGames],
   );
   const [isLoadingSaves, setIsLoadingSaves] = useState(false);
   const startupUpdateCheckStartedRef = useRef(false);
@@ -4400,7 +4478,7 @@ export default function App(): JSX.Element {
     if (!confirmed) {
       return;
     }
-    await deleteSavedGame(save.filename, runtimeVersion);
+    await deleteSavedGame(save);
     setSavedGames((prev) => prev.filter((s) => s.key !== save.key));
   };
 
@@ -4434,7 +4512,7 @@ export default function App(): JSX.Element {
           if (!confirmed) {
             return;
           }
-          await deleteSavedGame(existingSave.filename, runtimeVersion);
+          await deleteSavedGame(existingSave);
         }
       } catch (e) {
         console.warn("Failed to check for existing saves:", e);
@@ -12136,7 +12214,7 @@ export default function App(): JSX.Element {
       </AnimatedDialog>
 
       <AnimatedDialog
-        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog"
+        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions startup nh3d-character-setup-dialog nh3d-character-setup-dialog-resume"
         disableAnimations={startupInitialLoadingVisible}
         open={startupResumeDialogVisible}
         id="character-setup-dialog-resume"
@@ -12162,7 +12240,7 @@ export default function App(): JSX.Element {
               >
                 Loading saves...
               </div>
-            ) : savedGames.length > 0 ? (
+            ) : savedGameSections.length > 0 ? (
               <div
                 style={{
                   display: "flex",
@@ -12190,34 +12268,36 @@ export default function App(): JSX.Element {
                       {section.label}
                     </div>
                     {section.saves.map((save) => (
-                      <button
+                      <div
                         key={save.key}
-                        className="nh3d-choice-button nh3d-character-setup-choice-button"
                         style={{
-                          flexDirection: "column",
-                          alignItems: "flex-start",
-                          padding: "12px",
+                          display: "flex",
+                          gap: "8px",
+                          alignItems: "center",
                           width: "100%",
                         }}
-                        onClick={() => {
-                          setCharacterCreationConfig({
-                            mode: "resume" as any,
-                            playMode: clientOptions.fpsMode ? "fps" : "normal",
-                            runtimeVersion,
-                            name: save.name,
-                          });
-                        }}
-                        type="button"
                       >
-                        <div
+                        <button
+                          className="nh3d-choice-button nh3d-character-setup-choice-button"
                           style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            width: "100%",
-                            alignItems: "center",
+                            flex: "1 1 0",
+                            flexDirection: "column",
+                            alignItems: "flex-start",
+                            minWidth: 0,
+                            padding: "12px",
+                            width: "auto",
                           }}
+                          onClick={() => {
+                            setCharacterCreationConfig({
+                              mode: "resume" as any,
+                              playMode: clientOptions.fpsMode ? "fps" : "normal",
+                              runtimeVersion,
+                              name: save.name,
+                            });
+                          }}
+                          type="button"
                         >
-                          <div style={{ flex: 1 }}>
+                          <div style={{ width: "100%" }}>
                             <div
                               style={{
                                 fontWeight: "bold",
@@ -12239,14 +12319,16 @@ export default function App(): JSX.Element {
                               Saved: {save.dateFormatted}
                             </div>
                           </div>
-                          <button
-                            className="delete-button"
-                            onClick={(e) => handleDeleteSave(e, save)}
-                          >
-                            X
-                          </button>
-                        </div>
-                      </button>
+                        </button>
+                        <button
+                          aria-label={`Delete ${save.displayName}`}
+                          className="delete-button"
+                          onClick={(e) => handleDeleteSave(e, save)}
+                          type="button"
+                        >
+                          X
+                        </button>
+                      </div>
                     ))}
                   </div>
                 ))}

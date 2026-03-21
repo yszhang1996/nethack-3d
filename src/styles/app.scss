@@ -4132,6 +4132,28 @@ canvas {
   padding-bottom: calc(var(--nh3d-startup-fixed-actions-reserve) + 8px);
 }
 
+.nh3d-character-setup-dialog.nh3d-character-setup-dialog-resume {
+  overflow-y: hidden;
+  scroll-padding-bottom: 0;
+
+  .nh3d-overflow-glow-frame {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .nh3d-choice-list-startup-resume {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 16px;
+    scroll-padding-bottom: 16px;
+  }
+}
+
 .nh3d-startup-config-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(160px, 1fr));

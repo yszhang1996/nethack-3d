@@ -1,29 +1,29 @@
 {
   "manifestVersion": 1,
   "channel": "stable",
-  "generatedAt": "2026-03-20T22:44:55.889Z",
+  "generatedAt": "2026-03-21T00:28:34.666Z",
   "latest": {
-    "buildId": "6a13f41671479ac27fc9",
-    "commitSha": "c2a74972bbf7b36eb6f389c2d68af07c3b70a5fb",
-    "createdAt": "2026-03-20T22:44:55.889Z",
+    "buildId": "fec1fa76196796f29924",
+    "commitSha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
+    "createdAt": "2026-03-21T00:28:34.666Z",
     "clientVersion": "0.9.9",
     "requiresClientUpgrade": false,
     "clientUpgradeMessage": "",
     "commits": [
       {
-        "sha": "c2a74972bbf7b36eb6f389c2d68af07c3b70a5fb",
-        "authoredAt": "2026-03-20T18:44:35-04:00",
-        "message": "Upped version. Fixes for Android online updater"
+        "sha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
+        "authoredAt": "2026-03-20T19:49:35-04:00",
+        "message": "Wizard mode working! FIxes for incompatible save handling after WASM update"
       },
       {
-        "sha": "524a0d9e3a2a4996dd1e6d45d7ea31c8382abd97",
-        "authoredAt": "2026-03-20T18:41:29-04:00",
-        "message": "Implemented autosave support"
+        "sha": "7286062046a1cceb0d6cfcb956e62552d2f92bb8",
+        "authoredAt": "2026-03-20T19:02:42-04:00",
+        "message": "Package-lock updates"
       },
       {
-        "sha": "18b17760d24e3b11d3fc5c1f9df30176bdb4d260",
-        "authoredAt": "2026-03-20T14:39:35-04:00",
-        "message": "Online update release"
+        "sha": "562876d9f3e342947e828fc38618534449b946d5",
+        "authoredAt": "2026-03-20T18:45:02-04:00",
+        "message": "Online update"
       }
     ],
     "filesBasePath": "latest",
@@ -59,14 +59,19 @@
         "sha256": "ec81b03354d6b5c468fd873ab9933e1aa3e52636ac1d01c24067ae7045ff5eed"
       },
       {
-        "path": "assets/glyph-catalog.37.generated-DGYUn_c1.js",
+        "path": "assets/glyph-catalog.37.generated-9zT5RuKZ.js",
         "size": null,
-        "sha256": "2d5acad2d44dc9e44e15e7b163f534eaaadc47e24211351e8801a5cc0864adf7"
+        "sha256": "08c52a537146c28fb51d1b338d1a0ae611c397f4cf5568aaef046b863dbfcb7c"
       },
       {
-        "path": "assets/index-C1Tf0W_a.js",
+        "path": "assets/index-BrcL7nNG.js",
         "size": null,
-        "sha256": "ca865c8962b27cefd63d16d2f96cf5e1af76501169335a694e92264d9669cf0b"
+        "sha256": "e355c5adf278948978d799c7adcf81398b06f65cda5cee05601ef9b960749702"
+      },
+      {
+        "path": "assets/index-C4vh4YMY.js",
+        "size": null,
+        "sha256": "50c7274dc29aa2539a0a5127a02ba0612135d34d659dc3676ca831c9a7fa1746"
       },
       {
         "path": "assets/index-CiUOYjwd.css",
@@ -74,19 +79,14 @@
         "sha256": "917ba4a1c274cab476482f1b4ec5789e33313758eaf24d349a3d19ef13d0eac6"
       },
       {
-        "path": "assets/index-D0xdiEbP.js",
+        "path": "assets/index-DpGg-Y0y.js",
         "size": null,
-        "sha256": "10fe74ac33787e8b7694102c5c1714bcea111ffc71b93aca8125e956a740620e"
+        "sha256": "54cb5cc949ac3d85a436ab4b209e754494e2c80301d5cb573a19ed569d3c6610"
       },
       {
-        "path": "assets/index-oly4HcQk.js",
+        "path": "assets/nethack-D0OsBI3W.wasm",
         "size": null,
-        "sha256": "acbf4aa93b3c5fe5c4dcfcf38eb6739ac137c255a218acc534d1bf40c8d86625"
-      },
-      {
-        "path": "assets/nethack-COBuHcyY.wasm",
-        "size": null,
-        "sha256": "4b22cc3f1c6d0f23dc76bb9c27708d77f8b9b6bf14b1be91887670b676fc74ed"
+        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
       },
       {
         "path": "assets/nethack-RClcUfPq.wasm",
@@ -94,9 +94,9 @@
         "sha256": "540853edb9c478cedabad7524675cb72b70664e8bd0ed4df8ba7888aee743a0c"
       },
       {
-        "path": "assets/runtime-worker-ipz53wZv.js",
+        "path": "assets/runtime-worker-Cge1C4m9.js",
         "size": null,
-        "sha256": "427afc38bef8cb4a0d6756ba6dc8090a2b8008da6b0f2d1e84c32ab31e14da47"
+        "sha256": "3a45670ede43d90ad7f9af90a95943f07553b311a201cb63bd7bd787cb948aa5"
       },
       {
         "path": "assets/ui/arrow.svg",
@@ -13096,12 +13096,12 @@
       {
         "path": "index.html",
         "size": null,
-        "sha256": "5005d7431d8bc75bcdfb9df541996fe8db858a3977cee8af27a675feecc386fb"
+        "sha256": "7a80b6b0b6d3a5eb0bd4c9bab86d343e11a49715e9971364775f1774248b05d7"
       },
       {
         "path": "nethack-367.wasm",
         "size": null,
-        "sha256": "4b22cc3f1c6d0f23dc76bb9c27708d77f8b9b6bf14b1be91887670b676fc74ed"
+        "sha256": "c2ccacf219fa4be5b3ebd0497d00fac0693387363f830412ad2ec2c5d1a46246"
       },
       {
         "path": "nethack-37.wasm",
@@ -13126,6 +13126,31 @@
     ]
   },
   "history": [
+    {
+      "buildId": "fec1fa76196796f29924",
+      "commitSha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
+      "createdAt": "2026-03-21T00:28:34.666Z",
+      "clientVersion": "0.9.9",
+      "requiresClientUpgrade": false,
+      "clientUpgradeMessage": "",
+      "commits": [
+        {
+          "sha": "717f54750ace720d8cb8b39c2120d41aef2cace9",
+          "authoredAt": "2026-03-20T19:49:35-04:00",
+          "message": "Wizard mode working! FIxes for incompatible save handling after WASM update"
+        },
+        {
+          "sha": "7286062046a1cceb0d6cfcb956e62552d2f92bb8",
+          "authoredAt": "2026-03-20T19:02:42-04:00",
+          "message": "Package-lock updates"
+        },
+        {
+          "sha": "562876d9f3e342947e828fc38618534449b946d5",
+          "authoredAt": "2026-03-20T18:45:02-04:00",
+          "message": "Online update"
+        }
+      ]
+    },
     {
       "buildId": "6a13f41671479ac27fc9",
       "commitSha": "c2a74972bbf7b36eb6f389c2d68af07c3b70a5fb",
@@ -13493,21 +13518,6 @@
       "requiresClientUpgrade": false,
       "clientUpgradeMessage": "",
       "commits": []
-    },
-    {
-      "buildId": "7a3fb45e07d21bd4ed10",
-      "commitSha": "633503a6792779a779b5105057722103a6b08c66",
-      "createdAt": "2026-03-19T21:16:38.802Z",
-      "clientVersion": "0.9.8",
-      "requiresClientUpgrade": false,
-      "clientUpgradeMessage": "",
-      "commits": [
-        {
-          "sha": "633503a6792779a779b5105057722103a6b08c66",
-          "authoredAt": "2026-03-19T17:08:59-04:00",
-          "message": "Added Check for Updates button in Options menu"
-        }
-      ]
     }
   ]
 }

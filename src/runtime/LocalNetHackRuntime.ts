@@ -2382,6 +2382,32 @@ class LocalNetHackRuntime {
     return normalized.startsWith("select number_pad mode");
   }
 
+  isDestroyOldGameQuestion(question) {
+    const normalized = this.normalizeQuestionText(question);
+    if (!normalized) {
+      return false;
+    }
+    return (
+      (normalized.includes(
+        "there is already a game in progress under your name",
+      ) ||
+        normalized.includes(
+          "there are files from a game in progress under your name",
+        )) &&
+      normalized.includes("destroy old game")
+    );
+  }
+
+  shouldAutoConfirmCheckpointCleanup(question) {
+    if (this.startupOptions?.characterCreation?.mode === "resume") {
+      return false;
+    }
+    if (!this.buildStartupInitRuntimeOptions().includes("checkpoint")) {
+      return false;
+    }
+    return this.isDestroyOldGameQuestion(question);
+  }
+
   updateNumberPadModeFromInput(input) {
     if (!this.isNumberPadModeQuestion(this.lastQuestionText)) {
       return;
@@ -4230,6 +4256,18 @@ class LocalNetHackRuntime {
     this.lastQuestionText = question;
     this.pendingGameOverPossessionsInventoryFlow =
       this.isGameOverPossessionsIdentifyQuestion(question);
+
+    if (this.shouldAutoConfirmCheckpointCleanup(question)) {
+      // Checkpoint shards are intentionally hidden from the load-game UI because
+      // this WASM build cannot recover them into a resumable save. Surfacing
+      // NetHack's stale "destroy old game" prompt for fresh-game startup only
+      // blocks launch on checkpoint debris we already treat as non-loadable, so
+      // auto-confirm the cleanup here instead of showing the warning.
+      console.log(
+        'Auto-confirming stale checkpoint cleanup with "y" during fresh-game startup',
+      );
+      return this.processKey("y");
+    }
 
     if (this.isContainerLootTypeQuestion(question)) {
       console.log('Auto-answering container loot type question with "a"');
