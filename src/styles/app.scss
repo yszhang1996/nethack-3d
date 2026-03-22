@@ -1495,7 +1495,8 @@ canvas {
 }
 
 @media not ((pointer: coarse) and (orientation: landscape)) {
-  .nh3d-dialog.startup {
+  .nh3d-dialog.startup,
+  .nh3d-dialog.nh3d-dialog-below-logo {
     top: var(--nh3d-startup-modal-frame-top);
     left: var(--nh3d-modal-safe-center-x);
     transform: translate(-50%, 0);
@@ -1505,7 +1506,8 @@ canvas {
 }
 
 @media (pointer: coarse) and (orientation: landscape) {
-  .nh3d-dialog.startup {
+  .nh3d-dialog.startup,
+  .nh3d-dialog.nh3d-dialog-below-logo {
     top: var(--nh3d-modal-safe-center-y);
     left: var(--nh3d-modal-safe-center-x);
     transform: translate(-50%, -50%);
@@ -1725,7 +1727,8 @@ canvas {
     color: var(--nh3d-ui-text);
     font-family: "Courier New", monospace;
     font-size: nh3d-scale-font(clamp(11px, 1.5vw, 13px));
-    line-height: 1.15;
+    line-height: 1;
+    font-weight: 700;
     text-align: left;
     white-space: pre;
     display: block;
@@ -4402,12 +4405,11 @@ canvas {
   .nh3d-startup-update-progress-pane {
     border: 1px solid rgba(118, 192, 233, 0.72);
     border-radius: 8px;
-    background:
-      linear-gradient(
-        180deg,
-        rgba(16, 53, 82, 0.7) 0%,
-        rgba(8, 28, 45, 0.86) 100%
-      );
+    background: linear-gradient(
+      180deg,
+      rgba(16, 53, 82, 0.7) 0%,
+      rgba(8, 28, 45, 0.86) 100%
+    );
     margin-top: 10px;
     max-width: min(560px, 100%);
     padding: 10px 12px;
@@ -4452,8 +4454,11 @@ canvas {
   }
 
   .nh3d-startup-update-progress-bar-fill {
-    background:
-      linear-gradient(90deg, rgba(61, 174, 255, 0.9) 0%, rgba(95, 255, 214, 0.88) 100%);
+    background: linear-gradient(
+      90deg,
+      rgba(61, 174, 255, 0.9) 0%,
+      rgba(95, 255, 214, 0.88) 100%
+    );
     border-radius: inherit;
     box-shadow:
       inset 0 0 0 1px rgba(209, 255, 255, 0.22),
@@ -4466,14 +4471,13 @@ canvas {
 
   .nh3d-startup-update-progress-bar-fill.is-animated::after {
     animation: nh3d-update-progress-stripes 1.1s linear infinite;
-    background:
-      repeating-linear-gradient(
-        -45deg,
-        rgba(255, 255, 255, 0.32) 0px,
-        rgba(255, 255, 255, 0.32) 8px,
-        rgba(255, 255, 255, 0.05) 8px,
-        rgba(255, 255, 255, 0.05) 16px
-      );
+    background: repeating-linear-gradient(
+      -45deg,
+      rgba(255, 255, 255, 0.32) 0px,
+      rgba(255, 255, 255, 0.32) 8px,
+      rgba(255, 255, 255, 0.05) 8px,
+      rgba(255, 255, 255, 0.05) 16px
+    );
     content: "";
     inset: 0;
     position: absolute;

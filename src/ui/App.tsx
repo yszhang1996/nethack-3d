@@ -3878,7 +3878,9 @@ function normalizeStartupCharacterName(value: string): string {
   return normalized.slice(0, 30);
 }
 
-function resolveEffectiveStartupCharacterName(config: CharacterCreationConfig): string {
+function resolveEffectiveStartupCharacterName(
+  config: CharacterCreationConfig,
+): string {
   const normalizedName = normalizeStartupCharacterName(config.name || "");
   const startupTokens = sanitizeStartupInitOptionTokens(config.initOptions);
   // NetHack 3.6.7 wizard/debug playmode canonicalizes player name to
@@ -4272,7 +4274,8 @@ async function fetchSavedGames(
           const timestamp = new Date(value.timestamp);
           const logicalKey = `${category}:${name}`;
           const isCheckpointShard = isCheckpointShardFilename(filename);
-          const presentationMetadata = savePresentationMetadataByKey[logicalKey];
+          const presentationMetadata =
+            savePresentationMetadataByKey[logicalKey];
           const displayPlayMode =
             presentationMetadata &&
             (presentationMetadata.playMode === "normal" ||
@@ -4284,7 +4287,9 @@ async function fetchSavedGames(
             presentationMetadata &&
             typeof presentationMetadata.characterName === "string" &&
             presentationMetadata.characterName.trim().length > 0
-              ? normalizeStartupCharacterName(presentationMetadata.characterName)
+              ? normalizeStartupCharacterName(
+                  presentationMetadata.characterName,
+                )
               : resolveSaveDisplayName(name, category);
           const existing = saves.get(logicalKey);
           if (existing) {
@@ -4399,7 +4404,6 @@ async function deleteSavedGame(save: SaveGameRecord): Promise<void> {
       console.warn(`Could not delete from IndexedDB ${dbName}:`, e);
     }
   }
-
 }
 
 type Nh3dElectronBridge = {
@@ -7119,6 +7123,13 @@ export default function App(): JSX.Element {
   const startupInitialLoadingVisible =
     !hasShownStartupMenu && loadingOverlayVisible;
   const startupLogoVisible = startupUiVisible && !startupInitialLoadingVisible;
+  const newGameDialogVisible = newGamePrompt.visible && !infoMenu && !question;
+  const gameOverTombstoneLines = Array.isArray(gameOver.tombstoneLines)
+    ? gameOver.tombstoneLines
+    : [];
+  const gameOverDialogShowsTombstone =
+    newGameDialogVisible && gameOverTombstoneLines.length > 0;
+  const asciiLogoVisible = startupLogoVisible || gameOverDialogShowsTombstone;
   const startupMenuVisible =
     startupUiVisible &&
     characterCreationConfig === null &&
@@ -7602,7 +7613,7 @@ export default function App(): JSX.Element {
       return;
     }
     const root = document.documentElement;
-    if (!startupLogoVisible) {
+    if (!asciiLogoVisible) {
       root.style.removeProperty("--nh3d-startup-logo-bottom");
       return;
     }
@@ -7652,7 +7663,7 @@ export default function App(): JSX.Element {
       }
       root.style.removeProperty("--nh3d-startup-logo-bottom");
     };
-  }, [startupLogoVisible]);
+  }, [asciiLogoVisible]);
 
   const hasGameplayOverlayOpen =
     Boolean(question) ||
@@ -12121,7 +12132,7 @@ export default function App(): JSX.Element {
     <>
       <div className="nh3d-canvas-root" ref={canvasRootRef} />
       {renderPauseMenu()}
-      {startupLogoVisible && (
+      {asciiLogoVisible && (
         <div className="logo-container">
           <pre className="nethack-ascii-logo">
             {`                
@@ -14912,8 +14923,10 @@ export default function App(): JSX.Element {
       </AnimatedDialog>
 
       <AnimatedDialog
-        className="nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game"
-        open={newGamePrompt.visible && !infoMenu && !question}
+        className={`nh3d-dialog nh3d-dialog-question nh3d-dialog-fixed-actions nh3d-dialog-has-mobile-close nh3d-dialog-new-game${
+          gameOverDialogShowsTombstone ? " nh3d-dialog-below-logo" : ""
+        }`}
+        open={newGameDialogVisible}
         id="new-game-dialog"
         onKeyDown={handleNewGamePromptKeyDown}
       >
@@ -14921,13 +14934,12 @@ export default function App(): JSX.Element {
           () => setNewGamePrompt({ visible: false, reason: null }),
           "Close new game prompt",
         )}
-        {Array.isArray(gameOver.tombstoneLines) &&
-        gameOver.tombstoneLines.length > 0 ? (
+        <div className="nh3d-question-text">Return to main menu?</div>
+        {gameOverTombstoneLines.length > 0 ? (
           <pre className="nh3d-game-over-tombstone">
-            {gameOver.tombstoneLines.join("\n")}
+            {gameOverTombstoneLines.join("\n")}
           </pre>
         ) : null}
-        <div className="nh3d-question-text">Return to main menu?</div>
         <div className="nh3d-menu-actions">
           <button
             className="nh3d-menu-action-button nh3d-menu-action-confirm"
