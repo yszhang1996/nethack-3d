@@ -7130,6 +7130,8 @@ export default function App(): JSX.Element {
   const gameOverDialogShowsTombstone =
     newGameDialogVisible && gameOverTombstoneLines.length > 0;
   const asciiLogoVisible = startupLogoVisible || gameOverDialogShowsTombstone;
+  const mobileTouchUiVisible =
+    isMobileGameRunning && !gameOverDialogShowsTombstone;
   const startupMenuVisible =
     startupUiVisible &&
     characterCreationConfig === null &&
@@ -7723,6 +7725,16 @@ export default function App(): JSX.Element {
       setIsMobileLogVisible(false);
     }
   }, [isMobileGameRunning]);
+
+  useEffect(() => {
+    if (!gameOverDialogShowsTombstone) {
+      return;
+    }
+    setIsMobileActionSheetVisible(false);
+    setMobileActionSheetMode("quick");
+    setIsMobileLogVisible(false);
+    setIsWizardCommandsVisible(false);
+  }, [gameOverDialogShowsTombstone]);
 
   useEffect(() => {
     if (isMobileGameRunning || isDesktopGameRunning) {
@@ -12850,7 +12862,7 @@ export default function App(): JSX.Element {
             </div>
           ) : null}
         </div>
-      ) : isMobileGameRunning && clientOptions.liveMessageLog ? (
+      ) : mobileTouchUiVisible && clientOptions.liveMessageLog ? (
         <div
           className={`nh3d-mobile-log nh3d-overflow-glow-frame${
             isMobileLogVisible ? "" : " nh3d-mobile-log-hidden"
@@ -16202,7 +16214,7 @@ export default function App(): JSX.Element {
         )}
       </AnimatedDialog>
 
-      {isMobileGameRunning && isMobileActionSheetVisible ? (
+      {mobileTouchUiVisible && isMobileActionSheetVisible ? (
         <div className="nh3d-mobile-actions-sheet">
           <div className="nh3d-mobile-actions-title-row">
             <div className="nh3d-mobile-actions-title">
@@ -16340,7 +16352,9 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {wizardCommandsSupported && isWizardCommandsVisible ? (
+      {wizardCommandsSupported &&
+      isWizardCommandsVisible &&
+      (isDesktopGameRunning || mobileTouchUiVisible) ? (
         <div
           className={`nh3d-wizard-commands-sheet is-visible ${
             isMobileGameRunning ? "is-mobile" : "is-desktop"
@@ -16384,7 +16398,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {wizardCommandsSupported && isMobileGameRunning ? (
+      {wizardCommandsSupported && mobileTouchUiVisible ? (
         <button
           className={`nh3d-wizard-commands-button${
             isWizardCommandsVisible ? " is-active" : ""
@@ -16397,7 +16411,7 @@ export default function App(): JSX.Element {
         </button>
       ) : null}
 
-      {isMobileGameRunning && repeatActionVisible ? (
+      {mobileTouchUiVisible && repeatActionVisible ? (
         <button
           className="nh3d-mobile-repeat-button"
           onClick={() => {
@@ -16449,7 +16463,7 @@ export default function App(): JSX.Element {
         </div>
       ) : null}
 
-      {isMobileGameRunning ? (
+      {mobileTouchUiVisible ? (
         <div className="nh3d-mobile-bottom-bar">
           <button
             className={`nh3d-mobile-bottom-button${
