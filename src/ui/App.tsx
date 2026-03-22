@@ -11863,7 +11863,8 @@ export default function App(): JSX.Element {
                 className="nh3d-menu-action-button nh3d-menu-action-confirm"
                 onClick={() => {
                   controller?.sendInput("S");
-                  setTimeout(() => window.location.reload(), 1000);
+                  setIsPauseMenuVisible(false);
+                  setIsExitConfirmationVisible(false);
                 }}
                 type="button"
               >

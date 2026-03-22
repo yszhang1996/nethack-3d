@@ -58,6 +58,7 @@ class LocalNetHackRuntime {
     this.gameOverEmptyRawPrintCount = 0;
     this.lastGameOverHow = null;
     this.lastGameOverWhen = null;
+    this.runtimeTerminationEmitted = false;
     this.lastGameOverDeathSummary = "";
     this.lastKnownPlayerName = "";
     this.lastKnownGold = null;
@@ -5038,21 +5039,7 @@ class LocalNetHackRuntime {
               ? String(toThrow.message)
               : `Program terminated with exit(${exitCode})`;
 
-          if (this.nethackModule && this.nethackModule.FS) {
-            this.nethackModule.FS.syncfs(false, () => {
-              this.emit({
-                type: "runtime_terminated",
-                reason: exitReason,
-                exitCode,
-              });
-            });
-          } else {
-            this.emit({
-              type: "runtime_terminated",
-              reason: exitReason,
-              exitCode,
-            });
-          }
+          this.emitRuntimeTerminated(exitReason, exitCode);
 
           if (toThrow) {
             throw toThrow; // Emscripten expects this exception to unwind its execution stack
@@ -5061,21 +5048,10 @@ class LocalNetHackRuntime {
         onExit: (status) => {
           const exitCode = Number.isFinite(status) ? Number(status) : 0;
 
-          if (this.nethackModule && this.nethackModule.FS) {
-            this.nethackModule.FS.syncfs(false, () => {
-              this.emit({
-                type: "runtime_terminated",
-                reason: `Program terminated with exit(${exitCode})`,
-                exitCode,
-              });
-            });
-          } else {
-            this.emit({
-              type: "runtime_terminated",
-              reason: `Program terminated with exit(${exitCode})`,
-              exitCode,
-            });
-          }
+          this.emitRuntimeTerminated(
+            `Program terminated with exit(${exitCode})`,
+            exitCode,
+          );
         },
         onAbort: (reason) => {
           const errorText =
@@ -6859,7 +6835,28 @@ class LocalNetHackRuntime {
         return 0;
 
       case "shim_exit_nhwindows":
+        const [exitMessage] = args;
+        const normalizedExitMessage =
+          typeof exitMessage === "string"
+            ? this.normalizePromptContextMessage(exitMessage)
+            : "";
         console.log("Exiting NetHack windows");
+        if (normalizedExitMessage && this.eventHandler) {
+          this.rememberPromptContextMessage(normalizedExitMessage);
+          this.emit({
+            type: "raw_print",
+            text: normalizedExitMessage,
+          });
+        }
+        if (
+          normalizedExitMessage.toLowerCase() === "be seeing you..." &&
+          !this.runtimeTerminationEmitted
+        ) {
+          // Manual save/quit can reach exit_nhwindows before the Emscripten
+          // quit/onExit hooks fire. Emit a termination fallback so the UI can
+          // transition and the worker can flush IDBFS.
+          this.emitRuntimeTerminated(normalizedExitMessage, 0);
+        }
         return 0;
       case "shim_suspend_nhwindows":
         console.log("Suspending NetHack windows");
@@ -7053,6 +7050,18 @@ class LocalNetHackRuntime {
         this.emit(payload);
       }
     }
+  }
+
+  emitRuntimeTerminated(reason, exitCode) {
+    if (this.runtimeTerminationEmitted) {
+      return;
+    }
+    this.runtimeTerminationEmitted = true;
+    this.emit({
+      type: "runtime_terminated",
+      reason: reason || "Program terminated with exit(0)",
+      exitCode: Number.isFinite(exitCode) ? Number(exitCode) : 0,
+    });
   }
 
   emit(payload) {
