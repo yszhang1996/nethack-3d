@@ -642,6 +642,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private playerCliparoundInputCooldownUntilMs: number = 0;
   private readonly playerCliparoundInputCooldownMs: number = 520;
   private readonly tileRefreshRetryDelayMs: number = 120;
+  private readonly fpsCacheAssumptionRefreshCooldownMs: number = 280;
+  private fpsCacheAssumptionRefreshLastRequestedAtByKey: Map<string, number> =
+    new Map();
   private readonly movementUnlockWindowMs: number = 5000;
   private statusConditionMask: number = 0;
   // NetHack BL_MASK_BLIND from botl.h
@@ -667,6 +670,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private pendingGameOverPromptReady: boolean = false;
   private isInfoDialogVisible: boolean = false;
   private infoMenuBlockingActive: boolean = false;
+  private deferredPlayerTileRefreshReason: string | null = null;
   private pendingInventoryContextPromptCloseRequestedAtMs: number = 0;
   private readonly inventoryContextPromptCloseWindowMs: number = 2200;
   private activeQuestionText: string = "";
@@ -7015,6 +7019,20 @@ class Nethack3DEngine implements Nethack3DEngineController {
         }
         break;
 
+      case "under_player_item_glyph":
+        this.applyUnderPlayerItemGlyphEvent(data);
+        break;
+
+      case "under_player_item_glyph_cleared":
+        this.clearUnderPlayerItemGlyphEvent(data);
+        break;
+
+      case "inventory_updated_signal":
+        // Inventory mutation is a strong signal that floor stack order at the
+        // player tile may have changed (pickup/drop/eat/use from floor).
+        this.requestPlayerTileRefresh("inventory-updated-signal");
+        break;
+
       case "player_position":
         if (this.positionInputModeActive) {
           console.log(
@@ -7706,6 +7724,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
   private getFpsPlayerTileBillboardBehaviorFromCache(
     key: string,
+    currentBehavior: TileBehaviorResult | null = null,
   ): TileBehaviorResult | null {
     if (
       !this.shouldUseFpsStandingBillboardOverlayMode() ||
@@ -7718,6 +7737,16 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.lastKnownTerrain.get(key);
     if (!snapshot) {
       return null;
+    }
+    const canUseLiveTileBehavior =
+      currentBehavior !== null &&
+      (this.shouldRenderFlatFeatureUnderFpsPlayer(currentBehavior) ||
+        this.shouldUseRaisedSpecialTileBillboardInTiles(currentBehavior));
+    if (!canUseLiveTileBehavior) {
+      this.maybeRequestRuntimeTileRefreshForFpsCacheAssumption(
+        key,
+        "player-tile-billboard",
+      );
     }
     const behavior = classifyTileBehavior({
       glyph: snapshot.glyph,
@@ -8583,7 +8612,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       tileRelation.isTrailSuppressedTile &&
       (tileRelation.isPlayerGlyph || tileRelation.isPlayerMaterial);
     const fpsPlayerTileBillboardBehavior = tileRelation.isCurrentPlayerTile
-      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
+      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key, behavior)
       : null;
     if (
       this.isFpsMode() &&
@@ -9016,10 +9045,194 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (!this.session) {
       return;
     }
+    if (this.infoMenuBlockingActive) {
+      this.deferredPlayerTileRefreshReason = reason || "deferred";
+      console.log(
+        `Deferring player tile refresh (${reason}) until blocking info menu closes`,
+      );
+      return;
+    }
     console.log(
       `Requesting player tile refresh (${reason}) at (${this.playerPos.x}, ${this.playerPos.y})`,
     );
     this.requestTileUpdateWithRetry(this.playerPos.x, this.playerPos.y);
+  }
+
+  private flushDeferredPlayerTileRefreshIfNeeded(trigger: string): void {
+    if (!this.deferredPlayerTileRefreshReason) {
+      return;
+    }
+    const deferredReason = this.deferredPlayerTileRefreshReason;
+    this.deferredPlayerTileRefreshReason = null;
+    this.requestPlayerTileRefresh(`${deferredReason}-${trigger}`);
+  }
+
+  private getPlayerTileRefreshReasonForItemCommandInput(
+    input: string,
+  ): string | null {
+    switch (input) {
+      case ",":
+        return "pickup-input";
+      case "d":
+        return "drop-input";
+      case "e":
+        return "eat-input";
+      default:
+        return null;
+    }
+  }
+
+  private getQuestionSelectionTileRefreshAction(
+    questionText: string,
+  ): "pickup" | "drop" | "eat" | null {
+    const normalized = String(questionText || "")
+      .trim()
+      .toLowerCase();
+    if (!normalized) {
+      return null;
+    }
+    if (
+      normalized.includes("pick up what") ||
+      normalized.includes("what do you want to pick up") ||
+      normalized.includes("what would you like to pick up")
+    ) {
+      return "pickup";
+    }
+    if (
+      normalized.includes("drop what") ||
+      normalized.includes("what do you want to drop") ||
+      normalized.includes("what would you like to drop")
+    ) {
+      return "drop";
+    }
+    if (
+      normalized.includes("eat what") ||
+      normalized.includes("what do you want to eat") ||
+      normalized.includes("what would you like to eat")
+    ) {
+      return "eat";
+    }
+    return null;
+  }
+
+  private applyUnderPlayerItemGlyphEvent(data: Record<string, unknown>): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const x = Number(data.x);
+    const y = Number(data.y);
+    const glyph = Number(data.glyph);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(glyph)) {
+      return;
+    }
+    const tileX = Math.trunc(x);
+    const tileY = Math.trunc(y);
+    const normalizedGlyph = Math.trunc(glyph);
+    const key = `${tileX},${tileY}`;
+    const runtimeChar =
+      typeof data.char === "string" && data.char.length > 0 ? data.char : null;
+    const runtimeColor =
+      typeof data.color === "number" && Number.isFinite(data.color)
+        ? Math.trunc(data.color)
+        : null;
+    const runtimeTileIndex =
+      typeof data.tileIndex === "number" &&
+      Number.isFinite(data.tileIndex) &&
+      data.tileIndex >= 0
+        ? Math.trunc(data.tileIndex)
+        : null;
+
+    const behavior = classifyTileBehavior({
+      glyph: normalizedGlyph,
+      runtimeChar,
+      runtimeColor,
+      runtimeTileIndex,
+      priorTerrain: this.lastKnownTerrain.get(key) ?? null,
+    });
+    console.log(
+      `Applying under-player item glyph at (${tileX}, ${tileY}): ${normalizedGlyph}`,
+    );
+    const shouldCacheAsUnderPlayerFeature =
+      this.shouldRenderFlatFeatureUnderFpsPlayer(behavior) ||
+      this.shouldUseRaisedSpecialTileBillboardInTiles(behavior);
+    if (!shouldCacheAsUnderPlayerFeature) {
+      this.fpsFlatFeatureUnderPlayerCache.delete(key);
+      this.refreshTileVisualFromStateCache(tileX, tileY);
+      return;
+    }
+
+    this.fpsFlatFeatureUnderPlayerCache.set(key, {
+      glyph: normalizedGlyph,
+      char: runtimeChar ?? undefined,
+      color: runtimeColor ?? undefined,
+      tileIndex: runtimeTileIndex ?? undefined,
+    });
+    this.refreshTileVisualFromStateCache(tileX, tileY);
+  }
+
+  private clearUnderPlayerItemGlyphEvent(data: Record<string, unknown>): void {
+    if (!this.isFpsMode()) {
+      return;
+    }
+    const x = Number(data.x);
+    const y = Number(data.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    const tileX = Math.trunc(x);
+    const tileY = Math.trunc(y);
+    const key = `${tileX},${tileY}`;
+    console.log(`Clearing under-player item glyph at (${tileX}, ${tileY})`);
+    this.fpsFlatFeatureUnderPlayerCache.delete(key);
+    this.refreshTileVisualFromStateCache(tileX, tileY);
+  }
+
+  private maybeRequestRuntimeTileRefreshForFpsCacheAssumption(
+    tileKey: string,
+    reason: string,
+  ): void {
+    if (!this.session || !this.isFpsMode()) {
+      return;
+    }
+    const normalizedKey = String(tileKey || "");
+    const commaIndex = normalizedKey.indexOf(",");
+    if (commaIndex <= 0 || commaIndex >= normalizedKey.length - 1) {
+      return;
+    }
+    const rawX = Number(normalizedKey.slice(0, commaIndex));
+    const rawY = Number(normalizedKey.slice(commaIndex + 1));
+    if (!Number.isFinite(rawX) || !Number.isFinite(rawY)) {
+      return;
+    }
+    const tileX = Math.trunc(rawX);
+    const tileY = Math.trunc(rawY);
+    const key = `${tileX},${tileY}`;
+    const nowMs = Date.now();
+    const lastRequestedAtMs =
+      this.fpsCacheAssumptionRefreshLastRequestedAtByKey.get(key) ?? 0;
+    if (nowMs - lastRequestedAtMs < this.fpsCacheAssumptionRefreshCooldownMs) {
+      return;
+    }
+    this.fpsCacheAssumptionRefreshLastRequestedAtByKey.set(key, nowMs);
+    if (this.fpsCacheAssumptionRefreshLastRequestedAtByKey.size > 192) {
+      const cutoffMs = nowMs - this.fpsCacheAssumptionRefreshCooldownMs * 8;
+      for (const [staleKey, staleAtMs] of this
+        .fpsCacheAssumptionRefreshLastRequestedAtByKey) {
+        if (staleAtMs < cutoffMs) {
+          this.fpsCacheAssumptionRefreshLastRequestedAtByKey.delete(staleKey);
+        }
+      }
+    }
+
+    if (tileX === this.playerPos.x && tileY === this.playerPos.y) {
+      this.requestPlayerTileRefresh(`fps-cache-assumption-${reason}`);
+      return;
+    }
+
+    console.log(
+      `Requesting tile update to replace FPS cache assumption (${reason}) at (${tileX}, ${tileY})`,
+    );
+    this.requestTileUpdate(tileX, tileY);
   }
 
   private requestDirectionalAnswerTileRefresh(directionInput: string): void {
@@ -9391,17 +9604,27 @@ class Nethack3DEngine implements Nethack3DEngineController {
     if (normalizedCommandText === "kick") {
       this.armFpsFireSuppression();
     }
+    let submittedAsDirectInput = false;
     const preferredInput =
       this.resolvePreferredKeyboardInputForExtendedCommand(
         normalizedCommandText,
       );
     if (preferredInput?.kind === "input") {
+      submittedAsDirectInput = true;
       this.sendInput(preferredInput.input, { delayMs: submitDelayMs });
     } else if (preferredInput?.kind === "sequence") {
       this.sendInputSequence(preferredInput.inputs, { delayMs: submitDelayMs });
     } else {
       const sequence = ["#", ...normalizedCommandText.split(""), "Enter"];
       this.sendInputSequence(sequence, { delayMs: submitDelayMs });
+    }
+    if (
+      !submittedAsDirectInput &&
+      (normalizedCommandText === "pickup" ||
+        normalizedCommandText === "drop" ||
+        normalizedCommandText === "eat")
+    ) {
+      this.requestPlayerTileRefresh(`${normalizedCommandText}-command`);
     }
     if (shouldArmRepeat) {
       this.queueRepeatDirectionCandidate({
@@ -19171,7 +19394,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
         tileRelation.isCurrentPlayerTile ||
         shouldSuppressRecentPreviousPlayerTileInFps);
     const fpsPlayerTileBillboardBehavior = tileRelation.isCurrentPlayerTile
-      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key)
+      ? this.getFpsPlayerTileBillboardBehaviorFromCache(key, behavior)
       : null;
     const shouldKeepFpsPlayerTileBillboard =
       fpsPlayerTileBillboardBehavior !== null;
@@ -19289,6 +19512,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
         this.fpsFlatFeatureUnderPlayerCache.get(key) ??
         this.lastKnownTerrain.get(key);
       if (cachedFlatFeature) {
+        const usingAssumedUnderlayFromCache =
+          !this.shouldRenderFlatFeatureUnderFpsPlayer(behavior) &&
+          !this.shouldUseRaisedSpecialTileBillboardInTiles(behavior);
+        if (usingAssumedUnderlayFromCache) {
+          this.maybeRequestRuntimeTileRefreshForFpsCacheAssumption(
+            key,
+            "suppressed-player-underlay",
+          );
+        }
         renderBehavior = classifyTileBehavior({
           glyph: cachedFlatFeature.glyph,
           runtimeChar: cachedFlatFeature.char ?? null,
@@ -21901,8 +22133,14 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
+    const refreshAction = this.getQuestionSelectionTileRefreshAction(
+      this.activeQuestionText,
+    );
     this.maybePlayDrinkSoundForQuestionMenuSelection(selectedItem);
     this.sendInput(this.getQuestionMenuSelectionInput(selectedItem));
+    if (refreshAction) {
+      this.requestPlayerTileRefresh(`${refreshAction}-question-selection`);
+    }
     this.hideQuestion();
   }
 
@@ -22303,6 +22541,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setInfoMenu(null);
     this.syncFpsPointerLockForUiState(true);
     this.fulfillDeferredGameOverPromptReadyIfPossible();
+    this.flushDeferredPlayerTileRefreshIfNeeded("info-menu-closed");
   }
 
   private dismissBlockingInfoMenuIfNeeded(): void {
@@ -22702,9 +22941,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.findActiveMenuItemBySelectionInput(resolvedChoice);
     if (selectedItem) {
       const selectionInput = this.getQuestionMenuSelectionInput(selectedItem);
+      const refreshAction = this.getQuestionSelectionTileRefreshAction(
+        this.activeQuestionText,
+      );
       this.setActiveQuestionMenuFocusBySelectionInput(selectionInput);
       this.maybePlayDrinkSoundForQuestionMenuSelection(selectedItem);
       this.sendInput(selectionInput);
+      if (refreshAction) {
+        this.requestPlayerTileRefresh(`${refreshAction}-question-selection`);
+      }
       this.hideQuestion();
       return;
     }
@@ -22855,6 +23100,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
       `${this.inventoryContextSelectionPrefix}${accelerator}`,
       commandKey,
     ]);
+    if (normalizedActionId === "drop" || normalizedActionId === "eat") {
+      this.requestPlayerTileRefresh(`inventory-${normalizedActionId}`);
+    }
     this.queueRepeatDirectionCandidate({
       kind: "inventory_command",
       value: commandKey,
@@ -22880,6 +23128,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
       `${this.inventoryContextSelectionCountPrefix}${accelerator}:${String(normalizedCount)}`,
       "d",
     ]);
+    this.requestPlayerTileRefresh("inventory-drop-count");
     this.queueRepeatDirectionCandidate({
       kind: "inventory_command",
       value: "d",
@@ -23064,13 +23313,15 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
     this.updateDirectionalAttackContext(resolvedInput);
 
+    const itemCommandRefreshReason =
+      this.getPlayerTileRefreshReasonForItemCommandInput(resolvedInput);
     if (
-      resolvedInput === "," &&
+      itemCommandRefreshReason &&
       !this.isInQuestion &&
       !this.isInDirectionQuestion &&
       !this.positionInputModeActive
     ) {
-      this.requestPlayerTileRefresh("pickup-input");
+      this.requestPlayerTileRefresh(itemCommandRefreshReason);
     }
 
     if (this.session) {

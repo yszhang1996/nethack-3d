@@ -1800,6 +1800,7 @@ class LocalNetHackRuntime {
           ) {
             this.activeInputRequest = null;
           }
+          this.flushDeferredTileRefreshesNow();
           this.maybeFlushDeferredTileRefreshes();
         });
       this.activeInputRequest = {
@@ -1864,37 +1865,39 @@ class LocalNetHackRuntime {
 
     schedule(() => {
       this.deferredTileRefreshFlushScheduled = false;
-      if (!this.canQueryWasmHelpers()) {
-        return;
-      }
-      if (
-        this.deferredTileRefreshKeys.size === 0 &&
-        this.deferredAreaRefreshRequests.size === 0
-      ) {
-        return;
-      }
-
-      const pendingAreas = Array.from(
-        this.deferredAreaRefreshRequests.values(),
-      );
-      const pendingTiles = Array.from(this.deferredTileRefreshKeys);
-      this.deferredAreaRefreshRequests.clear();
-      this.deferredTileRefreshKeys.clear();
-
-      for (const area of pendingAreas) {
-        this.handleAreaUpdateRequest(area.centerX, area.centerY, area.radius);
-      }
-
-      for (const key of pendingTiles) {
-        const [xRaw, yRaw] = key.split(",");
-        const x = Number(xRaw);
-        const y = Number(yRaw);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) {
-          continue;
-        }
-        this.handleTileUpdateRequest(x, y);
-      }
+      this.flushDeferredTileRefreshesNow();
     }, 0);
+  }
+
+  flushDeferredTileRefreshesNow() {
+    if (!this.canQueryWasmHelpers()) {
+      return;
+    }
+    if (
+      this.deferredTileRefreshKeys.size === 0 &&
+      this.deferredAreaRefreshRequests.size === 0
+    ) {
+      return;
+    }
+
+    const pendingAreas = Array.from(this.deferredAreaRefreshRequests.values());
+    const pendingTiles = Array.from(this.deferredTileRefreshKeys);
+    this.deferredAreaRefreshRequests.clear();
+    this.deferredTileRefreshKeys.clear();
+
+    for (const area of pendingAreas) {
+      this.handleAreaUpdateRequest(area.centerX, area.centerY, area.radius);
+    }
+
+    for (const key of pendingTiles) {
+      const [xRaw, yRaw] = key.split(",");
+      const x = Number(xRaw);
+      const y = Number(yRaw);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        continue;
+      }
+      this.handleTileUpdateRequest(x, y);
+    }
   }
   // Handle request for tile update from client
   handleTileUpdateRequest(x, y) {
@@ -1909,6 +1912,10 @@ class LocalNetHackRuntime {
     }
     const key = `${x},${y}`;
     const tileData = this.gameMap.get(key);
+    const isPlayerTile =
+      this.playerPosition &&
+      x === this.playerPosition.x &&
+      y === this.playerPosition.y;
     const helpers =
       globalThis.nethackGlobal && globalThis.nethackGlobal.helpers
         ? globalThis.nethackGlobal.helpers
@@ -1916,6 +1923,10 @@ class LocalNetHackRuntime {
     const glyphAtHelper =
       canQueryWasmHelpers && helpers && typeof helpers.glyphAtHelper === "function"
         ? helpers.glyphAtHelper
+        : null;
+    const topItemGlyphUnderPlayer =
+      helpers && typeof helpers.topItemGlyphUnderPlayer === "function"
+        ? helpers.topItemGlyphUnderPlayer
         : null;
     const mapHelper = helpers
       ? this.runtimeVersion === "3.7"
@@ -1999,16 +2010,97 @@ class LocalNetHackRuntime {
       return true;
     };
 
+    const emitUnderPlayerItemGlyphIfAvailable = () => {
+      if (!isPlayerTile || !topItemGlyphUnderPlayer || !this.eventHandler) {
+        return;
+      }
+      try {
+        const topGlyphRaw = topItemGlyphUnderPlayer();
+        const topGlyph = Number(topGlyphRaw);
+        if (!Number.isFinite(topGlyph) || topGlyph < 0) {
+          console.log(
+            `🧹 Under-player top item glyph cleared at (${x}, ${y})`,
+          );
+          this.emit({
+            type: "under_player_item_glyph_cleared",
+            x,
+            y,
+          });
+          return;
+        }
+
+        const normalizedGlyph = Math.trunc(topGlyph);
+        let decodedChar = null;
+        let decodedColor = null;
+        let decodedTileIndex = null;
+
+        if (mapHelper) {
+          try {
+            const mgflags = this.runtimeVersion === "3.7" ? 0x02 : 0;
+            const glyphInfo = mapHelper(normalizedGlyph, x, y, mgflags);
+            if (glyphInfo) {
+              if (glyphInfo.ch !== undefined) {
+                decodedChar =
+                  typeof glyphInfo.ch === "number"
+                    ? String.fromCharCode(glyphInfo.ch)
+                    : String(glyphInfo.ch);
+              }
+              if (
+                typeof glyphInfo.color === "number" &&
+                Number.isFinite(glyphInfo.color)
+              ) {
+                decodedColor = Math.trunc(glyphInfo.color);
+              }
+              const tileIndexCandidate =
+                typeof glyphInfo.tileidx === "number"
+                  ? glyphInfo.tileidx
+                  : glyphInfo.tileIdx;
+              if (
+                typeof tileIndexCandidate === "number" &&
+                Number.isFinite(tileIndexCandidate) &&
+                tileIndexCandidate >= 0
+              ) {
+                decodedTileIndex = Math.trunc(tileIndexCandidate);
+              }
+            }
+          } catch (error) {
+            console.log(
+              "[WARN] Error decoding under-player item glyph:",
+              error,
+            );
+          }
+        }
+
+        console.log(
+          `🎒 Under-player top item glyph at (${x}, ${y}) => ${normalizedGlyph}`,
+        );
+        this.emit({
+          type: "under_player_item_glyph",
+          x,
+          y,
+          glyph: normalizedGlyph,
+          char: decodedChar,
+          color: decodedColor,
+          tileIndex: decodedTileIndex,
+        });
+      } catch (error) {
+        console.log("[WARN] topItemGlyphUnderPlayer failed:", error);
+      }
+    };
+
     if (glyphAtHelper) {
       try {
         const glyph = glyphAtHelper(x, y);
         if (updateTileFromGlyph(glyph)) {
+          emitUnderPlayerItemGlyphIfAvailable();
           return;
         }
       } catch (error) {
-        console.log("⚠️ glyphAtHelper refresh failed:", error);
+        console.log("[WARN] glyphAtHelper refresh failed:", error);
       }
     }
+
+    emitUnderPlayerItemGlyphIfAvailable();
 
     if (tileData) {
       console.log(`📤 Resending tile data for (${x}, ${y}):`, tileData);
