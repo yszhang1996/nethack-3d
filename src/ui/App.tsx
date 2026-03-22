@@ -7202,6 +7202,20 @@ export default function App(): JSX.Element {
     }
   }, [hasShownStartupMenu, startupMenuVisible]);
 
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.toggle(
+      "nh3d-game-over-tombstone-active",
+      gameOverDialogShowsTombstone,
+    );
+    return () => {
+      root.classList.remove("nh3d-game-over-tombstone-active");
+    };
+  }, [gameOverDialogShowsTombstone]);
+
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
       return;
