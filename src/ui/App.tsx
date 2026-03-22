@@ -1696,6 +1696,7 @@ type ClientOptionsTab = {
 type ClientOptionToggleKey =
   | "fpsMode"
   | "fpsFlattenEntityBillboards"
+  | "showItemsUnderPlayerInOverheadTilesMode"
   | "controllerEnabled"
   | "invertLookYAxis"
   | "cameraRelativeMovement"
@@ -2994,9 +2995,16 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "fpsFlattenEntityBillboards",
-    label: "Flatten FPS sprites occupying same space",
+    label: "Flatten overlapping tile sprites",
     description:
-      "Flatten tile sprites for loot or dungeon features when monsters, pets, or the player stands on them in FPS mode. Does not apply to Vulture tiles FPS mode.",
+      "Flatten tile sprites for loot or dungeon features when monsters, pets, or the player stand on them. Disable to keep overlapping sprites as standing billboards. Vulture tiles always stay standing.",
+    type: "boolean",
+  },
+  {
+    key: "showItemsUnderPlayerInOverheadTilesMode",
+    label: "Show under-player items in overhead tiles",
+    description:
+      "Show items and floor features under the player in overhead tiles mode using runtime underlay glyph data.",
     type: "boolean",
   },
   {

@@ -1928,6 +1928,10 @@ class LocalNetHackRuntime {
       helpers && typeof helpers.topItemGlyphUnderPlayer === "function"
         ? helpers.topItemGlyphUnderPlayer
         : null;
+    const topItemTileIndexUnderPlayer =
+      helpers && typeof helpers.topItemTileIndexUnderPlayer === "function"
+        ? helpers.topItemTileIndexUnderPlayer
+        : null;
     const mapHelper = helpers
       ? this.runtimeVersion === "3.7"
         ? typeof helpers.mapGlyphInfoHelper === "function"
@@ -2034,6 +2038,18 @@ class LocalNetHackRuntime {
         let decodedColor = null;
         let decodedTileIndex = null;
 
+        if (topItemTileIndexUnderPlayer) {
+          try {
+            const tileIndexRaw = topItemTileIndexUnderPlayer();
+            const tileIndex = Number(tileIndexRaw);
+            if (Number.isFinite(tileIndex) && tileIndex >= 0) {
+              decodedTileIndex = Math.trunc(tileIndex);
+            }
+          } catch (error) {
+            console.log("[WARN] topItemTileIndexUnderPlayer failed:", error);
+          }
+        }
+
         if (mapHelper) {
           try {
             const mgflags = this.runtimeVersion === "3.7" ? 0x02 : 0;
@@ -2056,6 +2072,7 @@ class LocalNetHackRuntime {
                   ? glyphInfo.tileidx
                   : glyphInfo.tileIdx;
               if (
+                decodedTileIndex === null &&
                 typeof tileIndexCandidate === "number" &&
                 Number.isFinite(tileIndexCandidate) &&
                 tileIndexCandidate >= 0
@@ -2072,7 +2089,7 @@ class LocalNetHackRuntime {
         }
 
         console.log(
-          `🎒 Under-player top item glyph at (${x}, ${y}) => ${normalizedGlyph}`,
+          `🎒 Under-player top item glyph at (${x}, ${y}) => ${normalizedGlyph} (tileIndex=${decodedTileIndex ?? "n/a"})`,
         );
         this.emit({
           type: "under_player_item_glyph",
