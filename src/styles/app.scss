@@ -1710,6 +1710,31 @@ canvas {
     top: calc(var(--nh3d-modal-safe-center-y) + 10vh);
   }
 
+  .nh3d-game-over-tombstone {
+    margin: 0 0 16px;
+    padding: 12px 14px;
+    border: 1px solid rgba(181, 201, 226, 0.24);
+    border-radius: 10px;
+    background:
+      linear-gradient(
+        180deg,
+        rgba(255, 255, 255, 0.045) 0%,
+        rgba(255, 255, 255, 0.018) 100%
+      ),
+      rgba(7, 17, 31, 0.74);
+    color: var(--nh3d-ui-text);
+    font-family: "Courier New", monospace;
+    font-size: nh3d-scale-font(clamp(11px, 1.5vw, 13px));
+    line-height: 1.15;
+    text-align: left;
+    white-space: pre;
+    display: block;
+    width: fit-content;
+    max-width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
   .nh3d-menu-actions {
     @media (pointer: coarse) {
       margin-top: 0 !important;

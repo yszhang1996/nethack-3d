@@ -54,6 +54,13 @@ class LocalNetHackRuntime {
     this.messageHistorySnapshot = [];
     this.messageHistorySnapshotIndex = 0;
     this.pendingGameOverPossessionsInventoryFlow = false;
+    this.gameOverSequenceActive = false;
+    this.gameOverEmptyRawPrintCount = 0;
+    this.lastGameOverHow = null;
+    this.lastGameOverWhen = null;
+    this.lastGameOverDeathSummary = "";
+    this.lastKnownPlayerName = "";
+    this.lastKnownGold = null;
 
     this.inputBroker = new RuntimeInputBroker();
     this.farLookMode = "none"; // none | armed | active
@@ -77,6 +84,9 @@ class LocalNetHackRuntime {
     this.contextualGlanceAutoCancelPositionWindowMs = 450;
     this.pendingInventoryContextSelection = null;
     this.pendingTextRequest = null;
+    this.deferredTileRefreshKeys = new Set();
+    this.deferredAreaRefreshRequests = new Map();
+    this.deferredTileRefreshFlushScheduled = false;
     this.textInputMaxLength = 256;
     this.mouseInputTokenKey = "__MOUSE_INPUT__";
     this.mouseClickPrimaryMod = 1; // CLICK_1 (left click)
@@ -272,7 +282,9 @@ class LocalNetHackRuntime {
       return false;
     }
     return Boolean(
-      this.buildCheckpointLockBaseName(this.startupOptions?.characterCreation?.name),
+      this.buildCheckpointLockBaseName(
+        this.startupOptions?.characterCreation?.name,
+      ),
     );
   }
 
@@ -300,7 +312,10 @@ class LocalNetHackRuntime {
     try {
       entries = mod.FS.readdir(saveDir);
     } catch (error) {
-      console.warn(`Failed to enumerate ${saveDir} for stale checkpoints:`, error);
+      console.warn(
+        `Failed to enumerate ${saveDir} for stale checkpoints:`,
+        error,
+      );
       return 0;
     }
 
@@ -351,6 +366,7 @@ class LocalNetHackRuntime {
     try {
       if (Object.prototype.hasOwnProperty.call(globals, "plname")) {
         globals.plname = normalized;
+        this.lastKnownPlayerName = normalized;
         return true;
       }
       if (
@@ -359,6 +375,7 @@ class LocalNetHackRuntime {
         Object.prototype.hasOwnProperty.call(globals.g, "plname")
       ) {
         globals.g.plname = normalized;
+        this.lastKnownPlayerName = normalized;
         return true;
       }
     } catch (error) {
@@ -427,7 +444,9 @@ class LocalNetHackRuntime {
   }
 
   buildStartupInitRuntimeOptions() {
-    return appendRequiredStartupInitOptionTokens(this.startupOptions?.initOptions);
+    return appendRequiredStartupInitOptionTokens(
+      this.startupOptions?.initOptions,
+    );
   }
 
   resolveStartupExtmenuEnabled(rawTokens) {
@@ -491,7 +510,8 @@ class LocalNetHackRuntime {
   }
 
   emitStartupObjectTileMap() {
-    const objectTileIndexByObjectId = this.buildObjectTileIndexByObjectIdSnapshot();
+    const objectTileIndexByObjectId =
+      this.buildObjectTileIndexByObjectIdSnapshot();
     if (!Array.isArray(objectTileIndexByObjectId)) {
       return;
     }
@@ -550,6 +570,10 @@ class LocalNetHackRuntime {
     this.awaitingQuestionInput = false;
     this.windowTextBuffers.clear();
     this.lastMenuInteractionCancelled = false;
+    this.gameOverSequenceActive = false;
+    this.gameOverEmptyRawPrintCount = 0;
+    this.lastGameOverHow = null;
+    this.lastGameOverWhen = null;
 
     if (this.pendingMenuSelection && this.pendingMenuSelection.resolver) {
       const resolver = this.pendingMenuSelection.resolver;
@@ -1378,7 +1402,9 @@ class LocalNetHackRuntime {
     // Unrelated keys should cancel stale ext-command waits so gameplay input
     // can flow back through normal nh_poskey handling.
     this.resolvePendingExtendedCommandRequest(-1);
-    this.clearPendingInventoryContextSelection("extended command input changed");
+    this.clearPendingInventoryContextSelection(
+      "extended command input changed",
+    );
     return false;
   }
 
@@ -1601,6 +1627,7 @@ class LocalNetHackRuntime {
       if (typeof pending.resolve === "function") {
         pending.resolve(0);
       }
+      this.maybeFlushDeferredTileRefreshes();
       return;
     }
 
@@ -1667,6 +1694,7 @@ class LocalNetHackRuntime {
       }
       resolver(selectionCount);
       this.menuSelectionReadyCount = null;
+      this.maybeFlushDeferredTileRefreshes();
       return;
     }
 
@@ -1772,6 +1800,7 @@ class LocalNetHackRuntime {
           ) {
             this.activeInputRequest = null;
           }
+          this.maybeFlushDeferredTileRefreshes();
         });
       this.activeInputRequest = {
         kind: requestKind,
@@ -1781,6 +1810,92 @@ class LocalNetHackRuntime {
     }
     return this.consumeInputResult(requested, requestKind, requestContext);
   }
+
+  canQueryWasmHelpers() {
+    return (
+      !this.activeInputRequest &&
+      !this.pendingTextRequest &&
+      !this.pendingMenuSelection
+    );
+  }
+
+  deferTileRefreshRequest(x, y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+    this.deferredTileRefreshKeys.add(`${x},${y}`);
+  }
+
+  deferAreaRefreshRequest(centerX, centerY, radius) {
+    if (!Number.isFinite(centerX) || !Number.isFinite(centerY)) {
+      return;
+    }
+    const normalizedRadius =
+      Number.isFinite(radius) && Number(radius) >= 0
+        ? Math.trunc(Number(radius))
+        : 0;
+    const key = `${centerX},${centerY},${normalizedRadius}`;
+    this.deferredAreaRefreshRequests.set(key, {
+      centerX,
+      centerY,
+      radius: normalizedRadius,
+    });
+  }
+
+  maybeFlushDeferredTileRefreshes() {
+    if (this.deferredTileRefreshFlushScheduled) {
+      return;
+    }
+    if (!this.canQueryWasmHelpers()) {
+      return;
+    }
+    if (
+      this.deferredTileRefreshKeys.size === 0 &&
+      this.deferredAreaRefreshRequests.size === 0
+    ) {
+      return;
+    }
+
+    this.deferredTileRefreshFlushScheduled = true;
+    const schedule =
+      typeof setTimeout === "function"
+        ? setTimeout
+        : (callback) => callback();
+
+    schedule(() => {
+      this.deferredTileRefreshFlushScheduled = false;
+      if (!this.canQueryWasmHelpers()) {
+        return;
+      }
+      if (
+        this.deferredTileRefreshKeys.size === 0 &&
+        this.deferredAreaRefreshRequests.size === 0
+      ) {
+        return;
+      }
+
+      const pendingAreas = Array.from(
+        this.deferredAreaRefreshRequests.values(),
+      );
+      const pendingTiles = Array.from(this.deferredTileRefreshKeys);
+      this.deferredAreaRefreshRequests.clear();
+      this.deferredTileRefreshKeys.clear();
+
+      for (const area of pendingAreas) {
+        this.handleAreaUpdateRequest(area.centerX, area.centerY, area.radius);
+      }
+
+      for (const key of pendingTiles) {
+        const [xRaw, yRaw] = key.split(",");
+        const x = Number(xRaw);
+        const y = Number(yRaw);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          continue;
+        }
+        this.handleTileUpdateRequest(x, y);
+      }
+    }, 0);
+  }
   // Handle request for tile update from client
   handleTileUpdateRequest(x, y) {
     if (this.isClosed) {
@@ -1788,8 +1903,112 @@ class LocalNetHackRuntime {
     }
     console.log(`🔄 Client requested tile update for (${x}, ${y})`);
 
+    const canQueryWasmHelpers = this.canQueryWasmHelpers();
+    if (!canQueryWasmHelpers) {
+      this.deferTileRefreshRequest(x, y);
+    }
     const key = `${x},${y}`;
     const tileData = this.gameMap.get(key);
+    const helpers =
+      globalThis.nethackGlobal && globalThis.nethackGlobal.helpers
+        ? globalThis.nethackGlobal.helpers
+        : null;
+    const glyphAtHelper =
+      canQueryWasmHelpers && helpers && typeof helpers.glyphAtHelper === "function"
+        ? helpers.glyphAtHelper
+        : null;
+    const mapHelper = helpers
+      ? this.runtimeVersion === "3.7"
+        ? typeof helpers.mapGlyphInfoHelper === "function"
+          ? canQueryWasmHelpers
+            ? helpers.mapGlyphInfoHelper
+            : null
+          : null
+        : typeof helpers.mapglyphHelper === "function"
+          ? canQueryWasmHelpers
+            ? helpers.mapglyphHelper
+            : null
+          : null
+      : null;
+
+    const updateTileFromGlyph = (glyph) => {
+      if (!Number.isFinite(glyph)) {
+        return false;
+      }
+      let decodedChar = tileData ? tileData.char : "";
+      let decodedColor = tileData ? tileData.color : null;
+      let decodedTileIndex = tileData ? tileData.tileIndex : null;
+
+      if (mapHelper) {
+        try {
+          const mgflags = this.runtimeVersion === "3.7" ? 0x02 : 0;
+          const glyphInfo = mapHelper(glyph, x, y, mgflags);
+          if (glyphInfo) {
+            if (glyphInfo.ch !== undefined) {
+              decodedChar =
+                typeof glyphInfo.ch === "number"
+                  ? String.fromCharCode(glyphInfo.ch)
+                  : String(glyphInfo.ch);
+            }
+            if (
+              typeof glyphInfo.color === "number" &&
+              Number.isFinite(glyphInfo.color)
+            ) {
+              decodedColor = glyphInfo.color;
+            }
+            const tileIndexCandidate =
+              typeof glyphInfo.tileidx === "number"
+                ? glyphInfo.tileidx
+                : glyphInfo.tileIdx;
+            if (
+              typeof tileIndexCandidate === "number" &&
+              Number.isFinite(tileIndexCandidate) &&
+              tileIndexCandidate >= 0
+            ) {
+              decodedTileIndex = Math.trunc(tileIndexCandidate);
+            }
+          }
+        } catch (error) {
+          console.log("⚠️ Error decoding glyph for refresh:", error);
+        }
+      }
+
+      this.gameMap.set(key, {
+        x,
+        y,
+        glyph,
+        char: decodedChar,
+        color: decodedColor,
+        tileIndex: decodedTileIndex,
+        timestamp: Date.now(),
+      });
+
+      if (this.eventHandler) {
+        this.queueMapGlyphUpdate({
+          type: "map_glyph",
+          x,
+          y,
+          glyph,
+          char: decodedChar,
+          color: decodedColor,
+          tileIndex: decodedTileIndex,
+          window: 2,
+          isRefresh: true,
+        });
+      }
+      return true;
+    };
+
+    if (glyphAtHelper) {
+      try {
+        const glyph = glyphAtHelper(x, y);
+        if (updateTileFromGlyph(glyph)) {
+          return;
+        }
+      } catch (error) {
+        console.log("⚠️ glyphAtHelper refresh failed:", error);
+      }
+    }
 
     if (tileData) {
       console.log(`📤 Resending tile data for (${x}, ${y}):`, tileData);
@@ -1833,7 +2052,32 @@ class LocalNetHackRuntime {
       `🔄 Client requested area update centered at (${centerX}, ${centerY}) with radius ${radius}`,
     );
 
+    const canQueryWasmHelpers = this.canQueryWasmHelpers();
+    if (!canQueryWasmHelpers) {
+      this.deferAreaRefreshRequest(centerX, centerY, radius);
+    }
     let tilesRefreshed = 0;
+    const helpers =
+      globalThis.nethackGlobal && globalThis.nethackGlobal.helpers
+        ? globalThis.nethackGlobal.helpers
+        : null;
+    const glyphAtHelper =
+      canQueryWasmHelpers && helpers && typeof helpers.glyphAtHelper === "function"
+        ? helpers.glyphAtHelper
+        : null;
+    const mapHelper = helpers
+      ? this.runtimeVersion === "3.7"
+        ? typeof helpers.mapGlyphInfoHelper === "function"
+          ? canQueryWasmHelpers
+            ? helpers.mapGlyphInfoHelper
+            : null
+          : null
+        : typeof helpers.mapglyphHelper === "function"
+          ? canQueryWasmHelpers
+            ? helpers.mapglyphHelper
+            : null
+          : null
+      : null;
 
     for (let dx = -radius; dx <= radius; dx++) {
       for (let dy = -radius; dy <= radius; dy++) {
@@ -1841,6 +2085,83 @@ class LocalNetHackRuntime {
         const y = centerY + dy;
         const key = `${x},${y}`;
         const tileData = this.gameMap.get(key);
+
+        if (glyphAtHelper) {
+          try {
+            const glyph = glyphAtHelper(x, y);
+            if (Number.isFinite(glyph)) {
+              let decodedChar = tileData ? tileData.char : "";
+              let decodedColor = tileData ? tileData.color : null;
+              let decodedTileIndex = tileData ? tileData.tileIndex : null;
+
+              if (mapHelper) {
+                try {
+                  const mgflags = this.runtimeVersion === "3.7" ? 0x02 : 0;
+                  const glyphInfo = mapHelper(glyph, x, y, mgflags);
+                  if (glyphInfo) {
+                    if (glyphInfo.ch !== undefined) {
+                      decodedChar =
+                        typeof glyphInfo.ch === "number"
+                          ? String.fromCharCode(glyphInfo.ch)
+                          : String(glyphInfo.ch);
+                    }
+                    if (
+                      typeof glyphInfo.color === "number" &&
+                      Number.isFinite(glyphInfo.color)
+                    ) {
+                      decodedColor = glyphInfo.color;
+                    }
+                    const tileIndexCandidate =
+                      typeof glyphInfo.tileidx === "number"
+                        ? glyphInfo.tileidx
+                        : glyphInfo.tileIdx;
+                    if (
+                      typeof tileIndexCandidate === "number" &&
+                      Number.isFinite(tileIndexCandidate) &&
+                      tileIndexCandidate >= 0
+                    ) {
+                      decodedTileIndex = Math.trunc(tileIndexCandidate);
+                    }
+                  }
+                } catch (error) {
+                  console.log(
+                    "⚠️ Error decoding glyph for area refresh:",
+                    error,
+                  );
+                }
+              }
+
+              this.gameMap.set(key, {
+                x,
+                y,
+                glyph,
+                char: decodedChar,
+                color: decodedColor,
+                tileIndex: decodedTileIndex,
+                timestamp: Date.now(),
+              });
+
+              if (this.eventHandler) {
+                this.queueMapGlyphUpdate({
+                  type: "map_glyph",
+                  x,
+                  y,
+                  glyph,
+                  char: decodedChar,
+                  color: decodedColor,
+                  tileIndex: decodedTileIndex,
+                  window: 2,
+                  isRefresh: true,
+                  isAreaRefresh: true,
+                });
+              }
+              tilesRefreshed++;
+              continue;
+            }
+          } catch (error) {
+            console.log("⚠️ glyphAtHelper area refresh failed:", error);
+          }
+        }
 
         if (tileData) {
           if (this.eventHandler) {
@@ -2065,11 +2386,7 @@ class LocalNetHackRuntime {
     if (this.isFarLookExitInput(normalized)) {
       return true;
     }
-    return (
-      normalized === "." ||
-      normalized === "5" ||
-      normalized === "Numpad5"
-    );
+    return normalized === "." || normalized === "5" || normalized === "Numpad5";
   }
 
   normalizeFarLookPositionInput(input) {
@@ -2248,7 +2565,8 @@ class LocalNetHackRuntime {
     }
 
     const context =
-      this.getRecentRawPrintContextMessage() || this.getMostRecentToplineMessage();
+      this.getRecentRawPrintContextMessage() ||
+      this.getMostRecentToplineMessage();
     if (!context) {
       return "";
     }
@@ -2500,6 +2818,355 @@ class LocalNetHackRuntime {
     return normalized.includes("do you want your possessions identified");
   }
 
+  beginGameOverSequence(source = "unknown") {
+    if (this.gameOverSequenceActive) {
+      return;
+    }
+    this.gameOverSequenceActive = true;
+    this.gameOverEmptyRawPrintCount = 0;
+    this.lastGameOverDeathSummary = "";
+    console.log(`Game-over sequence armed (${source}).`);
+  }
+
+  resetGameOverSequence(reason = "reset") {
+    if (!this.gameOverSequenceActive) {
+      return;
+    }
+    this.gameOverSequenceActive = false;
+    this.gameOverEmptyRawPrintCount = 0;
+    this.lastGameOverDeathSummary = "";
+    console.log(`Game-over sequence reset (${reason}).`);
+  }
+
+  readGlobalValue(path) {
+    const globals =
+      globalThis.nethackGlobal && typeof globalThis.nethackGlobal === "object"
+        ? globalThis.nethackGlobal.globals
+        : null;
+    if (!globals || typeof globals !== "object") {
+      return null;
+    }
+    const globalsRoot =
+      globals.g && typeof globals.g === "object" ? globals.g : globals;
+    const readFrom = (root) => {
+      if (!root || typeof root !== "object") {
+        return null;
+      }
+      let current = root;
+      for (const key of path) {
+        if (!current || typeof current !== "object") {
+          return null;
+        }
+        current = current[key];
+      }
+      return current;
+    };
+    const direct = readFrom(globals);
+    if (direct !== null && direct !== undefined) {
+      return direct;
+    }
+    if (globalsRoot !== globals) {
+      const nested = readFrom(globalsRoot);
+      if (nested !== null && nested !== undefined) {
+        return nested;
+      }
+    }
+    return null;
+  }
+
+  recordLastKnownGold(fieldName, value) {
+    if (fieldName !== "BL_GOLD") {
+      return;
+    }
+    const parsed = this.normalizeRuntimeInteger(value);
+    if (parsed === null) {
+      return;
+    }
+    this.lastKnownGold = parsed;
+  }
+
+  extractGameOverDeathSummary(line) {
+    const normalized = this.normalizePromptContextMessage(line);
+    if (!normalized) {
+      return "";
+    }
+    const lower = normalized.toLowerCase();
+    const patterns = [
+      "killed by ",
+      "choked on ",
+      "poisoned by ",
+      "died of ",
+      "drowned in ",
+      "burned by ",
+      "dissolved in ",
+      "crushed to death by ",
+      "petrified by ",
+      "turned to slime by ",
+    ];
+    for (const pattern of patterns) {
+      const index = lower.indexOf(pattern);
+      if (index >= 0) {
+        const summary = normalized
+          .slice(index)
+          .replace(/[.!]+$/g, "")
+          .trim();
+        return summary;
+      }
+    }
+    return "";
+  }
+
+  captureGameOverSummaryFromLines(lines, source = "unknown") {
+    if (!this.gameOverSequenceActive || !Array.isArray(lines)) {
+      return;
+    }
+    for (const line of lines) {
+      const summary = this.extractGameOverDeathSummary(line);
+      if (summary) {
+        this.lastGameOverDeathSummary = summary;
+        console.log(`Captured game-over death summary (${source}): ${summary}`);
+        return;
+      }
+    }
+  }
+
+  resolveGameOverDeathText() {
+    const summary = this.normalizePromptContextMessage(
+      this.lastGameOverDeathSummary,
+    );
+    if (summary) {
+      return summary;
+    }
+    const rawContext = this.getRecentRawPrintContextMessage();
+    if (rawContext) {
+      return rawContext;
+    }
+    const topline = this.getMostRecentToplineMessage();
+    if (topline) {
+      return topline;
+    }
+    return "";
+  }
+
+  buildTombstoneLines(how, when) {
+    const normalizeLine = (value, width) => {
+      const raw = String(value ?? "")
+        .replace(/\u0000/g, "")
+        .trim();
+      if (!raw) {
+        return "";
+      }
+      const trimmed = raw.slice(0, width);
+      const leftPad = Math.floor((width - trimmed.length) / 2);
+      const rightPad = Math.max(0, width - trimmed.length - leftPad);
+      return `${" ".repeat(leftPad)}${trimmed}${" ".repeat(rightPad)}`;
+    };
+
+    const applyCenteredLine = (line, content) => {
+      const start = line.indexOf("|");
+      const end = line.lastIndexOf("|");
+      if (start < 0 || end <= start + 1) {
+        return line;
+      }
+      const width = end - start - 1;
+      if (width <= 0) {
+        return line;
+      }
+      const payload = normalizeLine(content, width);
+      if (!payload) {
+        return line;
+      }
+      return `${line.slice(0, start + 1)}${payload}${line.slice(end)}`;
+    };
+
+    const wrapStoneLines = (text, maxLines) => {
+      const width = 16;
+      const normalized = String(text ?? "")
+        .replace(/\u0000/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (!normalized) {
+        return [];
+      }
+      const words = normalized.split(" ");
+      const lines = [];
+      let current = "";
+      for (const word of words) {
+        const candidate = current ? `${current} ${word}` : word;
+        if (candidate.length <= width) {
+          current = candidate;
+          continue;
+        }
+        if (current) {
+          lines.push(current);
+          current = word;
+        } else {
+          lines.push(word.slice(0, width));
+          current = word.slice(width);
+        }
+        if (lines.length >= maxLines) {
+          return lines.slice(0, maxLines);
+        }
+      }
+      if (current) {
+        lines.push(current);
+      }
+      return lines.slice(0, maxLines);
+    };
+
+    const withIndefiniteArticle = (value) => {
+      const trimmed = String(value ?? "").trim();
+      if (!trimmed) {
+        return "";
+      }
+      const firstChar = trimmed[0]?.toLowerCase() ?? "";
+      const article =
+        firstChar === "a" ||
+        firstChar === "e" ||
+        firstChar === "i" ||
+        firstChar === "o" ||
+        firstChar === "u"
+          ? "an"
+          : "a";
+      return `${article} ${trimmed}`;
+    };
+
+    const resolvedHow = Number.isFinite(how)
+      ? Math.trunc(how)
+      : Number.isFinite(this.lastGameOverHow)
+        ? Math.trunc(this.lastGameOverHow)
+        : 0;
+    const resolvedWhen = Number.isFinite(when)
+      ? Math.trunc(when)
+      : Number.isFinite(this.lastGameOverWhen)
+        ? Math.trunc(this.lastGameOverWhen)
+        : Math.floor(Date.now() / 1000);
+
+    const playerName =
+      this.normalizeCharacterNameValue(
+        this.startupOptions?.characterCreation?.name,
+      ) ||
+      this.lastKnownPlayerName ||
+      String(this.readGlobalValue(["plname"]) || "").trim() ||
+      "Player";
+    const doneMoney = Number(this.readGlobalValue(["done_money"]));
+    const fallbackMoney =
+      typeof this.lastKnownGold === "number" &&
+      Number.isFinite(this.lastKnownGold)
+        ? this.lastKnownGold
+        : NaN;
+    const goldText = Number.isFinite(doneMoney)
+      ? `${Math.max(0, Math.trunc(doneMoney))} Au`
+      : Number.isFinite(fallbackMoney)
+        ? `${Math.max(0, Math.trunc(fallbackMoney))} Au`
+        : "";
+
+    const killerName = String(this.readGlobalValue(["killer", "name"]) || "")
+      .replace(/\u0000/g, "")
+      .trim();
+    const killerFormat = Number(this.readGlobalValue(["killer", "format"]));
+    const killedByPrefix = [
+      "killed by ",
+      "choked on ",
+      "poisoned by ",
+      "died of ",
+      "drowned in ",
+      "burned by ",
+      "dissolved in ",
+      "crushed to death by ",
+      "petrified by ",
+      "turned to slime by ",
+      "killed by ",
+      "",
+      "",
+      "",
+      "",
+      "",
+    ];
+    const prefix = killedByPrefix[resolvedHow] ?? "";
+    const deathTextBase = killerName
+      ? killerFormat === 2
+        ? killerName
+        : killerFormat === 0
+          ? `${prefix}${withIndefiniteArticle(killerName)}`
+          : `${prefix}${killerName}`
+      : "";
+    const deathText = deathTextBase || this.resolveGameOverDeathText() || "";
+
+    const year =
+      new Date(resolvedWhen * 1000).getFullYear() || new Date().getFullYear();
+
+    const tombstoneText = [
+      "               ----------",
+      "              /          \\",
+      "             /    REST    \\",
+      "            /      IN      \\",
+      "           /     PEACE      \\",
+      "          /                  \\",
+      "          |                  |",
+      "          |                  |",
+      "          |                  |",
+      "          |                  |",
+      "          |                  |",
+      "          |                  |",
+      "          |       1001       |",
+      "         *|     *  *  *      | *",
+      "_________)/\\\\_//(\\/(/\\)/\\//\\/|_)_______",
+    ];
+
+    const nameLineIndex = 6;
+    const goldLineIndex = 7;
+    const deathLineStartIndex = 8;
+    const yearLineIndex = 12;
+
+    tombstoneText[nameLineIndex] = applyCenteredLine(
+      tombstoneText[nameLineIndex],
+      playerName,
+    );
+    if (goldText) {
+      tombstoneText[goldLineIndex] = applyCenteredLine(
+        tombstoneText[goldLineIndex],
+        goldText,
+      );
+    }
+    const deathLines = wrapStoneLines(deathText, 4);
+    for (let i = 0; i < deathLines.length; i += 1) {
+      const lineIndex = deathLineStartIndex + i;
+      if (lineIndex >= tombstoneText.length) {
+        break;
+      }
+      tombstoneText[lineIndex] = applyCenteredLine(
+        tombstoneText[lineIndex],
+        deathLines[i],
+      );
+    }
+    tombstoneText[yearLineIndex] = applyCenteredLine(
+      tombstoneText[yearLineIndex],
+      String(year),
+    );
+
+    return tombstoneText;
+  }
+
+  emitGameOverComplete(how, when) {
+    if (!this.eventHandler) {
+      this.resetGameOverSequence("no-handler");
+      return;
+    }
+    const tombstoneLines = this.buildTombstoneLines(how, when);
+    const killerName = String(this.readGlobalValue(["killer", "name"]) || "")
+      .replace(/\u0000/g, "")
+      .trim();
+    const deathMessage =
+      killerName || this.resolveGameOverDeathText() || "Game over";
+    this.emit({
+      type: "game_over_complete",
+      tombstoneLines,
+      deathMessage,
+    });
+    this.resetGameOverSequence("complete");
+  }
+
   isNumberPadModeQuestion(question) {
     const normalized = this.normalizeQuestionText(question);
     if (!normalized) {
@@ -2573,7 +3240,9 @@ class LocalNetHackRuntime {
     );
   }
 
-  buildCheckpointAutosaveResumeUnsupportedReason(runtimeVersion = this.runtimeVersion) {
+  buildCheckpointAutosaveResumeUnsupportedReason(
+    runtimeVersion = this.runtimeVersion,
+  ) {
     if (hasRuntimeCheckpointRecoveryPrimitiveExport(runtimeVersion)) {
       return "Checkpoint autosave resume is disabled for this wasm build. It exports recover_savefile(), but it does not expose a working browser-side resume_checkpoint_save bridge needed before unixunix.c/getlock().";
     }
@@ -2612,12 +3281,7 @@ class LocalNetHackRuntime {
           ? this.nethackInstance.stringToUTF8
           : null;
 
-      if (
-        directResumeCheckpointSave &&
-        malloc &&
-        free &&
-        stringToUtf8
-      ) {
+      if (directResumeCheckpointSave && malloc && free && stringToUtf8) {
         this.resumeCheckpointSave = (playerName) => {
           const normalizedName = this.normalizeCharacterNameValue(playerName);
           if (!normalizedName) {
@@ -2886,11 +3550,7 @@ class LocalNetHackRuntime {
     );
   }
 
-  tryAutoSelectMenuItem(
-    menuItem,
-    reason = "context action",
-    selectionCount,
-  ) {
+  tryAutoSelectMenuItem(menuItem, reason = "context action", selectionCount) {
     const selectionEntry = this.createSelectionEntryFromMenuItem(
       menuItem,
       selectionCount,
@@ -3341,24 +4001,117 @@ class LocalNetHackRuntime {
 
   getFallbackExtendedCommandEntries() {
     const fallbackNames = [
-      "#", "?", "adjust", "annotate", "apply", "attributes", "autopickup",
-      "call", "cast", "chat", "close", "conduct", "dip", "down", "drop",
-      "droptype", "eat", "engrave", "enhance", "exploremode", "fire",
-      "force", "glance", "help", "herecmdmenu", "history", "inventory",
-      "inventtype", "invoke", "jump", "kick", "known", "knownclass",
-      "levelchange", "lightsources", "look", "loot", "monster", "name",
-      "offer", "open", "options", "overview", "panic", "pay", "pickup",
-      "polyself", "pray", "prevmsg", "puton", "quaff", "quit", "quiver",
-      "read", "redraw", "remove", "ride", "rub", "save", "search",
-      "seeall", "seeamulet", "seearmor", "seegold", "seenv", "seerings",
-      "seespells", "seetools", "seetrap", "seeweapon", "shell", "sit",
-      "stats", "suspend", "swap", "takeoff", "takeoffall", "teleport",
-      "terrain", "therecmdmenu", "throw", "timeout", "tip", "travel",
-      "turn", "twoweapon", "untrap", "up", "vanquished", "version",
-      "versionshort", "vision", "wait", "wear", "whatdoes", "whatis",
-      "wield", "wipe", "wizdetect", "wizgenesis", "wizidentify",
-      "wizintrinsic", "wizlevelport", "wizmakemap", "wizmap",
-      "wizrumorcheck", "wizsmell", "wizwhere", "wizwish", "wmode", "zap"
+      "#",
+      "?",
+      "adjust",
+      "annotate",
+      "apply",
+      "attributes",
+      "autopickup",
+      "call",
+      "cast",
+      "chat",
+      "close",
+      "conduct",
+      "dip",
+      "down",
+      "drop",
+      "droptype",
+      "eat",
+      "engrave",
+      "enhance",
+      "exploremode",
+      "fire",
+      "force",
+      "glance",
+      "help",
+      "herecmdmenu",
+      "history",
+      "inventory",
+      "inventtype",
+      "invoke",
+      "jump",
+      "kick",
+      "known",
+      "knownclass",
+      "levelchange",
+      "lightsources",
+      "look",
+      "loot",
+      "monster",
+      "name",
+      "offer",
+      "open",
+      "options",
+      "overview",
+      "panic",
+      "pay",
+      "pickup",
+      "polyself",
+      "pray",
+      "prevmsg",
+      "puton",
+      "quaff",
+      "quit",
+      "quiver",
+      "read",
+      "redraw",
+      "remove",
+      "ride",
+      "rub",
+      "save",
+      "search",
+      "seeall",
+      "seeamulet",
+      "seearmor",
+      "seegold",
+      "seenv",
+      "seerings",
+      "seespells",
+      "seetools",
+      "seetrap",
+      "seeweapon",
+      "shell",
+      "sit",
+      "stats",
+      "suspend",
+      "swap",
+      "takeoff",
+      "takeoffall",
+      "teleport",
+      "terrain",
+      "therecmdmenu",
+      "throw",
+      "timeout",
+      "tip",
+      "travel",
+      "turn",
+      "twoweapon",
+      "untrap",
+      "up",
+      "vanquished",
+      "version",
+      "versionshort",
+      "vision",
+      "wait",
+      "wear",
+      "whatdoes",
+      "whatis",
+      "wield",
+      "wipe",
+      "wizdetect",
+      "wizgenesis",
+      "wizidentify",
+      "wizintrinsic",
+      "wizlevelport",
+      "wizmakemap",
+      "wizmap",
+      "wizrumorcheck",
+      "wizsmell",
+      "wizwhere",
+      "wizwish",
+      "wmode",
+      "zap",
     ];
     const fallbackMetaBindings = {
       "?": "?",
@@ -3599,7 +4352,8 @@ class LocalNetHackRuntime {
         ? Object.keys(root.helpers).sort()
         : [];
 
-    const objectTileIndexByObjectId = this.buildObjectTileIndexByObjectIdSnapshot();
+    const objectTileIndexByObjectId =
+      this.buildObjectTileIndexByObjectIdSnapshot();
 
     return {
       capturedAtMs: Date.now(),
@@ -3629,9 +4383,7 @@ class LocalNetHackRuntime {
         ? root.constants
         : null;
     const glyphConstants =
-      constants &&
-      constants.GLYPH &&
-      typeof constants.GLYPH === "object"
+      constants && constants.GLYPH && typeof constants.GLYPH === "object"
         ? constants.GLYPH
         : null;
     if (!glyphConstants) {
@@ -3711,7 +4463,9 @@ class LocalNetHackRuntime {
     const questDnum = this.normalizeRuntimeInteger(topology.d_quest_dnum);
     const sokobanDnum = this.normalizeRuntimeInteger(topology.d_sokoban_dnum);
     const towerDnum = this.normalizeRuntimeInteger(topology.d_tower_dnum);
-    const astralDnum = this.normalizeRuntimeInteger(topology.d_astral_level?.dnum);
+    const astralDnum = this.normalizeRuntimeInteger(
+      topology.d_astral_level?.dnum,
+    );
 
     if (dnum === 0) {
       return "dungeons_of_doom";
@@ -3791,7 +4545,7 @@ class LocalNetHackRuntime {
           : globalsRoot?.dungeon_topology &&
               typeof globalsRoot.dungeon_topology === "object"
             ? globalsRoot.dungeon_topology
-          : null;
+            : null;
       const branchTag = this.resolveRuntimeBranchTag(dnum, topology);
       return {
         dnum,
@@ -4405,7 +5159,10 @@ class LocalNetHackRuntime {
 
                   console.log(`IDBFS mounted and synced at ${saveDir}`);
                   const removedCheckpointShardCount =
-                    this.cleanupStaleCheckpointShardsBeforeStartup(mod, saveDir);
+                    this.cleanupStaleCheckpointShardsBeforeStartup(
+                      mod,
+                      saveDir,
+                    );
                   if (removedCheckpointShardCount > 0) {
                     mod.FS.syncfs(false, (syncErr) => {
                       if (syncErr) {
@@ -4510,6 +5267,9 @@ class LocalNetHackRuntime {
     this.lastQuestionText = question;
     this.pendingGameOverPossessionsInventoryFlow =
       this.isGameOverPossessionsIdentifyQuestion(question);
+    if (this.pendingGameOverPossessionsInventoryFlow) {
+      this.beginGameOverSequence("possessions-question");
+    }
 
     if (this.shouldAutoRecoverCheckpointResume(question)) {
       // Autosave rows in the load-game UI represent explicit recovery of
@@ -4659,6 +5419,14 @@ class LocalNetHackRuntime {
     }
     console.log(`🎮 UI Callback: ${name}`, args);
     this.recordRecentUICallback(name, args);
+    const isRawPrintCallback = this.isRawPrintCallbackName(name);
+    if (
+      this.gameOverSequenceActive &&
+      this.gameOverEmptyRawPrintCount > 0 &&
+      !isRawPrintCallback
+    ) {
+      this.gameOverEmptyRawPrintCount = 0;
+    }
 
     const inputCallbackHandlers = {
       shim_get_nh_event: () => this.handleShimGetNhEvent(),
@@ -5022,9 +5790,14 @@ class LocalNetHackRuntime {
         const hasDisplayText = displayLines.some(
           (line) => String(line || "").trim().length > 0,
         );
+        let didEmitInfoDialog = false;
         if (hasDisplayText && this.shouldCaptureWindowTextForDialog(winid)) {
           const normalizedLines = displayLines.map((line) =>
             String(line || "").replace(/\u0000/g, ""),
+          );
+          this.captureGameOverSummaryFromLines(
+            normalizedLines,
+            "display_nhwindow",
           );
           if (this.shouldLogWindowTextInsteadOfDialog(normalizedLines)) {
             console.log(
@@ -5047,6 +5820,10 @@ class LocalNetHackRuntime {
             blocking: blocking,
             source: "display_nhwindow",
           });
+          didEmitInfoDialog = true;
+        }
+        if (blocking && didEmitInfoDialog) {
+          return this.waitForQuestionInput();
         }
         return 0;
       case "shim_display_file":
@@ -5461,6 +6238,28 @@ class LocalNetHackRuntime {
         console.log(`📢 RAW PRINT: "${rawText}"`);
         const normalizedRawText = this.normalizePromptContextMessage(rawText);
         if (normalizedRawText) {
+          this.captureGameOverSummaryFromLines(
+            [normalizedRawText],
+            "raw_print",
+          );
+        }
+        if (!normalizedRawText && this.gameOverSequenceActive) {
+          this.gameOverEmptyRawPrintCount += 1;
+          console.log(
+            `Game-over empty raw_print (${this.gameOverEmptyRawPrintCount}/3)`,
+          );
+          if (this.gameOverEmptyRawPrintCount >= 3) {
+            this.emitGameOverComplete(
+              this.lastGameOverHow,
+              this.lastGameOverWhen,
+            );
+          }
+          return 0;
+        }
+        if (this.gameOverSequenceActive) {
+          this.gameOverEmptyRawPrintCount = 0;
+        }
+        if (normalizedRawText) {
           this.rememberPromptContextMessage(normalizedRawText);
         }
 
@@ -5477,6 +6276,12 @@ class LocalNetHackRuntime {
         console.log(`RAW PRINT BOLD: "${rawBoldText}"`);
         const normalizedRawBoldText =
           this.normalizePromptContextMessage(rawBoldText);
+        if (normalizedRawBoldText) {
+          this.captureGameOverSummaryFromLines(
+            [normalizedRawBoldText],
+            "raw_print_bold",
+          );
+        }
         if (normalizedRawBoldText) {
           this.rememberPromptContextMessage(normalizedRawBoldText);
         }
@@ -5994,6 +6799,7 @@ class LocalNetHackRuntime {
         }
 
         const decoded = this.decodeStatusValue(fieldName, ptrToArg);
+        this.recordLastKnownGold(fieldName, decoded.value);
         const statusPayload = {
           type: "status_update",
           field: field,
@@ -6074,235 +6880,35 @@ class LocalNetHackRuntime {
       case "shim_end_screen":
         console.log("NetHack end_screen (no-op)");
         return 0;
-      case "shim_outrip":
-        {
-          const [ripWinId, how, when] = args;
-          const winId = Number.isFinite(ripWinId)
-            ? Math.trunc(ripWinId)
-            : null;
-          console.log("NetHack outrip (tombstone)", args);
+      case "shim_outrip": {
+        const [ripWinId, how, when] = args;
+        const winId = Number.isFinite(ripWinId) ? Math.trunc(ripWinId) : null;
+        console.log("NetHack outrip (tombstone)", args);
+        this.lastGameOverHow = Number.isFinite(how)
+          ? Math.trunc(how)
+          : this.lastGameOverHow;
+        this.lastGameOverWhen = Number.isFinite(when)
+          ? Math.trunc(when)
+          : this.lastGameOverWhen;
+        this.beginGameOverSequence("outrip");
 
-          const readGlobalValue = (path) => {
-            const globals =
-              globalThis.nethackGlobal &&
-              typeof globalThis.nethackGlobal === "object"
-                ? globalThis.nethackGlobal.globals
-                : null;
-            if (!globals || typeof globals !== "object") {
-              return null;
-            }
-            const globalsRoot =
-              globals.g && typeof globals.g === "object" ? globals.g : globals;
-            const readFrom = (root) => {
-              if (!root || typeof root !== "object") {
-                return null;
-              }
-              let current = root;
-              for (const key of path) {
-                if (!current || typeof current !== "object") {
-                  return null;
-                }
-                current = current[key];
-              }
-              return current;
-            };
-            const direct = readFrom(globals);
-            if (direct !== null && direct !== undefined) {
-              return direct;
-            }
-            if (globalsRoot !== globals) {
-              const nested = readFrom(globalsRoot);
-              if (nested !== null && nested !== undefined) {
-                return nested;
-              }
-            }
-            return null;
-          };
+        const tombstoneText = this.buildTombstoneLines(how, when);
 
-          const normalizeLine = (value, width) => {
-            const raw = String(value ?? "").replace(/\u0000/g, "").trim();
-            if (!raw) {
-              return "";
-            }
-            const trimmed = raw.slice(0, width);
-            const leftPad = Math.floor((width - trimmed.length) / 2);
-            const rightPad = Math.max(0, width - trimmed.length - leftPad);
-            return `${" ".repeat(leftPad)}${trimmed}${" ".repeat(rightPad)}`;
-          };
-
-          const applyCenteredLine = (line, content) => {
-            const payload = normalizeLine(content, 16);
-            if (!payload) {
-              return line;
-            }
-            return line.replace(/\|.{16}\|/, `|${payload}|`);
-          };
-
-          const wrapStoneLines = (text, maxLines) => {
-            const width = 16;
-            const normalized = String(text ?? "")
-              .replace(/\u0000/g, "")
-              .replace(/\s+/g, " ")
-              .trim();
-            if (!normalized) {
-              return [];
-            }
-            const words = normalized.split(" ");
-            const lines = [];
-            let current = "";
-            for (const word of words) {
-              const candidate = current ? `${current} ${word}` : word;
-              if (candidate.length <= width) {
-                current = candidate;
-                continue;
-              }
-              if (current) {
-                lines.push(current);
-                current = word;
-              } else {
-                lines.push(word.slice(0, width));
-                current = word.slice(width);
-              }
-              if (lines.length >= maxLines) {
-                return lines.slice(0, maxLines);
-              }
-            }
-            if (current) {
-              lines.push(current);
-            }
-            return lines.slice(0, maxLines);
-          };
-
-          const withIndefiniteArticle = (value) => {
-            const trimmed = String(value ?? "").trim();
-            if (!trimmed) {
-              return "";
-            }
-            const firstChar = trimmed[0]?.toLowerCase() ?? "";
-            const article =
-              firstChar === "a" ||
-              firstChar === "e" ||
-              firstChar === "i" ||
-              firstChar === "o" ||
-              firstChar === "u"
-                ? "an"
-                : "a";
-            return `${article} ${trimmed}`;
-          };
-
-          const playerName =
-            this.normalizeCharacterNameValue(
-              this.startupOptions?.characterCreation?.name,
-            ) ||
-            String(readGlobalValue(["plname"]) || "").trim() ||
-            "Player";
-          const doneMoney = Number(readGlobalValue(["done_money"]));
-          const goldText = Number.isFinite(doneMoney)
-            ? `${Math.max(0, Math.trunc(doneMoney))} Au`
-            : "";
-
-          const killerName = String(readGlobalValue(["killer", "name"]) || "")
-            .replace(/\u0000/g, "")
-            .trim();
-          const killerFormat = Number(readGlobalValue(["killer", "format"]));
-          const killedByPrefix = [
-            "killed by ",
-            "choked on ",
-            "poisoned by ",
-            "died of ",
-            "drowned in ",
-            "burned by ",
-            "dissolved in ",
-            "crushed to death by ",
-            "petrified by ",
-            "turned to slime by ",
-            "killed by ",
-            "",
-            "",
-            "",
-            "",
-            "",
-          ];
-          const normalizedHow = Number.isFinite(how) ? Math.trunc(how) : 0;
-          const prefix = killedByPrefix[normalizedHow] ?? "";
-          const deathTextBase = killerName
-            ? killerFormat === 2
-              ? killerName
-              : killerFormat === 0
-                ? `${prefix}${withIndefiniteArticle(killerName)}`
-                : `${prefix}${killerName}`
-            : "";
-          const deathText =
-            deathTextBase || this.getMostRecentToplineMessage() || "";
-
-          const year =
-            new Date((Number(when) || 0) * 1000).getFullYear() ||
-            new Date().getFullYear();
-
-          const tombstoneText = [
-            "                       ----------",
-            "                      /          \\",
-            "                     /    REST    \\",
-            "                    /      IN      \\",
-            "                   /     PEACE      \\",
-            "                  /                  \\",
-            "                  |                  |",
-            "                  |                  |",
-            "                  |                  |",
-            "                  |                  |",
-            "                  |                  |",
-            "                  |                  |",
-            "                  |       1001       |",
-            "                 *|     *  *  *      | *",
-            "        _________)/\\\\_//(\\/(/\\)/\\//\\/|_)_______",
-          ];
-
-          const nameLineIndex = 6;
-          const goldLineIndex = 7;
-          const deathLineStartIndex = 8;
-          const yearLineIndex = 12;
-
-          tombstoneText[nameLineIndex] = applyCenteredLine(
-            tombstoneText[nameLineIndex],
-            playerName,
-          );
-          if (goldText) {
-            tombstoneText[goldLineIndex] = applyCenteredLine(
-              tombstoneText[goldLineIndex],
-              goldText,
-            );
+        if (winId !== null) {
+          this.resetWindowTextBuffer(winId);
+          for (const line of tombstoneText) {
+            this.appendWindowTextBuffer(winId, line);
           }
-          const deathLines = wrapStoneLines(deathText, 4);
-          for (let i = 0; i < deathLines.length; i += 1) {
-            const lineIndex = deathLineStartIndex + i;
-            if (lineIndex >= tombstoneText.length) {
-              break;
-            }
-            tombstoneText[lineIndex] = applyCenteredLine(
-              tombstoneText[lineIndex],
-              deathLines[i],
-            );
-          }
-          tombstoneText[yearLineIndex] = applyCenteredLine(
-            tombstoneText[yearLineIndex],
-            String(year),
-          );
-
-          if (winId !== null) {
-            this.resetWindowTextBuffer(winId);
-            for (const line of tombstoneText) {
-              this.appendWindowTextBuffer(winId, line);
-            }
-          }
-
-          if (this.eventHandler) {
-            this.emit({
-              type: "outrip",
-              args: args,
-            });
-          }
-          return 0;
         }
+
+        if (this.eventHandler) {
+          this.emit({
+            type: "outrip",
+            args: args,
+          });
+        }
+        return 0;
+      }
 
       case "shim_preference_update":
         // Preferences are already controlled via options/init in this client.

@@ -90,6 +90,8 @@ export type InventoryDialogState = {
 export type GameOverState = {
   active: boolean;
   deathMessage: string | null;
+  promptReady: boolean;
+  tombstoneLines: string[] | null;
 };
 
 export type TextInputRequestState = {

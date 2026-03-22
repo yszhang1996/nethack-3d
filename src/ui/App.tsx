@@ -8298,7 +8298,12 @@ export default function App(): JSX.Element {
     setReopenNewGamePromptOnInteraction(false);
     setDeferredNewGamePromptReason(null);
     setNewGamePrompt({ visible: false, reason: null });
-    setGameOver({ active: false, deathMessage: null });
+    setGameOver({
+      active: false,
+      deathMessage: null,
+      promptReady: false,
+      tombstoneLines: null,
+    });
     setPositionRequest(null);
     setInventoryContextMenu(null);
     setIsPauseMenuVisible(false);
@@ -10893,7 +10898,7 @@ export default function App(): JSX.Element {
   }, [newGamePrompt.reason, newGamePrompt.visible]);
 
   useEffect(() => {
-    if (!gameOver.active) {
+    if (!gameOver.active || !gameOver.promptReady) {
       return;
     }
     if (
@@ -10924,6 +10929,7 @@ export default function App(): JSX.Element {
     directionQuestion,
     gameOver.active,
     gameOver.deathMessage,
+    gameOver.promptReady,
     infoMenu,
     inventory.visible,
     loadingOverlayVisible,
@@ -14734,6 +14740,12 @@ export default function App(): JSX.Element {
           () => setNewGamePrompt({ visible: false, reason: null }),
           "Close new game prompt",
         )}
+        {Array.isArray(gameOver.tombstoneLines) &&
+        gameOver.tombstoneLines.length > 0 ? (
+          <pre className="nh3d-game-over-tombstone">
+            {gameOver.tombstoneLines.join("\n")}
+          </pre>
+        ) : null}
         <div className="nh3d-question-text">Return to main menu?</div>
         <div className="nh3d-menu-actions">
           <button

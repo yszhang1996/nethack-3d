@@ -575,12 +575,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private currentLevelCacheName: string | null = null;
   private latestLevelDescriptorName: string | null = null;
   private latestRuntimeLevelIdentity: RuntimeLevelIdentity | null = null;
-  private runtimeOverviewDungeonByIdentityKey: Map<string, string> = new Map();
-  private runtimeOverviewDungeonByCacheEntryId: Map<string, string> = new Map();
-  private pendingAutoOverviewProbeEntryId: string | null = null;
-  private activeAutoOverviewProbeEntryId: string | null = null;
-  private activeAutoOverviewProbeIssuedAtMs: number = 0;
-  private readonly autoOverviewProbeStaleAfterMs: number = 15000;
   private hasResolvedInitialDeterministicLevelThisSession: boolean = false;
   private pendingLevelCacheTransition: PendingLevelCacheTransition | null =
     null;
@@ -667,8 +661,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
   private gameOverState: GameOverState = {
     active: false,
     deathMessage: null,
+    promptReady: false,
+    tombstoneLines: null,
   };
+  private pendingGameOverPromptReady: boolean = false;
   private isInfoDialogVisible: boolean = false;
+  private infoMenuBlockingActive: boolean = false;
   private pendingInventoryContextPromptCloseRequestedAtMs: number = 0;
   private readonly inventoryContextPromptCloseWindowMs: number = 2200;
   private activeQuestionText: string = "";
@@ -2177,192 +2175,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
     if (branchDisplayName) {
       this.playerStats.dungeon = branchDisplayName;
-      return;
     }
-
-    const currentCacheEntryId =
-      this.activeLevelCacheRef &&
-      typeof this.activeLevelCacheRef.entryId === "string"
-        ? this.activeLevelCacheRef.entryId
-        : null;
-    if (currentCacheEntryId) {
-      const cachedOverviewDungeonNameByCacheEntry =
-        this.normalizeDungeonDisplayName(
-          this.runtimeOverviewDungeonByCacheEntryId.get(currentCacheEntryId),
-        );
-      if (cachedOverviewDungeonNameByCacheEntry) {
-        this.playerStats.dungeon = cachedOverviewDungeonNameByCacheEntry;
-        return;
-      }
-    }
-
-    const identityKey =
-      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity(identity);
-    if (!identityKey) {
-      return;
-    }
-
-    const cachedOverviewDungeonNameByIdentity =
-      this.normalizeDungeonDisplayName(
-        this.runtimeOverviewDungeonByIdentityKey.get(identityKey),
-      );
-    if (cachedOverviewDungeonNameByIdentity) {
-      this.playerStats.dungeon = cachedOverviewDungeonNameByIdentity;
-    }
-  }
-
-  private parseCurrentDungeonFromOverviewLines(lines: string[]): {
-    dungeonName: string;
-    dlevel: number | null;
-  } | null {
-    if (!Array.isArray(lines) || lines.length === 0) {
-      return null;
-    }
-
-    let activeDungeon: string | null = null;
-    for (const rawLine of lines) {
-      const line = String(rawLine ?? "").replace(/\u0000/g, "");
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-
-      const isLevelLine = /^level\s+-?\d+\s*:/i.test(trimmed);
-      let dungeonHeaderMatch: RegExpMatchArray | null = null;
-      if (!isLevelLine) {
-        dungeonHeaderMatch =
-          trimmed.match(/^(.+?):\s*levels?\s*-?\d+\s+to\s+-?\d+\s*$/i) ??
-          trimmed.match(/^(.+?):\s*$/i);
-      }
-      if (dungeonHeaderMatch && dungeonHeaderMatch[1]) {
-        activeDungeon = this.normalizeDungeonDisplayName(dungeonHeaderMatch[1]);
-        continue;
-      }
-
-      const levelLineMatch = trimmed.match(/^level\s+(-?\d+)\s*:\s*(.*)$/i);
-      if (!levelLineMatch || !levelLineMatch[1]) {
-        continue;
-      }
-      const levelSuffix = String(levelLineMatch[2] ?? "").toLowerCase();
-      if (!levelSuffix.includes("you are here") || !activeDungeon) {
-        continue;
-      }
-
-      const parsedDlevel = Number.parseInt(levelLineMatch[1], 10);
-      return {
-        dungeonName: activeDungeon,
-        dlevel: Number.isFinite(parsedDlevel) ? Math.trunc(parsedDlevel) : null,
-      };
-    }
-
-    return null;
-  }
-
-  private applyOverviewDungeonFromInfoMenu(lines: string[]): boolean {
-    this.clearStaleAutoOverviewProbe();
-    const parsed = this.parseCurrentDungeonFromOverviewLines(lines);
-    const consumedAutoProbeResponse =
-      Boolean(this.activeAutoOverviewProbeEntryId) && Boolean(parsed);
-    const activeProbeEntryId = this.activeAutoOverviewProbeEntryId;
-    this.activeAutoOverviewProbeEntryId = null;
-    this.activeAutoOverviewProbeIssuedAtMs = 0;
-    if (!parsed) {
-      return false;
-    }
-
-    const normalizedDungeonName = this.normalizeDungeonDisplayName(
-      parsed.dungeonName,
-    );
-    if (!normalizedDungeonName) {
-      return false;
-    }
-
-    const identityKey =
-      this.buildLevelCacheIdentifierFromRuntimeLevelIdentity();
-    if (identityKey) {
-      this.runtimeOverviewDungeonByIdentityKey.set(
-        identityKey,
-        normalizedDungeonName,
-      );
-    }
-    const resolvedCacheEntryId =
-      activeProbeEntryId ??
-      (this.activeLevelCacheRef &&
-      typeof this.activeLevelCacheRef.entryId === "string"
-        ? this.activeLevelCacheRef.entryId
-        : null);
-    if (resolvedCacheEntryId) {
-      this.runtimeOverviewDungeonByCacheEntryId.set(
-        resolvedCacheEntryId,
-        normalizedDungeonName,
-      );
-    }
-
-    if (
-      parsed.dlevel !== null &&
-      Number.isFinite(this.playerStats.dlevel) &&
-      Math.trunc(this.playerStats.dlevel) !== Math.trunc(parsed.dlevel)
-    ) {
-      return consumedAutoProbeResponse;
-    }
-
-    this.playerStats.dungeon = normalizedDungeonName;
-    this.refreshOverviewStyleLocationLabel();
-    this.updateStatsDisplay();
-    return consumedAutoProbeResponse;
-  }
-
-  private clearStaleAutoOverviewProbe(nowMs: number = Date.now()): void {
-    if (!this.activeAutoOverviewProbeEntryId) {
-      return;
-    }
-    if (
-      nowMs - this.activeAutoOverviewProbeIssuedAtMs <=
-      this.autoOverviewProbeStaleAfterMs
-    ) {
-      return;
-    }
-    this.activeAutoOverviewProbeEntryId = null;
-    this.activeAutoOverviewProbeIssuedAtMs = 0;
-  }
-
-  private canDispatchAutoOverviewProbe(): boolean {
-    if (!this.session) {
-      return false;
-    }
-    if (this.isInQuestion || this.isInDirectionQuestion) {
-      return false;
-    }
-    if (this.positionInputModeActive || this.metaCommandModeActive) {
-      return false;
-    }
-    if (this.isTextInputActive || this.isAnyModalVisible()) {
-      return false;
-    }
-    return true;
-  }
-
-  private maybeDispatchAutoOverviewProbe(): void {
-    this.clearStaleAutoOverviewProbe();
-    if (this.activeAutoOverviewProbeEntryId) {
-      return;
-    }
-    const pendingEntryId =
-      typeof this.pendingAutoOverviewProbeEntryId === "string" &&
-      this.pendingAutoOverviewProbeEntryId.trim().length > 0
-        ? this.pendingAutoOverviewProbeEntryId
-        : null;
-    if (!pendingEntryId) {
-      this.pendingAutoOverviewProbeEntryId = null;
-      return;
-    }
-    if (!this.canDispatchAutoOverviewProbe()) {
-      return;
-    }
-    this.pendingAutoOverviewProbeEntryId = null;
-    this.activeAutoOverviewProbeEntryId = pendingEntryId;
-    this.activeAutoOverviewProbeIssuedAtMs = Date.now();
-    this.sendInput(`${this.ctrlInputPrefix}o`);
   }
 
   private handleDeterministicLevelCacheResolution(levelName: string): void {
@@ -2374,38 +2187,10 @@ class Nethack3DEngine implements Nethack3DEngineController {
       return;
     }
 
-    const activeCacheEntryId =
-      this.activeLevelCacheRef &&
-      typeof this.activeLevelCacheRef.entryId === "string"
-        ? this.activeLevelCacheRef.entryId
-        : null;
-    if (!activeCacheEntryId) {
-      return;
-    }
-
-    const cachedDungeonName = this.normalizeDungeonDisplayName(
-      this.runtimeOverviewDungeonByCacheEntryId.get(activeCacheEntryId),
-    );
-    if (cachedDungeonName) {
-      this.playerStats.dungeon = cachedDungeonName;
-      this.refreshOverviewStyleLocationLabel();
-      this.updateStatsDisplay();
-      return;
-    }
-
     if (!this.hasResolvedInitialDeterministicLevelThisSession) {
       this.hasResolvedInitialDeterministicLevelThisSession = true;
       return;
     }
-
-    if (
-      this.pendingAutoOverviewProbeEntryId === activeCacheEntryId ||
-      this.activeAutoOverviewProbeEntryId === activeCacheEntryId
-    ) {
-      return;
-    }
-    this.pendingAutoOverviewProbeEntryId = activeCacheEntryId;
-    this.maybeDispatchAutoOverviewProbe();
   }
 
   private extractDlevelFromLevelDescriptor(
@@ -2725,11 +2510,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.currentLevelCacheName = null;
     this.latestLevelDescriptorName = null;
     this.latestRuntimeLevelIdentity = null;
-    this.runtimeOverviewDungeonByIdentityKey.clear();
-    this.runtimeOverviewDungeonByCacheEntryId.clear();
-    this.pendingAutoOverviewProbeEntryId = null;
-    this.activeAutoOverviewProbeEntryId = null;
-    this.activeAutoOverviewProbeIssuedAtMs = 0;
     this.hasResolvedInitialDeterministicLevelThisSession = false;
     this.pendingLevelCacheTransition = null;
   }
@@ -7514,19 +7294,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
         const infoMenuSource =
           typeof data.source === "string" ? data.source : "";
         const shouldRefreshCtrlMCache = infoMenuSource !== "doprev_message";
-        const consumedAutoOverviewProbe = this.applyOverviewDungeonFromInfoMenu(
-          normalizedInfoMenu.lines,
-        );
-        if (consumedAutoOverviewProbe) {
-          break;
-        }
         if (shouldRefreshCtrlMCache) {
           this.lastInfoMenu = normalizedInfoMenu;
         }
-        this.showInfoMenuDialog(
-          normalizedInfoMenu.title,
-          normalizedInfoMenu.lines,
-        );
+        this.showInfoMenuDialog(normalizedInfoMenu.title, normalizedInfoMenu.lines, {
+          blocking: Boolean(data.blocking),
+        });
         break;
 
       case "position_request":
@@ -7608,6 +7381,21 @@ class Nethack3DEngine implements Nethack3DEngineController {
         ) {
           this.triggerDamageEffectsAtTile(data.x, data.y, data.amount);
         }
+        break;
+
+      case "game_over_complete":
+        const shouldDeferPromptReady = this.infoMenuBlockingActive;
+        this.pendingGameOverPromptReady = shouldDeferPromptReady;
+        this.setGameOverState(
+          true,
+          typeof data.deathMessage === "string" ? data.deathMessage : null,
+          {
+            promptReady: shouldDeferPromptReady ? false : true,
+            tombstoneLines: Array.isArray(data.tombstoneLines)
+              ? (data.tombstoneLines as string[])
+              : null,
+          },
+        );
         break;
 
       case "runtime_terminated":
@@ -7703,10 +7491,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
     );
   }
 
-  private setGameOverState(active: boolean, deathMessage: string | null): void {
+  private setGameOverState(
+    active: boolean,
+    deathMessage: string | null,
+    options: {
+      promptReady?: boolean;
+      tombstoneLines?: string[] | null;
+    } = {},
+  ): void {
+    const nextActive = Boolean(active);
+    const nextPromptReady =
+      typeof options.promptReady === "boolean"
+        ? options.promptReady
+        : nextActive
+          ? false
+          : false;
+    const nextTombstoneLines =
+      options.tombstoneLines !== undefined
+        ? options.tombstoneLines
+        : nextActive
+          ? this.gameOverState.tombstoneLines
+          : null;
+    if (!nextActive || nextPromptReady) {
+      this.pendingGameOverPromptReady = false;
+    }
     this.gameOverState = {
-      active: Boolean(active),
+      active: nextActive,
       deathMessage: deathMessage && deathMessage.trim() ? deathMessage : null,
+      promptReady: nextPromptReady,
+      tombstoneLines:
+        Array.isArray(nextTombstoneLines) && nextTombstoneLines.length > 0
+          ? [...nextTombstoneLines]
+          : null,
     };
     this.uiAdapter.setGameOver({ ...this.gameOverState });
     if (this.isInventoryDialogVisible) {
@@ -20893,7 +20709,6 @@ class Nethack3DEngine implements Nethack3DEngineController {
       this.currentLevelCacheName = resolvedLevelName;
     }
     this.maybeFinalizePendingLevelCacheTransition("status");
-    this.maybeDispatchAutoOverviewProbe();
   }
 
   private updatePlayerStats(
@@ -22467,8 +22282,13 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.updateDirectionPromptOverlayState();
   }
 
-  private showInfoMenuDialog(title: string, lines: string[]): void {
+  private showInfoMenuDialog(
+    title: string,
+    lines: string[],
+    options: { blocking?: boolean } = {},
+  ): void {
     this.isInfoDialogVisible = true;
+    this.infoMenuBlockingActive = Boolean(options.blocking);
     this.syncFpsPointerLockForUiState(false);
     const normalizedLines = this.normalizeInfoMenuLines(lines);
     this.uiAdapter.setInfoMenu({
@@ -22478,9 +22298,38 @@ class Nethack3DEngine implements Nethack3DEngineController {
   }
 
   private hideInfoMenuDialog(): void {
+    this.dismissBlockingInfoMenuIfNeeded();
     this.isInfoDialogVisible = false;
     this.uiAdapter.setInfoMenu(null);
     this.syncFpsPointerLockForUiState(true);
+    this.fulfillDeferredGameOverPromptReadyIfPossible();
+  }
+
+  private dismissBlockingInfoMenuIfNeeded(): void {
+    if (!this.infoMenuBlockingActive) {
+      return;
+    }
+    this.infoMenuBlockingActive = false;
+    if (this.session) {
+      this.session.sendInput(" ");
+    }
+  }
+
+  private fulfillDeferredGameOverPromptReadyIfPossible(): void {
+    if (!this.pendingGameOverPromptReady) {
+      return;
+    }
+    if (!this.gameOverState.active) {
+      this.pendingGameOverPromptReady = false;
+      return;
+    }
+    if (this.isInfoDialogVisible || this.infoMenuBlockingActive) {
+      return;
+    }
+    this.pendingGameOverPromptReady = false;
+    this.setGameOverState(true, this.gameOverState.deathMessage, {
+      promptReady: true,
+    });
   }
 
   private toggleInfoMenuDialog(): void {
@@ -22490,7 +22339,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     }
 
     if (this.lastInfoMenu) {
-      this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines);
+      this.showInfoMenuDialog(this.lastInfoMenu.title, this.lastInfoMenu.lines, {
+        blocking: false,
+      });
     } else {
       this.addGameMessage("No recent information panel to reopen.");
     }
@@ -22739,7 +22590,12 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.uiAdapter.setRepeatActionVisible(false);
     this.uiAdapter.setFpsCrosshairContext(null);
     this.uiAdapter.setNewGamePrompt({ visible: false, reason: null });
-    this.uiAdapter.setGameOver({ active: false, deathMessage: null });
+    this.uiAdapter.setGameOver({
+      active: false,
+      deathMessage: null,
+      promptReady: false,
+      tombstoneLines: null,
+    });
     this.updateStatus("");
     this.updateConnectionStatus("Disconnected", "disconnected");
     this.setLoadingVisible(false);
@@ -31567,10 +31423,9 @@ class Nethack3DEngine implements Nethack3DEngineController {
     this.expireBlindSearchInferenceWindowIfNeeded();
     this.updateLightingCenter(deltaSeconds);
     if (this.clientOptions.minimap) {
-      this.renderMinimapViewportOverlay();
+    this.renderMinimapViewportOverlay();
     }
     this.updateMetaCommandModalPosition();
-    this.maybeDispatchAutoOverviewProbe();
     this.disposeLightingOverlay();
     this.updateEffectAnimations(timeMs);
     this.updateDamageEffects(deltaSeconds);

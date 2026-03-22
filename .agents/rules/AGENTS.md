@@ -58,8 +58,8 @@ Start here before making changes.
 
 - The NetHack source code in `third_party/nethack-3.6.7` is the pinned commit that the WASM is compiled from, so it can be considered the source of truth.
 - If it's not found, the official NetHack git is here: https://github.com/NetHack/NetHack.
-- Never modify the NetHack source code. In all cases, we need to work with what NetHack gives us. If changes are not avoidable, let the user know.
-- Do not make changes or patches for the WASM's shims, only our runtime's interactions with them. If changes are needed to the WASM shims, inform the user so they can be updated by the WASM package's author.
+- Never modify the NetHack source code, UNLESS the user tells you it's OK to. In all cases, we need to work with what NetHack gives us. If changes are not avoidable, let the user know.
+- Do not make changes or patches for the WASM's shims, only our runtime's interactions with them, UNLESS the user tells you it's OK to. If changes are needed to the WASM shims, inform the user so they can be updated by the WASM package's author.
 
 ## Vulture source code
 

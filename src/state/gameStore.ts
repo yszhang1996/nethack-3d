@@ -124,7 +124,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
   extendedCommands: [],
   positionRequest: null,
   newGamePrompt: { visible: false, reason: null },
-  gameOver: { active: false, deathMessage: null },
+  gameOver: {
+    active: false,
+    deathMessage: null,
+    promptReady: false,
+    tombstoneLines: null,
+  },
   engineController: null,
   nextFloatingMessageId: 1,
   setLoadingVisible: (visible) => {
