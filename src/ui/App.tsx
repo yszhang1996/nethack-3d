@@ -3878,6 +3878,17 @@ function normalizeStartupCharacterName(value: string): string {
   return normalized.slice(0, 30);
 }
 
+function resolveEffectiveStartupCharacterName(config: CharacterCreationConfig): string {
+  const normalizedName = normalizeStartupCharacterName(config.name || "");
+  const startupTokens = sanitizeStartupInitOptionTokens(config.initOptions);
+  // NetHack 3.6.7 wizard/debug playmode canonicalizes player name to
+  // "wizard" during startup, so align save-name logic with runtime behavior.
+  if (startupTokens.includes("playmode:debug")) {
+    return "wizard";
+  }
+  return normalizedName;
+}
+
 function resolveDeviceDefaultClientOptions(): Nh3dClientOptions {
   if (
     typeof window !== "undefined" &&
@@ -3995,6 +4006,7 @@ type SaveGameRecord = {
   key: string;
   name: string;
   displayName: string;
+  displayPlayMode: "normal" | "explore" | "debug" | null;
   category: "manual" | "autosave";
   isResumable: boolean;
   timestamp: Date;
@@ -4006,6 +4018,133 @@ type SaveGameRecord = {
     timestamp: Date;
   }>;
 };
+
+type SavePresentationMetadataEntry = {
+  characterName: string;
+  playMode: "normal" | "explore" | "debug" | null;
+  updatedAt: string;
+};
+
+const savePresentationMetadataStorageKey = "nh3d-save-presentation-v1";
+
+function readSavePresentationMetadataByKey(): Record<
+  string,
+  SavePresentationMetadataEntry
+> {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return {};
+  }
+  try {
+    const raw = window.localStorage.getItem(savePresentationMetadataStorageKey);
+    if (!raw) {
+      return {};
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+
+    const normalized: Record<string, SavePresentationMetadataEntry> = {};
+    for (const [rawKey, rawValue] of Object.entries(parsed)) {
+      if (!rawKey || typeof rawKey !== "string") {
+        continue;
+      }
+      if (!rawValue || typeof rawValue !== "object") {
+        continue;
+      }
+      const candidate = rawValue as Partial<SavePresentationMetadataEntry>;
+      const characterName = normalizeStartupCharacterName(
+        String(candidate.characterName || ""),
+      );
+      const playMode =
+        candidate.playMode === "debug" ||
+        candidate.playMode === "explore" ||
+        candidate.playMode === "normal"
+          ? candidate.playMode
+          : null;
+      normalized[rawKey] = {
+        characterName,
+        playMode,
+        updatedAt:
+          typeof candidate.updatedAt === "string" && candidate.updatedAt.trim()
+            ? candidate.updatedAt
+            : "",
+      };
+    }
+    return normalized;
+  } catch {
+    return {};
+  }
+}
+
+function writeSavePresentationMetadataByKey(
+  metadataByKey: Record<string, SavePresentationMetadataEntry>,
+): void {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(
+      savePresentationMetadataStorageKey,
+      JSON.stringify(metadataByKey),
+    );
+  } catch (error) {
+    console.warn("Failed to persist save presentation metadata:", error);
+  }
+}
+
+function resolveStartupPlayModeForSavePresentation(
+  initOptions: string[] | undefined,
+): "normal" | "explore" | "debug" | null {
+  const tokens = sanitizeStartupInitOptionTokens(initOptions);
+  if (tokens.includes("playmode:debug")) {
+    return "debug";
+  }
+  if (tokens.includes("playmode:explore")) {
+    return "explore";
+  }
+  if (tokens.includes("playmode:normal")) {
+    return "normal";
+  }
+  return "normal";
+}
+
+function persistSavePresentationMetadataForCharacter(
+  runtimeName: string,
+  characterName: string,
+  initOptions: string[] | undefined,
+): void {
+  const normalizedRuntimeName = normalizeStartupCharacterName(runtimeName);
+  const normalizedCharacterName = normalizeStartupCharacterName(characterName);
+  if (!normalizedRuntimeName || !normalizedCharacterName) {
+    return;
+  }
+
+  const metadataByKey = readSavePresentationMetadataByKey();
+  const playMode = resolveStartupPlayModeForSavePresentation(initOptions);
+  const updatedAt = new Date().toISOString();
+  const categories: Array<"manual" | "autosave"> = ["manual", "autosave"];
+  for (const category of categories) {
+    metadataByKey[`${category}:${normalizedRuntimeName}`] = {
+      characterName: normalizedCharacterName,
+      playMode,
+      updatedAt,
+    };
+  }
+  writeSavePresentationMetadataByKey(metadataByKey);
+}
+
+function resolveSavePlayModeChipLabel(
+  playMode: "normal" | "explore" | "debug" | null,
+): string | null {
+  if (playMode === "debug") {
+    return "Wizard/Debug";
+  }
+  if (playMode === "explore") {
+    return "Explore";
+  }
+  return null;
+}
 
 function resolveSaveCategory(filename: string): "manual" | "autosave" {
   const normalizedFilename = filename.toLowerCase();
@@ -4055,6 +4194,7 @@ async function fetchSavedGames(
   const dbNames = getRuntimeSaveDbNames(runtimeVersion);
   const checkpointRecoverySupported =
     supportsRuntimeCheckpointRecovery(runtimeVersion);
+  const savePresentationMetadataByKey = readSavePresentationMetadataByKey();
 
   for (const dbName of dbNames) {
     try {
@@ -4132,6 +4272,20 @@ async function fetchSavedGames(
           const timestamp = new Date(value.timestamp);
           const logicalKey = `${category}:${name}`;
           const isCheckpointShard = isCheckpointShardFilename(filename);
+          const presentationMetadata = savePresentationMetadataByKey[logicalKey];
+          const displayPlayMode =
+            presentationMetadata &&
+            (presentationMetadata.playMode === "normal" ||
+              presentationMetadata.playMode === "explore" ||
+              presentationMetadata.playMode === "debug")
+              ? presentationMetadata.playMode
+              : null;
+          const displayName =
+            presentationMetadata &&
+            typeof presentationMetadata.characterName === "string" &&
+            presentationMetadata.characterName.trim().length > 0
+              ? normalizeStartupCharacterName(presentationMetadata.characterName)
+              : resolveSaveDisplayName(name, category);
           const existing = saves.get(logicalKey);
           if (existing) {
             existing.files.push({
@@ -4153,7 +4307,8 @@ async function fetchSavedGames(
           saves.set(logicalKey, {
             key: logicalKey,
             name,
-            displayName: resolveSaveDisplayName(name, category),
+            displayName,
+            displayPlayMode,
             category,
             isResumable: !isCheckpointShard || checkpointRecoverySupported,
             timestamp,
@@ -4244,6 +4399,7 @@ async function deleteSavedGame(save: SaveGameRecord): Promise<void> {
       console.warn(`Could not delete from IndexedDB ${dbName}:`, e);
     }
   }
+
 }
 
 type Nh3dElectronBridge = {
@@ -4506,10 +4662,20 @@ export default function App(): JSX.Element {
   };
 
   const handleStartNewGame = async (config: CharacterCreationConfig) => {
+    const normalizedInitOptions = appendRequiredStartupInitOptionTokens(
+      config.initOptions,
+    );
+    const requestedCharacterName = normalizeStartupCharacterName(
+      config.name || "",
+    );
+    const effectiveCharacterName = resolveEffectiveStartupCharacterName({
+      ...config,
+      initOptions: normalizedInitOptions,
+    });
     if (config.mode === "random" || config.mode === "create") {
       try {
         const saves = await fetchSavedGames(runtimeVersion);
-        const configName = config.name || "Web_user";
+        const configName = effectiveCharacterName;
         const matchingSaves = saves.filter((s) => s.name === configName);
         if (matchingSaves.length > 0) {
           const confirmed = await requestConfirmation({
@@ -4527,10 +4693,16 @@ export default function App(): JSX.Element {
       } catch (e) {
         console.warn("Failed to check for existing saves:", e);
       }
+      persistSavePresentationMetadataForCharacter(
+        effectiveCharacterName,
+        requestedCharacterName,
+        normalizedInitOptions,
+      );
     }
     setCharacterCreationConfig({
       ...config,
-      initOptions: appendRequiredStartupInitOptionTokens(config.initOptions),
+      name: effectiveCharacterName,
+      initOptions: normalizedInitOptions,
     });
   };
 

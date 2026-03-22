@@ -275,29 +275,59 @@ class LocalNetHackRuntime {
     return `0${normalized.replace(/[./ ]/g, "_")}`;
   }
 
-  shouldCleanupCheckpointShardsBeforeStartup() {
-    if (this.startupOptions?.characterCreation?.mode === "resume") {
-      return false;
+  isWizardDebugStartupRequested() {
+    const startupTokens = this.buildStartupInitRuntimeOptions().map((token) =>
+      String(token || "")
+        .trim()
+        .toLowerCase(),
+    );
+    return startupTokens.includes("playmode:debug");
+  }
+
+  getStartupCheckpointLockBaseNameCandidates() {
+    const candidates = [];
+    const candidateNames = [
+      this.startupOptions?.characterCreation?.name,
+      this.lastKnownPlayerName,
+    ];
+    if (this.isWizardDebugStartupRequested()) {
+      // In wizard/debug playmode NetHack can normalize the effective lockname
+      // to "wizard" regardless of the configured startup name.
+      candidateNames.push("wizard");
     }
+
+    const seen = new Set();
+    for (const candidateName of candidateNames) {
+      const lockBaseName = this.buildCheckpointLockBaseName(candidateName);
+      if (!lockBaseName || seen.has(lockBaseName)) {
+        continue;
+      }
+      seen.add(lockBaseName);
+      candidates.push(lockBaseName);
+    }
+    return candidates;
+  }
+
+  shouldCleanupCheckpointShardsBeforeStartup() {
     if (!this.buildStartupInitRuntimeOptions().includes("checkpoint")) {
       return false;
     }
-    return Boolean(
-      this.buildCheckpointLockBaseName(
-        this.startupOptions?.characterCreation?.name,
-      ),
-    );
+    const characterCreation = this.startupOptions?.characterCreation;
+    if (characterCreation?.mode === "resume") {
+      // Autosave resume needs checkpoint shards intact so the wasm bridge can
+      // recover them into a real save before startup.
+      if (characterCreation.resumeCategory === "autosave") {
+        return false;
+      }
+      // Manual-save resume should discard stale checkpoint shards to avoid
+      // lock-file prompts before the normal UI callback path is ready.
+      return this.getStartupCheckpointLockBaseNameCandidates().length > 0;
+    }
+    return this.getStartupCheckpointLockBaseNameCandidates().length > 0;
   }
 
-  cleanupStaleCheckpointShardsBeforeStartup(mod, saveDir) {
-    if (!mod?.FS || !this.shouldCleanupCheckpointShardsBeforeStartup()) {
-      return 0;
-    }
-
-    const lockBaseName = this.buildCheckpointLockBaseName(
-      this.startupOptions?.characterCreation?.name,
-    );
-    if (!lockBaseName) {
+  removeCheckpointShardsByLockBaseName(mod, saveDir, lockBaseName, reason) {
+    if (!mod?.FS || !saveDir || !lockBaseName) {
       return 0;
     }
 
@@ -314,37 +344,116 @@ class LocalNetHackRuntime {
       entries = mod.FS.readdir(saveDir);
     } catch (error) {
       console.warn(
-        `Failed to enumerate ${saveDir} for stale checkpoints:`,
+        `Failed to enumerate ${saveDir} for checkpoint cleanup (${reason}):`,
         error,
       );
       return 0;
     }
 
-    const staleShardPaths = entries
+    const shardPaths = entries
       .filter((entry) => checkpointShardPattern.test(String(entry)))
       .map((entry) => `${saveDir}/${entry}`);
 
-    if (staleShardPaths.length === 0) {
+    if (shardPaths.length === 0) {
       return 0;
     }
 
     console.log(
-      `Removing ${staleShardPaths.length} stale checkpoint shard(s) for "${lockBaseName}" before startup`,
+      `Removing ${shardPaths.length} checkpoint shard(s) for "${lockBaseName}" (${reason})`,
     );
 
     let removedCount = 0;
-    for (const staleShardPath of staleShardPaths) {
+    for (const shardPath of shardPaths) {
       try {
-        mod.FS.unlink(staleShardPath);
+        mod.FS.unlink(shardPath);
         removedCount += 1;
       } catch (error) {
         console.warn(
-          `Failed to remove stale checkpoint shard ${staleShardPath}:`,
+          `Failed to remove checkpoint shard ${shardPath} (${reason}):`,
           error,
         );
       }
     }
 
+    return removedCount;
+  }
+
+  resolveCurrentCheckpointLockBaseName() {
+    const resolvedName =
+      this.normalizeCharacterNameValue(this.lastKnownPlayerName) ||
+      this.normalizeCharacterNameValue(
+        String(this.readGlobalValue(["plname"]) || ""),
+      ) ||
+      this.normalizeCharacterNameValue(
+        this.startupOptions?.characterCreation?.name,
+      );
+    return this.buildCheckpointLockBaseName(resolvedName);
+  }
+
+  cleanupAndFlushCheckpointShardsAfterGameOver(onComplete) {
+    const done = () => {
+      if (typeof onComplete === "function") {
+        onComplete();
+      }
+    };
+
+    const mod = this.nethackModule;
+    if (!mod?.FS) {
+      done();
+      return;
+    }
+
+    const cwd =
+      typeof mod.FS.cwd === "function"
+        ? String(mod.FS.cwd() || "/")
+        : String(this.nethackModule?.FS?.cwd?.() || "/");
+    const saveDir = getRuntimeSaveMountDir(this.runtimeVersion, cwd);
+    const lockBaseName = this.resolveCurrentCheckpointLockBaseName();
+    if (lockBaseName) {
+      this.removeCheckpointShardsByLockBaseName(
+        mod,
+        saveDir,
+        lockBaseName,
+        "after game over",
+      );
+    }
+
+    if (typeof mod.FS.syncfs !== "function") {
+      done();
+      return;
+    }
+
+    try {
+      mod.FS.syncfs(false, (error) => {
+        if (error) {
+          console.warn("IDBFS sync after game-over checkpoint cleanup failed:", error);
+        }
+        done();
+      });
+    } catch (error) {
+      console.warn("IDBFS sync exception after game-over checkpoint cleanup:", error);
+      done();
+    }
+  }
+
+  cleanupStaleCheckpointShardsBeforeStartup(mod, saveDir) {
+    if (!mod?.FS || !this.shouldCleanupCheckpointShardsBeforeStartup()) {
+      return 0;
+    }
+
+    const lockBaseNames = this.getStartupCheckpointLockBaseNameCandidates();
+    if (lockBaseNames.length <= 0) {
+      return 0;
+    }
+    let removedCount = 0;
+    for (const lockBaseName of lockBaseNames) {
+      removedCount += this.removeCheckpointShardsByLockBaseName(
+        mod,
+        saveDir,
+        lockBaseName,
+        "before startup",
+      );
+    }
     return removedCount;
   }
 
@@ -3269,12 +3378,14 @@ class LocalNetHackRuntime {
       .trim();
     const deathMessage =
       killerName || this.resolveGameOverDeathText() || "Game over";
-    this.emit({
-      type: "game_over_complete",
-      tombstoneLines,
-      deathMessage,
+    this.cleanupAndFlushCheckpointShardsAfterGameOver(() => {
+      this.emit({
+        type: "game_over_complete",
+        tombstoneLines,
+        deathMessage,
+      });
+      this.resetGameOverSequence("complete");
     });
-    this.resetGameOverSequence("complete");
   }
 
   isNumberPadModeQuestion(question) {
