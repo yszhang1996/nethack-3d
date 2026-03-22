@@ -4719,6 +4719,7 @@ export default function App(): JSX.Element {
     (state) => state.setFloatingMessageTiming,
   );
   const setNewGamePrompt = useGameStore((state) => state.setNewGamePrompt);
+  const setGameOver = useGameStore((state) => state.setGameOver);
 
   const loadingVisible = useGameStore((state) => state.loadingVisible);
   const statusText = useGameStore((state) => state.statusText);
@@ -4744,6 +4745,7 @@ export default function App(): JSX.Element {
   const extendedCommands = useGameStore((state) => state.extendedCommands);
   const controller = useGameStore((state) => state.engineController);
   const newGamePrompt = useGameStore((state) => state.newGamePrompt);
+  const gameOver = useGameStore((state) => state.gameOver);
   const characterSheet = useMemo(
     () => parseCharacterSheetInfoMenu(infoMenu),
     [infoMenu],
@@ -8296,6 +8298,7 @@ export default function App(): JSX.Element {
     setReopenNewGamePromptOnInteraction(false);
     setDeferredNewGamePromptReason(null);
     setNewGamePrompt({ visible: false, reason: null });
+    setGameOver({ active: false, deathMessage: null });
     setPositionRequest(null);
     setInventoryContextMenu(null);
     setIsPauseMenuVisible(false);
@@ -10888,6 +10891,48 @@ export default function App(): JSX.Element {
       setDeferredNewGamePromptReason(newGamePrompt.reason.trim());
     }
   }, [newGamePrompt.reason, newGamePrompt.visible]);
+
+  useEffect(() => {
+    if (!gameOver.active) {
+      return;
+    }
+    if (
+      newGamePrompt.visible ||
+      reopenNewGamePromptOnInteraction ||
+      loadingOverlayVisible
+    ) {
+      return;
+    }
+    if (
+      question ||
+      infoMenu ||
+      textInputRequest ||
+      directionQuestion ||
+      inventory.visible
+    ) {
+      return;
+    }
+    setNewGamePrompt({
+      visible: true,
+      reason:
+        typeof gameOver.deathMessage === "string" &&
+        gameOver.deathMessage.trim()
+          ? gameOver.deathMessage.trim()
+          : "Game over",
+    });
+  }, [
+    directionQuestion,
+    gameOver.active,
+    gameOver.deathMessage,
+    infoMenu,
+    inventory.visible,
+    loadingOverlayVisible,
+    newGamePrompt.visible,
+    question,
+    reopenNewGamePromptOnInteraction,
+    setNewGamePrompt,
+    textInputRequest,
+  ]);
 
   useEffect(() => {
     if (

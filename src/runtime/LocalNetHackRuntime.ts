@@ -6075,14 +6075,234 @@ class LocalNetHackRuntime {
         console.log("NetHack end_screen (no-op)");
         return 0;
       case "shim_outrip":
-        console.log("NetHack outrip (tombstone)", args);
-        if (this.eventHandler) {
-          this.emit({
-            type: "outrip",
-            args: args,
-          });
+        {
+          const [ripWinId, how, when] = args;
+          const winId = Number.isFinite(ripWinId)
+            ? Math.trunc(ripWinId)
+            : null;
+          console.log("NetHack outrip (tombstone)", args);
+
+          const readGlobalValue = (path) => {
+            const globals =
+              globalThis.nethackGlobal &&
+              typeof globalThis.nethackGlobal === "object"
+                ? globalThis.nethackGlobal.globals
+                : null;
+            if (!globals || typeof globals !== "object") {
+              return null;
+            }
+            const globalsRoot =
+              globals.g && typeof globals.g === "object" ? globals.g : globals;
+            const readFrom = (root) => {
+              if (!root || typeof root !== "object") {
+                return null;
+              }
+              let current = root;
+              for (const key of path) {
+                if (!current || typeof current !== "object") {
+                  return null;
+                }
+                current = current[key];
+              }
+              return current;
+            };
+            const direct = readFrom(globals);
+            if (direct !== null && direct !== undefined) {
+              return direct;
+            }
+            if (globalsRoot !== globals) {
+              const nested = readFrom(globalsRoot);
+              if (nested !== null && nested !== undefined) {
+                return nested;
+              }
+            }
+            return null;
+          };
+
+          const normalizeLine = (value, width) => {
+            const raw = String(value ?? "").replace(/\u0000/g, "").trim();
+            if (!raw) {
+              return "";
+            }
+            const trimmed = raw.slice(0, width);
+            const leftPad = Math.floor((width - trimmed.length) / 2);
+            const rightPad = Math.max(0, width - trimmed.length - leftPad);
+            return `${" ".repeat(leftPad)}${trimmed}${" ".repeat(rightPad)}`;
+          };
+
+          const applyCenteredLine = (line, content) => {
+            const payload = normalizeLine(content, 16);
+            if (!payload) {
+              return line;
+            }
+            return line.replace(/\|.{16}\|/, `|${payload}|`);
+          };
+
+          const wrapStoneLines = (text, maxLines) => {
+            const width = 16;
+            const normalized = String(text ?? "")
+              .replace(/\u0000/g, "")
+              .replace(/\s+/g, " ")
+              .trim();
+            if (!normalized) {
+              return [];
+            }
+            const words = normalized.split(" ");
+            const lines = [];
+            let current = "";
+            for (const word of words) {
+              const candidate = current ? `${current} ${word}` : word;
+              if (candidate.length <= width) {
+                current = candidate;
+                continue;
+              }
+              if (current) {
+                lines.push(current);
+                current = word;
+              } else {
+                lines.push(word.slice(0, width));
+                current = word.slice(width);
+              }
+              if (lines.length >= maxLines) {
+                return lines.slice(0, maxLines);
+              }
+            }
+            if (current) {
+              lines.push(current);
+            }
+            return lines.slice(0, maxLines);
+          };
+
+          const withIndefiniteArticle = (value) => {
+            const trimmed = String(value ?? "").trim();
+            if (!trimmed) {
+              return "";
+            }
+            const firstChar = trimmed[0]?.toLowerCase() ?? "";
+            const article =
+              firstChar === "a" ||
+              firstChar === "e" ||
+              firstChar === "i" ||
+              firstChar === "o" ||
+              firstChar === "u"
+                ? "an"
+                : "a";
+            return `${article} ${trimmed}`;
+          };
+
+          const playerName =
+            this.normalizeCharacterNameValue(
+              this.startupOptions?.characterCreation?.name,
+            ) ||
+            String(readGlobalValue(["plname"]) || "").trim() ||
+            "Player";
+          const doneMoney = Number(readGlobalValue(["done_money"]));
+          const goldText = Number.isFinite(doneMoney)
+            ? `${Math.max(0, Math.trunc(doneMoney))} Au`
+            : "";
+
+          const killerName = String(readGlobalValue(["killer", "name"]) || "")
+            .replace(/\u0000/g, "")
+            .trim();
+          const killerFormat = Number(readGlobalValue(["killer", "format"]));
+          const killedByPrefix = [
+            "killed by ",
+            "choked on ",
+            "poisoned by ",
+            "died of ",
+            "drowned in ",
+            "burned by ",
+            "dissolved in ",
+            "crushed to death by ",
+            "petrified by ",
+            "turned to slime by ",
+            "killed by ",
+            "",
+            "",
+            "",
+            "",
+            "",
+          ];
+          const normalizedHow = Number.isFinite(how) ? Math.trunc(how) : 0;
+          const prefix = killedByPrefix[normalizedHow] ?? "";
+          const deathTextBase = killerName
+            ? killerFormat === 2
+              ? killerName
+              : killerFormat === 0
+                ? `${prefix}${withIndefiniteArticle(killerName)}`
+                : `${prefix}${killerName}`
+            : "";
+          const deathText =
+            deathTextBase || this.getMostRecentToplineMessage() || "";
+
+          const year =
+            new Date((Number(when) || 0) * 1000).getFullYear() ||
+            new Date().getFullYear();
+
+          const tombstoneText = [
+            "                       ----------",
+            "                      /          \\",
+            "                     /    REST    \\",
+            "                    /      IN      \\",
+            "                   /     PEACE      \\",
+            "                  /                  \\",
+            "                  |                  |",
+            "                  |                  |",
+            "                  |                  |",
+            "                  |                  |",
+            "                  |                  |",
+            "                  |                  |",
+            "                  |       1001       |",
+            "                 *|     *  *  *      | *",
+            "        _________)/\\\\_//(\\/(/\\)/\\//\\/|_)_______",
+          ];
+
+          const nameLineIndex = 6;
+          const goldLineIndex = 7;
+          const deathLineStartIndex = 8;
+          const yearLineIndex = 12;
+
+          tombstoneText[nameLineIndex] = applyCenteredLine(
+            tombstoneText[nameLineIndex],
+            playerName,
+          );
+          if (goldText) {
+            tombstoneText[goldLineIndex] = applyCenteredLine(
+              tombstoneText[goldLineIndex],
+              goldText,
+            );
+          }
+          const deathLines = wrapStoneLines(deathText, 4);
+          for (let i = 0; i < deathLines.length; i += 1) {
+            const lineIndex = deathLineStartIndex + i;
+            if (lineIndex >= tombstoneText.length) {
+              break;
+            }
+            tombstoneText[lineIndex] = applyCenteredLine(
+              tombstoneText[lineIndex],
+              deathLines[i],
+            );
+          }
+          tombstoneText[yearLineIndex] = applyCenteredLine(
+            tombstoneText[yearLineIndex],
+            String(year),
+          );
+
+          if (winId !== null) {
+            this.resetWindowTextBuffer(winId);
+            for (const line of tombstoneText) {
+              this.appendWindowTextBuffer(winId, line);
+            }
+          }
+
+          if (this.eventHandler) {
+            this.emit({
+              type: "outrip",
+              args: args,
+            });
+          }
+          return 0;
         }
-        return 0;
 
       case "shim_preference_update":
         // Preferences are already controlled via options/init in this client.
