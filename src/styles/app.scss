@@ -493,6 +493,13 @@ canvas {
   }
 }
 
+:root.nh3d-game-over-tombstone-active {
+  .nh3d-minimap {
+    display: none !important;
+    pointer-events: none !important;
+  }
+}
+
 .nh3d-minimap-canvas,
 .nh3d-minimap-viewport {
   position: absolute;
