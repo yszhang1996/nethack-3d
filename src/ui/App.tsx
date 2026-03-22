@@ -6717,6 +6717,10 @@ export default function App(): JSX.Element {
     connectionState,
     loadingVisible,
     isMobileViewport,
+    newGamePrompt.visible,
+    infoMenu,
+    question,
+    gameOver.tombstoneLines,
   ]);
 
   useEffect(() => {
@@ -12909,7 +12913,7 @@ export default function App(): JSX.Element {
         ))}
       </div>
 
-      {!startup && (
+      {!startup && !gameOverDialogShowsTombstone && (
         <div id="stats-bar">
           <div className="nh3d-stats-name">
             {playerStats.name}
