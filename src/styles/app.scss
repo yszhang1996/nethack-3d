@@ -500,6 +500,25 @@ canvas {
   }
 }
 
+:root.nh3d-hide-runtime-ui-deferred-game-over {
+  #stats-bar,
+  .top-left-ui,
+  .nh3d-minimap,
+  #floating-log-message-layer,
+  .nh3d-mobile-log,
+  .nh3d-mobile-actions-sheet,
+  .nh3d-mobile-bottom-bar,
+  .nh3d-mobile-repeat-button,
+  .nh3d-wizard-commands-button,
+  .nh3d-wizard-commands-sheet,
+  .nh3d-desktop-bottom-actions,
+  #position-dialog,
+  .nh3d-dialog {
+    display: none !important;
+    pointer-events: none !important;
+  }
+}
+
 .nh3d-minimap-canvas,
 .nh3d-minimap-viewport {
   position: absolute;

@@ -7136,6 +7136,8 @@ export default function App(): JSX.Element {
   const asciiLogoVisible = startupLogoVisible || gameOverDialogShowsTombstone;
   const mobileTouchUiVisible =
     isMobileGameRunning && !gameOverDialogShowsTombstone;
+  const hideAllUiForDeferredGameOver =
+    reopenNewGamePromptOnInteraction && !newGamePrompt.visible;
   const startupMenuVisible =
     startupUiVisible &&
     characterCreationConfig === null &&
@@ -7215,6 +7217,20 @@ export default function App(): JSX.Element {
       root.classList.remove("nh3d-game-over-tombstone-active");
     };
   }, [gameOverDialogShowsTombstone]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.toggle(
+      "nh3d-hide-runtime-ui-deferred-game-over",
+      hideAllUiForDeferredGameOver,
+    );
+    return () => {
+      root.classList.remove("nh3d-hide-runtime-ui-deferred-game-over");
+    };
+  }, [hideAllUiForDeferredGameOver]);
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -7753,6 +7769,35 @@ export default function App(): JSX.Element {
     setIsMobileLogVisible(false);
     setIsWizardCommandsVisible(false);
   }, [gameOverDialogShowsTombstone]);
+
+  useEffect(() => {
+    if (!hideAllUiForDeferredGameOver) {
+      return;
+    }
+    setIsPauseMenuVisible(false);
+    setIsExitConfirmationVisible(false);
+    setIsClientOptionsVisible(false);
+    setIsControllerRemapVisible(false);
+    setControllerRemapListening(null);
+    setIsControllerSupportPromptVisible(false);
+    setIsControllerActionWheelVisible(false);
+    setControllerActionWheelMode("quick");
+    setControllerActionWheelChosenIndex(0);
+    setIsMobileActionSheetVisible(false);
+    setMobileActionSheetMode("quick");
+    setIsMobileLogVisible(false);
+    setIsWizardCommandsVisible(false);
+    setInventoryContextMenu(null);
+    setInventoryDropTypeMenuPosition(null);
+    setInventoryDropCountDialog(null);
+    setTileContextMenuPosition(null);
+    setPositionRequest(null);
+    setCharacterSheetInterceptionArmed(false);
+    characterSheetAwaitingInfoRef.current = false;
+    controller?.dismissFpsCrosshairContextMenu();
+    controller?.closeInfoMenuDialog();
+    controller?.closeInventoryDialog();
+  }, [controller, hideAllUiForDeferredGameOver, setPositionRequest]);
 
   useEffect(() => {
     if (isMobileGameRunning || isDesktopGameRunning) {
@@ -11182,6 +11227,7 @@ export default function App(): JSX.Element {
         reason: deferredNewGamePromptReason,
       });
     };
+
     const handleInteractionKey = (event: KeyboardEvent): void => {
       if (
         event.key !== "Enter" &&
@@ -11197,6 +11243,7 @@ export default function App(): JSX.Element {
       event.stopImmediatePropagation();
       handleFirstInteraction();
     };
+
     window.addEventListener("pointerdown", handleFirstInteraction, true);
     window.addEventListener("keydown", handleInteractionKey, true);
     return () => {
