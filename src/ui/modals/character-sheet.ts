@@ -58,11 +58,11 @@ const sectionTitleById: Record<
   Exclude<CharacterSheetSectionId, "misc">,
   string
 > = {
-  background: "Background",
-  basics: "Basics",
-  characteristics: "Current Characteristics",
-  status: "Current Status",
-  attributes: "Current Attributes",
+  background: "背景",
+  basics: "基础",
+  characteristics: "当前特性",
+  status: "当前状态",
+  attributes: "当前属性",
 };
 
 const sectionIdByHeading: Record<string, CharacterSheetSectionId> = {
@@ -98,7 +98,7 @@ function splitCharacterSections(lines: string[]): CharacterSheetSection[] {
     }
     const overviewSection: CharacterSheetSection = {
       id: "misc",
-      title: "Overview",
+      title: "概览",
       lines: [],
     };
     sections.push(overviewSection);
@@ -309,20 +309,20 @@ export function parseCharacterSheetInfoMenu(
   );
 
   const statEntries: CharacterSheetStat[] = [
-    extractCharacterStat(characteristicOrAllLines, "strength", "Strength"),
-    extractCharacterStat(characteristicOrAllLines, "dexterity", "Dexterity"),
+    extractCharacterStat(characteristicOrAllLines, "strength", "力量"),
+    extractCharacterStat(characteristicOrAllLines, "dexterity", "敏捷"),
     extractCharacterStat(
       characteristicOrAllLines,
       "constitution",
-      "Constitution",
+      "体质",
     ),
     extractCharacterStat(
       characteristicOrAllLines,
       "intelligence",
-      "Intelligence",
+      "智力",
     ),
-    extractCharacterStat(characteristicOrAllLines, "wisdom", "Wisdom"),
-    extractCharacterStat(characteristicOrAllLines, "charisma", "Charisma"),
+    extractCharacterStat(characteristicOrAllLines, "wisdom", "感知"),
+    extractCharacterStat(characteristicOrAllLines, "charisma", "魅力"),
   ];
 
   const primarySections: CharacterSheetSection[] = [];
@@ -343,7 +343,7 @@ export function parseCharacterSheetInfoMenu(
   );
 
   return {
-    title: normalizeInfoLine(infoMenu.title) || "Character Sheet",
+    title: normalizeInfoLine(infoMenu.title) || "角色面板",
     sections: primarySections,
     extraSections,
     backgroundLines,
@@ -378,44 +378,44 @@ const characterCommandCatalog: readonly CharacterCommandAction[] = [
   {
     id: "enhance",
     command: "enhance",
-    label: "Enhance",
-    detail: "Level up skills",
+    label: "技能提升",
+    detail: "升级技能等级",
   },
   {
     id: "conduct",
     command: "conduct",
-    label: "Conduct",
-    detail: "Show challenge progress",
+    label: "挑战记录",
+    detail: "查看挑战进度",
   },
   {
     id: "overview",
     command: "overview",
-    label: "Overview",
-    detail: "Show dungeon progress",
+    label: "总览",
+    detail: "查看地城进度",
   },
   {
     id: "spells",
     command: "spells",
-    label: "Spells",
-    detail: "Review known spells",
+    label: "法术",
+    detail: "查看已知法术",
   },
   {
     id: "seespells",
     command: "seespells",
-    label: "Spellbook",
-    detail: "List spell inventory",
+    label: "法术书",
+    detail: "列出法术清单",
   },
   {
     id: "known",
     command: "known",
-    label: "Discoveries",
-    detail: "Known object list",
+    label: "已发现",
+    detail: "已知物品列表",
   },
   {
     id: "pray",
     command: "pray",
-    label: "Pray",
-    detail: "Attempt prayer",
+    label: "祈祷",
+    detail: "尝试进行祈祷",
   },
 ];
 

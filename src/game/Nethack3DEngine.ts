@@ -5706,7 +5706,7 @@ class Nethack3DEngine implements Nethack3DEngineController {
 
       const resetButton = document.createElement("button");
       resetButton.type = "button";
-      resetButton.textContent = "Reset";
+      resetButton.textContent = "重置";
       resetButton.style.font = "11px monospace";
       resetButton.style.padding = "1px 4px";
       resetButton.addEventListener("click", () => {
@@ -27571,61 +27571,61 @@ class Nethack3DEngine implements Nethack3DEngineController {
     const isStairsDown = materialKind === "stairs_down";
 
     if (glanceSuggestCorpse) {
-      addQuickAction("pickup", "Pick Up");
-      addQuickAction("eat", "Eat");
+      addQuickAction("pickup", "拾取");
+      addQuickAction("eat", "吃");
     }
 
     if (glanceSuggestsContainerLoot) {
-      addExtendedAction("tip", "Tip");
-      addExtendedAction("force", "Force");
-      addExtendedAction("apply", "Apply");
+      addExtendedAction("tip", "倾倒");
+      addExtendedAction("force", "强行打开");
+      addExtendedAction("apply", "使用");
     }
 
     if (isStairsUp) {
-      addQuickAction("ascend", "Ascend (<)");
+      addQuickAction("ascend", "上楼 (<)");
     }
     if (isStairsDown) {
-      addQuickAction("descend", "Descend (>)");
+      addQuickAction("descend", "下楼 (>)");
     }
 
     if (!isTargetPlayerTile) {
-      addExtendedAction("kick", "Kick");
-      addExtendedAction("throw", "Throw");
-      addExtendedAction("fire", "Fire");
+      addExtendedAction("kick", "踢");
+      addExtendedAction("throw", "投掷");
+      addExtendedAction("fire", "发射");
     }
 
     if (isMonster) {
-      addQuickAction("search", "Search");
+      addQuickAction("search", "搜索");
       return actions;
     }
 
     if (isLoot) {
       if (isTargetPlayerTile) {
-        addQuickAction("pickup", "Pick Up");
-        addQuickAction("loot", "Loot");
-        addQuickAction("eat", "Eat");
+        addQuickAction("pickup", "拾取");
+        addQuickAction("loot", "搜刮");
+        addQuickAction("eat", "吃");
       }
       return actions;
     }
 
     if (materialKind === "door") {
-      addQuickAction("open", "Open");
-      addQuickAction("close", "Close");
-      addExtendedAction("kick", "Kick");
-      addQuickAction("search", "Search");
+      addQuickAction("open", "打开");
+      addQuickAction("close", "关闭");
+      addExtendedAction("kick", "踢");
+      addQuickAction("search", "搜索");
       return actions;
     }
 
     if (isStairsUp || isStairsDown) {
-      addQuickAction("search", "Search");
+      addQuickAction("search", "搜索");
       if (isTargetPlayerTile) {
-        addQuickAction("pickup", "Pick Up");
+        addQuickAction("pickup", "拾取");
       }
       return actions;
     }
 
     if (materialKind === "water" || materialKind === "fountain") {
-      addQuickAction("quaff", "Quaff");
+      addQuickAction("quaff", "饮用");
     }
 
     if (
@@ -27634,25 +27634,25 @@ class Nethack3DEngine implements Nethack3DEngineController {
       materialKind === "trap" ||
       materialKind === "feature"
     ) {
-      addQuickAction("search", "Search");
-      addQuickAction("pickup", "Pick Up");
+      addQuickAction("search", "搜索");
+      addQuickAction("pickup", "拾取");
       return actions;
     }
 
     if (isWall) {
-      addQuickAction("search", "Search");
+      addQuickAction("search", "搜索");
       return actions;
     }
 
-    addQuickAction("search", "Search");
+    addQuickAction("search", "搜索");
     if (isTargetPlayerTile) {
-      addQuickAction("pickup", "Pick Up");
-      addQuickAction("loot", "Loot");
+      addQuickAction("pickup", "拾取");
+      addQuickAction("loot", "搜刮");
       if (glanceSuggestsContainerLoot) {
-        addExtendedAction("tip", "Tip");
+        addExtendedAction("tip", "倾倒");
       }
       if (glanceSuggestsEdibleLoot) {
-        addQuickAction("eat", "Eat");
+        addQuickAction("eat", "吃");
       }
     }
     return actions;

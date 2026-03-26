@@ -219,7 +219,7 @@ export default function SoundPackSettings({
         applyLoadedState(state.packs, activePackIdToUse);
       } catch (error) {
         setErrorText(
-          getErrorMessage(error, "Failed to load sound packs from IndexedDB."),
+          getErrorMessage(error, "从 IndexedDB 加载音效包失败。"),
         );
       } finally {
         setIsLoading(false);
@@ -364,9 +364,9 @@ export default function SoundPackSettings({
       }
       return requestInGameConfirmation({
         title: "Discard Sound Pack Changes?",
-        message: "Discard unsaved sound pack changes and continue?",
-        confirmLabel: "Discard",
-        cancelLabel: "Keep Editing",
+        message: "是否丢弃未保存的音效包更改并继续？",
+        confirmLabel: "丢弃",
+        cancelLabel: "继续编辑",
         confirmClassName: "nh3d-menu-action-cancel",
       });
     }, [isDraftDirty, requestInGameConfirmation]);
@@ -390,7 +390,7 @@ export default function SoundPackSettings({
       }
     } catch (error) {
       setErrorText(
-        getErrorMessage(error, "Failed to select the requested sound pack."),
+        getErrorMessage(error, "选择指定音效包失败。"),
       );
       await reloadSoundPacks();
     }
@@ -399,7 +399,7 @@ export default function SoundPackSettings({
   const handleCreatePack = async (): Promise<void> => {
     const normalizedName = normalizeNh3dSoundPackName(newPackName);
     if (!normalizedName) {
-      setErrorText("Provide a sound pack name.");
+      setErrorText("请输入音效包名称。");
       return;
     }
     if (!(await discardPendingChangesIfNeeded())) {
@@ -411,9 +411,9 @@ export default function SoundPackSettings({
     try {
       const createdPack = await createNh3dSoundPack(normalizedName);
       await reloadSoundPacks(createdPack.id);
-      setStatusText(`Created sound pack '${createdPack.name}'.`);
+      setStatusText(`已创建音效包“${createdPack.name}”。`);
     } catch (error) {
-      setErrorText(getErrorMessage(error, "Failed to create sound pack."));
+      setErrorText(getErrorMessage(error, "创建音效包失败。"));
     } finally {
       setIsBusy(false);
     }
@@ -432,10 +432,10 @@ export default function SoundPackSettings({
         pendingUploads,
       );
       await reloadSoundPacks(savedPack.id);
-      setStatusText(`Saved sound pack '${savedPack.name}'.`);
+      setStatusText(`已保存音效包“${savedPack.name}”。`);
       return true;
     } catch (error) {
-      setErrorText(getErrorMessage(error, "Failed to save sound pack."));
+      setErrorText(getErrorMessage(error, "保存音效包失败。"));
       return false;
     } finally {
       setIsBusy(false);
@@ -478,9 +478,9 @@ export default function SoundPackSettings({
       anchor.rel = "noopener";
       anchor.click();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-      setStatusText(`Exported '${draftPack.name}'.`);
+      setStatusText(`已导出“${draftPack.name}”。`);
     } catch (error) {
-      setErrorText(getErrorMessage(error, "Failed to export sound pack ZIP."));
+      setErrorText(getErrorMessage(error, "导出音效包 ZIP 失败。"));
     } finally {
       setIsBusy(false);
     }
@@ -503,9 +503,9 @@ export default function SoundPackSettings({
     try {
       const importedPack = await importNh3dSoundPackFromZip(file);
       await reloadSoundPacks(importedPack.id);
-      setStatusText(`Imported sound pack '${importedPack.name}'.`);
+      setStatusText(`已导入音效包“${importedPack.name}”。`);
     } catch (error) {
-      setErrorText(getErrorMessage(error, "Failed to import sound pack ZIP."));
+      setErrorText(getErrorMessage(error, "导入音效包 ZIP 失败。"));
     } finally {
       setIsBusy(false);
     }
@@ -516,10 +516,10 @@ export default function SoundPackSettings({
       return;
     }
     const confirmed = await requestInGameConfirmation({
-      title: "Delete Sound Pack?",
-      message: `Delete sound pack '${draftPack.name}'? This cannot be undone.`,
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: "删除音效包？",
+      message: `删除音效包“${draftPack.name}”？此操作无法撤销。`,
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       confirmClassName: "nh3d-menu-action-cancel",
     });
     if (!confirmed) {
@@ -534,9 +534,9 @@ export default function SoundPackSettings({
         draftPack.id,
       );
       await reloadSoundPacks(nextActivePackId);
-      setStatusText(`Deleted sound pack '${draftPack.name}'.`);
+      setStatusText(`已删除音效包“${draftPack.name}”。`);
     } catch (error) {
-      setErrorText(getErrorMessage(error, "Failed to delete sound pack."));
+      setErrorText(getErrorMessage(error, "删除音效包失败。"));
     } finally {
       setIsBusy(false);
     }
@@ -589,7 +589,7 @@ export default function SoundPackSettings({
       }
 
       if (!previewUrl) {
-        throw new Error("No preview source available for this sound.");
+        throw new Error("该音效没有可用的预览来源。");
       }
 
       const audio = previewAudioRef.current ?? new Audio();
@@ -615,7 +615,7 @@ export default function SoundPackSettings({
           URL.revokeObjectURL(previewObjectUrlRef.current);
           previewObjectUrlRef.current = null;
         }
-        setErrorText("Unable to preview this sound.");
+        setErrorText("无法预览该音效。");
       };
 
       if (revokeAfterPlay) {
@@ -629,7 +629,7 @@ export default function SoundPackSettings({
         URL.revokeObjectURL(previewUrl);
       }
       previewObjectUrlRef.current = null;
-      setErrorText(getErrorMessage(error, "Unable to preview this sound."));
+      setErrorText(getErrorMessage(error, "无法预览该音效。"));
     }
   };
 
@@ -662,9 +662,9 @@ export default function SoundPackSettings({
     <div className="nh3d-soundpack-manager">
       <div className="nh3d-option-row">
         <div className="nh3d-option-copy">
-          <div className="nh3d-option-label">Sound pack</div>
+          <div className="nh3d-option-label">音效包</div>
           <div className="nh3d-option-description">
-            Select the active sound pack used for sound path resolution.
+            选择当前生效的音效包，用于解析音效路径。
           </div>
         </div>
         <div className="nh3d-option-select-controls nh3d-soundpack-select-controls">
@@ -692,7 +692,7 @@ export default function SoundPackSettings({
             }}
             type="button"
           >
-            + Add new soundpack
+            + 新建音效包
           </button>
         </div>
       </div>
@@ -703,13 +703,13 @@ export default function SoundPackSettings({
             className="nh3d-option-label"
             htmlFor="nh3d-soundpack-new-name"
           >
-            New sound pack name
+            新音效包名称
           </label>
           <input
             className="nh3d-text-input"
             id="nh3d-soundpack-new-name"
             onChange={(event) => setNewPackName(event.target.value)}
-            placeholder="My Sound Pack"
+            placeholder="我的音效包"
             type="text"
             value={newPackName}
           />
@@ -722,7 +722,7 @@ export default function SoundPackSettings({
               }}
               type="button"
             >
-              Create and save
+              创建并保存
             </button>
             <button
               className="nh3d-menu-action-button nh3d-menu-action-cancel"
@@ -733,7 +733,7 @@ export default function SoundPackSettings({
               }}
               type="button"
             >
-              Cancel
+              取消
             </button>
           </div>
         </div>
@@ -742,9 +742,9 @@ export default function SoundPackSettings({
       {draftPack && !isDefaultDraft ? (
         <div className="nh3d-option-row nh3d-soundpack-name-row">
           <div className="nh3d-option-copy">
-            <div className="nh3d-option-label">Pack name</div>
+            <div className="nh3d-option-label">包名称</div>
             <div className="nh3d-option-description">
-              Rename this pack and save to update its sound file namespace.
+              重命名并保存该音效包，以更新其音频命名空间。
             </div>
           </div>
           <div className="nh3d-soundpack-name-controls">
@@ -774,7 +774,7 @@ export default function SoundPackSettings({
               }}
               type="button"
             >
-              Save sound pack
+              保存音效包
             </button>
           </div>
         </div>
@@ -789,7 +789,7 @@ export default function SoundPackSettings({
           }}
           type="button"
         >
-          Export soundpack
+          导出音效包
         </button>
         <button
           className="nh3d-menu-action-button"
@@ -797,7 +797,7 @@ export default function SoundPackSettings({
           onClick={() => importFileInputRef.current?.click()}
           type="button"
         >
-          Import soundpack
+          导入音效包
         </button>
         {draftPack && !isDefaultDraft ? (
           <button
@@ -808,7 +808,7 @@ export default function SoundPackSettings({
             }}
             type="button"
           >
-            Delete soundpack
+            删除音效包
           </button>
         ) : null}
         {playingSoundSlotKey ? (
@@ -817,7 +817,7 @@ export default function SoundPackSettings({
             onClick={stopPreview}
             type="button"
           >
-            Stop preview
+            停止预览
           </button>
         ) : null}
         <input
@@ -832,7 +832,7 @@ export default function SoundPackSettings({
       </div>
 
       {isLoading ? (
-        <div className="nh3d-option-description">Loading sound packs...</div>
+        <div className="nh3d-option-description">正在加载音效包...</div>
       ) : null}
       {statusText ? (
         <div className="nh3d-soundpack-status">{statusText}</div>
@@ -872,11 +872,11 @@ export default function SoundPackSettings({
                         : variation.fileName;
                     const displayFileName =
                       pendingUpload instanceof Blob
-                        ? `${pendingFileName} (pending save)`
+                        ? `${pendingFileName}（待保存）`
                         : pendingUpload === null
-                          ? `${fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey)} (default)`
+                          ? `${fallbackSound?.fileName || resolveNh3dDefaultSoundPath(soundKey)}（默认）`
                           : variation.source === "user"
-                            ? `${variation.fileName} (custom)`
+                            ? `${variation.fileName}（自定义）`
                             : variation.fileName;
                     const volumePercent = Math.round(variation.volume * 100);
                     const updateVolumeFromPercentValue = (
@@ -938,9 +938,7 @@ export default function SoundPackSettings({
                             </div>
                           </div>
                           <div className="nh3d-soundpack-info-box nh3d-soundpack-volume-box">
-                            <div className="nh3d-option-description">
-                              Volume
-                            </div>
+                            <div className="nh3d-option-description">音量</div>
                             <div className="nh3d-soundpack-volume-control">
                               <input
                                 aria-label={`Volume for ${soundDisplayLabel}`}
@@ -977,7 +975,7 @@ export default function SoundPackSettings({
                             }}
                             type="button"
                           >
-                            {isPlaying ? "Playing..." : "Play"}
+                            {isPlaying ? "播放中..." : "播放"}
                           </button>
                         </div>
 
@@ -1000,7 +998,7 @@ export default function SoundPackSettings({
                                   }}
                                   type="button"
                                 >
-                                  Remove
+                                  移除
                                 </button>
                               ) : null}
                               <button
@@ -1013,7 +1011,7 @@ export default function SoundPackSettings({
                                 }}
                                 type="button"
                               >
-                                Replace
+                                替换
                               </button>
                             </div>
                             <input
@@ -1055,7 +1053,7 @@ export default function SoundPackSettings({
                             />
                             <div className="nh3d-soundpack-info-box nh3d-soundpack-path">
                               <div className="nh3d-option-description">
-                                Sound file
+                                音频文件
                               </div>
                               <div className="nh3d-soundpack-path-value">
                                 {displayFileName}
@@ -1091,7 +1089,7 @@ export default function SoundPackSettings({
                               }}
                               type="button"
                             >
-                              Reset
+                              重置
                             </button>
                           </div>
                         ) : null}
@@ -1099,7 +1097,7 @@ export default function SoundPackSettings({
                         <div className="nh3d-soundpack-control-row nh3d-soundpack-control-row-tertiary">
                           <div className="nh3d-soundpack-info-box nh3d-soundpack-attribution-box">
                             <div className="nh3d-option-description">
-                              Attribution
+                              署名信息
                             </div>
                             <input
                               aria-label={`Attribution for ${soundDisplayLabel}`}
@@ -1120,7 +1118,7 @@ export default function SoundPackSettings({
                                 soundKey,
                                 variationId,
                               )}
-                              placeholder="Source, creator, or license details"
+                              placeholder="来源、作者或许可证信息"
                               readOnly={isDefaultDraft}
                               type="text"
                               value={variation.attribution}
@@ -1140,7 +1138,7 @@ export default function SoundPackSettings({
                     }}
                     type="button"
                   >
-                    + Add variation
+                    + 添加变体
                   </button>
                 ) : null}
               </div>

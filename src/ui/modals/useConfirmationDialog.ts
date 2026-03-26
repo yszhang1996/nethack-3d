@@ -32,8 +32,8 @@ export function useConfirmationDialog() {
       const normalized: ConfirmationDialogState = {
         title: String(request.title || "").trim(),
         message: String(request.message || "").trim(),
-        confirmLabel: String(request.confirmLabel || "Confirm").trim() || "Confirm",
-        cancelLabel: String(request.cancelLabel || "Cancel").trim() || "Cancel",
+        confirmLabel: String(request.confirmLabel || "确认").trim() || "确认",
+        cancelLabel: String(request.cancelLabel || "取消").trim() || "取消",
         confirmClassName:
           String(request.confirmClassName || "nh3d-menu-action-confirm").trim() ||
           "nh3d-menu-action-confirm",

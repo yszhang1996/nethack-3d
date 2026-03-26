@@ -128,14 +128,14 @@ function isMenuItemSelectable(item: NethackMenuItem): boolean {
 function resolveAvailabilityLabel(state: EnhanceSkillAvailability): string {
   switch (state) {
     case "available_now":
-      return "Available";
+      return "可提升";
     case "needs_experience":
-      return "Exp/Slots";
+      return "经验/槽位";
     case "maxed_out":
-      return "Maxed";
+      return "已满级";
     case "needs_practice":
     default:
-      return "Practice";
+      return "需练习";
   }
 }
 
@@ -194,13 +194,13 @@ export function parseEnhanceMenu(
     return null;
   }
 
-  let currentCategoryTitle = "Skills";
+  let currentCategoryTitle = "技能";
   const groupsByTitle = new Map<string, EnhanceSkillGroup>();
   const groupOrder: string[] = [];
   const legendLines: string[] = [];
 
   const ensureGroup = (title: string): EnhanceSkillGroup => {
-    const normalizedTitle = normalizeMenuLine(title) || "Skills";
+    const normalizedTitle = normalizeMenuLine(title) || "技能";
     if (!groupsByTitle.has(normalizedTitle)) {
       groupsByTitle.set(normalizedTitle, {
         id: slugify(normalizedTitle),

@@ -40,11 +40,11 @@ export type Nh3dControllerActionSpec = {
   label: string;
   description: string;
   group:
-    | "Movement"
-    | "Look And Camera"
-    | "Actions"
-    | "System"
-    | "Dialogs";
+    | "移动"
+    | "视角与镜头"
+    | "动作"
+    | "系统"
+    | "对话";
 };
 
 export type ParsedNh3dControllerBinding =
@@ -64,152 +64,152 @@ const buttonBindingPattern = /^button:(\d+)$/i;
 const controllerActionSpecs: readonly Nh3dControllerActionSpec[] = [
   {
     id: "dpad_up",
-    label: "D-Pad Up",
-    description: "Navigate upward in dialogs and movement highlight.",
-    group: "Movement",
+    label: "十字键 上",
+    description: "在对话中向上导航，并控制移动高亮。",
+    group: "移动",
   },
   {
     id: "dpad_down",
-    label: "D-Pad Down",
-    description: "Navigate downward in dialogs and movement highlight.",
-    group: "Movement",
+    label: "十字键 下",
+    description: "在对话中向下导航，并控制移动高亮。",
+    group: "移动",
   },
   {
     id: "dpad_left",
-    label: "D-Pad Left",
-    description: "Navigate left in dialogs and movement highlight.",
-    group: "Movement",
+    label: "十字键 左",
+    description: "在对话中向左导航，并控制移动高亮。",
+    group: "移动",
   },
   {
     id: "dpad_right",
-    label: "D-Pad Right",
-    description: "Navigate right in dialogs and movement highlight.",
-    group: "Movement",
+    label: "十字键 右",
+    description: "在对话中向右导航，并控制移动高亮。",
+    group: "移动",
   },
   {
     id: "left_stick_up",
-    label: "Left Stick Up",
-    description: "Movement highlight and virtual cursor up.",
-    group: "Movement",
+    label: "左摇杆 上",
+    description: "控制移动高亮与虚拟光标向上。",
+    group: "移动",
   },
   {
     id: "left_stick_down",
-    label: "Left Stick Down",
-    description: "Movement highlight and virtual cursor down.",
-    group: "Movement",
+    label: "左摇杆 下",
+    description: "控制移动高亮与虚拟光标向下。",
+    group: "移动",
   },
   {
     id: "left_stick_left",
-    label: "Left Stick Left",
-    description: "Movement highlight and virtual cursor left.",
-    group: "Movement",
+    label: "左摇杆 左",
+    description: "控制移动高亮与虚拟光标向左。",
+    group: "移动",
   },
   {
     id: "left_stick_right",
-    label: "Left Stick Right",
-    description: "Movement highlight and virtual cursor right.",
-    group: "Movement",
+    label: "左摇杆 右",
+    description: "控制移动高亮与虚拟光标向右。",
+    group: "移动",
   },
   {
     id: "right_stick_up",
-    label: "Right Stick Up",
-    description: "Look, camera pan, and dialog scrolling up.",
-    group: "Look And Camera",
+    label: "右摇杆 上",
+    description: "向上观察、镜头平移与对话滚动。",
+    group: "视角与镜头",
   },
   {
     id: "right_stick_down",
-    label: "Right Stick Down",
-    description: "Look, camera pan, and dialog scrolling down.",
-    group: "Look And Camera",
+    label: "右摇杆 下",
+    description: "向下观察、镜头平移与对话滚动。",
+    group: "视角与镜头",
   },
   {
     id: "right_stick_left",
-    label: "Right Stick Left",
-    description: "Look and camera pan left.",
-    group: "Look And Camera",
+    label: "右摇杆 左",
+    description: "向左观察与镜头平移。",
+    group: "视角与镜头",
   },
   {
     id: "right_stick_right",
-    label: "Right Stick Right",
-    description: "Look and camera pan right.",
-    group: "Look And Camera",
+    label: "右摇杆 右",
+    description: "向右观察与镜头平移。",
+    group: "视角与镜头",
   },
   {
     id: "confirm",
-    label: "Confirm / Click",
-    description: "Confirm movement and click in dialogs.",
-    group: "Actions",
+    label: "确认 / 点击",
+    description: "确认移动并在对话中点击。",
+    group: "动作",
   },
   {
     id: "search",
-    label: "Search",
-    description: "Search current tile when no movement preview is active.",
-    group: "Actions",
+    label: "搜索",
+    description: "在无移动预览时搜索当前地块。",
+    group: "动作",
   },
   {
     id: "cancel_or_context",
-    label: "Cancel / Context",
-    description: "Open context actions or cancel current dialog.",
-    group: "Actions",
+    label: "取消 / 上下文",
+    description: "打开上下文动作或取消当前对话。",
+    group: "动作",
   },
   {
     id: "action_menu",
-    label: "Action Menu",
-    description: "Open controller radial action menu.",
-    group: "Actions",
+    label: "动作菜单",
+    description: "打开手柄径向动作菜单。",
+    group: "动作",
   },
   {
     id: "run_modifier",
-    label: "Run Modifier",
-    description: "Hold to send run prefix before movement.",
-    group: "Actions",
+    label: "奔跑修饰键",
+    description: "按住后在移动前发送奔跑前缀。",
+    group: "动作",
   },
   {
     id: "zoom_in",
-    label: "Zoom (Hold)",
-    description: "Hold, then use left or right stick up/down to zoom in/out.",
-    group: "Look And Camera",
+    label: "缩放（按住）",
+    description: "按住后用左右摇杆上下进行缩放。",
+    group: "视角与镜头",
   },
   {
     id: "recenter_camera",
-    label: "Recenter Camera",
-    description: "Return camera to player center.",
-    group: "Look And Camera",
+    label: "镜头回中",
+    description: "将镜头返回玩家中心。",
+    group: "视角与镜头",
   },
   {
     id: "toggle_large_minimap",
-    label: "Toggle Large Minimap",
-    description: "Toggle very large minimap size.",
-    group: "System",
+    label: "切换大地图",
+    description: "切换超大迷你地图尺寸。",
+    group: "系统",
   },
   {
     id: "pause_menu",
-    label: "Pause Menu",
-    description: "Open or close pause menu.",
-    group: "System",
+    label: "暂停菜单",
+    description: "打开或关闭暂停菜单。",
+    group: "系统",
   },
   {
     id: "open_inventory",
-    label: "Inventory",
-    description: "Open inventory window.",
-    group: "Dialogs",
+    label: "背包",
+    description: "打开背包窗口。",
+    group: "对话",
   },
   {
     id: "open_character",
-    label: "Character Sheet",
-    description: "Open character sheet window.",
-    group: "Dialogs",
+    label: "角色面板",
+    description: "打开角色面板窗口。",
+    group: "对话",
   },
 ];
 
 export const nh3dControllerActionSpecsByGroup = {
-  Movement: controllerActionSpecs.filter((spec) => spec.group === "Movement"),
-  "Look And Camera": controllerActionSpecs.filter(
-    (spec) => spec.group === "Look And Camera",
+  移动: controllerActionSpecs.filter((spec) => spec.group === "移动"),
+  视角与镜头: controllerActionSpecs.filter(
+    (spec) => spec.group === "视角与镜头",
   ),
-  Actions: controllerActionSpecs.filter((spec) => spec.group === "Actions"),
-  Dialogs: controllerActionSpecs.filter((spec) => spec.group === "Dialogs"),
-  System: controllerActionSpecs.filter((spec) => spec.group === "System"),
+  动作: controllerActionSpecs.filter((spec) => spec.group === "动作"),
+  对话: controllerActionSpecs.filter((spec) => spec.group === "对话"),
+  系统: controllerActionSpecs.filter((spec) => spec.group === "系统"),
 } as const;
 
 export const nh3dControllerActionSpecs = controllerActionSpecs;
@@ -353,26 +353,26 @@ const buttonLabelByIndex: Record<number, string> = {
   1: "B",
   2: "X",
   3: "Y",
-  4: "Left Bumper",
-  5: "Right Bumper",
-  6: "Left Trigger",
-  7: "Right Trigger",
-  8: "Back / View",
-  9: "Start / Menu",
-  10: "Left Stick Click",
-  11: "Right Stick Click",
-  12: "D-Pad Up",
-  13: "D-Pad Down",
-  14: "D-Pad Left",
-  15: "D-Pad Right",
-  16: "Home",
+  4: "左肩键",
+  5: "右肩键",
+  6: "左扳机",
+  7: "右扳机",
+  8: "返回 / 视图",
+  9: "开始 / 菜单",
+  10: "左摇杆按下",
+  11: "右摇杆按下",
+  12: "十字键 上",
+  13: "十字键 下",
+  14: "十字键 左",
+  15: "十字键 右",
+  16: "主页",
 };
 
 const axisLabelByIndex: Record<number, string> = {
-  0: "Left Stick X",
-  1: "Left Stick Y",
-  2: "Right Stick X",
-  3: "Right Stick Y",
+  0: "左摇杆 X",
+  1: "左摇杆 Y",
+  2: "右摇杆 X",
+  3: "右摇杆 Y",
 };
 
 function formatAxisDirectionLabel(
@@ -380,18 +380,18 @@ function formatAxisDirectionLabel(
   direction: -1 | 1,
 ): string {
   if (axisIndex === 0) {
-    return direction < 0 ? "Left Stick Left" : "Left Stick Right";
+    return direction < 0 ? "左摇杆 左" : "左摇杆 右";
   }
   if (axisIndex === 1) {
-    return direction < 0 ? "Left Stick Up" : "Left Stick Down";
+    return direction < 0 ? "左摇杆 上" : "左摇杆 下";
   }
   if (axisIndex === 2) {
-    return direction < 0 ? "Right Stick Left" : "Right Stick Right";
+    return direction < 0 ? "右摇杆 左" : "右摇杆 右";
   }
   if (axisIndex === 3) {
-    return direction < 0 ? "Right Stick Up" : "Right Stick Down";
+    return direction < 0 ? "右摇杆 上" : "右摇杆 下";
   }
-  const axisLabel = axisLabelByIndex[axisIndex] ?? `Axis ${axisIndex}`;
+  const axisLabel = axisLabelByIndex[axisIndex] ?? `轴 ${axisIndex}`;
   return `${axisLabel} ${direction < 0 ? "-" : "+"}`;
 }
 
@@ -399,14 +399,14 @@ export function formatNh3dControllerBindingLabel(
   binding: Nh3dControllerBinding | null | undefined,
 ): string {
   if (!binding) {
-    return "Unbound";
+    return "未绑定";
   }
   const parsed = parseNh3dControllerBinding(binding);
   if (!parsed) {
-    return "Unbound";
+    return "未绑定";
   }
   if (parsed.kind === "button") {
-    return buttonLabelByIndex[parsed.index] ?? `Button ${parsed.index}`;
+    return buttonLabelByIndex[parsed.index] ?? `按钮 ${parsed.index}`;
   }
   return formatAxisDirectionLabel(parsed.index, parsed.direction);
 }

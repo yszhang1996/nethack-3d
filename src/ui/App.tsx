@@ -147,19 +147,19 @@ const playerConditionStatusDefinitions: ReadonlyArray<{
   label: string;
   severity: StatusSeverity;
 }> = [
-  { mask: 0x00000001, label: "Stone", severity: "danger" },
-  { mask: 0x00000002, label: "Slime", severity: "danger" },
-  { mask: 0x00000004, label: "Strngl", severity: "danger" },
-  { mask: 0x00000008, label: "FoodPois", severity: "danger" },
-  { mask: 0x00000010, label: "TermIll", severity: "danger" },
-  { mask: 0x00000020, label: "Blind", severity: "warning" },
-  { mask: 0x00000040, label: "Deaf", severity: "warning" },
-  { mask: 0x00000080, label: "Stun", severity: "warning" },
-  { mask: 0x00000100, label: "Conf", severity: "warning" },
-  { mask: 0x00000200, label: "Hallu", severity: "warning" },
-  { mask: 0x00000400, label: "Lev", severity: "good" },
-  { mask: 0x00000800, label: "Fly", severity: "good" },
-  { mask: 0x00001000, label: "Ride", severity: "good" },
+  { mask: 0x00000001, label: "石化", severity: "danger" },
+  { mask: 0x00000002, label: "黏液化", severity: "danger" },
+  { mask: 0x00000004, label: "窒息", severity: "danger" },
+  { mask: 0x00000008, label: "食物中毒", severity: "danger" },
+  { mask: 0x00000010, label: "绝症", severity: "danger" },
+  { mask: 0x00000020, label: "失明", severity: "warning" },
+  { mask: 0x00000040, label: "失聪", severity: "warning" },
+  { mask: 0x00000080, label: "眩晕", severity: "warning" },
+  { mask: 0x00000100, label: "混乱", severity: "warning" },
+  { mask: 0x00000200, label: "幻觉", severity: "warning" },
+  { mask: 0x00000400, label: "漂浮", severity: "good" },
+  { mask: 0x00000800, label: "飞行", severity: "good" },
+  { mask: 0x00001000, label: "骑乘", severity: "good" },
 ];
 
 function resolveHungerStatusBadge(
@@ -263,16 +263,16 @@ const trackedCoreStatKeys: CoreStatKey[] = [
 ];
 
 const characterStatDescriptionById: Record<CharacterSheetStatKey, string> = {
-  strength: "Affects melee damage, carrying capacity, and forcing actions.",
-  dexterity: "Affects hit chance, trap interaction, and defensive agility.",
-  constitution: "Affects HP growth and resistance to poison and drain effects.",
-  intelligence: "Affects reading and success with many spell-related actions.",
-  wisdom: "Affects spell energy growth and spell-casting reliability.",
-  charisma: "Affects shop interactions, pet handling, and social outcomes.",
+  strength: "影响近战伤害、负重能力与强制动作。",
+  dexterity: "影响命中率、陷阱交互与防御灵活性。",
+  constitution: "影响生命成长以及对中毒和吸取效果的抗性。",
+  intelligence: "影响阅读能力与许多法术相关动作的成功率。",
+  wisdom: "影响法力成长和施法稳定性。",
+  charisma: "影响商店互动、宠物管理和社交结果。",
 };
 
 const armorClassDescription =
-  "Lower is better. Armor Class reduces enemy hit chance against you.";
+  "护甲等级越低越好。它会降低敌人命中你的概率。";
 
 const maxExperienceLevel = 30;
 
@@ -336,11 +336,11 @@ const getDirectionHelpText = (
 ) =>
   numberPadModeEnabled
     ? controllerEnabled
-      ? "Click a direction, or use left stick/DPAD to preview and release to confirm. Center circle targets self. Use < or > for stairs. Press ESC to cancel."
-      : "Click a direction. Center circle targets self. You can also use numpad (1-4,6-9), arrow keys, <, >, or s. Press ESC to cancel."
+      ? "点击方向，或使用左摇杆/十字键预览，松开确认。中心圆表示目标为自己。上下楼梯使用 < 或 >。按 ESC 取消。"
+      : "点击一个方向。中心圆表示目标为自己。也可使用数字键盘（1-4,6-9）、方向键、<、> 或 s。按 ESC 取消。"
     : controllerEnabled
-      ? "Click a direction, or use left stick/DPAD to preview and release to confirm. Center circle targets self. Use < or > for stairs. Press ESC to cancel."
-      : "Click a direction. Center circle targets self. You can also use hjkl/yubn, arrow keys, <, >, or s. Press ESC to cancel.";
+      ? "点击方向，或使用左摇杆/十字键预览，松开确认。中心圆表示目标为自己。上下楼梯使用 < 或 >。按 ESC 取消。"
+      : "点击一个方向。中心圆表示目标为自己。也可使用 hjkl/yubn、方向键、<、> 或 s。按 ESC 取消。";
 
 function expandChoiceSpec(spec: string): string[] {
   const normalized = String(spec || "")
@@ -1756,60 +1756,60 @@ type InventoryCategoryId =
   | "bagged_boxed_items";
 
 const inventoryContextActions: InventoryContextAction[] = [
-  { id: "apply", label: "Apply" },
-  { id: "invoke", label: "Invoke", kind: "extended", value: "invoke" },
-  { id: "tip", label: "Tip", kind: "extended", value: "tip" },
+  { id: "apply", label: "使用" },
+  { id: "invoke", label: "调用", kind: "extended", value: "invoke" },
+  { id: "tip", label: "倾倒", kind: "extended", value: "tip" },
   {
     id: "loot",
-    label: "Loot",
+    label: "搜刮",
     kind: "extended",
     value: "loot",
     armInventorySelection: false,
   },
-  { id: "drop", label: "Drop" },
-  { id: "eat", label: "Eat" },
-  { id: "quaff", label: "Quaff" },
-  { id: "read", label: "Read" },
-  { id: "rub", label: "Rub", kind: "extended", value: "rub" },
-  { id: "throw", label: "Throw" },
-  { id: "wield", label: "Wield" },
-  { id: "quiver", label: "Quiver" },
-  { id: "wear", label: "Wear" },
-  { id: "take-off", label: "Take Off" },
-  { id: "put-on", label: "Put On" },
-  { id: "remove", label: "Remove" },
-  { id: "zap", label: "Zap" },
+  { id: "drop", label: "丢弃" },
+  { id: "eat", label: "吃" },
+  { id: "quaff", label: "饮用" },
+  { id: "read", label: "阅读" },
+  { id: "rub", label: "摩擦", kind: "extended", value: "rub" },
+  { id: "throw", label: "投掷" },
+  { id: "wield", label: "装备" },
+  { id: "quiver", label: "箭袋" },
+  { id: "wear", label: "穿戴" },
+  { id: "take-off", label: "脱下" },
+  { id: "put-on", label: "戴上" },
+  { id: "remove", label: "移除" },
+  { id: "zap", label: "施杖" },
   {
     id: "untrap",
-    label: "Untrap",
+    label: "解除陷阱",
     kind: "extended",
     value: "untrap",
     armInventorySelection: false,
   },
   {
     id: "offer",
-    label: "Offer",
+    label: "供奉",
     kind: "extended",
     value: "offer",
     armInventorySelection: false,
   },
   {
     id: "name",
-    label: "Name",
+    label: "命名",
     kind: "extended",
     value: "name",
   },
   {
     id: "call",
-    label: "Call",
+    label: "称呼",
     kind: "extended",
     value: "call",
     armInventorySelection: false,
   },
-  { id: "adjust", label: "Adjust", kind: "extended", value: "adjust" },
-  { id: "engrave", label: "Engrave", kind: "extended", value: "engrave" },
-  { id: "dip", label: "Dip", kind: "extended", value: "dip" },
-  { id: "info", label: "Info" },
+  { id: "adjust", label: "调整", kind: "extended", value: "adjust" },
+  { id: "engrave", label: "刻字", kind: "extended", value: "engrave" },
+  { id: "dip", label: "浸泡", kind: "extended", value: "dip" },
+  { id: "info", label: "信息" },
 ];
 
 const emptyInventoryActionIdSet: ReadonlySet<string> = new Set<string>();
@@ -2186,7 +2186,7 @@ const startupControllerCursorSpeedPxPerSec = 820;
 const startupControllerSliderFastStepsPerSec = 13;
 const controllerActionGroupOrder: Array<
   keyof typeof nh3dControllerActionSpecsByGroup
-> = ["Movement", "Look And Camera", "Actions", "Dialogs", "System"];
+> = ["移动", "视角与镜头", "动作", "对话", "系统"];
 const startupControllerNavActionIds: readonly Nh3dControllerActionId[] = [
   "dpad_up",
   "dpad_down",
@@ -2905,35 +2905,35 @@ function findControllerScrollableElement(
 const clientOptionsConfig: ClientOption[] = [
   {
     key: "group-controls",
-    label: "Controller and first-person mode",
+    label: "手柄与第一人称模式",
     type: "group",
   },
   {
     key: "section-controls-controller",
-    label: "Controller",
+    label: "手柄",
     type: "section",
   },
   {
     key: "controllerEnabled",
-    label: "Enable controller support",
-    description: "Enable gamepad input for gameplay and UI dialogs.",
+    label: "启用手柄支持",
+    description: "启用手柄输入用于游戏与界面对话。",
     type: "boolean",
   },
   {
     key: "section-controls-look",
-    label: "Look and camera",
+    label: "视角与镜头",
     type: "section",
   },
   {
     key: "invertLookYAxis",
-    label: "Invert Y-axis look",
-    description: "Invert vertical mouselook and touch-look direction.",
+    label: "反转 Y 轴视角",
+    description: "反转鼠标/触摸的垂直观察方向。",
     type: "boolean",
   },
   {
     key: "fpsLookSensitivityX",
-    label: "FPS Look Sensitivity X",
-    description: "Horizontal mouselook/touch-look sensitivity.",
+    label: "FPS 横向视角灵敏度",
+    description: "鼠标/触摸横向视角灵敏度。",
     type: "slider",
     min: nh3dFpsLookSensitivityMin,
     max: nh3dFpsLookSensitivityMax,
@@ -2941,8 +2941,8 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "fpsLookSensitivityY",
-    label: "FPS Look Sensitivity Y",
-    description: "Vertical mouselook/touch-look sensitivity.",
+    label: "FPS 纵向视角灵敏度",
+    description: "鼠标/触摸纵向视角灵敏度。",
     type: "slider",
     min: nh3dFpsLookSensitivityMin,
     max: nh3dFpsLookSensitivityMax,
@@ -2950,28 +2950,28 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "snapCameraYawToNearest45",
-    label: "Snap camera yaw to 45 degrees",
+    label: "镜头偏航吸附到 45 度",
     description:
-      "When camera rotation input is released, smoothly snap yaw to the nearest 45 degree angle.",
+      "释放镜头旋转输入后，平滑吸附到最近的 45 度角。",
     type: "boolean",
   },
   {
     key: "section-controls-movement",
-    label: "Movement behavior",
+    label: "移动行为",
     type: "section",
   },
   {
     key: "cameraRelativeMovement",
-    label: "Camera-relative movement and swipes",
+    label: "相机相对移动与滑动",
     description:
-      "Rotate movement keys and swipe directions based on the camera Y-axis angle.",
+      "根据镜头 Y 轴角度旋转移动键与滑动方向。",
     type: "boolean",
   },
   {
     key: "controllerFpsMoveRepeatMs",
-    label: "FPS left-stick move repeat",
+    label: "FPS 左摇杆移动重复",
     description:
-      "Movement repeat delay for left stick in FPS mode (lower is faster).",
+      "FPS 模式下左摇杆移动重复延迟（越低越快）。",
     type: "slider",
     min: 80,
     max: 900,
@@ -2979,38 +2979,38 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "group-interface",
-    label: "Interface",
+    label: "界面",
     type: "group",
   },
   {
     key: "section-display-camera",
-    label: "Camera and perspective",
+    label: "镜头与视角",
     type: "section",
   },
   {
     key: "fpsMode",
-    label: "First-person mode",
-    description: "Use first-person controls and mouselook.",
+    label: "第一人称模式",
+    description: "使用第一人称控制与鼠标视角。",
     type: "boolean",
   },
   {
     key: "fpsFlattenEntityBillboards",
-    label: "Flatten overlapping tile sprites",
+    label: "压平重叠图块精灵",
     description:
-      "Flatten tile sprites for loot or dungeon features when monsters, pets, or the player stand on them. Disable to keep overlapping sprites as standing billboards. Vulture tiles always stay standing.",
+      "当怪物、宠物或玩家站在战利品/地城特征上时压平图块精灵。关闭后保持重叠精灵为立式公告牌。Vulture 图块始终保持立式。",
     type: "boolean",
   },
   {
     key: "showItemsUnderPlayerInOverheadTilesMode",
-    label: "Show under-player items in overhead tiles",
+    label: "俯视图显示玩家脚下物品",
     description:
-      "Show items and floor features under the player in overhead tiles mode using runtime underlay glyph data.",
+      "在俯视图块模式下使用运行时下层 glyph 数据显示玩家脚下物品与地面特征。",
     type: "boolean",
   },
   {
     key: "fpsFov",
-    label: "FPS Field of View",
-    description: "Adjust first-person camera FOV.",
+    label: "FPS 视野角",
+    description: "调整第一人称镜头视野角。",
     type: "slider",
     min: 45,
     max: 110,
@@ -3018,31 +3018,31 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "section-display-graphics",
-    label: "Graphics and rendering",
+    label: "图形与渲染",
     type: "section",
   },
   {
     key: "tilesetMode",
-    label: "Display",
-    description: "Use graphical tiles instead of ASCII.",
+    label: "显示模式",
+    description: "使用图形图块替代 ASCII。",
     type: "select",
     options: [
       { value: "ascii", label: "ASCII" },
-      { value: "tiles", label: "Tiles" },
+      { value: "tiles", label: "图块" },
     ],
   },
   {
     key: "tilesetPath",
-    label: "Tileset",
-    description: "Built-in and uploaded tilesets.",
+    label: "图块集",
+    description: "内置与已上传图块集。",
     type: "select",
     options: [],
     disabled: false,
   },
   {
     key: "antialiasing",
-    label: "Antialiasing",
-    description: "Edge smoothing mode for 3D rendering.",
+    label: "抗锯齿",
+    description: "3D 渲染边缘平滑模式。",
     type: "select",
     options: [
       { value: "taa", label: "TAA" },
@@ -3051,14 +3051,14 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "blockAmbientOcclusion",
-    label: "Ambient occlusion",
-    description: "Adds subtle contact shadowing between floor and wall blocks.",
+    label: "环境光遮蔽",
+    description: "为地面与墙体添加轻微接触阴影。",
     type: "boolean",
   },
   {
     key: "brightness",
-    label: "Brightness",
-    description: "Adjust overall scene brightness.",
+    label: "亮度",
+    description: "调整整体场景亮度。",
     type: "slider",
     min: -0.25,
     max: 0.25,
@@ -3066,8 +3066,8 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "contrast",
-    label: "Contrast",
-    description: "Adjust global contrast of rendered scene content.",
+    label: "对比度",
+    description: "调整渲染场景内容的全局对比度。",
     type: "slider",
     min: -0.25,
     max: 0.25,
@@ -3075,8 +3075,8 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "gamma",
-    label: "Gamma",
-    description: "Adjust display gamma for rendered scene content.",
+    label: "伽马",
+    description: "调整渲染场景内容的显示伽马。",
     type: "slider",
     min: 0.5,
     max: 2.5,
@@ -3084,13 +3084,13 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "section-display-interface",
-    label: "Interface",
+    label: "界面",
     type: "section",
   },
   {
     key: "uiFontScale",
-    label: "UI font scale",
-    description: "Scale all game UI font sizes from their defaults.",
+    label: "UI 字体缩放",
+    description: "将所有游戏 UI 字体大小按默认值进行缩放。",
     type: "slider",
     min: 0.7,
     max: 1.8,
@@ -3098,40 +3098,40 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "disableAnimatedTransitions",
-    label: "Disable animated transitions",
+    label: "禁用动画过渡",
     description:
-      "Turn off interface fade, motion, and transition animations for snappier UI changes.",
+      "关闭界面淡入淡出、运动与过渡动画，使 UI 切换更直接。",
     type: "boolean",
   },
   {
     key: "uiTileBackgroundRemoval",
-    label: "Remove tile backgrounds in UI",
+    label: "在 UI 中移除图块背景",
     description:
-      "Apply tile/chroma background removal to tile icons shown in UI panels.",
+      "为 UI 面板中的图块图标应用图块/色键背景去除。",
     type: "boolean",
   },
   {
     key: "desktopTouchInterfaceMode",
-    label: "Desktop touch interface",
+    label: "桌面触控界面",
     description:
-      "Show touch controls on desktop and choose portrait or landscape layout.",
+      "在桌面显示触控控件，并选择竖屏或横屏布局。",
     type: "select",
     options: [
-      { value: "off", label: "Off" },
-      { value: "portrait", label: "Use portrait touch UI" },
-      { value: "landscape", label: "Use landscape touch UI" },
+      { value: "off", label: "关闭" },
+      { value: "portrait", label: "使用竖屏触控 UI" },
+      { value: "landscape", label: "使用横屏触控 UI" },
     ],
   },
   {
     key: "section-display-messages",
-    label: "Messages and log",
+    label: "消息与日志",
     type: "section",
   },
   {
     key: "desktopMessageLogWindowScale",
-    label: "Desktop message log window scale",
+    label: "桌面消息日志窗口缩放",
     description:
-      "Scale the boxed desktop message log window size without changing font size.",
+      "缩放桌面消息日志窗口大小，不改变字体大小。",
     type: "slider",
     min: 0.33,
     max: 1.5,
@@ -3139,14 +3139,14 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "liveMessageLog",
-    label: "Live message log",
-    description: "Display the scrolling in-game message log.",
+    label: "实时消息日志",
+    description: "显示滚动的游戏内消息日志。",
     type: "boolean",
   },
   {
     key: "liveMessageDisplayTimeMs",
-    label: "Live message display time",
-    description: "Time a floating message stays fully visible before fading.",
+    label: "实时消息显示时长",
+    description: "浮动消息在淡出前保持完全可见的时长。",
     type: "slider",
     min: 250,
     max: 6000,
@@ -3154,8 +3154,8 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "liveMessageFadeOutTimeMs",
-    label: "Live message fade-out time",
-    description: "Duration of floating message fade-out animation.",
+    label: "实时消息淡出时长",
+    description: "浮动消息淡出动画持续时间。",
     type: "slider",
     min: 120,
     max: 4000,
@@ -3163,9 +3163,9 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "liveMessageLogFontScale",
-    label: "Live message font scale",
+    label: "实时消息字体缩放",
     description:
-      "Scale the fade-up floating action messages from their default size.",
+      "将淡入上浮动作消息按默认大小进行缩放。",
     type: "slider",
     min: 0.7,
     max: 2.2,
@@ -3173,19 +3173,19 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "section-display-minimap",
-    label: "Minimap",
+    label: "小地图",
     type: "section",
   },
   {
     key: "minimap",
-    label: "Minimap",
-    description: "Show or hide the dungeon minimap.",
+    label: "小地图",
+    description: "显示或隐藏地城小地图。",
     type: "boolean",
   },
   {
     key: "minimapScale",
-    label: "Minimap scale",
-    description: "Scale the minimap size from its default.",
+    label: "小地图缩放",
+    description: "按默认大小缩放小地图。",
     type: "slider",
     min: 0.6,
     max: 2.2,
@@ -3193,133 +3193,133 @@ const clientOptionsConfig: ClientOption[] = [
   },
   {
     key: "section-display-inventory",
-    label: "Inventory presentation",
+    label: "背包显示",
     type: "section",
   },
   {
     key: "reduceInventoryMotion",
-    label: "Reduce inventory motion",
+    label: "减少背包动画",
     description:
-      "Disable animated inventory row expansion and use simpler interactions.",
+      "禁用背包行展开动画，改用更简单的交互。",
     type: "boolean",
   },
   {
     key: "inventoryTileOnlyMotion",
-    label: "Animate inventory tiles only",
+    label: "仅动画背包图块",
     description:
-      "Animate icon tiles while keeping inventory row height and spacing fixed.",
+      "仅对图标图块做动画，同时保持背包行高与间距固定。",
     type: "boolean",
   },
   {
     key: "inventoryFixedTileSize",
-    label: "Fixed inventory tile size",
+    label: "固定背包图块大小",
     description:
-      "Applies only when Reduce inventory motion is enabled. Choose a fixed icon size.",
+      "仅在启用“减少背包动画”时生效。选择固定图标大小。",
     type: "select",
     options: [
-      { value: "none", label: "None" },
-      { value: "small", label: "Small" },
-      { value: "medium", label: "Medium" },
-      { value: "large", label: "Large" },
+      { value: "none", label: "无" },
+      { value: "small", label: "小" },
+      { value: "medium", label: "中" },
+      { value: "large", label: "大" },
     ],
   },
   {
     key: "group-sound",
-    label: "Sound",
+    label: "声音",
     type: "group",
   },
   {
     key: "soundEnabled",
-    label: "Enable sound",
+    label: "启用声音",
     description:
-      "Turn FMOD audio on or off. Disabling reduces audio processing overhead on lower-end devices.",
+      "开启或关闭 FMOD 音频。关闭后可降低低端设备音频处理负担。",
     type: "boolean",
   },
   {
     key: "group-mobile-controls",
-    label: "Mobile controls",
+    label: "移动端控制",
     type: "group",
   },
   {
     key: "invertTouchPanningDirection",
-    label: "Invert touch panning direction",
+    label: "反转触控平移方向",
     description:
-      "Reverse drag direction for touch panning after hold-to-pan starts.",
+      "长按进入平移后反转触控拖动方向。",
     type: "boolean",
   },
   {
     key: "group-combat",
-    label: "Combat feedback",
+    label: "战斗反馈",
     type: "group",
   },
   {
     key: "damageNumbers",
-    label: "Damage numbers",
-    description: "Show floating damage and healing numbers.",
+    label: "伤害数字",
+    description: "显示浮动伤害与治疗数字。",
     type: "boolean",
   },
   {
     key: "displayStatChangesAbovePlayer",
-    label: "Display stat changes above player",
+    label: "在玩家上方显示属性变化",
     description:
-      "Show floating labels for stat changes such as Strength and AC.",
+      "显示如力量、AC 等属性变化的浮动标签。",
     type: "boolean",
   },
   {
     key: "displayXpGainsAbovePlayer",
-    label: "Display XP gains above player",
-    description: "Show floating XP gain labels when experience increases.",
+    label: "在玩家上方显示经验增长",
+    description: "经验增加时显示浮动经验标签。",
     type: "boolean",
   },
   {
     key: "tileShakeOnHit",
-    label: "Tile shake on hit",
-    description: "Shake impact tiles when combat lands.",
+    label: "命中图块震动",
+    description: "战斗命中时震动受击图块。",
     type: "boolean",
   },
   {
     key: "blood",
-    label: "Blood",
-    description: "Render blood mist particle effects on hits.",
+    label: "血雾",
+    description: "命中时渲染血雾粒子效果。",
     type: "boolean",
   },
   {
     key: "monsterShatter",
-    label: "Monster shatter",
+    label: "怪物破碎",
     description:
-      "Split defeated monster billboards into physical shard pieces.",
+      "将被击败怪物的立绘分裂为物理碎片。",
     type: "boolean",
   },
   {
     key: "monsterShatterBloodBorders",
-    label: "Shatter blood borders",
+    label: "破碎血色边缘",
     description:
-      "Tint shard pixels near split lines with randomized blood-red edges.",
+      "将碎裂边缘附近像素随机染成血红色。",
     type: "boolean",
   },
   {
     key: "group-compatibility",
-    label: "Runtime compatibility",
+    label: "运行时兼容性",
     type: "group",
   },
   {
     key: "darkCorridorWalls367",
-    label: "NetHack 3.6.7 dark corridor walls",
+    label: "NetHack 3.6.7 暗走廊墙",
     description:
-      "Infer and cache dark corridor wall tiles (NetHack 3.6.7 behavior).",
+      "推断并缓存暗走廊墙图块（NetHack 3.6.7 行为）。",
     type: "boolean",
   },
   {
     key: "darkCorridorWallTileOverrideEnabled",
-    label: "Override inferred dark wall tile",
+    label: "覆盖推断的暗墙图块",
     description:
-      "Use a custom atlas tile for inferred dark corridor walls, saved per tileset.",
+      "为推断出的暗走廊墙使用自定义图集图块，按图块集保存。",
     type: "boolean",
   },
   {
     key: "darkCorridorWallSolidColorOverrideEnabled",
-    label: "Use solid color for inferred dark walls",
-    description: "Use a picked RGB color instead of a tileset tile.",
+    label: "推断暗墙使用纯色",
+    description: "使用选定的 RGB 颜色替代图块集图块。",
     type: "boolean",
   },
 ];
@@ -3329,44 +3329,44 @@ const clientOptionsDefaultTabId: ClientOptionsTabId = "display";
 const clientOptionsTabs: ClientOptionsTab[] = [
   {
     id: "display",
-    label: "Display",
-    description: "Interface and display settings.",
+    label: "显示",
+    description: "界面与显示设置。",
     groupKey: "group-interface",
   },
   {
     id: "mobile",
-    label: "Mobile",
-    description: "Touch control settings for mobile gameplay.",
+    label: "移动端",
+    description: "移动端触控操作设置。",
     groupKey: "group-mobile-controls",
   },
   {
     id: "controls",
-    label: "Controls",
-    description: "Controller mappings, FPS mode, and look behavior.",
+    label: "控制",
+    description: "手柄映射、FPS 模式与视角行为。",
     groupKey: "group-controls",
   },
   {
     id: "sound",
-    label: "Sound",
-    description: "Audio output and performance-related sound controls.",
+    label: "声音",
+    description: "音频输出与性能相关声音控制。",
     groupKey: "group-sound",
   },
   {
     id: "combat",
-    label: "Combat",
-    description: "Combat impact feedback and visual response.",
+    label: "战斗",
+    description: "战斗命中反馈与视觉响应。",
     groupKey: "group-combat",
   },
   {
     id: "compatibility",
-    label: "Compatibility",
-    description: "Runtime compatibility and NetHack behavior toggles.",
+    label: "兼容性",
+    description: "运行时兼容与 NetHack 行为开关。",
     groupKey: "group-compatibility",
   },
   {
     id: "updates",
-    label: "Updates",
-    description: "Check for online game updates and review pending changes.",
+    label: "更新",
+    description: "检查在线游戏更新并查看待更新内容。",
     groupKey: "group-updates",
   },
 ];
@@ -3555,21 +3555,21 @@ const clampTileContextMenuPosition = (
 const tileContextMenuAnchorOffsetY = 30;
 
 const mobileActions: MobileActionEntry[] = [
-  { id: "wait", label: "Wait", kind: "quick", value: "wait" },
-  { id: "zap", label: "Zap", kind: "extended", value: "zap" },
-  { id: "cast", label: "Cast", kind: "extended", value: "cast" },
-  { id: "kick", label: "Kick", kind: "extended", value: "kick" },
-  { id: "read", label: "Read", kind: "extended", value: "read" },
-  { id: "quaff", label: "Quaff", kind: "extended", value: "quaff" },
-  { id: "eat", label: "Eat", kind: "extended", value: "eat" },
-  { id: "glance", label: "Glance", kind: "extended", value: "glance" },
-  { id: "loot", label: "Loot", kind: "quick", value: "loot" },
-  { id: "open", label: "Open", kind: "quick", value: "open" },
-  { id: "wield", label: "Wield", kind: "extended", value: "wield" },
-  { id: "wear", label: "Wear", kind: "extended", value: "wear" },
-  { id: "put-on", label: "Put On", kind: "extended", value: "puton" },
-  { id: "take-off", label: "Take Off", kind: "extended", value: "takeoff" },
-  { id: "extended", label: "Extended", kind: "quick", value: "extended" },
+  { id: "wait", label: "等待", kind: "quick", value: "wait" },
+  { id: "zap", label: "施杖", kind: "extended", value: "zap" },
+  { id: "cast", label: "施法", kind: "extended", value: "cast" },
+  { id: "kick", label: "踢", kind: "extended", value: "kick" },
+  { id: "read", label: "阅读", kind: "extended", value: "read" },
+  { id: "quaff", label: "饮用", kind: "extended", value: "quaff" },
+  { id: "eat", label: "吃", kind: "extended", value: "eat" },
+  { id: "glance", label: "查看", kind: "extended", value: "glance" },
+  { id: "loot", label: "搜刮", kind: "quick", value: "loot" },
+  { id: "open", label: "打开", kind: "quick", value: "open" },
+  { id: "wield", label: "装备", kind: "extended", value: "wield" },
+  { id: "wear", label: "穿戴", kind: "extended", value: "wear" },
+  { id: "put-on", label: "戴上", kind: "extended", value: "puton" },
+  { id: "take-off", label: "脱下", kind: "extended", value: "takeoff" },
+  { id: "extended", label: "扩展", kind: "quick", value: "extended" },
 ];
 
 const controllerActionWheelOuterRadiusPercent = 50;
@@ -4140,10 +4140,10 @@ function resolveSavePlayModeChipLabel(
   playMode: "normal" | "explore" | "debug" | null,
 ): string | null {
   if (playMode === "debug") {
-    return "Wizard/Debug";
+    return "巫师/调试";
   }
   if (playMode === "explore") {
-    return "Explore";
+    return "探索";
   }
   return null;
 }
@@ -4511,14 +4511,14 @@ export default function App(): JSX.Element {
       [
         {
           key: "manual" as const,
-          label: "Manual Saves",
+          label: "手动存档",
           saves: resumableSavedGames.filter(
             (save) => save.category === "manual",
           ),
         },
         {
           key: "autosave" as const,
-          label: "Autosaves",
+          label: "自动存档",
           saves: resumableSavedGames.filter(
             (save) => save.category === "autosave",
           ),
@@ -4639,10 +4639,10 @@ export default function App(): JSX.Element {
   ) => {
     e.stopPropagation();
     const confirmed = await requestConfirmation({
-      title: "Delete Saved Game?",
-      message: `Are you sure you want to delete ${save.displayName}?`,
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: "删除存档？",
+      message: `确定要删除 ${save.displayName} 吗？`,
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       confirmClassName: "nh3d-menu-action-cancel",
     });
     if (!confirmed) {
@@ -4683,10 +4683,10 @@ export default function App(): JSX.Element {
         const matchingSaves = saves.filter((s) => s.name === configName);
         if (matchingSaves.length > 0) {
           const confirmed = await requestConfirmation({
-            title: "Overwrite Saved Game?",
-            message: `A saved game named "${configName}" already exists. Do you want to overwrite it with a new character?`,
-            confirmLabel: "Overwrite",
-            cancelLabel: "Cancel",
+            title: "覆盖存档？",
+            message: `名为“${configName}”的存档已存在。要用新角色覆盖它吗？`,
+            confirmLabel: "覆盖",
+            cancelLabel: "取消",
             confirmClassName: "nh3d-menu-action-cancel",
           });
           if (!confirmed) {
@@ -5171,7 +5171,7 @@ export default function App(): JSX.Element {
             value: tileset.path,
             label: tileset.label,
           }))
-        : [{ value: "", label: "No tilesets found" }],
+        : [{ value: "", label: "未找到图块集" }],
     [hasAnyTilesets, tilesetCatalog],
   );
   const selectedClientOptionsTab = useMemo<ClientOptionsTab>(
@@ -6127,12 +6127,12 @@ export default function App(): JSX.Element {
     tileAtlasState.tileCount,
   ]);
   const tilePickerStatusText = !selectedTilesetEntry
-    ? "No tileset atlas available."
+    ? "没有可用的图块图集。"
     : tileAtlasState.failed
-      ? "Unable to load tile atlas."
+      ? "无法加载图块图集。"
       : tileAtlasState.loaded
-        ? "Tile atlas loaded."
-        : "Loading tile atlas...";
+        ? "图块图集已加载。"
+        : "正在加载图块图集...";
   const tilePreviewDataUrlByIdRaw = useMemo(() => {
     const previewByTileId = new Map<number, string>();
     if (
@@ -7120,10 +7120,10 @@ export default function App(): JSX.Element {
   const loadingOverlayVisible =
     startupLoadingVisible || runtimeLoadingVisible || tilesetLoadingVisible;
   const loadingSubtitle = startupLoadingVisible
-    ? "Loading startup data..."
+    ? "正在加载启动数据..."
     : tilesetLoadingVisible
-      ? "Loading tileset..."
-      : "Starting local runtime...";
+      ? "正在加载图块集..."
+      : "正在启动本地运行时...";
   const startupInitialLoadingVisible =
     !hasShownStartupMenu && loadingOverlayVisible;
   const startupLogoVisible = startupUiVisible && !startupInitialLoadingVisible;
@@ -7152,7 +7152,7 @@ export default function App(): JSX.Element {
   const runtimeInitializationErrorMessage = runtimeInitializationErrorVisible
     ? latestGameMessage ||
       statusText.trim() ||
-      "The local NetHack runtime stopped before startup finished."
+      "本地 NetHack 运行时在启动完成前已停止。"
     : "";
   const startupUpdateDialogOpen =
     startupMenuVisible && isStartupUpdateDialogVisible;
@@ -7190,12 +7190,12 @@ export default function App(): JSX.Element {
   const startupUpdateProgressSummary =
     startupUpdateProgressMessage ||
     (startupUpdateBusy
-      ? "Preparing game update download..."
-      : "Update status is idle.");
+      ? "正在准备游戏更新下载..."
+      : "更新状态空闲。");
   const startupUpdateProgressFileSummary =
     typeof startupUpdateProgressFileIndex === "number" &&
     typeof startupUpdateProgressFileCount === "number"
-      ? `File ${startupUpdateProgressFileIndex} of ${startupUpdateProgressFileCount}`
+      ? `文件 ${startupUpdateProgressFileIndex} / ${startupUpdateProgressFileCount}`
       : null;
 
   useEffect(() => {
@@ -7417,8 +7417,8 @@ export default function App(): JSX.Element {
     appendStartupUpdateProgressEntry({
       phase: "cancel",
       status: "warning",
-      message: "Cancel requested.",
-      detail: "Stopping active download task.",
+      message: "已请求取消。",
+      detail: "正在停止当前下载任务。",
     });
     const cancelResult = await cancelNh3dClientUpdate();
     if (!cancelResult.ok) {
@@ -7427,7 +7427,7 @@ export default function App(): JSX.Element {
         appendStartupUpdateProgressEntry({
           phase: "cancel",
           status: "error",
-          message: "Unable to cancel update download.",
+          message: "无法取消更新下载。",
           detail: cancelResult.error,
         });
       }
@@ -7439,7 +7439,7 @@ export default function App(): JSX.Element {
       appendStartupUpdateProgressEntry({
         phase: "cancel",
         status: "warning",
-        message: "No active update download to cancel.",
+        message: "当前没有可取消的更新下载任务。",
       });
     }
   }, [
@@ -7464,14 +7464,14 @@ export default function App(): JSX.Element {
     setStartupUpdateError("");
     startupUpdateProgressEntryIdRef.current = 0;
     setStartupUpdateProgressEntries([]);
-    setStartupUpdateProgressMessage("Starting game update download.");
+    setStartupUpdateProgressMessage("开始下载游戏更新。");
     setStartupUpdateProgressPercent(0);
     setStartupUpdateProgressFileIndex(null);
     setStartupUpdateProgressFileCount(null);
     appendStartupUpdateProgressEntry({
       phase: "start",
       status: "info",
-      message: "Starting game update download.",
+      message: "开始下载游戏更新。",
     });
 
     try {
@@ -7480,23 +7480,23 @@ export default function App(): JSX.Element {
       );
       if (!applyResult.ok) {
         if (applyResult.canceled) {
-          setStartupUpdateError("Update download was canceled.");
+          setStartupUpdateError("更新下载已取消。");
           appendStartupUpdateProgressEntry({
             phase: "cancel",
             status: "warning",
-            message: "Update download was canceled.",
+            message: "更新下载已取消。",
             progressPercent: startupUpdateProgressPercent ?? null,
           });
           return;
         }
         setStartupUpdateError(
-          applyResult.error || "Unable to download and apply updates.",
+          applyResult.error || "无法下载并应用更新。",
         );
         appendStartupUpdateProgressEntry({
           phase: "error",
           status: "error",
-          message: "Update failed.",
-          detail: applyResult.error || "Unable to download and apply updates.",
+          message: "更新失败。",
+          detail: applyResult.error || "无法下载并应用更新。",
         });
         return;
       }
@@ -7506,8 +7506,8 @@ export default function App(): JSX.Element {
           phase: "complete",
           status: "success",
           message: applyResult.alreadyInstalled
-            ? "Latest update already installed."
-            : "Update download complete.",
+            ? "已安装最新更新。"
+            : "更新下载完成。",
           progressPercent: 100,
         });
         const activated = await activateNh3dClientUpdateIfNeeded();
@@ -7519,21 +7519,21 @@ export default function App(): JSX.Element {
       }
 
       setStartupUpdateError(
-        "No updates were applied. Please try checking again.",
+        "未应用任何更新，请重试检查。",
       );
       appendStartupUpdateProgressEntry({
         phase: "warning",
         status: "warning",
-        message: "No update files were applied.",
+        message: "未应用任何更新文件。",
       });
     } catch (error) {
       setStartupUpdateError(
-        error instanceof Error ? error.message : "Unexpected update failure.",
+        error instanceof Error ? error.message : "发生意外更新错误。",
       );
       appendStartupUpdateProgressEntry({
         phase: "error",
         status: "error",
-        message: "Unexpected update failure.",
+        message: "发生意外更新错误。",
         detail: error instanceof Error ? error.message : null,
       });
     } finally {
@@ -7552,7 +7552,7 @@ export default function App(): JSX.Element {
       return;
     }
     setOptionsUpdateCheckBusy(true);
-    setOptionsUpdateCheckStatus("Checking for updates...");
+    setOptionsUpdateCheckStatus("正在检查更新...");
 
     try {
       const result = await checkForNh3dClientUpdates();
@@ -7560,7 +7560,7 @@ export default function App(): JSX.Element {
 
       if (!result.supported) {
         setOptionsUpdateCheckStatus(
-          "This platform does not support online game updates.",
+          "当前平台不支持在线游戏更新。",
         );
         return;
       }
@@ -8004,8 +8004,8 @@ export default function App(): JSX.Element {
   const inventoryContextMenuOpen =
     inventoryContextMenu !== null && inventoryContextActionsEnabled;
   const inventoryCloseInstructionText = inventoryContextActionsEnabled
-    ? "Select an item to open contextual commands. Press ENTER, ESC, or 'i' to close"
-    : "Press ENTER, ESC, or 'i' to close.";
+    ? "选择一个物品以打开上下文命令。按 ENTER、ESC 或 'i' 关闭"
+    : "按 ENTER、ESC 或 'i' 关闭。";
 
   useLayoutEffect(() => {
     if (typeof document === "undefined") {
@@ -9405,19 +9405,19 @@ export default function App(): JSX.Element {
       .replace(/\.[^.]+$/g, "")
       .trim();
     if (!tilesetManagerName.trim()) {
-      setTilesetManagerName(strippedName || "User Tileset");
+      setTilesetManagerName(strippedName || "用户图块集");
     }
   };
 
   const removeUserTileset = async (
     record: StoredUserTilesetRecord,
   ): Promise<void> => {
-    const label = String(record.label || "this tileset");
+    const label = String(record.label || "该图块集");
     const confirmed = await requestConfirmation({
-      title: "Delete Uploaded Tileset?",
-      message: `Delete '${label}' from uploaded tilesets?`,
-      confirmLabel: "Delete",
-      cancelLabel: "Cancel",
+      title: "删除已上传图块集？",
+      message: `要从已上传图块集中删除“${label}”吗？`,
+      confirmLabel: "删除",
+      cancelLabel: "取消",
       confirmClassName: "nh3d-menu-action-cancel",
     });
     if (!confirmed) {
@@ -9488,11 +9488,11 @@ export default function App(): JSX.Element {
     const userLabel = appendUserTilesetNameSuffix(label);
     if (tilesetManagerInNewMode) {
       if (!file) {
-        setTilesetManagerError("Choose a PNG/BMP/GIF/JPEG tileset file.");
+        setTilesetManagerError("请选择 PNG/BMP/GIF/JPEG 图块集文件。");
         return;
       }
       if (!label) {
-        setTilesetManagerError("Provide a name for this tileset.");
+        setTilesetManagerError("请为该图块集填写名称。");
         return;
       }
     }
@@ -9501,7 +9501,7 @@ export default function App(): JSX.Element {
       selectedTilesetManagerEditUserRecord &&
       !label
     ) {
-      setTilesetManagerError("Provide a name for this tileset.");
+      setTilesetManagerError("请为该图块集填写名称。");
       return;
     }
 
@@ -10346,7 +10346,7 @@ export default function App(): JSX.Element {
 
   const renderMobileDialogCloseButton = (
     onClick: () => void,
-    label = "Close",
+    label = "关闭",
   ): JSX.Element | null =>
     isMobileViewport ? (
       <button
@@ -10904,7 +10904,7 @@ export default function App(): JSX.Element {
     const initialWithRegionClamp = resolveInventoryContextMenuPosition(
       {
         accelerator: itemAccelerator,
-        itemText: String(item.text || "Unknown item"),
+        itemText: String(item.text || "未知物品"),
         x: initial.x,
         y: initial.y,
         anchorBottomY,
@@ -10917,7 +10917,7 @@ export default function App(): JSX.Element {
 
     setInventoryContextMenu({
       accelerator: itemAccelerator,
-      itemText: String(item.text || "Unknown item"),
+      itemText: String(item.text || "未知物品"),
       x: initialWithRegionClamp.x,
       y: initialWithRegionClamp.y,
       anchorBottomY,
@@ -11189,7 +11189,7 @@ export default function App(): JSX.Element {
         typeof gameOver.deathMessage === "string" &&
         gameOver.deathMessage.trim()
           ? gameOver.deathMessage.trim()
-          : "Game over",
+          : "游戏结束",
     });
   }, [
     directionQuestion,
@@ -12116,7 +12116,7 @@ export default function App(): JSX.Element {
         {isExitConfirmationVisible ? (
           <>
             <div className="nh3d-question-text">
-              Do you want to save before quitting?
+              退出前要先保存吗？
             </div>
             <div className="nh3d-menu-actions">
               <button
@@ -12128,7 +12128,7 @@ export default function App(): JSX.Element {
                 }}
                 type="button"
               >
-                Yes
+                是
               </button>
               <button
                 className="nh3d-menu-action-button"
@@ -12137,20 +12137,20 @@ export default function App(): JSX.Element {
                 }}
                 type="button"
               >
-                No
+                否
               </button>
               <button
                 className="nh3d-menu-action-button nh3d-menu-action-cancel"
                 onClick={() => setIsExitConfirmationVisible(false)}
                 type="button"
               >
-                Cancel
+                取消
               </button>
             </div>
           </>
         ) : (
           <>
-            <div className="nh3d-options-title">Game Paused</div>
+            <div className="nh3d-options-title">游戏已暂停</div>
             <div className="nh3d-overflow-glow-frame">
               <div
                 className="nh3d-choice-list"
@@ -12162,14 +12162,14 @@ export default function App(): JSX.Element {
                   onClick={() => setIsPauseMenuVisible(false)}
                   type="button"
                 >
-                  Resume
+                  继续游戏
                 </button>
                 <button
                   className="nh3d-choice-button"
                   onClick={openClientOptionsDialog}
                   type="button"
                 >
-                  Options
+                  选项
                 </button>
                 <button
                   className="nh3d-choice-button"
@@ -12179,14 +12179,14 @@ export default function App(): JSX.Element {
                   }}
                   type="button"
                 >
-                  Save game
+                  保存游戏
                 </button>
                 <button
                   className="nh3d-choice-button"
                   onClick={() => setIsExitConfirmationVisible(true)}
                   type="button"
                 >
-                  Exit to main menu
+                  返回主菜单
                 </button>
                 <button
                   className="nh3d-choice-button"
@@ -12195,7 +12195,7 @@ export default function App(): JSX.Element {
                   }}
                   type="button"
                 >
-                  Quit Game
+                  退出游戏
                 </button>
               </div>
             </div>
@@ -12292,21 +12292,20 @@ export default function App(): JSX.Element {
       >
         <div className="nh3d-question-text">
           {startupPendingUpdateCount <= 0
-            ? "Game update maintenance notice."
+            ? "游戏更新维护通知。"
             : startupPendingUpdateCount === 1
-              ? "1 game update is available."
-              : `${startupPendingUpdateCount} game updates are available.`}
+              ? "有 1 个游戏更新可用。"
+              : `有 ${startupPendingUpdateCount} 个游戏更新可用。`}
         </div>
         <div className="nh3d-startup-update-summary">
           {startupPendingUpdateCount > 0
-            ? "Download the latest build files now and refresh into the updated game."
+            ? "立即下载最新构建文件并刷新进入更新后的游戏。"
             : startupHostWarningMessage ||
-              "No downloadable game update is currently pending."}
+              "当前没有待下载的游戏更新。"}
         </div>
         {startupClientUpdateRequired ? (
           <div className="nh3d-startup-update-client-warning">
-            A full client upgrade is also required for the newest platform
-            enhancements.
+            同时还需要完整升级客户端，才能使用最新的平台增强功能。
             {startupClientUpdateMessage ? ` ${startupClientUpdateMessage}` : ""}
           </div>
         ) : null}
@@ -12317,7 +12316,7 @@ export default function App(): JSX.Element {
           <div className="nh3d-startup-update-progress-pane">
             <div className="nh3d-startup-update-progress-pane-header">
               <div className="nh3d-startup-update-progress-pane-title">
-                Update Download Status
+                更新下载状态
               </div>
               <div className="nh3d-startup-update-progress-pane-percent">
                 {typeof startupUpdateProgressPercentValue === "number"
@@ -12327,7 +12326,7 @@ export default function App(): JSX.Element {
             </div>
             <div className="nh3d-startup-update-progress-pane-summary">
               {startupUpdateCancelBusy
-                ? "Canceling update download..."
+                ? "正在取消更新下载..."
                 : startupUpdateProgressSummary}
             </div>
             <div
@@ -12358,7 +12357,7 @@ export default function App(): JSX.Element {
               {startupUpdateProgressFileSummary ? (
                 <span>{startupUpdateProgressFileSummary}</span>
               ) : (
-                <span>No active file transfer.</span>
+                <span>当前没有文件传输。</span>
               )}
               {startupLatestUpdateProgressEntry?.detail ? (
                 <span>{startupLatestUpdateProgressEntry.detail}</span>
@@ -12399,7 +12398,7 @@ export default function App(): JSX.Element {
                       --:--:--
                     </span>
                     <span className="nh3d-startup-update-progress-log-message">
-                      Waiting for updater activity.
+                      等待更新器活动。
                     </span>
                   </div>
                 )}
@@ -12415,7 +12414,7 @@ export default function App(): JSX.Element {
               data-nh3d-overflow-glow-host="parent"
             >
               <div className="nh3d-startup-update-details-title">
-                Pending Updates
+                待处理更新
               </div>
               <ul className="nh3d-startup-update-details-list">
                 {startupPendingUpdateCommits.length > 0 ? (
@@ -12425,7 +12424,7 @@ export default function App(): JSX.Element {
                     </li>
                   ))
                 ) : (
-                  <li>Update payload is available.</li>
+                  <li>已有可用更新包。</li>
                 )}
               </ul>
             </div>
@@ -12440,7 +12439,7 @@ export default function App(): JSX.Element {
             }}
             type="button"
           >
-            {startupUpdateBusy ? "Downloading..." : "Download Updates"}
+            {startupUpdateBusy ? "下载中..." : "下载更新"}
           </button>
           <button
             className="nh3d-menu-action-button"
@@ -12448,7 +12447,7 @@ export default function App(): JSX.Element {
             onClick={toggleStartupUpdateDetails}
             type="button"
           >
-            {startupUpdateDetailsVisible ? "Hide Details" : "More Details"}
+            {startupUpdateDetailsVisible ? "隐藏详情" : "更多详情"}
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
@@ -12467,9 +12466,9 @@ export default function App(): JSX.Element {
           >
             {startupUpdateBusy && startupCanCancelUpdateDownload
               ? startupUpdateCancelBusy
-                ? "Canceling..."
-                : "Cancel Download"
-              : "Later"}
+                ? "取消中..."
+                : "取消下载"
+              : "稍后"}
           </button>
         </div>
       </AnimatedDialog>
@@ -12484,7 +12483,7 @@ export default function App(): JSX.Element {
         onKeyDown={handleStartupMainMenuKeyDown}
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
-        <div className="nh3d-question-text">Choose your character setup:</div>
+        <div className="nh3d-question-text">选择角色创建方式：</div>
         <div className="nh3d-overflow-glow-frame">
           <div
             className="nh3d-choice-list nh3d-choice-list-startup-choose"
@@ -12493,7 +12492,7 @@ export default function App(): JSX.Element {
           >
             <div className="nh3d-startup-config-grid centered">
               <label className="nh3d-startup-config-field">
-                <span>NetHack Version</span>
+                <span>NetHack 版本</span>
                 <select
                   className="nh3d-startup-config-select"
                   onChange={(event) =>
@@ -12513,28 +12512,28 @@ export default function App(): JSX.Element {
               onClick={() => setStartupFlowStep("random")}
               type="button"
             >
-              Random character
+              随机角色
             </button>
             <button
               className="nh3d-choice-button nh3d-character-setup-choice-button"
               onClick={() => setStartupFlowStep("create")}
               type="button"
             >
-              Create character
+              创建角色
             </button>
             <button
               className="nh3d-choice-button nh3d-character-setup-choice-button"
               onClick={handleResumeClick}
               type="button"
             >
-              Load game
+              读取存档
             </button>
             <button
               className="nh3d-choice-button nh3d-character-setup-choice-button"
               onClick={openClientOptionsDialog}
               type="button"
             >
-              NetHack 3D Options
+              NetHack 3D 选项
             </button>
             <button
               className="nh3d-choice-button nh3d-character-setup-choice-button"
@@ -12543,7 +12542,7 @@ export default function App(): JSX.Element {
               }}
               type="button"
             >
-              Quit Game
+              退出游戏
             </button>
           </div>
         </div>
@@ -12559,7 +12558,7 @@ export default function App(): JSX.Element {
         onKeyDown={handleStartupMainMenuKeyDown}
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
-        <div className="nh3d-question-text">Select a saved game:</div>
+        <div className="nh3d-question-text">选择一个存档：</div>
         <div className="nh3d-overflow-glow-frame">
           <div
             className="nh3d-choice-list nh3d-choice-list-startup-resume"
@@ -12574,7 +12573,7 @@ export default function App(): JSX.Element {
                   color: "var(--nh3d-ui-text-muted)",
                 }}
               >
-                Loading saves...
+                正在加载存档...
               </div>
             ) : savedGameSections.length > 0 ? (
               <div
@@ -12655,7 +12654,7 @@ export default function App(): JSX.Element {
                                 fontWeight: "normal",
                               }}
                             >
-                              Saved: {save.dateFormatted}
+                              保存时间：{save.dateFormatted}
                             </div>
                           </div>
                         </button>
@@ -12679,7 +12678,7 @@ export default function App(): JSX.Element {
                   color: "var(--nh3d-ui-text-muted)",
                 }}
               >
-                No saved games found.
+                未找到存档。
               </div>
             )}
           </div>
@@ -12690,7 +12689,7 @@ export default function App(): JSX.Element {
             onClick={() => setStartupFlowStep("choose")}
             type="button"
           >
-            Back
+            返回
           </button>
         </div>
       </AnimatedDialog>
@@ -12708,11 +12707,11 @@ export default function App(): JSX.Element {
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
         <div className="nh3d-question-text">
-          Enter a name for your random character:
+          给你的随机角色输入一个名字：
         </div>
         <div className="nh3d-startup-config-grid centered">
           <label className="nh3d-startup-config-field">
-            <span>Name</span>
+            <span>名称</span>
             <input
               className="nh3d-startup-config-input"
               maxLength={30}
@@ -12748,21 +12747,21 @@ export default function App(): JSX.Element {
             }}
             type="button"
           >
-            Start game
+            开始游戏
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
             onClick={() => setStartupFlowStep("choose")}
             type="button"
           >
-            Back
+            返回
           </button>
           <button
             className="nh3d-menu-action-button"
             onClick={openClientOptionsDialog}
             type="button"
           >
-            NetHack 3D Options
+            NetHack 3D 选项
           </button>
         </div>
       </AnimatedDialog>
@@ -12779,10 +12778,10 @@ export default function App(): JSX.Element {
         onKeyDown={handleStartupMainMenuKeyDown}
         onPointerDownCapture={handleStartupMainMenuPointerDownCapture}
       >
-        <div className="nh3d-question-text">Create your character:</div>
+        <div className="nh3d-question-text">创建你的角色：</div>
         <div className="nh3d-startup-config-grid">
           <label className="nh3d-startup-config-field">
-            <span>Name</span>
+            <span>名称</span>
             <input
               className="nh3d-startup-config-input"
               maxLength={30}
@@ -12793,7 +12792,7 @@ export default function App(): JSX.Element {
             />
           </label>
           <label className="nh3d-startup-config-field">
-            <span>Role</span>
+            <span>职业</span>
             <select
               className="nh3d-startup-config-select"
               onChange={(event) => setCreateRole(event.target.value)}
@@ -12807,7 +12806,7 @@ export default function App(): JSX.Element {
             </select>
           </label>
           <label className="nh3d-startup-config-field">
-            <span>Race</span>
+            <span>种族</span>
             <select
               className="nh3d-startup-config-select"
               onChange={(event) => setCreateRace(event.target.value)}
@@ -12821,7 +12820,7 @@ export default function App(): JSX.Element {
             </select>
           </label>
           <label className="nh3d-startup-config-field">
-            <span>Gender</span>
+            <span>性别</span>
             <select
               className="nh3d-startup-config-select"
               onChange={(event) => setCreateGender(event.target.value)}
@@ -12835,7 +12834,7 @@ export default function App(): JSX.Element {
             </select>
           </label>
           <label className="nh3d-startup-config-field">
-            <span>Alignment</span>
+            <span>阵营</span>
             <select
               className="nh3d-startup-config-select"
               onChange={(event) => setCreateAlign(event.target.value)}
@@ -12881,14 +12880,14 @@ export default function App(): JSX.Element {
             onClick={() => setStartupFlowStep("choose")}
             type="button"
           >
-            Back
+            返回
           </button>
           <button
             className="nh3d-menu-action-button"
             onClick={openClientOptionsDialog}
             type="button"
           >
-            NetHack 3D Options
+            NetHack 3D 选项
           </button>
         </div>
       </AnimatedDialog>
@@ -12946,7 +12945,7 @@ export default function App(): JSX.Element {
           >
             {renderMobileDialogCloseButton(
               () => setIsMobileLogVisible(false),
-              "Close message log",
+              "关闭消息日志",
             )}
             {gameMessages.map((message, index) => (
               <div key={`${index}-${message}`}>{message}</div>
@@ -13129,13 +13128,13 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           requestCloseClientOptionsDialog,
-          "Close NetHack 3D options",
+          "关闭 NetHack 3D 选项",
         )}
-        <div className="nh3d-options-title">NetHack 3D Client Options</div>
+        <div className="nh3d-options-title">NetHack 3D 客户端选项</div>
         <div className="nh3d-options-layout">
           <div className="nh3d-overflow-glow-frame nh3d-options-nav-shell">
             <div
-              aria-label="Settings categories"
+              aria-label="设置分类"
               className="nh3d-options-nav"
               data-nh3d-overflow-glow
               data-nh3d-overflow-glow-host="parent"
@@ -13184,11 +13183,10 @@ export default function App(): JSX.Element {
                     <div className="nh3d-option-row nh3d-option-row-inline-toggle">
                       <div className="nh3d-option-copy">
                         <div className="nh3d-option-label">
-                          Check for updates on launch
+                          启动时检查更新
                         </div>
                         <div className="nh3d-option-description">
-                          Automatically checks the online manifest when the game
-                          starts.
+                          游戏启动时自动检查在线清单。
                         </div>
                       </div>
                       <button
@@ -13212,10 +13210,9 @@ export default function App(): JSX.Element {
                     </div>
                     <div className="nh3d-option-row nh3d-option-row-updates">
                       <div className="nh3d-option-copy">
-                        <div className="nh3d-option-label">Game Updates</div>
+                        <div className="nh3d-option-label">游戏更新</div>
                         <div className="nh3d-option-description">
-                          Check the published online manifest and compare it to
-                          your installed build.
+                          检查线上发布清单并与本地版本比较。
                         </div>
                         {optionsUpdateCheckStatus ? (
                           <div className="nh3d-updates-status">
@@ -13223,8 +13220,7 @@ export default function App(): JSX.Element {
                           </div>
                         ) : (
                           <div className="nh3d-updates-status">
-                            Press Check for Updates to verify game files are up
-                            to date.
+                            点击“检查更新”以确认游戏文件是否为最新。
                           </div>
                         )}
                         {optionsUpdateCheckResult &&
@@ -13254,8 +13250,8 @@ export default function App(): JSX.Element {
                           type="button"
                         >
                           {optionsUpdateCheckBusy
-                            ? "Checking..."
-                            : "Check for Updates"}
+                            ? "检查中..."
+                            : "检查更新"}
                         </button>
                       </div>
                     </div>
@@ -13385,7 +13381,7 @@ export default function App(): JSX.Element {
                                     <label className="nh3d-dark-wall-mode-color">
                                       <span>Normal</span>
                                       <input
-                                        aria-label="Dark wall solid color (normal mode)"
+                                        aria-label="暗墙纯色（普通模式）"
                                         className="nh3d-option-solid-color-native-picker"
                                         disabled={
                                           darkWallSecondaryControlsDisabled
@@ -13404,7 +13400,7 @@ export default function App(): JSX.Element {
                                     <label className="nh3d-dark-wall-mode-color">
                                       <span>FPS</span>
                                       <input
-                                        aria-label="Dark wall solid color (FPS mode)"
+                                        aria-label="暗墙纯色（FPS 模式）"
                                         className="nh3d-option-solid-color-native-picker"
                                         disabled={
                                           darkWallSecondaryControlsDisabled
@@ -13437,10 +13433,10 @@ export default function App(): JSX.Element {
                                         }
                                         type="checkbox"
                                       />
-                                      <span>Grid lines</span>
+                                      <span>网格线</span>
                                     </label>
                                     <label className="nh3d-dark-wall-grid-darkness">
-                                      <span>Intensity</span>
+                                      <span>强度</span>
                                       <span className="nh3d-dark-wall-grid-darkness-input-wrap">
                                         <input
                                           className="nh3d-dark-wall-grid-darkness-input"
@@ -13508,11 +13504,10 @@ export default function App(): JSX.Element {
                           <div className="nh3d-option-row nh3d-option-row-controller-remap">
                             <div className="nh3d-option-copy">
                               <div className="nh3d-option-label">
-                                Controller remap
+                                手柄重映射
                               </div>
                               <div className="nh3d-option-description">
-                                Set two bindings per action for gameplay and
-                                dialog controls.
+                                每个动作设置两个绑定，用于游戏与对话控制。
                               </div>
                             </div>
                             <div className="nh3d-option-select-controls">
@@ -13521,7 +13516,7 @@ export default function App(): JSX.Element {
                                 onClick={openControllerRemapDialog}
                                 type="button"
                               >
-                                Remap Controller
+                                重映射手柄
                               </button>
                             </div>
                           </div>
@@ -13572,7 +13567,7 @@ export default function App(): JSX.Element {
                               onClick={openTilesetManager}
                               type="button"
                             >
-                              Manage Tile Sets
+                              管理图块集
                             </button>
                           ) : null}
                           <select
@@ -13722,21 +13717,21 @@ export default function App(): JSX.Element {
             onClick={requestConfirmClientOptionsDialog}
             type="button"
           >
-            Confirm
+            确认
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
             onClick={requestCloseClientOptionsDialog}
             type="button"
           >
-            Cancel
+            取消
           </button>
           <button
             className="nh3d-menu-action-button"
             onClick={openResetClientOptionsConfirmation}
             type="button"
           >
-            Reset to Defaults
+            恢复默认
           </button>
         </div>
       </AnimatedDialog>
@@ -13747,7 +13742,7 @@ export default function App(): JSX.Element {
         id="nh3d-reset-client-options-confirmation-dialog"
       >
         <div className="nh3d-question-text">
-          Reset NetHack 3D options to defaults? Custom tile sets will be kept.
+          将 NetHack 3D 选项恢复为默认值？自定义图块集会保留。
         </div>
         <div className="nh3d-menu-actions">
           <button
@@ -13755,14 +13750,14 @@ export default function App(): JSX.Element {
             onClick={confirmResetClientOptionsToDefaults}
             type="button"
           >
-            Yes
+            是
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
             onClick={cancelResetClientOptionsConfirmation}
             type="button"
           >
-            No
+            否
           </button>
         </div>
       </AnimatedDialog>
@@ -13774,24 +13769,23 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           closeControllerRemapDialog,
-          "Close controller remap",
+          "关闭手柄重映射",
         )}
-        <div className="nh3d-options-title">Controller Remap</div>
+        <div className="nh3d-options-title">手柄重映射</div>
         <div className="nh3d-controller-remap-hint">
-          Select a slot, then press a button or move a stick. Each action has
-          two slots.
+          先选择一个槽位，再按下按钮或拨动摇杆。每个动作有两个槽位。
         </div>
         <div className="nh3d-controller-remap-status">
           {controllerRemapListening ? (
             <>
-              Listening for{" "}
+              正在监听{" "}
               <strong>{controllerRemapListeningActionLabel}</strong> (slot{" "}
-              {controllerRemapListening.slotIndex + 1}). Press ESC to cancel.
+              {controllerRemapListening.slotIndex + 1}）。按 ESC 取消。
             </>
           ) : connectedControllerCount > 0 ? (
-            `${connectedControllerCount} controller${connectedControllerCount === 1 ? "" : "s"} detected.`
+            `检测到 ${connectedControllerCount} 个手柄。`
           ) : (
-            "No controller detected."
+            "未检测到手柄。"
           )}
         </div>
         <div className="nh3d-overflow-glow-frame nh3d-controller-remap-list-shell">
@@ -13847,11 +13841,11 @@ export default function App(): JSX.Element {
                                 type="button"
                               >
                                 <span className="nh3d-controller-remap-slot-label">
-                                  Slot {slotIndex + 1}
+                                  槽位 {slotIndex + 1}
                                 </span>
                                 <span className="nh3d-controller-remap-slot-value">
                                   {listeningForSlot
-                                    ? "Press input..."
+                                    ? "请按输入..."
                                     : formatNh3dControllerBindingLabel(binding)}
                                 </span>
                               </button>
@@ -13869,7 +13863,7 @@ export default function App(): JSX.Element {
                                 }}
                                 type="button"
                               >
-                                Clear
+                                清除
                               </button>
                             </div>
                           );
@@ -13888,14 +13882,14 @@ export default function App(): JSX.Element {
             onClick={closeControllerRemapDialog}
             type="button"
           >
-            Done
+            完成
           </button>
           <button
             className="nh3d-menu-action-button"
             onClick={resetControllerBindingsToDefaultsDraft}
             type="button"
           >
-            Reset Controller Defaults
+            重置手柄默认配置
           </button>
         </div>
       </AnimatedDialog>
@@ -13907,11 +13901,11 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           closeTilesetManager,
-          "Close tileset manager",
+          "关闭图块集管理器",
         )}
-        <div className="nh3d-options-title">Manage Tile Sets</div>
+        <div className="nh3d-options-title">管理图块集</div>
         <div className="nh3d-option-description">
-          Add tile sets and edit per-tileset background/chroma settings.
+          添加图块集并编辑每个图块集的背景/色键设置。
         </div>
         <div className="nh3d-tileset-manager-content-shell">
           <div className="nh3d-tileset-manager-content">
@@ -13924,10 +13918,10 @@ export default function App(): JSX.Element {
                 <div className="nh3d-tileset-manager-header">
                   <div className="nh3d-option-label">
                     {tilesetManagerInNewMode
-                      ? "Create New Tile Set"
+                      ? "创建新图块集"
                       : selectedTilesetManagerEditEntry
-                        ? `Edit Tile Set: ${selectedTilesetManagerEditEntry.label}`
-                        : "Edit Tile Set"}
+                        ? `编辑图块集：${selectedTilesetManagerEditEntry.label}`
+                        : "编辑图块集"}
                   </div>
                 </div>
                 <div className="nh3d-tileset-manager-upload-row">
@@ -13935,7 +13929,7 @@ export default function App(): JSX.Element {
                     className="nh3d-option-label"
                     htmlFor="nh3d-tileset-name"
                   >
-                    Tile Set Name
+                    图块集名称
                   </label>
                   <input
                     className="nh3d-text-input nh3d-tileset-manager-input"
@@ -13943,14 +13937,14 @@ export default function App(): JSX.Element {
                     onChange={(event) =>
                       setTilesetManagerName(event.target.value)
                     }
-                    placeholder="My Tileset"
+                    placeholder="我的图块集"
                     readOnly={tilesetManagerNameInputDisabled}
                     type="text"
                     value={tilesetManagerName}
                   />
                   {tilesetManagerNameInputDisabled ? (
                     <div className="nh3d-option-description">
-                      Built-in tile set names cannot be changed.
+                      内置图块集名称不可修改。
                     </div>
                   ) : null}
                 </div>
@@ -13962,8 +13956,8 @@ export default function App(): JSX.Element {
                       htmlFor="nh3d-tileset-upload-file"
                     >
                       {tilesetManagerInNewMode
-                        ? "Tileset Image"
-                        : "Tileset Image (optional replacement)"}
+                        ? "图块集图片"
+                        : "图块集图片（可选替换）"}
                     </label>
                     <input
                       accept=".png,.bmp,.gif,.jpg,.jpeg,image/*"
@@ -13975,18 +13969,17 @@ export default function App(): JSX.Element {
                     />
                     <div className="nh3d-option-description">
                       {tilesetManagerFile
-                        ? `Selected: ${tilesetManagerFile.name}`
+                        ? `已选择：${tilesetManagerFile.name}`
                         : tilesetManagerInNewMode
-                          ? "Choose a tileset image file."
-                          : `Current: ${selectedTilesetManagerEditUserRecord?.fileName || "uploaded image"}`}
+                          ? "请选择一个图块集图片文件。"
+                          : `当前：${selectedTilesetManagerEditUserRecord?.fileName || "已上传图片"}`}
                     </div>
                   </div>
                 ) : null}
                 {selectedTilesetManagerEditEntry ? (
                   <Fragment>
                     <div className="nh3d-option-description">
-                      Configure billboard background removal for this tileset,
-                      or leave both modes off to keep atlas backgrounds intact.
+                      为该图块集配置立绘背景去除，或关闭两种模式以保留图集背景。
                     </div>
                     <div
                       className={`nh3d-option-row nh3d-option-row-inline-toggle nh3d-option-row-has-secondary-controls${
@@ -13997,11 +13990,10 @@ export default function App(): JSX.Element {
                     >
                       <div className="nh3d-option-copy">
                         <div className="nh3d-option-label">
-                          Background Tile Removal
+                          背景图块去除
                         </div>
                         <div className="nh3d-option-description">
-                          Use a selected atlas tile for billboard background
-                          removal.
+                          使用选定图集图块进行立绘背景去除。
                         </div>
                       </div>
                       <div className="nh3d-option-toggle-controls nh3d-option-secondary-controls">
@@ -14143,8 +14135,7 @@ export default function App(): JSX.Element {
                   </Fragment>
                 ) : (
                   <div className="nh3d-option-description">
-                    Save the new tile set first, then edit background/chroma
-                    settings.
+                    请先保存新图块集，然后再编辑背景/色键设置。
                   </div>
                 )}
                 <div className="nh3d-tileset-manager-upload-actions">
@@ -14157,10 +14148,10 @@ export default function App(): JSX.Element {
                     type="button"
                   >
                     {tilesetManagerInNewMode
-                      ? "Create Tile Set"
+                      ? "创建图块集"
                       : selectedTilesetManagerEditUserRecord
-                        ? "Save Tile Set"
-                        : "Save Tile Settings"}
+                        ? "保存图块集"
+                        : "保存图块设置"}
                   </button>
                 </div>
               </div>
@@ -14177,7 +14168,7 @@ export default function App(): JSX.Element {
               onClick={openTilesetManagerNewEditor}
               type="button"
             >
-              + Import New Tile Set
+              + 导入新图块集
             </button>
             <div className="nh3d-overflow-glow-frame nh3d-tileset-manager-list-shell">
               <div
@@ -14187,7 +14178,7 @@ export default function App(): JSX.Element {
               >
                 {tilesetManagerListTilesets.length === 0 ? (
                   <div className="nh3d-option-description">
-                    No uploaded tilesets available.
+                    当前没有已上传图块集。
                   </div>
                 ) : (
                   tilesetManagerListTilesets.map((tileset) => {
@@ -14207,13 +14198,13 @@ export default function App(): JSX.Element {
                         <div className="nh3d-tileset-manager-item-copy">
                           <div className="nh3d-option-label">
                             {tileset.label}
-                            {isSelected ? " (selected)" : ""}
-                            {isEditing ? " (editing)" : ""}
+                            {isSelected ? "（已选择）" : ""}
+                            {isEditing ? "（编辑中）" : ""}
                           </div>
                           <div className="nh3d-option-description">
                             {isUserTileset
-                              ? `${userRecord?.fileName || tilesetPath} | uploaded`
-                              : `${tilesetPath} | built-in`}
+                              ? `${userRecord?.fileName || tilesetPath} | 已上传`
+                              : `${tilesetPath} | 内置`}
                           </div>
                         </div>
                         <div className="nh3d-tileset-manager-item-actions">
@@ -14224,7 +14215,7 @@ export default function App(): JSX.Element {
                             }
                             type="button"
                           >
-                            Edit
+                            编辑
                           </button>
                           {isUserTileset ? (
                             <button
@@ -14257,13 +14248,13 @@ export default function App(): JSX.Element {
             onClick={closeTilesetManager}
             type="button"
           >
-            Done
+            完成
           </button>
         </div>
       </AnimatedDialog>
 
       <TilesetTilePickerDialog
-        closeLabel="Close dark wall tile picker"
+        closeLabel="关闭暗墙图块选择器"
         defaultTileId={defaultDarkWallTileId}
         dialogId="nh3d-dark-wall-tile-picker-dialog"
         entries={tilePickerEntries}
@@ -14280,16 +14271,16 @@ export default function App(): JSX.Element {
         showGlyphNumber={showTilePickerGlyphNumber}
         statusText={tilePickerStatusText}
         tileAtlasLoaded={tileAtlasState.loaded}
-        title="Dark Wall Tile Picker"
+        title="暗墙图块选择器"
         visible={isClientOptionsVisible && isDarkWallTilePickerVisible}
       />
 
       <TilesetTilePickerDialog
-        closeLabel="Close tileset background tile picker"
+        closeLabel="关闭图块集背景图块选择器"
         defaultTileId={tilesetManagerDefaultBackgroundTileId}
         dialogId="nh3d-tileset-background-tile-picker-dialog"
         entries={tilesetManagerTilePickerEntries}
-        helperText="Used for removing shared tileset background from monster/loot billboards."
+        helperText="用于从怪物/战利品立绘中去除共享图块集背景。"
         onDone={() => setIsTilesetBackgroundTilePickerVisible(false)}
         onResetToDefault={() =>
           updateTilesetBackgroundTileIdDraft(
@@ -14315,8 +14306,8 @@ export default function App(): JSX.Element {
         tileAtlasLoaded={tilesetManagerAtlasState.loaded}
         title={
           selectedTilesetManagerEditEntry
-            ? `Tileset Background Tile Picker: ${selectedTilesetManagerEditEntry.label}`
-            : "Tileset Background Tile Picker"
+            ? `图块集背景图块选择器：${selectedTilesetManagerEditEntry.label}`
+            : "图块集背景图块选择器"
         }
         visible={
           isClientOptionsVisible &&
@@ -14332,7 +14323,7 @@ export default function App(): JSX.Element {
           tilesetManagerAtlasState.columns *
           tilesetManagerAtlasState.tileSourceSize
         }
-        closeLabel="Close solid chroma key color picker"
+        closeLabel="关闭纯色色键选择器"
         dialogId="nh3d-tileset-solid-color-picker-dialog"
         onDone={() => setIsTilesetSolidColorPickerVisible(false)}
         onSelectColorHex={(rawHex) =>
@@ -14348,8 +14339,8 @@ export default function App(): JSX.Element {
         tileSourceSize={tilesetManagerAtlasState.tileSourceSize}
         title={
           selectedTilesetManagerEditEntry
-            ? `Solid Color Chroma Key Picker: ${selectedTilesetManagerEditEntry.label}`
-            : "Solid Color Chroma Key Picker"
+            ? `纯色色键选择器：${selectedTilesetManagerEditEntry.label}`
+            : "纯色色键选择器"
         }
         visible={
           isClientOptionsVisible &&
@@ -14368,7 +14359,7 @@ export default function App(): JSX.Element {
           <>
             {renderMobileDialogCloseButton(
               () => submitTextInput(""),
-              "Cancel text input",
+              "取消文本输入",
             )}
             {textInputRequest.contextMessage ? (
               <div className="nh3d-text-input-context" role="note">
@@ -14392,7 +14383,7 @@ export default function App(): JSX.Element {
                   submitTextInput("");
                 }
               }}
-              placeholder={textInputRequest.placeholder ?? "Enter text"}
+              placeholder={textInputRequest.placeholder ?? "请输入文本"}
               ref={textInputRef}
               type="text"
               value={textInputValue}
@@ -14403,14 +14394,14 @@ export default function App(): JSX.Element {
                 onClick={() => submitTextInput(textInputValue)}
                 type="button"
               >
-                OK
+                确定
               </button>
               <button
                 className="nh3d-menu-action-button nh3d-menu-action-cancel"
                 onClick={() => submitTextInput("")}
                 type="button"
               >
-                Cancel
+                取消
               </button>
             </div>
           </>
@@ -14432,7 +14423,7 @@ export default function App(): JSX.Element {
           <>
             {renderMobileDialogCloseButton(
               () => controller?.cancelActivePrompt(),
-              "Cancel prompt",
+              "取消提示",
             )}
             <div className="nh3d-question-text">{question.text}</div>
             {question.menuItems.length > 0 ? (
@@ -14535,8 +14526,8 @@ export default function App(): JSX.Element {
                           type="button"
                         >
                           {question.allPickupSelected
-                            ? "Deselect All"
-                            : "Select All"}
+                            ? "取消全选"
+                            : "全选"}
                         </button>
                       ) : null}
                       <button
@@ -14559,7 +14550,7 @@ export default function App(): JSX.Element {
                         onClick={() => controller?.cancelActivePrompt()}
                         type="button"
                       >
-                        Cancel
+                        取消
                       </button>
                     </div>
                   ) : null}
@@ -14569,17 +14560,16 @@ export default function App(): JSX.Element {
                   <div className="nh3d-enhance-menu">
                     <div className="nh3d-enhance-summary">
                       <span className="nh3d-enhance-summary-chip is-available">
-                        {enhanceMenuData.availableCount} available
+                        可提升 {enhanceMenuData.availableCount}
                       </span>
                       <span className="nh3d-enhance-summary-chip is-gated">
-                        {enhanceMenuData.needsExperienceCount} gated by
-                        experience/slots
+                        受经验/槽位限制 {enhanceMenuData.needsExperienceCount}
                       </span>
                       <span className="nh3d-enhance-summary-chip is-practice">
-                        {enhanceMenuData.needsPracticeCount} need practice
+                        需练习 {enhanceMenuData.needsPracticeCount}
                       </span>
                       <span className="nh3d-enhance-summary-chip is-maxed">
-                        {enhanceMenuData.maxedOutCount} maxed
+                        已满级 {enhanceMenuData.maxedOutCount}
                       </span>
                     </div>
                     {enhanceMenuData.legendLines.length > 0 ? (
@@ -14657,15 +14647,14 @@ export default function App(): JSX.Element {
                                     </>
                                   ) : (
                                     <span className="nh3d-enhance-rank-max">
-                                      Max
+                                      满级
                                     </span>
                                   )}
                                 </div>
                                 {enhanceMenuData.showSlotCost &&
                                 entry.slotCostForNextRank ? (
                                   <div className="nh3d-enhance-slot-cost">
-                                    {entry.slotCostForNextRank} slot
-                                    {entry.slotCostForNextRank === 1 ? "" : "s"}
+                                    {entry.slotCostForNextRank} 槽位
                                   </div>
                                 ) : null}
                               </button>
@@ -14695,15 +14684,14 @@ export default function App(): JSX.Element {
                                     </>
                                   ) : (
                                     <span className="nh3d-enhance-rank-max">
-                                      Max
+                                      满级
                                     </span>
                                   )}
                                 </div>
                                 {enhanceMenuData.showSlotCost &&
                                 entry.slotCostForNextRank ? (
                                   <div className="nh3d-enhance-slot-cost">
-                                    {entry.slotCostForNextRank} slot
-                                    {entry.slotCostForNextRank === 1 ? "" : "s"}
+                                    {entry.slotCostForNextRank} 槽位
                                   </div>
                                 ) : null}
                               </div>
@@ -14723,7 +14711,7 @@ export default function App(): JSX.Element {
                       onClick={() => controller?.cancelActivePrompt()}
                       type="button"
                     >
-                      Cancel
+                      取消
                     </button>
                   </div>
                 </>
@@ -14746,7 +14734,7 @@ export default function App(): JSX.Element {
                       onClick={() => controller?.cancelActivePrompt()}
                       type="button"
                     >
-                      Cancel
+                      取消
                     </button>
                   </div>
                 </>
@@ -14946,7 +14934,7 @@ export default function App(): JSX.Element {
                   {"<"}
                 </button>
                 <div className="nh3d-question-page-indicator">
-                  Page {questionMenuPageIndex + 1} / {questionMenuPageCount}
+                  第 {questionMenuPageIndex + 1} / {questionMenuPageCount} 页
                 </div>
                 <button
                   className="nh3d-question-page-button"
@@ -14960,8 +14948,8 @@ export default function App(): JSX.Element {
             ) : null}
             <div className="nh3d-dialog-hint">
               {question.menuItems.length > 0 && questionMenuPageCount > 1
-                ? "Use < and > to change pages. Press ESC to cancel"
-                : "Press ESC to cancel"}
+                ? "使用 < 与 > 切换页面。按 ESC 取消"
+                : "按 ESC 取消"}
             </div>
           </>
         ) : null}
@@ -14982,9 +14970,9 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           startNewGameFromPrompt,
-          "Return to main menu",
+          "返回主菜单",
         )}
-        <div className="nh3d-question-text">NetHack failed to initialize.</div>
+        <div className="nh3d-question-text">NetHack 初始化失败。</div>
         <div className="nh3d-runtime-start-error-copy">
           {runtimeInitializationErrorMessage}
         </div>
@@ -14994,7 +14982,7 @@ export default function App(): JSX.Element {
             onClick={startNewGameFromPrompt}
             type="button"
           >
-            Return to main menu
+            返回主菜单
           </button>
         </div>
       </AnimatedDialog>
@@ -15009,9 +14997,9 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           () => setNewGamePrompt({ visible: false, reason: null }),
-          "Close new game prompt",
+          "关闭新游戏提示",
         )}
-        <div className="nh3d-question-text">Return to main menu?</div>
+        <div className="nh3d-question-text">返回主菜单？</div>
         {gameOverTombstoneLines.length > 0 ? (
           <pre className="nh3d-game-over-tombstone">
             {gameOverTombstoneLines.join("\n")}
@@ -15024,7 +15012,7 @@ export default function App(): JSX.Element {
             ref={newGamePromptYesButtonRef}
             type="button"
           >
-            Yes
+            是
           </button>
           <button
             className="nh3d-menu-action-button nh3d-menu-action-cancel"
@@ -15032,7 +15020,7 @@ export default function App(): JSX.Element {
             ref={newGamePromptNoButtonRef}
             type="button"
           >
-            No
+            否
           </button>
         </div>
       </AnimatedDialog>
@@ -15046,12 +15034,12 @@ export default function App(): JSX.Element {
           <>
             {renderMobileDialogCloseButton(
               () => controller?.cancelActivePrompt(),
-              "Cancel direction prompt",
+              "取消方向选择",
             )}
             <div className="nh3d-direction-text">{directionQuestion}</div>
             <div className="nh3d-direction-fps-hint">
               {isFpsPlayMode
-                ? "Look to aim. Left-click or W confirms. S targets self. A/D or right-click cancels."
+                ? "转动视角瞄准。左键或 W 确认，S 选择自己，A/D 或右键取消。"
                 : getDirectionHelpText(
                     numberPadModeEnabled,
                     clientOptions.controllerEnabled,
@@ -15074,8 +15062,8 @@ export default function App(): JSX.Element {
             {renderMobileDialogCloseButton(
               closeInfoMenuDialog,
               isCharacterSheetVisible
-                ? "Close character window"
-                : "Close information window",
+                ? "关闭角色窗口"
+                : "关闭信息窗口",
             )}
             {isCharacterSheetVisible && characterSheet ? (
               <>
@@ -15084,11 +15072,11 @@ export default function App(): JSX.Element {
                   data-nh3d-overflow-glow
                   data-nh3d-overflow-glow-host="parent"
                 >
-                  <div className="nh3d-info-title">Character</div>
+                  <div className="nh3d-info-title">角色</div>
                   <div className="nh3d-character-xp-block nh3d-character-xp-block-top">
                     <div className="nh3d-character-xp-header">
-                      <span>Experience Progress</span>
-                      <span>Level {characterExperienceProgress.level}</span>
+                      <span>经验进度</span>
+                      <span>等级 {characterExperienceProgress.level}</span>
                     </div>
                     <div className="nh3d-character-xp-track">
                       <div
@@ -15105,7 +15093,7 @@ export default function App(): JSX.Element {
                           {formatCharacterNumber(
                             characterExperienceProgress.experiencePoints,
                           )}{" "}
-                          (max level reached)
+                          （已达最高等级）
                         </>
                       ) : (
                         <>
@@ -15121,7 +15109,7 @@ export default function App(): JSX.Element {
                           {formatCharacterNumber(
                             characterExperienceProgress.toNextLevel,
                           )}{" "}
-                          to next level
+                          距下一级
                         </>
                       )}
                     </div>
@@ -15129,7 +15117,7 @@ export default function App(): JSX.Element {
                   <div className="nh3d-character-grid">
                     <section className="nh3d-character-panel">
                       <div className="nh3d-character-panel-title">
-                        Background
+                        背景
                       </div>
                       <div className="nh3d-character-line-stack">
                         {characterSheet.backgroundLines.length > 0 ? (
@@ -15150,7 +15138,7 @@ export default function App(): JSX.Element {
                     </section>
 
                     <section className="nh3d-character-panel">
-                      <div className="nh3d-character-panel-title">Vitals</div>
+                      <div className="nh3d-character-panel-title">状态</div>
                       <div className="nh3d-character-line-stack">
                         {characterSheet.hitPointsLine ? (
                           <div className="nh3d-character-line">
@@ -15192,13 +15180,13 @@ export default function App(): JSX.Element {
 
                     <section className="nh3d-character-panel nh3d-character-panel-characteristics">
                       <div className="nh3d-character-panel-title">
-                        Characteristics
+                        特性
                       </div>
                       {hasCharacterStatValues ? (
                         <div className="nh3d-character-stat-grid">
                           {hasCharacterStatLimits ? (
                             <div className="nh3d-character-stat-grid-hint">
-                              Current / Limit
+                              当前 / 上限
                             </div>
                           ) : null}
                           {characterSheet.statEntries.map((entry) => (
@@ -15231,7 +15219,7 @@ export default function App(): JSX.Element {
                           ))}
                           <div className="nh3d-character-stat">
                             <div className="nh3d-character-stat-label">
-                              Armor Class
+                              护甲等级
                             </div>
                             <div className="nh3d-character-stat-value">
                               <span className="nh3d-character-stat-current">
@@ -15261,7 +15249,7 @@ export default function App(): JSX.Element {
 
                     <section className="nh3d-character-panel">
                       <div className="nh3d-character-panel-title">
-                        Current Status
+                        当前状态
                       </div>
                       <div className="nh3d-character-chip-list">
                         {characterSheet.statusLines.length > 0 ? (
@@ -15275,7 +15263,7 @@ export default function App(): JSX.Element {
                           ))
                         ) : (
                           <div className="nh3d-character-line">
-                            No active status.
+                            无当前状态。
                           </div>
                         )}
                       </div>
@@ -15283,7 +15271,7 @@ export default function App(): JSX.Element {
 
                     <section className="nh3d-character-panel">
                       <div className="nh3d-character-panel-title">
-                        Current Attributes
+                        当前属性
                       </div>
                       <div className="nh3d-character-chip-list">
                         {characterSheet.attributeLines.length > 0 ? (
@@ -15297,7 +15285,7 @@ export default function App(): JSX.Element {
                           ))
                         ) : (
                           <div className="nh3d-character-line">
-                            No temporary attribute effects.
+                            无临时属性效果。
                           </div>
                         )}
                       </div>
@@ -15305,7 +15293,7 @@ export default function App(): JSX.Element {
 
                     <section className="nh3d-character-panel nh3d-character-panel-actions">
                       <div className="nh3d-character-panel-title">
-                        Character Actions
+                        角色动作
                       </div>
                       <div className="nh3d-character-actions-grid">
                         <button
@@ -15314,10 +15302,10 @@ export default function App(): JSX.Element {
                           type="button"
                         >
                           <span className="nh3d-character-action-label">
-                            Inventory
+                            背包
                           </span>
                           <span className="nh3d-character-action-detail">
-                            Open carried items
+                            打开已携带物品
                           </span>
                         </button>
                         {characterCommandActions.map((action) => (
@@ -15365,7 +15353,7 @@ export default function App(): JSX.Element {
                   </div>
 
                   <div className="nh3d-info-hint">
-                    Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
+                    按 SPACE、ENTER 或 ESC 关闭。按 Ctrl+M 重新打开。
                   </div>
                 </div>
                 <div className="nh3d-menu-actions">
@@ -15374,7 +15362,7 @@ export default function App(): JSX.Element {
                     onClick={closeInfoMenuDialog}
                     type="button"
                   >
-                    Close
+                    关闭
                   </button>
                 </div>
               </>
@@ -15386,15 +15374,15 @@ export default function App(): JSX.Element {
                   data-nh3d-overflow-glow-host="parent"
                 >
                   <div className="nh3d-info-title">
-                    {infoMenu.title || "NetHack Information"}
+                    {infoMenu.title || "NetHack 信息"}
                   </div>
                   <div className="nh3d-info-body">
                     {infoMenu.lines.length > 0
                       ? infoMenu.lines.join("\n")
-                      : "(No details)"}
+                      : "（无详情）"}
                   </div>
                   <div className="nh3d-info-hint">
-                    Press SPACE, ENTER, or ESC to close. Press Ctrl+M to reopen.
+                    按 SPACE、ENTER 或 ESC 关闭。按 Ctrl+M 重新打开。
                   </div>
                 </div>
                 <div className="nh3d-menu-actions">
@@ -15403,7 +15391,7 @@ export default function App(): JSX.Element {
                     onClick={closeInfoMenuDialog}
                     type="button"
                   >
-                    Close
+                    关闭
                   </button>
                 </div>
               </>
@@ -15427,9 +15415,9 @@ export default function App(): JSX.Element {
       >
         {renderMobileDialogCloseButton(
           () => controller?.closeInventoryDialog(),
-          "Close inventory",
+          "关闭背包",
         )}
-        <div className="nh3d-inventory-title">INVENTORY</div>
+        <div className="nh3d-inventory-title">背包</div>
         <div className="nh3d-overflow-glow-frame nh3d-overflow-glow-shell-fill">
           <div
             className={`nh3d-inventory-items${
@@ -15516,7 +15504,7 @@ export default function App(): JSX.Element {
           >
             {inventory.items.length === 0 ? (
               <div className="nh3d-inventory-empty">
-                Your inventory is empty.
+                你的背包是空的。
               </div>
             ) : (
               inventory.items.map((item, index) => {
@@ -15730,7 +15718,7 @@ export default function App(): JSX.Element {
                       </span>
                     </span>
                     <span className={item.className as string}>
-                      {item.text || "Unknown item"}
+                      {item.text || "未知物品"}
                     </span>
                   </div>
                 );
@@ -15747,7 +15735,7 @@ export default function App(): JSX.Element {
             onClick={() => controller?.closeInventoryDialog()}
             type="button"
           >
-            Close
+            关闭
           </button>
         </div>
       </AnimatedDialog>
@@ -15927,7 +15915,7 @@ export default function App(): JSX.Element {
                   onClick={() => runInventoryDropTypeCommand()}
                   type="button"
                 >
-                  Drop Type
+                  丢弃类型
                 </button>
                 <button
                   className="nh3d-context-menu-button"
@@ -15946,12 +15934,12 @@ export default function App(): JSX.Element {
                   }}
                   title={
                     inventoryContextSupportsDropAmount
-                      ? "Drop a specific amount"
-                      : "Only available for stacked items"
+                      ? "丢弃指定数量"
+                      : "仅对堆叠物品可用"
                   }
                   type="button"
                 >
-                  Drop Amount
+                  丢弃数量
                 </button>
               </div>
             </div>,
@@ -15994,18 +15982,18 @@ export default function App(): JSX.Element {
         {inventoryDropCountDialog ? (
           <>
             <div className="nh3d-question-text">
-              Drop how many from this stack?
+              这个堆叠要丢弃多少？
             </div>
             <div className="nh3d-inventory-drop-count-description">
               {inventoryDropCountDialog.itemText}
             </div>
             <div className="nh3d-inventory-drop-count-hint">
-              Choose an amount from 1 to {inventoryDropCountMaxValue}.
+              请选择 1 到 {inventoryDropCountMaxValue} 之间的数量。
             </div>
             <div className="nh3d-inventory-drop-count-controls">
               <div className="nh3d-option-slider-control nh3d-inventory-drop-count-slider-control">
                 <input
-                  aria-label="Drop amount"
+                  aria-label="丢弃数量"
                   className="nh3d-option-slider"
                   max={inventoryDropCountMaxValue}
                   min={1}
@@ -16034,7 +16022,7 @@ export default function App(): JSX.Element {
               </div>
               <div className="nh3d-inventory-drop-count-step-actions">
                 <button
-                  aria-label="Set drop amount to minimum"
+                  aria-label="将丢弃数量设为最小"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
                   disabled={inventoryDropCountValue <= 1}
                   onClick={() => {
@@ -16045,7 +16033,7 @@ export default function App(): JSX.Element {
                   {"<<"}
                 </button>
                 <button
-                  aria-label="Decrease drop amount by one"
+                  aria-label="丢弃数量减一"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
                   disabled={inventoryDropCountValue <= 1}
                   onClick={() => {
@@ -16056,7 +16044,7 @@ export default function App(): JSX.Element {
                   {"<"}
                 </button>
                 <button
-                  aria-label="Increase drop amount by one"
+                  aria-label="丢弃数量加一"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
                   disabled={
                     inventoryDropCountValue >= inventoryDropCountMaxValue
@@ -16069,7 +16057,7 @@ export default function App(): JSX.Element {
                   {">"}
                 </button>
                 <button
-                  aria-label="Set drop amount to maximum"
+                  aria-label="将丢弃数量设为最大"
                   className="nh3d-menu-action-button nh3d-inventory-drop-count-step-button"
                   disabled={
                     inventoryDropCountValue >= inventoryDropCountMaxValue
@@ -16284,8 +16272,8 @@ export default function App(): JSX.Element {
           <div className="nh3d-mobile-actions-title-row">
             <div className="nh3d-mobile-actions-title">
               {mobileActionSheetMode === "quick"
-                ? "Actions"
-                : "Extended Commands"}
+                ? "动作"
+                : "扩展命令"}
             </div>
             <div className="nh3d-mobile-actions-controls">
               {mobileActionSheetMode === "extended" ? (
@@ -16294,7 +16282,7 @@ export default function App(): JSX.Element {
                   onClick={() => setMobileActionSheetMode("quick")}
                   type="button"
                 >
-                  Back
+                  返回
                 </button>
               ) : null}
 
@@ -16311,7 +16299,7 @@ export default function App(): JSX.Element {
                 }}
                 type="button"
               >
-                Menu
+                菜单
               </button>
 
               <button
@@ -16322,7 +16310,7 @@ export default function App(): JSX.Element {
                 }}
                 type="button"
               >
-                Close
+                关闭
               </button>
             </div>
           </div>
@@ -16628,7 +16616,7 @@ export default function App(): JSX.Element {
         >
           {isMobileViewport && positionRequest ? (
             <button
-              aria-label="Close position prompt"
+              aria-label="关闭位置提示"
               className="nh3d-position-dialog-close"
               onClick={() => {
                 controller?.cancelActivePrompt();

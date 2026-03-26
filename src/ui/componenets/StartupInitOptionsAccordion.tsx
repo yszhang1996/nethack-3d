@@ -227,7 +227,7 @@ export default function StartupInitOptionsAccordion({
         className="nh3d-startup-init-options-summary"
         id={summaryId}
       >
-        Initialization options (optional)
+        初始化选项（可选）
       </summary>
       <div
         aria-labelledby={summaryId}
@@ -236,8 +236,8 @@ export default function StartupInitOptionsAccordion({
         role="region"
       >
         <div className="nh3d-option-description nh3d-startup-init-options-description">
-          Additional NetHack `OPTIONS` entries applied at startup. Window-port
-          and platform-specific options are intentionally omitted.
+          启动时附加应用的 NetHack `OPTIONS` 条目。窗口端口与平台特定选项已
+          有意省略。
         </div>
         <div className="nh3d-overflow-glow-frame">
           <div
@@ -283,7 +283,7 @@ export default function StartupInitOptionsAccordion({
                 onClick={onResetDefaults}
                 type="button"
               >
-                Reset to defaults
+                恢复默认
               </button>
             </div>
           </div>

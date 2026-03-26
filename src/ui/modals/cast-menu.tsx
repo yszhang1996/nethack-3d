@@ -179,7 +179,7 @@ function resolveRetentionInfo(retentionText: string): {
   const normalizedRetention = normalizeMenuLine(retentionText);
   if (!normalizedRetention) {
     return {
-      label: "Unknown",
+      label: "未知",
       band: "unknown",
       minPercent: null,
     };
@@ -187,7 +187,7 @@ function resolveRetentionInfo(retentionText: string): {
 
   if (/\(gone\)/i.test(normalizedRetention)) {
     return {
-      label: "Gone",
+      label: "消失",
       band: "gone",
       minPercent: 0,
     };
@@ -376,7 +376,7 @@ function renderSpellRowContent(entry: CastSpellEntry): JSX.Element {
       </span>
       <span className="nh3d-cast-row-level">{entry.level}</span>
       <span className="nh3d-cast-row-category">
-        <span className="nh3d-cast-row-category-label">School:</span>
+        <span className="nh3d-cast-row-category-label">学派：</span>
         <span className="nh3d-cast-row-category-value">{entry.category}</span>
       </span>
       <span className="nh3d-cast-chip-stack">
@@ -402,24 +402,23 @@ export function CastSpellMenu({
     <div className="nh3d-cast-menu">
       <div className="nh3d-cast-summary">
         <span className="nh3d-cast-summary-chip is-count">
-          {menuData.spellCount} known
+          已知 {menuData.spellCount}
         </span>
         <span className="nh3d-cast-summary-chip is-ready">
-          {menuData.availableCount} castable
+          可施放 {menuData.availableCount}
         </span>
         {typeof menuData.bestSuccessPercent === "number" ? (
           <span className="nh3d-cast-summary-chip is-success">
-            Best success {menuData.bestSuccessPercent}%
+            最高成功率 {menuData.bestSuccessPercent}%
           </span>
         ) : null}
         {typeof menuData.averageFailPercent === "number" ? (
           <span className="nh3d-cast-summary-chip is-fail">
-            Avg fail {menuData.averageFailPercent}%
+            平均失败率 {menuData.averageFailPercent}%
           </span>
         ) : null}
         <span className="nh3d-cast-summary-chip is-school">
-          {menuData.categoryCount} school
-          {menuData.categoryCount === 1 ? "" : "s"}
+          {menuData.categoryCount} 个学派
         </span>
       </div>
       <div className="nh3d-overflow-glow-frame">
@@ -429,11 +428,11 @@ export function CastSpellMenu({
           data-nh3d-overflow-glow-host="parent"
         >
           <div aria-hidden="true" className="nh3d-cast-table-head">
-            <span>Name</span>
-            <span>Level</span>
-            <span>Category</span>
-            <span>Fail</span>
-            <span>Retention</span>
+            <span>法术名</span>
+            <span>等级</span>
+            <span>类别</span>
+            <span>失败</span>
+            <span>保留</span>
           </div>
           {menuData.entries.map((entry) => {
             const canChoose =
